@@ -28,10 +28,10 @@ function pack_jbr {
   "${bundle_type}_lw")
     JBR_BASE_NAME=jbr_${bundle_type}_lw-${JBSDK_VERSION}
     ;;
-  "jfx_jcef" | "jcef")
+  "jfx" | "jcef" | "dcevm")
     JBR_BASE_NAME=jbr_${bundle_type}-${JBSDK_VERSION}
     ;;
-  "jfx")
+  "jfx_jcef")
     JBR_BASE_NAME=jbr-${JBSDK_VERSION}
     ;;
   *)
@@ -45,6 +45,7 @@ function pack_jbr {
   cp -R ${BASE_DIR}/${JBR_BUNDLE} ${BASE_DIR}/jbr
 
   /usr/bin/tar -czf $JBR.tar.gz -C $BASE_DIR jbr || exit 1
+  #rm -rf ${BASE_DIR}/${JBR_BUNDLE}
 }
 
 JBRSDK_BASE_NAME=jbrsdk-$JBSDK_VERSION

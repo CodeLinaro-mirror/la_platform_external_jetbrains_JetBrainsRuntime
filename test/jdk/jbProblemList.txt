@@ -756,6 +756,7 @@ com/sun/management/OperatingSystemMXBean/GetSystemCpuLoad.java                  
 
 sun/management/jmxremote/bootstrap/RmiSslBootstrapTest.sh                           8205653 generic-all
 sun/management/jmxremote/bootstrap/RmiRegistrySslTest.java                          8205653 generic-all
+sun/management/jmxremote/startstop/JMXStatusPerfCountersTest.java                   8130371 generic-all
 
 ############################################################################
 
@@ -906,7 +907,7 @@ javax/swing/JFileChooser/DeserializedJFileChooser/DeserializedJFileChooserTest.j
 javax/swing/JFrame/8016356/bug8016356.java                                          8169955 windows-all
 javax/swing/JFrame/8175301/ScaledFrameBackgroundTest.java                           8193942 generic-all
 javax/swing/JInternalFrame/5066752/bug5066752.java                                  8207850 macosx-all,windows-all
-javax/swing/JInternalFrame/8020708/bug8020708.java                                  8226230 linux-all
+javax/swing/JInternalFrame/8020708/bug8020708.java                                  8226230 linux-all,windows-all
 javax/swing/JInternalFrame/8069348/bug8069348.java                                  8208570 macosx-all,windows-all,linux-all
 javax/swing/JInternalFrame/8145060/TestJInternalFrameMinimize.java                  8203918 windows-all,linux-all
 javax/swing/JInternalFrame/8145896/TestJInternalFrameMaximize.java                  8194944 macosx-all,windows-all,linux-all
@@ -1013,6 +1014,7 @@ javax/swing/UIDefaults/8133926/InternalFrameIcon.java                           
 javax/swing/UIDefaults/8149879/InternalResourceBundle.java                          8199054 windows-all
 javax/swing/UITest/UITest.java                                                      8198392 generic-all
 javax/swing/border/Test6981576.java                                                 8198339 generic-all
+javax/swing/border/TestTitledBorderLeak.java                                        8213531 linux-all
 javax/swing/dnd/7171812/bug7171812.java                                             8041447 macosx-all,windows-all,linux-all
 javax/swing/dnd/8139050/NativeErrorsInTableDnD.java                                 8202765 macosx-all,linux-all
 javax/swing/plaf/basic/BasicComboBoxEditor/Test8015336.java                         8198394 generic-all
@@ -1038,6 +1040,7 @@ javax/swing/text/DefaultEditorKit/4278839/bug4278839.java                       
 javax/swing/text/DevanagariEditor.java                                              8198397 generic-all
 javax/swing/text/GlyphPainter2/6427244/bug6427244.java                              8050988 generic-all
 javax/swing/text/JTextComponent/5074573/bug5074573.java                             7153690,8196100,8196100,8072110 macosx-all,windows-all,linux-all
+javax/swing/text/JTextComponent/6361367/bug6361367.java                             8233569 macosx-all,windows-all
 javax/swing/text/StyledEditorKit/4506788/bug4506788.java                            8214220,8172887 macosx-all,windows-all,linux-all
 javax/swing/text/StyledEditorKit/8016833/bug8016833.java                            8199055 generic-all
 javax/swing/text/TableView/TableViewLayoutTest.java                                 8194936 linux-all
@@ -1058,6 +1061,8 @@ javax/swing/tree/DefaultTreeCellRenderer/7142955/bug7142955.java                
 
 sanity/client/SwingSet/src/ButtonDemoScreenshotTest.java                            8198920 macosx-all,linux-all,windows-all
 sanity/client/SwingSet/src/GridBagLayoutDemoTest.java.GridBagLayoutDemoTest         8210302 linux-all
+sanity/client/SwingSet/src/ScrollPaneDemoTest.java                                  8225013 linux-all
+sanity/client/SwingSet/src/ToolTipDemoTest.java                                     8225012 windows-all,macosx-all
 
 ############################################################################
 
@@ -1254,5 +1259,5 @@ javax/swing/LookAndFeel/8145547/DemandGTK.java                                  
 javax/swing/LookAndFeel/8146276/NimbusGlueTest.java                                 JBR-1977 linux-aarch64
 sanity/client/SwingSet/src/GridBagLayoutDemoTest.java                               JBR-1977 linux-aarch64
 
-jb/java/jcef/JCEFStartupTest.java                                                   JBR-1996,JBR-2094 macosx-all,linux-i386,windows-x86
+jb/java/jcef/JCEFStartupTest.java                                                   JBR-1996 linux-i386,windows-x86
 jb/java/awt/event/TouchScreenEvent/TouchScreenEventsTest.java                       nobug windows-6.1 not supported on Windows 7

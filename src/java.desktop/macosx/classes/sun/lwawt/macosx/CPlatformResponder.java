@@ -26,6 +26,7 @@
 package sun.lwawt.macosx;
 
 import sun.awt.SunToolkit;
+import sun.awt.event.KeyEventProcessing;
 import sun.lwawt.LWWindowPeer;
 import sun.lwawt.PlatformEventNotifier;
 import sun.util.logging.PlatformLogger;
@@ -59,7 +60,6 @@ final class CPlatformResponder {
     private int lastDraggedAbsoluteY;
     private int lastDraggedRelativeX;
     private int lastDraggedRelativeY;
-    private final static boolean useOldKeyEventProcessing = java.security.AccessController.doPrivileged((PrivilegedAction<Boolean>)()-> "true".equals(System.getProperty("com.jetbrains.use.old.keyevent.processing")));
 
 
     CPlatformResponder(final PlatformEventNotifier eventNotifier,
@@ -222,7 +222,7 @@ final class CPlatformResponder {
     void handleKeyEvent(NSEvent nsEvent)
     {
 
-        if (useOldKeyEventProcessing || isCyrillicKeyboardLayout()) {
+        if (!KeyEventProcessing.useNationalLayouts || isCyrillicKeyboardLayout()) {
             handleKeyEvent(
                     nsEvent.getType(),
                     nsEvent.getModifierFlags(),
@@ -304,9 +304,10 @@ final class CPlatformResponder {
         // otherwise, we use char ignoring modifiers
         int[] in = new int[] {
                 characterToGetKeyCode,
-                nsEvent.getModifierFlags(),
                 nsEvent.isHasDeadKey() ? 1 : 0,
-                nsEvent.getKeyCode()
+                nsEvent.getModifierFlags(),
+                nsEvent.getKeyCode(),
+                /*useNationalLayouts*/ 1
         };
 
         int[] out = new int[3]; // [jkeyCode, jkeyLocation, deadChar]
@@ -445,10 +446,10 @@ final class CPlatformResponder {
             char testCharIgnoringModifiers = charsIgnoringModifiers != null && charsIgnoringModifiers.length() > 0 ?
                     charsIgnoringModifiers.charAt(0) : KeyEvent.CHAR_UNDEFINED;
 
-            int[] in = new int[] {testCharIgnoringModifiers, isDeadChar ? 1 : 0, modifierFlags, keyCode};
+            int[] in = new int[] {testCharIgnoringModifiers, isDeadChar ? 1 : 0, modifierFlags, keyCode, /*useNationalLayouts*/ 0};
             int[] out = new int[3]; // [jkeyCode, jkeyLocation, deadChar]
 
-            postsTyped = NSEvent.nsToJavaKeyInfoOld(in, out);
+            postsTyped = NSEvent.nsToJavaKeyInfo(in, out);
             if (!postsTyped) {
                 testChar = KeyEvent.CHAR_UNDEFINED;
             }

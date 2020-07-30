@@ -38,7 +38,7 @@ public abstract class JBCefApp {
     private static final AtomicBoolean ourInitialized = new AtomicBoolean(false);
 
     private JBCefApp() {
-        if (!CefApp.startup()) {
+        if (!CefApp.startup(new String[]{})) {
             throw new RuntimeException("JCEF startup failed!");
         }
         CefSettings settings = new CefSettings();
@@ -83,19 +83,20 @@ public abstract class JBCefApp {
         @Override
         protected String[] applyPlatformSettings(CefSettings settings) {
             String ALT_CEF_FRAMEWORK_DIR = System.getenv("ALT_CEF_FRAMEWORK_DIR");
-            String ALT_CEF_HELPER_DIR = System.getenv("ALT_CEF_HELPER_DIR");
-            if (ALT_CEF_FRAMEWORK_DIR == null || ALT_CEF_HELPER_DIR == null) {
+            String ALT_CEF_HELPER_APP_DIR = System.getenv("ALT_CEF_HELPER_APP_DIR");
+            if (ALT_CEF_FRAMEWORK_DIR == null || ALT_CEF_HELPER_APP_DIR == null) {
                 String CONTENTS_PATH = System.getProperty("java.home") + "/..";
                 if (ALT_CEF_FRAMEWORK_DIR == null) {
                     ALT_CEF_FRAMEWORK_DIR = CONTENTS_PATH + "/Frameworks/Chromium Embedded Framework.framework";
                 }
-                if (ALT_CEF_HELPER_DIR == null) {
-                    ALT_CEF_HELPER_DIR = CONTENTS_PATH + "/Helpers";
+                if (ALT_CEF_HELPER_APP_DIR == null) {
+                    ALT_CEF_HELPER_APP_DIR = CONTENTS_PATH + "/Frameworks/jcef Helper.app";
                 }
             }
             return new String[] {
                 "--framework-dir-path=" + normalize(ALT_CEF_FRAMEWORK_DIR),
-                "--browser-subprocess-path=" + normalize(ALT_CEF_HELPER_DIR) + "/jcef Helper.app/Contents/MacOS/jcef Helper",
+                "--browser-subprocess-path=" + normalize(ALT_CEF_HELPER_APP_DIR + "/Contents/MacOS/jcef Helper"),
+                "--main-bundle-path=" + normalize(ALT_CEF_HELPER_APP_DIR),
                 "--disable-in-process-stack-traces"
             };
         }
