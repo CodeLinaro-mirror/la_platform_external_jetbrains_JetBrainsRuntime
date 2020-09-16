@@ -201,6 +201,7 @@ java/awt/Frame/DisposeParentGC/DisposeParentGC.java                             
 java/awt/Frame/ExceptionOnSetExtendedStateTest/ExceptionOnSetExtendedStateTest.java 8198237 macosx-all
 java/awt/Frame/FramesGC/FramesGC.java                                               8079069 macosx-all
 java/awt/Frame/FrameLocation/FrameLocation.java                                     8019803 macosx-all
+java/awt/Frame/HugeFrame/HugeFrame.java                                             JBR-2563 linux-all
 java/awt/Frame/InvisibleOwner/InvisibleOwner.java                                   8169111 macosx-all,windows-all
 java/awt/Frame/LayoutOnMaximizeTest/LayoutOnMaximizeTest.java                       8169472 windows-all
 java/awt/Frame/MaximizedUndecorated/MaximizedUndecorated.java                       8022302 generic-all
@@ -835,6 +836,7 @@ sun/security/pkcs11/tls/TestKeyMaterial.java                                    
 sun/security/pkcs11/KeyStore/SecretKeysBasic.sh                                     8209398 generic-all
 
 security/infra/java/security/cert/CertPathValidator/certification/ActalisCA.java    8224768 generic-all
+security/infra/java/security/cert/CertPathValidator/certification/GlobalSignR6CA.java 8249176 generic-all
 security/infra/java/security/cert/CertPathValidator/certification/LuxTrustCA.java   8237888 generic-all
 
 ############################################################################
