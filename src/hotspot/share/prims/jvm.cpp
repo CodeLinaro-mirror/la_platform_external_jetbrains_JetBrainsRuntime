@@ -504,7 +504,15 @@ JVM_ENTRY_NO_ENV(jint, JVM_ActiveProcessorCount(void))
   return os::active_processor_count();
 JVM_END
 
-
+JVM_ENTRY_NO_ENV(jboolean, JVM_IsUseContainerSupport(void))
+  JVMWrapper("JVM_IsUseContainerSupport");
+#ifdef LINUX
+  if (UseContainerSupport) {
+    return JNI_TRUE;
+  }
+#endif
+  return JNI_FALSE;
+JVM_END
 
 // java.lang.Throwable //////////////////////////////////////////////////////
 
@@ -3431,6 +3439,7 @@ JVM_ENTRY_NO_ENV(void*, JVM_LoadLibrary(const char* name))
   void *load_result;
   {
     ThreadToNativeFromVM ttnfvm(thread);
+    Thread::WXWriteVerifier wx_write;
     load_result = os::dll_load(name, ebuf, sizeof ebuf);
   }
   if (load_result == NULL) {

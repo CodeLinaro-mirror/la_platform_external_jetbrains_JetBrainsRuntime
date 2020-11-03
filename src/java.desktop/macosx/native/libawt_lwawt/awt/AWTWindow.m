@@ -35,6 +35,7 @@
 #import "AWTView.h"
 #import "GeomUtilities.h"
 #import "ThreadUtilities.h"
+#import "NSApplicationAWT.h"
 
 #define MASK(KEY) \
     (sun_lwawt_macosx_CPlatformWindow_ ## KEY)
@@ -110,9 +111,25 @@ static NSPoint lastTopLeftPoint;
     [super becomeKeyWindow];                                    \
     [(AWTWindow*)[self delegate] becomeKeyWindow];              \
 }                                                               \
+                                                                \
+- (NSWindowTabbingMode)tabbingMode {                            \
+    return ((AWTWindow*)[self delegate]).javaWindowTabbingMode; \
+}
 
 @implementation AWTWindow_Normal
 AWT_NS_WINDOW_IMPLEMENTATION
+
+// suppress exception (actually assertion) from [NSWindow _changeJustMain]
+// workaround for https://youtrack.jetbrains.com/issue/JBR-2562
+- (void)_changeJustMain {
+    @try {
+        [super _changeJustMain];
+    } @catch (NSException *ex) {
+        NSLog(@"WARNING: suppressed exception from _changeJustMain (workaround for JBR-2562)");
+        NSProcessInfo *processInfo = [NSProcessInfo processInfo];
+        [NSApplicationAWT logException:ex forProcess:processInfo];
+    }
+}
 
 // Gesture support
 - (void)postGesture:(NSEvent *)event as:(jint)type a:(jdouble)a b:(jdouble)b {
@@ -183,6 +200,62 @@ AWT_NS_WINDOW_IMPLEMENTATION
     ];
 }
 
+- (void)moveTabToNewWindow:(id)sender {
+    AWT_ASSERT_APPKIT_THREAD;
+
+    [super moveTabToNewWindow:sender];
+
+    JNIEnv *env = [ThreadUtilities getJNIEnv];
+    jobject platformWindow = [((AWTWindow *)self.delegate).javaPlatformWindow jObjectWithEnv:env];
+    if (platformWindow != NULL) {
+        // extract the target AWT Window object out of the CPlatformWindow
+        static JNF_MEMBER_CACHE(jf_target, jc_CPlatformWindow, "target", "Ljava/awt/Window;");
+        jobject awtWindow = JNFGetObjectField(env, platformWindow, jf_target);
+        if (awtWindow != NULL) {
+            static JNF_CLASS_CACHE(jc_Window, "java/awt/Window");
+            static JNF_MEMBER_CACHE(jm_runMoveTabToNewWindowCallback, jc_Window, "runMoveTabToNewWindowCallback", "()V");
+            JNFCallVoidMethod(env, awtWindow, jm_runMoveTabToNewWindowCallback);
+            (*env)->DeleteLocalRef(env, awtWindow);
+        }
+        (*env)->DeleteLocalRef(env, platformWindow);
+    }
+
+#ifdef DEBUG
+    NSLog(@"=== Move Tab to new Window ===");
+#endif
+}
+
+// Call over Foundation from Java
+- (CGFloat) getTabBarVisibleAndHeight {
+    if ([self respondsToSelector:@selector(tabGroup)]) { // API_AVAILABLE(macos(10.13))
+        id tabGroup = [self tabGroup];
+#ifdef DEBUG
+        NSLog(@"=== Window tabBar: %@ ===", tabGroup);
+#endif
+        if ([tabGroup isTabBarVisible]) {
+            if ([tabGroup respondsToSelector:@selector(_tabBar)]) { // private member
+                CGFloat height = [[tabGroup _tabBar] frame].size.height;
+#ifdef DEBUG
+                NSLog(@"=== Window tabBar visible: %f ===", height);
+#endif
+                return height;
+            }
+#ifdef DEBUG
+            NSLog(@"=== NsWindow.tabGroup._tabBar not found ===");
+#endif
+            return -1; // if we don't get height return -1 and use default value in java without change native code
+        }
+#ifdef DEBUG
+        NSLog(@"=== Window tabBar not visible ===");
+#endif
+    } else {
+#ifdef DEBUG
+        NSLog(@"=== Window tabBar not found ===");
+#endif
+    }
+    return 0;
+}
+
 @end
 @implementation AWTWindow_Panel
 AWT_NS_WINDOW_IMPLEMENTATION
@@ -204,6 +277,7 @@ AWT_NS_WINDOW_IMPLEMENTATION
 @synthesize preFullScreenLevel;
 @synthesize standardFrame;
 @synthesize isMinimizing;
+@synthesize javaWindowTabbingMode;
 
 - (void) updateMinMaxSize:(BOOL)resizable {
     if (resizable) {
@@ -234,7 +308,6 @@ AWT_NS_WINDOW_IMPLEMENTATION
     if (IS(styleBits, UTILITY))       type |= NSUtilityWindowMask;
     if (IS(styleBits, HUD))           type |= NSHUDWindowMask;
     if (IS(styleBits, SHEET))         type |= NSDocModalWindowMask;
-    if (IS(styleBits, NONACTIVATING)) type |= NSNonactivatingPanelMask;
 
     return type;
 }
@@ -317,7 +390,6 @@ AWT_ASSERT_APPKIT_THREAD;
     if (self == nil) return nil; // no hope
 
     if (IS(bits, UTILITY) ||
-        IS(bits, NONACTIVATING) ||
         IS(bits, HUD) ||
         IS(bits, HIDES_ON_DEACTIVATE))
     {
@@ -354,6 +426,8 @@ AWT_ASSERT_APPKIT_THREAD;
         [self.nsWindow setTitleVisibility:NSWindowTitleHidden];
     }
 
+    self.javaWindowTabbingMode = [self getJavaWindowTabbingMode];
+
     return self;
 }
 
@@ -369,6 +443,33 @@ AWT_ASSERT_APPKIT_THREAD;
 // checks that this window is under the mouse cursor and this point is not overlapped by others windows
 - (BOOL) isTopmostWindowUnderMouse {
     return [self.nsWindow windowNumber] == [AWTWindow getTopmostWindowUnderMouseID];
+}
+
+- (NSWindowTabbingMode) getJavaWindowTabbingMode {
+    AWT_ASSERT_APPKIT_THREAD;
+
+    BOOL result = NO;
+    
+    JNIEnv *env = [ThreadUtilities getJNIEnv];
+    jobject platformWindow = [self.javaPlatformWindow jObjectWithEnv:env];
+    if (platformWindow != NULL) {
+        // extract the target AWT Window object out of the CPlatformWindow
+        static JNF_MEMBER_CACHE(jf_target, jc_CPlatformWindow, "target", "Ljava/awt/Window;");
+        jobject awtWindow = JNFGetObjectField(env, platformWindow, jf_target);
+        if (awtWindow != NULL) {
+            static JNF_CLASS_CACHE(jc_Window, "java/awt/Window");
+            static JNF_MEMBER_CACHE(jm_hasTabbingMode, jc_Window, "hasTabbingMode", "()Z");
+            result = JNFCallBooleanMethod(env, awtWindow, jm_hasTabbingMode) == JNI_TRUE ? YES : NO;
+            (*env)->DeleteLocalRef(env, awtWindow);
+        }
+        (*env)->DeleteLocalRef(env, platformWindow);
+    }
+
+#ifdef DEBUG
+    NSLog(@"=== getJavaWindowTabbingMode: %d ===", result);
+#endif
+    
+    return result ? NSWindowTabbingModeAutomatic : NSWindowTabbingModeDisallowed;
 }
 
 + (AWTWindow *) getTopmostWindowUnderMouse {
@@ -728,9 +829,7 @@ AWT_ASSERT_APPKIT_THREAD;
     NSLog(@"became main: %d %@ %@", [self.nsWindow isKeyWindow], [self.nsWindow title], [self menuBarForWindow]);
 #endif
 
-    if (![self.nsWindow isKeyWindow]) {
-        [self activateWindowMenuBar];
-    }
+    [self activateWindowMenuBar];
 
     JNIEnv *env = [ThreadUtilities getJNIEnv];
     jobject platformWindow = [self.javaPlatformWindow jObjectWithEnv:env];
@@ -739,6 +838,18 @@ AWT_ASSERT_APPKIT_THREAD;
         JNFCallVoidMethod(env, platformWindow, jm_windowDidBecomeMain);
         (*env)->DeleteLocalRef(env, platformWindow);
     }
+
+    [self orderChildWindows:YES];
+}
+
+- (void) windowDidResignMain: (NSNotification *) notification {
+AWT_ASSERT_APPKIT_THREAD;
+#ifdef DEBUG
+    NSLog(@"resigned main: %d %@ %@", [self.nsWindow isKeyWindow], [self.nsWindow title], [self menuBarForWindow]);
+#endif
+
+    [self.javaMenuBar deactivate];
+    [self orderChildWindows:NO];
 }
 
 - (void) windowDidBecomeKey: (NSNotification *) notification {
@@ -750,13 +861,26 @@ AWT_ASSERT_APPKIT_THREAD;
     AWTWindow *opposite = [AWTWindow lastKeyWindow];
 
     if (![self.nsWindow isMainWindow]) {
-        [self activateWindowMenuBar];
+        [self makeRelevantAncestorMain];
     }
 
     [AWTWindow setLastKeyWindow:nil];
 
     [self _deliverWindowFocusEvent:YES oppositeWindow: opposite];
-    [self orderChildWindows:YES];
+}
+
+- (void) makeRelevantAncestorMain {
+    NSWindow *nativeWindow;
+    AWTWindow *awtWindow = self;
+
+    do {
+        nativeWindow = awtWindow.nsWindow;
+        if ([nativeWindow canBecomeMainWindow]) {
+            [nativeWindow makeMainWindow];
+            break;
+        }
+        awtWindow = awtWindow.ownerWindow;
+    } while (awtWindow);
 }
 
 - (void) activateWindowMenuBar {
@@ -800,15 +924,6 @@ AWT_ASSERT_APPKIT_THREAD;
 #ifdef DEBUG
     NSLog(@"resigned key: %d %@ %@", [self.nsWindow isMainWindow], [self.nsWindow title], [self menuBarForWindow]);
 #endif
-        [self deactivateWindow];
-}
-
-- (void) deactivateWindow {
-AWT_ASSERT_APPKIT_THREAD;
-#ifdef DEBUG
-    NSLog(@"deactivating window: %@", [self.nsWindow title]);
-#endif
-    [self.javaMenuBar deactivate];
 
     // the new key window
     NSWindow *keyWindow = [NSApp keyWindow];
@@ -817,7 +932,6 @@ AWT_ASSERT_APPKIT_THREAD;
     [AWTWindow setLastKeyWindow: self];
 
     [self _deliverWindowFocusEvent:NO oppositeWindow: opposite];
-    [self orderChildWindows:NO];
 }
 
 - (BOOL)windowShouldClose:(id)sender {
@@ -1119,7 +1233,7 @@ JNF_COCOA_ENTER(env);
 
         AWTWindow *window = (AWTWindow*)[nsWindow delegate];
 
-        if ([nsWindow isKeyWindow] || [nsWindow isMainWindow]) {
+        if ([nsWindow isMainWindow]) {
             [window.javaMenuBar deactivate];
         }
 
@@ -1130,7 +1244,7 @@ JNF_COCOA_ENTER(env);
             actualMenuBar = [[ApplicationDelegate sharedDelegate] defaultMenuBar];
         }
 
-        if ([nsWindow isKeyWindow] || [nsWindow isMainWindow]) {
+        if ([nsWindow isMainWindow]) {
             [CMenuBar activate:actualMenuBar modallyDisabled:NO];
         }
     }];

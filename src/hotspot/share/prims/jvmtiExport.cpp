@@ -81,12 +81,14 @@ class JvmtiJavaThreadEventTransition : StackObj {
 private:
   ResourceMark _rm;
   ThreadToNativeFromVM _transition;
+  Thread::WXExecFromWriteSetter _wx_exec;
   HandleMark _hm;
 
 public:
   JvmtiJavaThreadEventTransition(JavaThread *thread) :
     _rm(),
     _transition(thread),
+    _wx_exec(),
     _hm(thread)  {};
 };
 
@@ -96,11 +98,12 @@ class JvmtiThreadEventTransition : StackObj {
 private:
   ResourceMark _rm;
   HandleMark _hm;
+  Thread::WXExecFromWriteSetter _wx_exec;
   JavaThreadState _saved_state;
   JavaThread *_jthread;
 
 public:
-  JvmtiThreadEventTransition(Thread *thread) : _rm(), _hm() {
+  JvmtiThreadEventTransition(Thread *thread) : _rm(), _hm(), _wx_exec() {
     if (thread->is_Java_thread()) {
        _jthread = (JavaThread *)thread;
        _saved_state = _jthread->thread_state();
@@ -387,6 +390,7 @@ JvmtiExport::get_jvmti_interface(JavaVM *jvm, void **penv, jint version) {
     JavaThread* current_thread = JavaThread::current();
     // transition code: native to VM
     ThreadInVMfromNative __tiv(current_thread);
+    Thread::WXExecVerifier __wx_exec;
     VM_ENTRY_BASE(jvmtiEnv*, JvmtiExport::get_jvmti_interface, current_thread)
     debug_only(VMNativeEntryWrapper __vew;)
 
@@ -993,6 +997,20 @@ class JvmtiClassFileLoadHookPoster : public StackObj {
     }
   }
 };
+
+bool JvmtiExport::is_early_phase() {
+  return JvmtiEnvBase::get_phase() <= JVMTI_PHASE_PRIMORDIAL;
+}
+
+bool JvmtiExport::has_early_class_hook_env() {
+  JvmtiEnvIterator it;
+  for (JvmtiEnv* env = it.first(); env != NULL; env = it.next(env)) {
+    if (env->early_class_hook_env()) {
+      return true;
+    }
+  }
+  return false;
+}
 
 bool JvmtiExport::_should_post_class_file_load_hook = false;
 

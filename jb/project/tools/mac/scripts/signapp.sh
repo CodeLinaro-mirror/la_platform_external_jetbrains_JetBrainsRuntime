@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -x
 
 #immediately exit script with an error if a command fails
 set -euo pipefail
@@ -32,8 +32,10 @@ mkdir "$BACKUP_JMODS"
 
 log "Unzipping $INPUT_FILE to $EXPLODED ..."
 tar -xzvf "$INPUT_FILE" --directory $EXPLODED
-rm "$INPUT_FILE"
 BUILD_NAME="$(ls "$EXPLODED")"
+sed -i '' s/BNDL/APPL/ $EXPLODED/$BUILD_NAME/Contents/Info.plist
+rm -f $EXPLODED/$BUILD_NAME/Contents/CodeResources
+rm "$INPUT_FILE"
 if test -d $EXPLODED/$BUILD_NAME/Contents/Home/jmods; then
   mv $EXPLODED/$BUILD_NAME/Contents/Home/jmods $BACKUP_JMODS
 fi
@@ -125,7 +127,7 @@ log "Zipping $BUILD_NAME to $INPUT_FILE ..."
     mv $BACKUP_JMODS/jmods $EXPLODED/$BUILD_NAME/Contents/Home
   fi
 
-  COPYFILE_DISABLE=1 tar -pczf $INPUT_FILE --exclude='*.dSYM' --exclude='man' -C $EXPLODED $BUILD_NAME
+  tar -pczvf $INPUT_FILE --exclude='*.dSYM' --exclude='man' -C $EXPLODED $BUILD_NAME
   log "Finished zipping"
 )
 rm -rf "$EXPLODED"

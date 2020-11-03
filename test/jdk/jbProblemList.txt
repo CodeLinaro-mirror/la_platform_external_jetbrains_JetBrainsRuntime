@@ -200,7 +200,7 @@ java/awt/FontMetrics/MaxAdvanceIsMax.java                                       
 java/awt/Frame/DisposeParentGC/DisposeParentGC.java                                 8079786,8055833 macosx-all,linux-all
 java/awt/Frame/ExceptionOnSetExtendedStateTest/ExceptionOnSetExtendedStateTest.java 8198237 macosx-all
 java/awt/Frame/FramesGC/FramesGC.java                                               8079069 macosx-all
-java/awt/Frame/FrameLocation/FrameLocation.java                                     8019803 macosx-all
+java/awt/Frame/FrameLocation/FrameLocation.java                                     8019803,8233703 macosx-all,linux-all
 java/awt/Frame/HugeFrame/HugeFrame.java                                             JBR-2563 linux-all
 java/awt/Frame/InvisibleOwner/InvisibleOwner.java                                   8169111 macosx-all,windows-all
 java/awt/Frame/LayoutOnMaximizeTest/LayoutOnMaximizeTest.java                       8169472 windows-all
@@ -213,6 +213,7 @@ java/awt/Frame/UnfocusableMaximizedFrameResizablity/UnfocusableMaximizedFrameRes
 java/awt/Frame/WindowDragTest/WindowDragTest.java                                   8169470 generic-all
 java/awt/FullScreen/8013581/bug8013581.java                                         8169471 macosx-all,windows-all,linux-all
 java/awt/FullScreen/AltTabCrashTest/AltTabCrashTest.java                            8047218 generic-all
+java/awt/FullScreen/BufferStrategyExceptionTest/BufferStrategyExceptionTest.java    8246558 windows-all
 java/awt/FullScreen/DisplayChangeVITest/DisplayChangeVITest.java                    8169469,JBR-1897 windows-all,macosx-all,linux-all (linux: NPE commit testing)
 java/awt/FullScreen/FullScreenInsets/FullScreenInsets.java                          7019055 windows-all,linux-all,macosx-all
 java/awt/FullScreen/NoResizeEventOnDMChangeTest/NoResizeEventOnDMChangeTest.java    8169468 windows-all,macosx-all
@@ -576,7 +577,7 @@ java/awt/TextField/SelectionInvisibleTest/SelectionInvisibleTest.java           
 java/awt/Toolkit/DesktopProperties/rfe4758438.java                                  8193547 linux-all
 java/awt/Toolkit/LockingKeyStateTest/LockingKeyStateTest.java                       8208514 windows-all
 java/awt/Toolkit/RealSync/Test.java                                                 6849383 generic-all
-java/awt/Toolkit/ScreenInsetsTest/ScreenInsetsTest.java                             6829250 windows-all,linux-all,macosx-all
+java/awt/Toolkit/ScreenInsetsTest/ScreenInsetsTest.java                             6829250,8253398 windows-all,linux-all,macosx-all
 java/awt/Toolkit/ToolkitPropertyTest/ToolkitPropertyTest_Enable.java                6847163 generic-all
 java/awt/TrayIcon/ActionCommand/ActionCommand.java                                  8197575,8150540 macosx-all,windows-all
 java/awt/TrayIcon/ActionEventMask/ActionEventMask.java                              8197575,8150540 macosx-all,windows-all
@@ -595,6 +596,7 @@ java/awt/TrayIcon/PopupMenuLeakTest/PopupMenuLeakTest.java                      
 java/awt/Window/8159168/SetShapeTest.java                                           8208507 generic-all
 java/awt/Window/BackgroundIsNotUpdated/BackgroundIsNotUpdated.java                  8142536 generic-all
 java/awt/Window/Grab/GrabTest.java                                                  8196019 macosx-all,windows-all,linux-all
+java/awt/Window/GetScreenLocation/GetScreenLocationTest.java                        8225787 linux-all
 java/awt/Window/MultiWindowApp/ChildAlwaysOnTopTest.java                            8215132,8194941 macosx-all,windows-all,linux-all
 java/awt/Window/MultiWindowApp/MultiWindowAppTest.java                              8159904 macosx-all,windows-all,linux-all
 java/awt/Window/OwnedWindowsLeak/OwnedWindowsLeak.java                              8225116 windows-all
@@ -635,6 +637,7 @@ java/awt/dnd/NoFormatsCrashTest/NoFormatsCrashTest.html                         
 java/awt/dnd/URIListBetweenJVMsTest/URIListBetweenJVMsTest.html                     8171510,7124379 macosx-all,linux-all
 java/awt/dnd/URIListToFileListBetweenJVMsTest/URIListToFileListBetweenJVMsTest.html 8194947 generic-all
 java/awt/event/ComponentEvent/MovedResizedTardyEventTest/MovedResizedTardyEventTest.html 6511207 generic-all
+java/awt/event/ComponentEvent/MovedResizedTwiceTest/MovedResizedTwiceTest.java      8225787 linux-all
 java/awt/event/HierarchyEvent/AncestorResized/AncestorResized.java                  6618538 generic-all
 java/awt/event/InputEvent/EventWhenTest/EventWhenTest.java                          8168646 generic-all
 java/awt/event/KeyEvent/CorrectTime/CorrectTime.java                                6626492 generic-all
@@ -727,6 +730,7 @@ java/lang/String/StringRepeat.java                                              
 java/lang/StringCoding/CheckEncodings.sh                                            7008363 generic-all
 java/lang/System/LoggerFinder/modules/JDKLoggerForImageTest.java                    nobug windows-6.1 fails on Windows 7 only
 java/lang/System/LoggerFinder/modules/UnnamedLoggerForImageTest.java                nobug windows-6.1 fails on Windows 7 only
+java/lang/System/OsVersionTest.java                                                 8253702 macosx-10.16
 
 ############################################################################
 
@@ -1042,7 +1046,7 @@ javax/swing/text/DefaultEditorKit/4278839/bug4278839.java                       
 javax/swing/text/DevanagariEditor.java                                              8198397 generic-all
 javax/swing/text/GlyphPainter2/6427244/bug6427244.java                              8050988 generic-all
 javax/swing/text/JTextComponent/5074573/bug5074573.java                             7153690,8196100,8196100,8072110 macosx-all,windows-all,linux-all
-javax/swing/text/JTextComponent/6361367/bug6361367.java                             8233569 macosx-all,windows-all
+javax/swing/text/JTextComponent/6361367/bug6361367.java                             8233569 macosx-all,windows-all,linux-all
 javax/swing/text/StyledEditorKit/4506788/bug4506788.java                            8214220,8172887 macosx-all,windows-all,linux-all
 javax/swing/text/StyledEditorKit/8016833/bug8016833.java                            8199055 generic-all
 javax/swing/text/TableView/TableViewLayoutTest.java                                 8194936 linux-all
@@ -1054,7 +1058,6 @@ javax/swing/text/html/HTMLEditorKit/5043626/bug5043626.java                     
 javax/swing/text/html/StyleSheet/BackgroundImage/BackgroundImagePosition.java       8198409 generic-all
 javax/swing/text/html/StyleSheet/bug4936917.java                                    8208569 macosx-all
 javax/swing/text/html/parser/Parser/6836089/bug6836089.java                         8198401 generic-all
-javax/swing/text/html/parser/Test8017492.java                                       8022535 generic-all
 javax/swing/text/html/parser/Parser/6990651/bug6990651.java                         8199060 generic-all
 javax/swing/text/html/parser/Parser/8078268/bug8078268.java                         8199092 generic-all
 javax/swing/text/html/parser/Parser/HtmlCommentTagParseTest/HtmlCommentTagParseTest.java 8199073 generic-all
@@ -1262,4 +1265,8 @@ javax/swing/LookAndFeel/8146276/NimbusGlueTest.java                             
 sanity/client/SwingSet/src/GridBagLayoutDemoTest.java                               JBR-1977 linux-aarch64
 
 jb/java/jcef/JCEFStartupTest.java                                                   JBR-1996 linux-i386,windows-x86
-jb/java/awt/event/TouchScreenEvent/TouchScreenEventsTest.java                       nobug windows-6.1 not supported on Windows 7
+jb/java/awt/event/TouchScreenEvent/TouchScreenEventsTest.java                       JBR-2585 linux-all,windows-all nobug windows-6.1 not supported on Windows 7
+jb/java/awt/event/TouchScreenEvent/TouchScreenEventsTestLinux.sh                    JBR-2585 linux-all
+jb/java/awt/Focus/ChainOfPopupsFocusTest.java                                       JBR-2657 windows-all,linux-all
+jb/java/awt/Focus/ModalDialogFromMenuTest.java                                      JBR-2768 macosx-all
+java/time/tck/java/time/format/TCKDateTimeFormatterBuilder.java                     JBR-2842 macosx-10.14,macosx-10.15,macosx-10.16

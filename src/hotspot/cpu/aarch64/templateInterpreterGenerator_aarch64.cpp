@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2003, 2019, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2014, 2019, Red Hat Inc. All rights reserved.
+ * Copyright (c) 2003, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2014, 2020, Red Hat Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -49,6 +49,7 @@
 #include "runtime/timer.hpp"
 #include "runtime/vframeArray.hpp"
 #include "utilities/debug.hpp"
+#include "utilities/macros.hpp"
 #include <sys/types.h>
 
 #ifndef PRODUCT
@@ -872,8 +873,16 @@ void TemplateInterpreterGenerator::generate_fixed_frame(bool native_call) {
   }
 
   // Get mirror and store it in the frame as GC root for this Method*
-  __ load_mirror(rscratch1, rmethod);
-  __ stp(rscratch1, zr, Address(sp, 4 * wordSize));
+#if INCLUDE_SHENANDOAHGC
+  if (UseShenandoahGC) {
+    __ load_mirror(r10, rmethod);
+    __ stp(r10, zr, Address(sp, 4 * wordSize));
+  } else
+#endif
+  {
+    __ load_mirror(rscratch1, rmethod);
+    __ stp(rscratch1, zr, Address(sp, 4 * wordSize));
+  }
 
   __ ldr(rcpool, Address(rmethod, Method::const_offset()));
   __ ldr(rcpool, Address(rcpool, ConstMethod::constants_offset()));
@@ -994,7 +1003,7 @@ address TemplateInterpreterGenerator::generate_CRC32_update_entry() {
     __ ldrw(val, Address(esp, 0));              // byte value
     __ ldrw(crc, Address(esp, wordSize));       // Initial CRC
 
-    unsigned long offset;
+    uint64_t offset;
     __ adrp(tbl, ExternalAddress(StubRoutines::crc_table_addr()), offset);
     __ add(tbl, tbl, offset);
 

@@ -221,10 +221,17 @@ final class XNETProtocol extends XProtocol implements XStateProtocol, XLayerProt
                   Boolean.valueOf(window.isWithdrawn()), Boolean.valueOf(window.isVisible()),
                   Boolean.valueOf(window.isMapped()), Boolean.valueOf(window.isShowing()));
         }
+        XAtomList net_wm_state = window.getNETWMState();
         if (window.isShowing()) {
+            if (net_wm_state.contains(state) == set) {
+                if (log.isLoggable(PlatformLogger.Level.FINER)) {
+                    log.finer("Current state on {0} is {1}, {2} is already {3}",
+                            window, net_wm_state, state, set ? "set" : "unset");
+                }
+                return;
+            }
             requestState(window, state, set);
         } else {
-            XAtomList net_wm_state = window.getNETWMState();
             if (log.isLoggable(PlatformLogger.Level.FINER)) {
                 log.finer("Current state on {0} is {1}", window, net_wm_state);
             }
@@ -278,6 +285,8 @@ final class XNETProtocol extends XProtocol implements XStateProtocol, XLayerProt
     public final XAtom XA_NET_WM_WINDOW_TYPE_POPUP_MENU = XAtom.get("_NET_WM_WINDOW_TYPE_POPUP_MENU");
 
     XAtom XA_NET_WM_WINDOW_OPACITY = XAtom.get("_NET_WM_WINDOW_OPACITY");
+
+    XAtom XA_NET_WM_USER_TIME = XAtom.get("_NET_WM_USER_TIME");
 
 /* For _NET_WM_STATE ClientMessage requests */
     static final int _NET_WM_STATE_REMOVE      =0; /* remove/unset property */

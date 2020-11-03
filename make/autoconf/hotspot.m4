@@ -25,7 +25,7 @@
 
 # All valid JVM features, regardless of platform
 VALID_JVM_FEATURES="compiler1 compiler2 zero minimal dtrace jvmti jvmci \
-    graal vm-structs jni-check services management cmsgc epsilongc g1gc parallelgc serialgc zgc nmt cds \
+    graal vm-structs jni-check services management cmsgc epsilongc g1gc parallelgc serialgc shenandoahgc zgc nmt cds \
     static-build link-time-opt aot jfr"
 
 # Deprecated JVM features (these are ignored, but with a warning)
@@ -274,6 +274,14 @@ AC_DEFUN_ONCE([HOTSPOT_ENABLE_DISABLE_CDS],
     fi
   fi
 
+  # Disable CDS on macos-aarch64
+  if test "x$OPENJDK_TARGET_OS" = "xmacosx" && test "x$OPENJDK_TARGET_CPU" = "xaarch64"; then
+    ENABLE_CDS="false"
+    if test "x$enable_cds" = "xyes"; then
+      AC_MSG_ERROR([CDS is currently not supported on AIX. Remove --enable-cds.])
+    fi
+  fi
+
   AC_SUBST(ENABLE_CDS)
 ])
 
@@ -352,6 +360,19 @@ AC_DEFUN_ONCE([HOTSPOT_SETUP_JVM_FEATURES],
     fi
   fi
 
+  # Only enable Shenandoah on supported arches, and only if requested
+  AC_MSG_CHECKING([if shenandoah can be built])
+  if HOTSPOT_CHECK_JVM_FEATURE(shenandoahgc); then
+    if test "x$OPENJDK_TARGET_CPU_ARCH" = "xx86" || test "x$OPENJDK_TARGET_CPU" = "xaarch64" ; then
+      AC_MSG_RESULT([yes])
+    else
+      DISABLED_JVM_FEATURES="$DISABLED_JVM_FEATURES shenandoahgc"
+      AC_MSG_RESULT([no, platform not supported])
+    fi
+  else
+      DISABLED_JVM_FEATURES="$DISABLED_JVM_FEATURES shenandoahgc"
+  fi
+
   # Only enable ZGC on supported platforms
   AC_MSG_CHECKING([if zgc can be built])
   if test "x$OPENJDK_TARGET_OS" = "xlinux" && test "x$OPENJDK_TARGET_CPU" = "xx86_64"; then
@@ -363,7 +384,7 @@ AC_DEFUN_ONCE([HOTSPOT_SETUP_JVM_FEATURES],
 
   # Disable unsupported GCs for Zero
   if HOTSPOT_CHECK_JVM_VARIANT(zero); then
-    DISABLED_JVM_FEATURES="$DISABLED_JVM_FEATURES epsilongc g1gc zgc"
+    DISABLED_JVM_FEATURES="$DISABLED_JVM_FEATURES epsilongc g1gc shenandoahgc zgc"
   fi
 
   # Turn on additional features based on other parts of configure
@@ -494,7 +515,7 @@ AC_DEFUN_ONCE([HOTSPOT_SETUP_JVM_FEATURES],
   fi
 
   # All variants but minimal (and custom) get these features
-  NON_MINIMAL_FEATURES="$NON_MINIMAL_FEATURES cmsgc g1gc parallelgc serialgc epsilongc jni-check jvmti management nmt services vm-structs zgc"
+  NON_MINIMAL_FEATURES="$NON_MINIMAL_FEATURES cmsgc g1gc parallelgc serialgc epsilongc shenandoahgc jni-check jvmti management nmt services vm-structs zgc"
 
   AC_MSG_CHECKING([if cds should be enabled])
   if test "x$ENABLE_CDS" = "xtrue"; then

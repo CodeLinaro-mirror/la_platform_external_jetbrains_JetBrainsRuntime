@@ -37,7 +37,6 @@
 #import "JavaTextAccessibility.h"
 #import "JavaAccessibilityUtilities.h"
 #import "GeomUtilities.h"
-#import "OSVersion.h"
 #import "CGLLayer.h"
 #import "java_awt_event_KeyEvent.h"
 
@@ -57,10 +56,7 @@
 //#define EXTRA_DEBUG
 
 static BOOL shouldUsePressAndHold() {
-    static int shouldUsePressAndHold = -1;
-    if (shouldUsePressAndHold != -1) return shouldUsePressAndHold;
-    shouldUsePressAndHold = !isSnowLeopardOrLower();
-    return shouldUsePressAndHold;
+    return YES;
 }
 
 extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, NSString * chars);

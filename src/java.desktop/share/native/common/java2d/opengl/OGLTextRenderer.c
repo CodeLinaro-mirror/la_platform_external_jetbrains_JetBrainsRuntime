@@ -69,6 +69,13 @@ typedef enum {
 static GlyphMode glyphMode = MODE_NOT_INITED;
 
 /**
+ * Current blending modes saved in OGLTR_EnableGrayGlyphModeState and restored in
+ * OGLTR_DisableGlyphModeState
+ */
+static GLint currentBlendSrc;
+static GLint currentBlendDst;
+
+/**
  * There are two separate glyph caches: for AA and for LCD.
  * Once one of them is initialized as either GRAY or LCD, it
  * stays in that mode for the duration of the application.  It should
@@ -85,6 +92,23 @@ static GlyphCacheInfo *glyphCacheAA = NULL;
  * The handle to the LCD text fragment program object.
  */
 static GLhandleARB lcdTextProgram = 0;
+
+/**
+ * The handle to the Gray text fragment program object.
+ */
+static GLhandleARB grayTextProgram = 0;
+
+/**
+ * Use this hints if gray gamma shader is enabled
+ */
+typedef struct {
+    float light_gamma; // brightness of light text
+    float dark_gamma;  // brightness of dark text
+    float light_exp;   // thickness of light text
+    float dark_exp;    // thickness of dark text
+} GrayRenderHints;
+
+
 
 /**
  * This value tracks the previous LCD contrast setting, so if the contrast
@@ -301,6 +325,35 @@ static const char *lcdTextShaderSource =
     "    gl_FragColor = vec4(pow(result.rgb, invgamma), 1.0);"
     "}";
 
+static const char *grayGammaTextShaderSource =
+    "uniform vec4 src_adj;"
+    "uniform sampler2D glyph_tex;"
+    "uniform float inv_light_gamma;"
+    "uniform float inv_dark_gamma;"
+    "uniform float inv_light_exp;"
+    "uniform float inv_dark_exp;"
+    "void main(void)"
+    "{"
+        "float a = src_adj.a;"
+        "vec3 col = src_adj.rgb;"
+
+        // calculate brightness of the fragment
+        "float b = dot(col, vec3(1.0/3.0, 1.0/3.0, 1.0/3.0))*a;"
+
+        // adjust fragment coverage
+        "float frag_cov = float(texture2D(glyph_tex, gl_TexCoord[0].st));"
+        "float exp = mix(inv_dark_exp, inv_light_exp, b);"
+        "frag_cov = pow(frag_cov, exp);"
+
+        // adjust fragment color and alpha for alpha < 1.0
+        "if (a < 1.0) {"
+           "float g = mix(inv_dark_gamma, inv_light_gamma,b);"
+           "col = pow(col, vec3(g));"
+           "a = pow(a, exp);"
+        "}"
+        "gl_FragColor = vec4(col, a*frag_cov);"
+    "}";
+
 /**
  * Compiles and links the LCD text shader program.  If successful, this
  * function returns a handle to the newly created shader program; otherwise
@@ -334,6 +387,144 @@ OGLTR_CreateLCDTextProgram()
     j2d_glUseProgramObjectARB(0);
 
     return lcdTextProgram;
+}
+
+static int JVM_GetIntProperty(const char* name,  int defaultValue) {
+    JNIEnv *env = (JNIEnv *) JNU_GetEnv(jvm, JNI_VERSION_1_2);
+    static jclass systemCls = NULL;
+    if (systemCls == NULL) {
+        systemCls = (*env)->FindClass(env, "java/lang/System");
+        if (systemCls == NULL) {
+            return defaultValue;
+        }
+    }
+
+    static jmethodID mid = NULL;
+
+    if (mid == NULL) {
+        mid = (*env)->GetStaticMethodID(env, systemCls, "getProperty",
+                                        "(Ljava/lang/String;)Ljava/lang/String;");
+        if (mid == NULL) {
+            return defaultValue;
+        }
+    }
+
+    jstring jName = (*env)->NewStringUTF(env, name);
+    if (jName == NULL) {
+        return defaultValue;
+    }
+
+    int result = defaultValue;
+    jstring jvalue = (*env)->CallStaticObjectMethod(env, systemCls, mid, jName);
+    if (jvalue != NULL) {
+        const char *utf8string = (*env)->GetStringUTFChars(env, jvalue, NULL);
+        if (utf8string != NULL) {
+            const int parsedVal = atoi(utf8string);
+            if (parsedVal > 0) {
+                result = parsedVal;
+            }
+        }
+        (*env)->ReleaseStringUTFChars(env, jvalue, utf8string);
+    }
+    (*env)->DeleteLocalRef(env, jName);
+    return result;
+}
+
+static GrayRenderHints* getGrayRenderHints() {
+    static GrayRenderHints *hints = NULL;
+    static GrayRenderHints defaultRenderHints[] = {
+            // hints for "use font smoothing" option
+            // disabled
+            {1.666f, 0.333f, 1.0f, 1.25f},
+            // enabled
+            {1.666f, 0.333f, 0.454f, 1.4f}
+    };
+
+    if (hints == NULL) {
+        // read from VM-properties
+        int val = JVM_GetIntProperty("awt.font.nosm.light_gamma", 0);
+        if (val > 0) {
+            defaultRenderHints[0].light_gamma = val / 1000.0;
+        }
+        val = JVM_GetIntProperty("awt.font.nosm.dark_gamma", 0);
+        if (val > 0) {
+            defaultRenderHints[0].dark_gamma = val / 1000.0;
+        }
+        val = JVM_GetIntProperty("awt.font.nosm.light_exp", 0);
+        if (val > 0) {
+            defaultRenderHints[0].light_exp = val / 1000.0;
+        }
+        val = JVM_GetIntProperty("awt.font.nosm.dark_exp", 0);
+        if (val > 0) {
+            defaultRenderHints[0].dark_exp = val / 1000.0;
+        }
+
+        val = JVM_GetIntProperty("awt.font.sm.light_gamma", 0);
+        if (val > 0) {
+            defaultRenderHints[1].light_gamma = val / 1000.0;
+        }
+        val = JVM_GetIntProperty("awt.font.sm.dark_gamma", 0);
+        if (val > 0) {
+            defaultRenderHints[1].dark_gamma = val / 1000.0;
+        }
+        val = JVM_GetIntProperty("awt.font.sm.light_exp", 0);
+        if (val > 0) {
+            defaultRenderHints[1].light_exp = val / 1000.0;
+        }
+        val = JVM_GetIntProperty("awt.font.sm.dark_exp", 0);
+        if (val > 0) {
+            defaultRenderHints[1].dark_exp = val / 1000.0;
+        }
+
+        hints = defaultRenderHints;
+    }
+    return hints;
+}
+
+/**
+ * Compiles and links the LCD text shader program.  If successful, this
+ * function returns a handle to the newly created shader program; otherwise
+ * returns 0.
+ */
+static GLhandleARB
+OGLTR_CreateGrayTextProgram(jboolean useFontSmoothing)
+{
+    GLhandleARB grayTextProgram;
+    GLint loc;
+
+    J2dTraceLn(J2D_TRACE_INFO, "OGLTR_CreateGrayTextProgram");
+
+    grayTextProgram = OGLContext_CreateFragmentProgram(grayGammaTextShaderSource);
+
+    if (grayTextProgram == 0) {
+        J2dRlsTraceLn(J2D_TRACE_ERROR,
+                      "OGLTR_CreateGrayTextProgram: error creating program");
+        return 0;
+    }
+
+    // "use" the program object temporarily so that we can set the uniforms
+    j2d_glUseProgramObjectARB(grayTextProgram);
+
+    GrayRenderHints *hints = &(getGrayRenderHints()[useFontSmoothing]);
+    J2dTraceLn5(J2D_TRACE_INFO,
+                "OGLTR_CreateGrayTextProgram: useFontSmoothing=%d "
+                "light_gamma=%f dark_gamma=%f light_exp=%f dark_exp=%f",
+                useFontSmoothing, hints->light_gamma, hints->dark_gamma,
+                hints->light_exp, hints->dark_exp);
+
+    loc = j2d_glGetUniformLocationARB(grayTextProgram, "inv_light_gamma");
+    j2d_glUniform1fARB(loc, hints->light_gamma);
+    loc = j2d_glGetUniformLocationARB(grayTextProgram, "inv_dark_gamma");
+    j2d_glUniform1fARB(loc, hints->dark_gamma);
+    loc = j2d_glGetUniformLocationARB(grayTextProgram, "inv_light_exp");
+    j2d_glUniform1fARB(loc, hints->light_exp);
+    loc = j2d_glGetUniformLocationARB(grayTextProgram, "inv_dark_exp");
+    j2d_glUniform1fARB(loc, hints->dark_exp);
+
+    // "unuse" the program object; it will be re-bound later as needed
+    j2d_glUseProgramObjectARB(0);
+
+    return grayTextProgram;
 }
 
 /**
@@ -406,6 +597,41 @@ OGLTR_UpdateLCDTextColor(jint contrast)
 }
 
 /**
+ * Updates the current source color ("src_adj") of the Gray text shader
+ * program.
+ */
+static jboolean
+OGLTR_UpdateGrayTextColor()
+{
+    GLfloat radj, gadj, badj, aadj;
+    GLfloat clr[4];
+    GLint loc;
+
+    /*
+     * Note: Ideally we would update the "src_adj" uniform parameter only
+     * when there is a change in the source color.  Fortunately, the cost
+     * of querying the current OpenGL color state and updating the uniform
+     * value is quite small, and in the common case we only need to do this
+     * once per GlyphList, so we gain little from trying to optimize too
+     * eagerly here.
+     */
+
+    // get the current OpenGL primary color state
+    j2d_glGetFloatv(GL_CURRENT_COLOR, clr);
+
+    radj = (GLfloat)clr[0];
+    gadj = (GLfloat)clr[1];
+    badj = (GLfloat)clr[2];
+    aadj = (GLfloat)clr[3];
+
+    // update the "src_adj" parameter of the shader program with this value
+    loc = j2d_glGetUniformLocationARB(grayTextProgram, "src_adj");
+    j2d_glUniform4fARB(loc, radj, gadj, badj, aadj);
+
+    return JNI_TRUE;
+}
+
+/**
  * Enables the LCD text shader and updates any related state, such as the
  * gamma lookup table textures.
  */
@@ -466,6 +692,39 @@ OGLTR_EnableLCDGlyphModeState(GLuint glyphTextureID,
 
     return JNI_TRUE;
 }
+/**
+ * Enables the GrayScale text shader and updates any related states
+ */
+static jboolean
+OGLTR_EnableGrayGlyphModeState(GLuint glyphTextureID, jboolean useFontSmoothing)
+{
+    // bind the texture containing glyph data to texture unit 0
+    j2d_glActiveTextureARB(GL_TEXTURE0_ARB);
+    j2d_glBindTexture(GL_TEXTURE_2D, glyphTextureID);
+    j2d_glEnable(GL_TEXTURE_2D);
+    j2d_glEnable(GL_BLEND);
+    j2d_glGetIntegerv(GL_BLEND_SRC_ALPHA, &currentBlendSrc);
+    j2d_glGetIntegerv(GL_BLEND_DST_ALPHA, &currentBlendDst);
+
+    j2d_glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // create the Gray text shader, if necessary
+    if (grayTextProgram == 0) {
+        grayTextProgram = OGLTR_CreateGrayTextProgram(useFontSmoothing);
+        if (grayTextProgram == 0) {
+            return JNI_FALSE;
+        }
+    }
+
+    // enable the Gray text shader
+    j2d_glUseProgramObjectARB(grayTextProgram);
+
+    // update the current color settings
+    if (!OGLTR_UpdateGrayTextColor()) {
+        return JNI_FALSE;
+    }
+    return JNI_TRUE;
+}
 
 void
 OGLTR_EnableGlyphVertexCache(OGLContext *oglc)
@@ -489,7 +748,7 @@ OGLTR_EnableGlyphVertexCache(OGLContext *oglc)
     // for grayscale/monochrome text, the current OpenGL source color
     // is modulated with the glyph image as part of the texture
     // application stage, so we use GL_MODULATE here
-    OGLC_UPDATE_TEXTURE_FUNCTION(oglc, GL_MODULATE);
+    //OGLC_UPDATE_TEXTURE_FUNCTION(oglc, GL_MODULATE);
 }
 
 void
@@ -532,8 +791,18 @@ OGLTR_DisableGlyphModeState()
         j2d_glDisable(GL_TEXTURE_2D);
         break;
 
-    case MODE_NO_CACHE_GRAY:
     case MODE_USE_CACHE_GRAY:
+        OGLVertexCache_FlushVertexCache();
+        j2d_glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        j2d_glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        j2d_glUseProgramObjectARB(0);
+        j2d_glActiveTextureARB(GL_TEXTURE0_ARB);
+        j2d_glDisable(GL_TEXTURE_2D);
+        j2d_glBlendFunc(currentBlendSrc, currentBlendDst);
+        break;
+
+    case MODE_NO_CACHE_GRAY:
+        /* FALLTHROUGH */
     case MODE_NOT_INITED:
     default:
         break;
@@ -542,8 +811,7 @@ OGLTR_DisableGlyphModeState()
 }
 
 static jboolean
-OGLTR_DrawGrayscaleGlyphViaCache(OGLContext *oglc,
-                                 GlyphInfo *ginfo, jint x, jint y)
+OGLTR_DrawGrayscaleGlyphViaCache(OGLContext *oglc, GlyphInfo *ginfo, jint x, jint y, jboolean useFontSmoothing)
 {
     CacheCellInfo *cell;
     jfloat x1, y1, x2, y2;
@@ -551,6 +819,18 @@ OGLTR_DrawGrayscaleGlyphViaCache(OGLContext *oglc,
     if (glyphMode != MODE_USE_CACHE_GRAY) {
         OGLTR_DisableGlyphModeState();
         CHECK_PREVIOUS_OP(OGL_STATE_GLYPH_OP);
+        j2d_glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        if (glyphCacheAA == NULL) {
+            if (!OGLTR_InitGlyphCache(JNI_FALSE)) {
+                return JNI_FALSE;
+            }
+        }
+
+        if (!OGLTR_EnableGrayGlyphModeState(glyphCacheAA->cacheID, useFontSmoothing))
+        {
+            return JNI_FALSE;
+        }
+
         glyphMode = MODE_USE_CACHE_GRAY;
     }
 
@@ -1030,6 +1310,7 @@ OGLTR_DrawColorGlyphNoCache(OGLContext *oglc, GlyphInfo *ginfo, jint x, jint y)
 // Control subpixel positioning for macOS 13+ grayscale glyphs
 #ifdef MACOSX
 extern int lcdSubPixelPosSupported;
+extern int useFontSmoothing;
 #endif
 
 // see DrawGlyphList.c for more on this macro...
@@ -1046,6 +1327,7 @@ OGLTR_DrawGlyphList(JNIEnv *env, OGLContext *oglc, OGLSDOps *dstOps,
     int glyphCounter;
     GLuint dstTextureID = 0;
     jlong time;
+    jboolean fontSmoothing = JNI_FALSE;
 
     J2dTraceLn(J2D_TRACE_INFO, "OGLTR_DrawGlyphList");
     if (graphicsPrimitive_traceflags & J2D_PTRACE_TIME) {
@@ -1085,6 +1367,7 @@ OGLTR_DrawGlyphList(JNIEnv *env, OGLContext *oglc, OGLSDOps *dstOps,
     }
 
     subPixPos = lcdSubPixelPosSupported ? subPixPos : 0;
+    fontSmoothing = useFontSmoothing;
 #endif
 
     for (glyphCounter = 0; glyphCounter < totalGlyphs; glyphCounter++) {
@@ -1126,7 +1409,7 @@ OGLTR_DrawGlyphList(JNIEnv *env, OGLContext *oglc, OGLSDOps *dstOps,
             if (ginfo->width <= OGLTR_CACHE_CELL_WIDTH &&
                 ginfo->height <= OGLTR_CACHE_CELL_HEIGHT)
             {
-                ok = OGLTR_DrawGrayscaleGlyphViaCache(oglc, ginfo, x, y);
+                ok = OGLTR_DrawGrayscaleGlyphViaCache(oglc, ginfo, x, y, fontSmoothing);
             } else {
                 ok = OGLTR_DrawGrayscaleGlyphNoCache(oglc, ginfo, x, y);
             }
@@ -1167,6 +1450,7 @@ OGLTR_DrawGlyphList(JNIEnv *env, OGLContext *oglc, OGLSDOps *dstOps,
             break;
         }
     }
+    OGLVertexCache_FlushVertexCache();
     OGLMTVertexCache_disable();
     J2dTracePrimitiveTime("OGLTR_DrawGlyphList", time);
 }
