@@ -61,6 +61,8 @@ static AWTWindow* lastKeyWindow = nil;
 // It would be NSZeroPoint if 'Location by Platform' is not used.
 static NSPoint lastTopLeftPoint;
 
+static BOOL ignoreResizeWindowDuringAnotherWindowEnd = NO;
+
 // --------------------------------------------------------------
 // NSWindow/NSPanel descendants implementation
 #define AWT_NS_WINDOW_IMPLEMENTATION                            \
@@ -256,6 +258,11 @@ AWT_NS_WINDOW_IMPLEMENTATION
     return 0;
 }
 
+- (void)orderOut:(id)sender {
+    ignoreResizeWindowDuringAnotherWindowEnd = YES;
+    [super orderOut:sender];
+}
+
 @end
 @implementation AWTWindow_Panel
 AWT_NS_WINDOW_IMPLEMENTATION
@@ -278,6 +285,7 @@ AWT_NS_WINDOW_IMPLEMENTATION
 @synthesize standardFrame;
 @synthesize isMinimizing;
 @synthesize javaWindowTabbingMode;
+@synthesize isEnterFullScreen;
 
 - (void) updateMinMaxSize:(BOOL)resizable {
     if (resizable) {
@@ -427,7 +435,8 @@ AWT_ASSERT_APPKIT_THREAD;
     }
 
     self.javaWindowTabbingMode = [self getJavaWindowTabbingMode];
-
+    self.isEnterFullScreen = NO;
+    
     return self;
 }
 
@@ -719,7 +728,13 @@ AWT_ASSERT_APPKIT_THREAD;
 
 - (void)windowDidResize:(NSNotification *)notification {
 AWT_ASSERT_APPKIT_THREAD;
-
+    if (self.isEnterFullScreen && ignoreResizeWindowDuringAnotherWindowEnd) {
+#ifdef DEBUG
+        NSLog(@"=== Native.windowDidResize: %@ | ignored in transition to fullscreen ===", self.nsWindow.title);
+#endif
+        return;
+    }
+    
     [self _deliverMoveResizeEvent];
 }
 
@@ -966,6 +981,8 @@ AWT_ASSERT_APPKIT_THREAD;
 
 
 - (void)windowWillEnterFullScreen:(NSNotification *)notification {
+    self.isEnterFullScreen = YES;
+    
     static JNF_MEMBER_CACHE(jm_windowWillEnterFullScreen, jc_CPlatformWindow, "windowWillEnterFullScreen", "()V");
     JNIEnv *env = [ThreadUtilities getJNIEnv];
     jobject platformWindow = [self.javaPlatformWindow jObjectWithEnv:env];
@@ -977,6 +994,8 @@ AWT_ASSERT_APPKIT_THREAD;
 }
 
 - (void)windowDidEnterFullScreen:(NSNotification *)notification {
+    self.isEnterFullScreen = YES;
+    
     static JNF_MEMBER_CACHE(jm_windowDidEnterFullScreen, jc_CPlatformWindow, "windowDidEnterFullScreen", "()V");
     JNIEnv *env = [ThreadUtilities getJNIEnv];
     jobject platformWindow = [self.javaPlatformWindow jObjectWithEnv:env];
@@ -989,6 +1008,8 @@ AWT_ASSERT_APPKIT_THREAD;
 }
 
 - (void)windowWillExitFullScreen:(NSNotification *)notification {
+    self.isEnterFullScreen = NO;
+    
     static JNF_MEMBER_CACHE(jm_windowWillExitFullScreen, jc_CPlatformWindow, "windowWillExitFullScreen", "()V");
     JNIEnv *env = [ThreadUtilities getJNIEnv];
     jobject platformWindow = [self.javaPlatformWindow jObjectWithEnv:env];
@@ -1000,6 +1021,8 @@ AWT_ASSERT_APPKIT_THREAD;
 }
 
 - (void)windowDidExitFullScreen:(NSNotification *)notification {
+    self.isEnterFullScreen = NO;
+    
     static JNF_MEMBER_CACHE(jm_windowDidExitFullScreen, jc_CPlatformWindow, "windowDidExitFullScreen", "()V");
     JNIEnv *env = [ThreadUtilities getJNIEnv];
     jobject platformWindow = [self.javaPlatformWindow jObjectWithEnv:env];
@@ -1731,6 +1754,8 @@ JNF_COCOA_ENTER(env);
         [nsWindow setDelegate: nil];
 
         [window release];
+        
+        ignoreResizeWindowDuringAnotherWindowEnd = NO;
     }];
 
 JNF_COCOA_EXIT(env);

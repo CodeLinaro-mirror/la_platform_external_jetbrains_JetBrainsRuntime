@@ -48,6 +48,7 @@
     NSRect standardFrame;
     BOOL isMinimizing;
     NSWindowTabbingMode javaWindowTabbingMode;
+    BOOL isEnterFullScreen;
 }
 
 // An instance of either AWTWindow_Normal or AWTWindow_Panel
@@ -64,6 +65,7 @@
 @property (nonatomic) NSRect standardFrame;
 @property (nonatomic) BOOL isMinimizing;
 @property (nonatomic) NSWindowTabbingMode javaWindowTabbingMode;
+@property (nonatomic) BOOL isEnterFullScreen;
 
 - (id) initWithPlatformWindow:(JNFWeakJObjectWrapper *)javaPlatformWindow
                   ownerWindow:owner
