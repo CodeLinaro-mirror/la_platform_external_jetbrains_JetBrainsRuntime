@@ -6,8 +6,6 @@
 #   build_number     - specifies the number of JetBrainsRuntime build
 #   bundle_type      - specifies bundle to be built; possible values:
 #                        jcef - the release bundles with jcef
-#                        jfx - the release bundles with javafx
-#                        jcef_jfx - the release bundles with jcef and javafx
 #                        dcevm - the release bundles with dcevm patches
 #                        nomod - the release bundles without any additional modules (jcef)
 #                        fd - the fastdebug bundles which also include the jcef module
@@ -41,26 +39,16 @@ source jb/project/tools/common.sh
 
 function copyJNF {
   __contents_dir=$1
-    # we can't notarize this library as usual framework (with headers and tbd-file)
-    # but single library notarizes correctly
-    mkdir -p ${__contents_dir}/Frameworks/JavaNativeFoundation.framework/Resources
-    cp -p Frameworks/JavaNativeFoundation.framework/JavaNativeFoundation \
-      ${__contents_dir}/Frameworks/JavaNativeFoundation.framework || do_exit $?
-    cp -p Frameworks/JavaNativeFoundation.framework/Resources/Info.plist \
-      ${__contents_dir}/Frameworks/JavaNativeFoundation.framework/Resources || do_exit $?
-    # unsign JavaNativeFoundation binary (otherwise notarization will fail)
-    codesign --remove-signature ${__contents_dir}/Frameworks/JavaNativeFoundation.framework/JavaNativeFoundation || do_exit $?
+    mkdir -p ${__contents_dir}/Frameworks
+    cp -Rp Frameworks/JavaNativeFoundation.framework ${__contents_dir}/Frameworks
 }
 function create_jbr {
 
   JBR_BUNDLE=jbr_${bundle_type}
 
   case "${bundle_type}" in
-  "jfx" | "jcef" | "dcevm" | "nomod" | "fd")
+  "jcef" | "dcevm" | "nomod" | "fd")
     JBR_BASE_NAME=jbr_${bundle_type}-${JBSDK_VERSION}
-    ;;
-  "jfx_jcef")
-    JBR_BASE_NAME=jbr-${JBSDK_VERSION}
     ;;
   *)
     echo "***ERR*** bundle was not specified" && do_exit 1
@@ -122,16 +110,7 @@ CONF_NAME=macosx-${CONF_ARCHITECTURE}-normal-server-release
 
 JBSDK=${JBRSDK_BASE_NAME}-osx-${architecture}-b${build_number}
 case "$bundle_type" in
-  "jfx")
-    git apply -p0 < jb/project/tools/patches/add_jfx_module.patch || do_exit $?
-    do_reset_changes=1
-    ;;
   "jcef")
-    git apply -p0 < jb/project/tools/patches/add_jcef_module.patch || do_exit $?
-    do_reset_changes=1
-    ;;
-  "jfx_jcef")
-    git apply -p0 < jb/project/tools/patches/add_jfx_module.patch || do_exit $?
     git apply -p0 < jb/project/tools/patches/add_jcef_module.patch || do_exit $?
     do_reset_changes=1
     ;;
@@ -169,6 +148,7 @@ if [[ "${architecture}" == *aarch64* ]]; then
   $WITH_DEBUG_LEVEL \
   --with-vendor-name="${VENDOR_NAME}" \
   --with-vendor-version-string="${VENDOR_VERSION_STRING}" \
+  --with-jvm-features=shenandoahgc \
   --with-version-pre= \
   --with-version-build=${JDK_BUILD_NUMBER} \
   --with-version-opt=b${build_number} \

@@ -25,7 +25,6 @@
 
 package sun.lwawt.macosx;
 
-import java.awt.AWTError;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.DefaultKeyboardFocusManager;
@@ -52,7 +51,6 @@ import java.util.Comparator;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.security.PrivilegedAction;
 
 import javax.swing.JRootPane;
 import javax.swing.RootPaneContainer;
@@ -74,7 +72,6 @@ import sun.lwawt.PlatformWindow;
 import sun.util.logging.PlatformLogger;
 
 import java.security.AccessController;
-import java.security.PrivilegedAction;
 
 import sun.security.action.GetPropertyAction;
 
@@ -92,13 +89,13 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     private static native void nativeSetNSWindowStyleBits(long nsWindowPtr, int mask, int data);
     private static native void nativeSetNSWindowMenuBar(long nsWindowPtr, long menuBarPtr);
     private static native Insets nativeGetNSWindowInsets(long nsWindowPtr);
-    private static native void nativeSetNSWindowBounds(long nsWindowPtr, double x, double y, double w, double h);
+    private static native void nativeSetNSWindowBounds(long nsWindowPtr, double x, double y, double w, double h, boolean wait);
     private static native void nativeSetNSWindowLocationByPlatform(long nsWindowPtr);
     private static native void nativeSetNSWindowStandardFrame(long nsWindowPtr,
                                                               double x, double y, double w, double h);
     private static native void nativeSetNSWindowMinMax(long nsWindowPtr, double minW, double minH, double maxW, double maxH);
     private static native void nativePushNSWindowToBack(long nsWindowPtr);
-    private static native void nativePushNSWindowToFront(long nsWindowPtr);
+    private static native void nativePushNSWindowToFront(long nsWindowPtr, boolean wait);
     private static native void nativeSetNSWindowTitle(long nsWindowPtr, String title);
     private static native void nativeRevalidateNSWindowShadow(long nsWindowPtr);
     private static native void nativeSetNSWindowMinimizedIcon(long nsWindowPtr, long nsImage);
@@ -144,6 +141,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     public static final String WINDOW_FULLSCREENABLE = "apple.awt.fullscreenable";
     public static final String WINDOW_FULL_CONTENT = "apple.awt.fullWindowContent";
     public static final String WINDOW_TRANSPARENT_TITLE_BAR = "apple.awt.transparentTitleBar";
+    public static final String WINDOW_TITLE_VISIBLE = "apple.awt.windowTitleVisible";
 
     // Yeah, I know. But it's easier to deal with ints from JNI
     static final int MODELESS = 0;
@@ -168,7 +166,6 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     static final int RESIZABLE = 1 << 9; // both a style bit and prop bit
     static final int DARK = 1 << 28;
     static final int LIGHT = 1 << 29;
-    static final int TRANSPARENT_TITLEBAR = 1 << 30;
     static final int IS_DIALOG = 1 << 25;
     static final int IS_MODAL = 1 << 26;
     static final int IS_POPUP = 1 << 27;
@@ -188,10 +185,11 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     static final int DOCUMENT_MODIFIED = 1 << 21;
     static final int FULLSCREENABLE = 1 << 23;
     static final int TRANSPARENT_TITLE_BAR = 1 << 18;
+    static final int TITLE_VISIBLE = 1 << 30;
 
     static final int _METHOD_PROP_BITMASK = RESIZABLE | HAS_SHADOW | ZOOMABLE | ALWAYS_ON_TOP | HIDES_ON_DEACTIVATE
                                               | DRAGGABLE_BACKGROUND | DOCUMENT_MODIFIED | FULLSCREENABLE
-                                              | TRANSPARENT_TITLE_BAR;
+                                              | TRANSPARENT_TITLE_BAR | TITLE_VISIBLE;
 
     static final int POPUP = 1 << 14;
 
@@ -223,7 +221,10 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
                 c.setStyleBits(DARK, value == null ? true : Boolean.parseBoolean(value.toString()));
             }},
             new Property<CPlatformWindow>(WINDOW_TRANSPARENT_TITLEBAR_APPEARANCE) { public void applyProperty(final CPlatformWindow c, final Object value) {
-                c.setStyleBits(TRANSPARENT_TITLEBAR, value == null ? true : Boolean.parseBoolean(value.toString()));
+                boolean val = value == null ? false : Boolean.parseBoolean(value.toString());
+                c.setStyleBits(TRANSPARENT_TITLE_BAR, val);
+                c.setStyleBits(FULL_WINDOW_CONTENT, val);
+                c.setStyleBits(TITLE_VISIBLE, !val);
             }},
             new Property<CPlatformWindow>(WINDOW_LIGHT_APPEARANCE) { public void applyProperty(final CPlatformWindow c, final Object value) {
                 c.setStyleBits(LIGHT, value == null ? true : Boolean.parseBoolean(value.toString()));
@@ -282,6 +283,11 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
                 public void applyProperty(final CPlatformWindow c, final Object value) {
                     boolean isTransparentTitleBar = Boolean.parseBoolean(value.toString());
                     c.setStyleBits(TRANSPARENT_TITLE_BAR, isTransparentTitleBar);
+                }
+            },
+            new Property<CPlatformWindow>(WINDOW_TITLE_VISIBLE) {
+                public void applyProperty(final CPlatformWindow c, final Object value) {
+                    c.setStyleBits(TITLE_VISIBLE, value == null ? true : Boolean.parseBoolean(value.toString()));
                 }
             }
     }) {
@@ -361,51 +367,41 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
         } else {
             bounds = _peer.constrainBounds(_target.getBounds());
         }
-        long nativeWindowPtr = java.security.AccessController.doPrivileged(
-                (PrivilegedAction<Long>) () -> {
-                    try {
-                        return AWTThreading.executeWaitToolkit(() -> {
-                            AtomicLong ref = new AtomicLong();
-                            contentView.execute(viewPtr -> {
-                                boolean hasOwnerPtr = false;
+        AtomicLong ref = new AtomicLong();
+        contentView.execute(viewPtr -> {
+            boolean hasOwnerPtr = false;
 
-                                if (owner != null) {
-                                    hasOwnerPtr = 0L != owner.executeGet(ownerPtr -> {
-                                        if (logger.isLoggable(PlatformLogger.Level.FINE)) {
-                                            logger.fine("nativeCreateNSWindow: owner=" + Long.toHexString(ownerPtr)
-                                                            + ", styleBits=" + Integer.toHexString(styleBits)
-                                                            + ", bounds=" + bounds);
-                                        }
-                                        long windowPtr = nativeCreateNSWindow(viewPtr, ownerPtr, styleBits,
-                                                bounds.x, bounds.y, bounds.width, bounds.height);
-                                        if (logger.isLoggable(PlatformLogger.Level.FINE)) {
-                                            logger.fine("window created: " + Long.toHexString(windowPtr));
-                                        }
-                                        ref.set(windowPtr);
-                                        return 1;
-                                    });
-                                }
-
-                                if (!hasOwnerPtr) {
-                                    if (logger.isLoggable(PlatformLogger.Level.FINE)) {
-                                        logger.fine("nativeCreateNSWindow: styleBits=" + Integer.toHexString(styleBits)
-                                                        + ", bounds=" + bounds);
-                                    }
-                                    long windowPtr = nativeCreateNSWindow(viewPtr, 0, styleBits,
-                                            bounds.x, bounds.y, bounds.width, bounds.height);
-                                    if (logger.isLoggable(PlatformLogger.Level.FINE)) {
-                                        logger.fine("window created: " + Long.toHexString(windowPtr));
-                                    }
-                                    ref.set(windowPtr);
-                                }
-                            });
-                            return ref.get();
-                        });
-                    } catch (Throwable throwable) {
-                        throw new AWTError(throwable.getMessage());
+            if (owner != null) {
+                hasOwnerPtr = 0L != owner.executeGet(ownerPtr -> {
+                    if (logger.isLoggable(PlatformLogger.Level.FINE)) {
+                        logger.fine("createNSWindow: owner=" + Long.toHexString(ownerPtr)
+                                + ", styleBits=" + Integer.toHexString(styleBits)
+                                + ", bounds=" + bounds);
                     }
+                    long windowPtr = createNSWindow(viewPtr, ownerPtr, styleBits,
+                            bounds.x, bounds.y, bounds.width, bounds.height);
+                    if (logger.isLoggable(PlatformLogger.Level.FINE)) {
+                        logger.fine("window created: " + Long.toHexString(windowPtr));
+                    }
+                    ref.set(windowPtr);
+                    return 1;
                 });
-        setPtr(nativeWindowPtr);
+            }
+
+            if (!hasOwnerPtr) {
+                if (logger.isLoggable(PlatformLogger.Level.FINE)) {
+                    logger.fine("createNSWindow: styleBits=" + Integer.toHexString(styleBits)
+                            + ", bounds=" + bounds);
+                }
+                long windowPtr = createNSWindow(viewPtr, 0, styleBits,
+                        bounds.x, bounds.y, bounds.width, bounds.height);
+                if (logger.isLoggable(PlatformLogger.Level.FINE)) {
+                    logger.fine("window created: " + Long.toHexString(windowPtr));
+                }
+                ref.set(windowPtr);
+            }
+        });
+        setPtr(ref.get());
 
         if (target instanceof javax.swing.RootPaneContainer) {
             final javax.swing.JRootPane rootpane = ((javax.swing.RootPaneContainer)target).getRootPane();
@@ -439,7 +435,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
 
     protected int getInitialStyleBits() {
         // defaults style bits
-        int styleBits = DECORATED | HAS_SHADOW | CLOSEABLE | MINIMIZABLE | ZOOMABLE | RESIZABLE;
+        int styleBits = DECORATED | HAS_SHADOW | CLOSEABLE | MINIMIZABLE | ZOOMABLE | RESIZABLE | TITLE_VISIBLE;
 
         if (target.getName() == "###overrideRedirect###") {
             styleBits = SET(styleBits, POPUP, true);
@@ -538,7 +534,10 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
 
                 prop = rootpane.getClientProperty(WINDOW_TRANSPARENT_TITLEBAR_APPEARANCE);
                 if (prop != null) {
-                    styleBits = SET(styleBits, TRANSPARENT_TITLEBAR, Boolean.parseBoolean(prop.toString()));
+                    boolean val = Boolean.parseBoolean(prop.toString());
+                    styleBits = SET(styleBits, TRANSPARENT_TITLE_BAR, val);
+                    styleBits = SET(styleBits, FULL_WINDOW_CONTENT, val);
+                    styleBits = SET(styleBits, TITLE_VISIBLE, !val);
                 }
 
                 prop = rootpane.getClientProperty(WINDOW_LIGHT_APPEARANCE);
@@ -574,6 +573,11 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
                 prop = rootpane.getClientProperty(WINDOW_TRANSPARENT_TITLE_BAR);
                 if (prop != null) {
                     styleBits = SET(styleBits, TRANSPARENT_TITLE_BAR, Boolean.parseBoolean(prop.toString()));
+                }
+
+                prop = rootpane.getClientProperty(WINDOW_TITLE_VISIBLE);
+                if (prop != null) {
+                    styleBits = SET(styleBits, TITLE_VISIBLE, Boolean.parseBoolean(prop.toString()));
                 }
             }
         }
@@ -679,7 +683,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
 
     @Override // PlatformWindow
     public void setBounds(int x, int y, int w, int h) {
-        execute(ptr -> nativeSetNSWindowBounds(ptr, x, y, w, h));
+        execute(ptr -> AWTThreading.executeWaitToolkit(wait -> nativeSetNSWindowBounds(ptr, x, y, w, h, wait)));
     }
 
     public void setMaximizedBounds(int x, int y, int w, int h) {
@@ -915,7 +919,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
             lwcToolkit.activateApplicationIgnoringOtherApps();
         }
         updateFocusabilityForAutoRequestFocus(false);
-        execute(CPlatformWindow::nativePushNSWindowToFront);
+        execute(ptr -> AWTThreading.executeWaitToolkit(wait -> nativePushNSWindowToFront(ptr, wait)));
         updateFocusabilityForAutoRequestFocus(true);
     }
 
@@ -1261,11 +1265,6 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
                     : SHOULD_BECOME_KEY | SHOULD_BECOME_MAIN;
     }
 
-    private boolean isBlocked() {
-        LWWindowPeer blocker = (peer != null) ? peer.getBlocker() : null;
-        return (blocker != null);
-    }
-
     /*
      * An utility method for the support of the auto request focus.
      * Updates the focusable state of the window under certain
@@ -1419,6 +1418,10 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
             return (getOwnerFrameOrDialog(target) instanceof CEmbeddedFrame);
         }
         return false;
+    }
+
+    private long createNSWindow(long nsViewPtr,long ownerPtr, long styleBits, double x, double y, double w, double h) {
+        return AWTThreading.executeWaitToolkit(() -> nativeCreateNSWindow(nsViewPtr, ownerPtr, styleBits, x, y, w, h));
     }
 
     // ----------------------------------------------------------------------

@@ -1,10 +1,11 @@
 package sun.awt;
 
 import sun.font.FontUtilities;
+import sun.util.logging.PlatformLogger;
 
 import java.awt.*;
 import java.awt.event.InvocationEvent;
-import java.lang.ref.SoftReference;
+import java.lang.ref.WeakReference;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.util.Map;
@@ -15,6 +16,8 @@ import java.util.concurrent.*;
  * Used to perform a cross threads (EventDispatch, Toolkit) execution so that the execution does not cause a deadlock.
  */
 public class AWTThreading {
+    private static final PlatformLogger logger = PlatformLogger.getLogger("sun.awt.AWTThreading");
+
     private ExecutorService executor;
     // every invokeAndWait() pushes a queue of invocations
     private final Stack<TrackingQueue> invocations = new Stack<>();
@@ -51,17 +54,38 @@ public class AWTThreading {
     }
 
     /**
+     * Same as {@link #executeWaitToolkit(Callable)}, but without returning a value. If requested (as indicated by
+     * the passed parameter), the invoked native method is supposed to wait for the result of invocation on AppKit
+     * thread, and vice versa.
+     */
+    public static void executeWaitToolkit(Task runnable) {
+        boolean wait = EventQueue.isDispatchThread();
+        executeWaitToolkit(() -> {
+            runnable.run(wait);
+            return null;
+        });
+    }
+
+    /**
      * Same as {@link #executeWaitToolkit(Callable)} except that the method waits no longer than the specified timeout.
      */
     public static <T> T executeWaitToolkit(Callable<T> callable, long timeout, TimeUnit unit) {
         if (callable == null) return null;
 
-        if (FontUtilities.isMacOSX && EventQueue.isDispatchThread()) {
+        boolean isEDT = EventQueue.isDispatchThread();
+
+        if (FontUtilities.isMacOSX && isEDT) {
             AWTThreading instance = getInstance(Thread.currentThread());
             if (instance != null) {
                 return instance.execute(callable, timeout, unit);
             }
         }
+
+        if (!isEDT && logger.isLoggable(PlatformLogger.Level.FINE)) {
+            // this can cause deadlock if calling thread is holding a lock which EDT might require (e.g. AWT tree lock)
+            logger.fine("AWTThreading.executeWaitToolkit invoked from non-EDT thread", new Throwable());
+        }
+
         // fallback to default
         try {
             return callable.call();
@@ -170,7 +194,7 @@ public class AWTThreading {
                         // - guarantees a single run either from dispatch or dispose
                         // - removes the invocation event from the tracking queue
                         new Runnable() {
-                            SoftReference<TrackingQueue> queueRef = new SoftReference<>(queue);
+                            WeakReference<TrackingQueue> queueRef = new WeakReference<>(queue);
 
                             @Override
                             public void run() {
@@ -181,7 +205,6 @@ public class AWTThreading {
                                     TrackingQueue q = queueRef.get();
                                     if (q != null) {
                                         q.remove(eventRef[0]);
-                                        q.clear();
                                     }
                                     queueRef = null;
                                 }
@@ -221,5 +244,9 @@ public class AWTThreading {
         if (edt == null) return null;
 
         return EDT_TO_INSTANCE_MAP.computeIfAbsent(edt, key -> new AWTThreading());
+    }
+
+    public interface Task {
+        void run(boolean wait);
     }
 }

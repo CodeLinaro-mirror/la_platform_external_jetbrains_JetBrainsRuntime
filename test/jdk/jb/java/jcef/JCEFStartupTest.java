@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * @test
  * @key headful
+ * @requires (os.arch == "amd64" | os.arch == "x86_64" | (os.arch == "aarch64" & os.family == "mac"))
  * @summary Tests that JCEF starts and loads empty page with no crash
  * @author Anton Tarasov
  * @run main JCEFStartupTest

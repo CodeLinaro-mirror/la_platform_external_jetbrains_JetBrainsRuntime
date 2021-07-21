@@ -6,7 +6,6 @@
 #   build_number     - specifies the number of JetBrainsRuntime build
 #   bundle_type      - specifies bundle to bu built; possible values:
 #                        jcef - the bundles 1) jbr with jcef+javafx, 2) jbrsdk and 3) test will be created
-#                        jfx  - the bundle 1) jbr with javafx only will be created
 #
 # jbrsdk-${JBSDK_VERSION}-osx-x64-b${build_number}.tar.gz
 # jbr-${JBSDK_VERSION}-osx-x64-b${build_number}.tar.gz
@@ -35,6 +34,7 @@ PATH="/usr/local/bin:/usr/bin:${PATH}"
   --with-target-bits=32 \
   --with-vendor-name="${VENDOR_NAME}" \
   --with-vendor-version-string="${VENDOR_VERSION_STRING}" \
+  --with-jvm-features=shenandoahgc \
   --with-version-pre= \
   --with-version-build=${JDK_BUILD_NUMBER} \
   --with-version-opt=b${build_number} \

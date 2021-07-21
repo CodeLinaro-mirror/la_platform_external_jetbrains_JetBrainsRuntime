@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -687,7 +687,7 @@ Java_sun_font_FreetypeFontScaler_createScalerContextNative(
         return (jlong) 0;
     }
     (*env)->GetDoubleArrayRegion(env, matrix, 0, 4, dmat);
-    ptsz = euclidianDistance(dmat[2], dmat[3]); //i.e. y-size
+    ptsz = euclidianDistance(dmat[0], dmat[1]); //i.e. x-size
     if (ptsz < 1.0) {
         //text can not be smaller than 1 point
         ptsz = 1.0;
@@ -715,7 +715,8 @@ Java_sun_font_FreetypeFontScaler_createScalerContextNative(
      */
     if ((aa != TEXT_AA_ON) && (fm != TEXT_FM_ON) &&
         !context->doBold && !context->doItalize &&
-        (context->transform.yx == 0) && (context->transform.xy == 0))
+        (context->transform.yx == 0) && (context->transform.xy == 0) &&
+        (context->transform.xx > 0) && (context->transform.yy > 0))
     {
         context->useSbits = 1;
     }
@@ -1641,9 +1642,13 @@ static jlong
         FT_GlyphSlot_Embolden(ftglyph);
     }
 
+    /* After call to FT_Render_Glyph, glyph format will be changed from
+     * FT_GLYPH_FORMAT_OUTLINE to FT_GLYPH_FORMAT_BITMAP, so save this value */
+    int outlineGlyph = ftglyph->format == FT_GLYPH_FORMAT_OUTLINE;
+
     /* generate bitmap if it is not done yet
      e.g. if algorithmic styling is performed and style was added to outline */
-    if (renderImage && (ftglyph->format == FT_GLYPH_FORMAT_OUTLINE)) {
+    if (renderImage && outlineGlyph) {
         FT_BBox bbox;
         FT_Outline_Get_CBox(&(ftglyph->outline), &bbox);
         int w = (int)((bbox.xMax>>6)-(bbox.xMin>>6));
@@ -1732,8 +1737,7 @@ static jlong
         }
     }
 
-    if (context->fmType == TEXT_FM_ON &&
-        ftglyph->format == FT_GLYPH_FORMAT_OUTLINE) {
+    if (context->fmType == TEXT_FM_ON && outlineGlyph) {
         float advh = FTFixedToFloat(ftglyph->linearHoriAdvance);
         glyphInfo->advanceX =
             (float) (advh * FTFixedToFloat(context->transform.xx));

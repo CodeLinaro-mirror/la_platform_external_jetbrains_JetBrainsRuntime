@@ -303,6 +303,7 @@ AWT_NS_WINDOW_IMPLEMENTATION
 @synthesize isMinimizing;
 @synthesize javaWindowTabbingMode;
 @synthesize isEnterFullScreen;
+@synthesize isJustCreated;
 
 - (void) updateMinMaxSize:(BOOL)resizable {
     if (resizable) {
@@ -384,6 +385,11 @@ AWT_NS_WINDOW_IMPLEMENTATION
     if (IS(mask, TRANSPARENT_TITLE_BAR) && [self.nsWindow respondsToSelector:@selector(setTitlebarAppearsTransparent:)]) {
         [self.nsWindow setTitlebarAppearsTransparent:IS(bits, TRANSPARENT_TITLE_BAR)];
     }
+
+    if (IS(mask, TITLE_VISIBLE) && [self.nsWindow respondsToSelector:@selector(setTitleVisibility:)]) {
+        [self.nsWindow setTitleVisibility:(IS(bits, TITLE_VISIBLE)) ? NSWindowTitleVisible :NSWindowTitleHidden];
+    }
+
 }
 
 - (id) initWithPlatformWindow:(JNFWeakJObjectWrapper *)platformWindow
@@ -395,14 +401,7 @@ AWT_NS_WINDOW_IMPLEMENTATION
 AWT_ASSERT_APPKIT_THREAD;
 
     NSUInteger styleMask = [AWTWindow styleMaskForStyleBits:bits];
-
-    BOOL isTransparentTitleBar = IS(bits, TRANSPARENT_TITLEBAR);
-
-    if (isTransparentTitleBar) {
-        styleMask = styleMask | NSFullSizeContentViewWindowMask;
-    }
-
-    NSRect contentRect = isTransparentTitleBar ? [NSWindow contentRectForFrameRect:rect styleMask:styleMask] : rect;
+    NSRect contentRect = rect; //[NSWindow contentRectForFrameRect:rect styleMask:styleMask];
     if (contentRect.size.width <= 0.0) {
         contentRect.size.width = 1.0;
     }
@@ -446,13 +445,9 @@ AWT_ASSERT_APPKIT_THREAD;
         [self.nsWindow setCollectionBehavior:(1 << 8) /*NSWindowCollectionBehaviorFullScreenAuxiliary*/];
     }
 
-    self.nsWindow.titlebarAppearsTransparent = IS(bits, TRANSPARENT_TITLEBAR);
-    if (self.nsWindow.titlebarAppearsTransparent) {
-        [self.nsWindow setTitleVisibility:NSWindowTitleHidden];
-    }
-
     self.javaWindowTabbingMode = [self getJavaWindowTabbingMode];
     self.isEnterFullScreen = NO;
+    self.isJustCreated = YES;
     
     return self;
 }
@@ -571,21 +566,6 @@ AWT_ASSERT_APPKIT_THREAD;
     [super dealloc];
 }
 
-// Tests whether window is blocked by modal dialog/window
-- (BOOL) isBlocked {
-    BOOL isBlocked = NO;
-
-    JNIEnv *env = [ThreadUtilities getJNIEnv];
-    jobject platformWindow = [self.javaPlatformWindow jObjectWithEnv:env];
-    if (platformWindow != NULL) {
-        static JNF_MEMBER_CACHE(jm_isBlocked, jc_CPlatformWindow, "isBlocked", "()Z");
-        isBlocked = JNFCallBooleanMethod(env, platformWindow, jm_isBlocked) == JNI_TRUE ? YES : NO;
-        (*env)->DeleteLocalRef(env, platformWindow);
-    }
-
-    return isBlocked;
-}
-
 // Test whether window is simple window and owned by embedded frame
 - (BOOL) isSimpleWindowOwnedByEmbeddedFrame {
     BOOL isSimpleWindowOwnedByEmbeddedFrame = NO;
@@ -625,9 +605,8 @@ AWT_ASSERT_APPKIT_THREAD;
 - (void) orderChildWindows:(BOOL)focus {
 AWT_ASSERT_APPKIT_THREAD;
 
-    if (self.isMinimizing || [self isBlocked]) {
+    if (self.isMinimizing) {
         // Do not perform any ordering, if iconify is in progress
-        // or the window is blocked by a modal window
         return;
     }
 
@@ -867,10 +846,9 @@ AWT_ASSERT_APPKIT_THREAD;
     jobject platformWindow = [self.javaPlatformWindow jObjectWithEnv:env];
     if (platformWindow != NULL) {
         static JNF_MEMBER_CACHE(jm_windowDidBecomeMain, jc_CPlatformWindow, "windowDidBecomeMain", "()V");
-        JNFCallVoidMethod(env, platformWindow, jm_windowDidBecomeMain);
+        JNF_EXECUTE_AND_HANDLE(JNFCallVoidMethod(env, platformWindow, jm_windowDidBecomeMain));
         (*env)->DeleteLocalRef(env, platformWindow);
     }
-
     [self orderChildWindows:YES];
 }
 
@@ -1053,21 +1031,6 @@ AWT_ASSERT_APPKIT_THREAD;
 
 - (void)sendEvent:(NSEvent *)event {
         if ([event type] == NSLeftMouseDown || [event type] == NSRightMouseDown || [event type] == NSOtherMouseDown) {
-            if ([self isBlocked]) {
-                // Move parent windows to front and make sure that a child window is displayed
-                // in front of its nearest parent.
-                if (self.ownerWindow != nil) {
-                    JNIEnv *env = [ThreadUtilities getJNIEnvUncached];
-                    jobject platformWindow = [self.javaPlatformWindow jObjectWithEnv:env];
-                    if (platformWindow != NULL) {
-                        static JNF_MEMBER_CACHE(jm_orderAboveSiblings, jc_CPlatformWindow, "orderAboveSiblings", "()V");
-                        JNFCallVoidMethod(env,platformWindow, jm_orderAboveSiblings);
-                        (*env)->DeleteLocalRef(env, platformWindow);
-                    }
-                }
-                [self orderChildWindows:YES];
-            }
-
             NSPoint p = [NSEvent mouseLocation];
             NSRect frame = [self.nsWindow frame];
             NSRect contentRect = [self.nsWindow contentRectForFrameRect:frame];
@@ -1229,6 +1192,11 @@ JNF_COCOA_ENTER(env);
                 nsWindow.contentView.frame = contentFrame;
                 resized = YES;
             }
+            if (window.isJustCreated) {
+                // Perform Move/Resize event for just created windows
+                resized = YES;
+                window.isJustCreated = NO;
+            }
         }
 
         // resets the NSWindow's style mask if the mask intersects any of those bits
@@ -1330,10 +1298,10 @@ JNF_COCOA_EXIT(env);
 /*
  * Class:     sun_lwawt_macosx_CPlatformWindow
  * Method:    nativeSetNSWindowBounds
- * Signature: (JDDDD)V
+ * Signature: (JDDDDZ)V
  */
 JNIEXPORT void JNICALL Java_sun_lwawt_macosx_CPlatformWindow_nativeSetNSWindowBounds
-(JNIEnv *env, jclass clazz, jlong windowPtr, jdouble originX, jdouble originY, jdouble width, jdouble height)
+(JNIEnv *env, jclass clazz, jlong windowPtr, jdouble originX, jdouble originY, jdouble width, jdouble height, jboolean wait)
 {
 JNF_COCOA_ENTER(env);
 
@@ -1341,7 +1309,7 @@ JNF_COCOA_ENTER(env);
 
     // TODO: not sure we need displayIfNeeded message in our view
     NSWindow *nsWindow = OBJC(windowPtr);
-    [ThreadUtilities performOnMainThreadWaiting:NO block:^(){
+    [ThreadUtilities performOnMainThreadWaiting:(BOOL)wait block:^(){
 
         AWTWindow *window = (AWTWindow*)[nsWindow delegate];
 
@@ -1486,15 +1454,15 @@ JNF_COCOA_EXIT(env);
 /*
  * Class:     sun_lwawt_macosx_CPlatformWindow
  * Method:    nativePushNSWindowToFront
- * Signature: (J)V
+ * Signature: (JZ)V
  */
 JNIEXPORT void JNICALL Java_sun_lwawt_macosx_CPlatformWindow_nativePushNSWindowToFront
-(JNIEnv *env, jclass clazz, jlong windowPtr)
+(JNIEnv *env, jclass clazz, jlong windowPtr, jboolean wait)
 {
 JNF_COCOA_ENTER(env);
 
     NSWindow *nsWindow = OBJC(windowPtr);
-    [ThreadUtilities performOnMainThreadWaiting:NO block:^(){
+    [ThreadUtilities performOnMainThreadWaiting:(BOOL)wait block:^(){
 
         if (![nsWindow isKeyWindow]) {
             [nsWindow makeKeyAndOrderFront:nsWindow];

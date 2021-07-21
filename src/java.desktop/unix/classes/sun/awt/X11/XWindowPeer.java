@@ -1105,26 +1105,26 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
         }
     }
 
+    /*
+     * This decides on a mechanism to suppress newly created window from getting
+     * focus, if 'autoRequestFocus' is set to 'false'. The 'old' (historically
+     * used) way is to suppress WM_TAKE_FOCUS protocol temporarily, until the
+     * window is mapped. This approach doesn't work for i3 window manager
+     * though, as the latter doesn't track updates to WM_TAKE_FOCUS property
+     * (it's not required as per ICCCM specification). So another approach is
+     * used - setting _NET_WM_USER_TIME to 0, as specified in EWMH spec (see
+     * 'setUserTimeBeforeShowing' method).
+     */
+    private boolean shouldSuppressWmTakeFocus() {
+        int wmId = XWM.getWMID();
+        return wmId != XWM.I3_WM;
+    }
+
     public void setVisible(boolean vis) {
         if (!isVisible() && vis) {
             isBeforeFirstMapNotify = true;
             winAttr.initialFocus = isAutoRequestFocus();
-            if (!winAttr.initialFocus && XWM.getWMID() != XWM.I3_WM) {
-                /*
-                 * It's easier and safer to temporary suppress WM_TAKE_FOCUS
-                 * protocol itself than to ignore WM_TAKE_FOCUS client message.
-                 * Because we will have to make the difference between
-                 * the message come after showing and the message come after
-                 * activation. Also, on Metacity, for some reason, we have _two_
-                 * WM_TAKE_FOCUS client messages when showing a frame/dialog.
-                 *
-                 * i3 window manager doesn't track updates to WM_TAKE_FOCUS
-                 * property, so this approach won't work for it, breaking
-                 * focus behaviour completely. So another way is used to
-                 * suppress focus take over - via setting _NET_WM_USER_TIME
-                 * to 0, as specified in EWMH spec (see
-                 * 'setUserTimeBeforeShowing' method).
-                 */
+            if (!winAttr.initialFocus && shouldSuppressWmTakeFocus()) {
                 suppressWmTakeFocus(true);
             }
         }
@@ -1202,7 +1202,7 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
 
     @Override
     void setUserTimeBeforeShowing() {
-        if (winAttr.initialFocus || XWM.getWMID() != XWM.I3_WM) {
+        if (winAttr.initialFocus || shouldSuppressWmTakeFocus()) {
             super.setUserTimeBeforeShowing();
         }
         else {
@@ -1451,18 +1451,23 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
         isUnhiding |= isWMStateNetHidden();
 
         super.handleMapNotifyEvent(xev);
-        if (!winAttr.initialFocus && XWM.getWMID() != XWM.I3_WM) {
+        if (isBeforeFirstMapNotify && !winAttr.initialFocus && shouldSuppressWmTakeFocus()) {
             suppressWmTakeFocus(false); // restore the protocol.
-            /*
-             * For some reason, on Metacity, a frame/dialog being shown
-             * without WM_TAKE_FOCUS protocol doesn't get moved to the front.
-             * So, we do it evidently.
-             */
-            XToolkit.awtLock();
-            try {
-                XlibWrapper.XRaiseWindow(XToolkit.getDisplay(), getWindow());
-            } finally {
-                XToolkit.awtUnlock();
+            if (!XWM.isKDE2()) {
+                /*
+                 * For some reason, on Metacity, a frame/dialog being shown
+                 * without WM_TAKE_FOCUS protocol doesn't get moved to the front.
+                 * So, we do it evidently.
+                 *
+                 * We don't do it on KDE, as raising a child window will also raise the parent one there,
+                 * and we don't want that.
+                 */
+                XToolkit.awtLock();
+                try {
+                    XlibWrapper.XRaiseWindow(XToolkit.getDisplay(), getWindow());
+                } finally {
+                    XToolkit.awtUnlock();
+                }
             }
         }
         if (shouldFocusOnMapNotify()) {

@@ -374,13 +374,6 @@ class VM_UnlinkSymbols: public VM_Operation {
   bool allow_nested_vm_operations() const        { return true; }
 };
 
-class VM_Verify: public VM_Operation {
- public:
-  VMOp_Type type() const { return VMOp_Verify; }
-  void doit();
-};
-
-
 class VM_PrintThreads: public VM_Operation {
  private:
   outputStream* _out;
@@ -458,7 +451,7 @@ class VM_ThreadDump : public VM_Operation {
   bool                           _with_locked_monitors;
   bool                           _with_locked_synchronizers;
 
-  ThreadSnapshot* snapshot_thread(JavaThread* java_thread, ThreadConcurrentLocks* tcl);
+  void snapshot_thread(JavaThread* java_thread, ThreadConcurrentLocks* tcl);
 
  public:
   VM_ThreadDump(ThreadDumpResult* result,

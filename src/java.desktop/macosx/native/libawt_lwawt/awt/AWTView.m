@@ -246,10 +246,19 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
     NSPoint localPoint = [self convertPoint: eventLocation fromView: nil];
 
     if  ([self mouse: localPoint inRect: [self bounds]]) {
-        [self deliverJavaMouseEvent: event];
-    } else {
-        [[self nextResponder] mouseDown:event];
+        NSWindow* eventWindow = [event window];
+        NSPoint screenPoint = (eventWindow == nil)
+            ? eventLocation
+            // SDK we build against is too old - it doesn't have convertPointToScreen
+            : [eventWindow convertRectToScreen:NSMakeRect(eventLocation.x, eventLocation.y, 0, 0)].origin;
+        // macOS can report mouseMoved events to a window even if it's not showing currently (see JBR-2702)
+        // so we're performing an additional check here
+        if (self.window.windowNumber == [NSWindow windowNumberAtPoint:screenPoint belowWindowWithWindowNumber:0]) {
+            [self deliverJavaMouseEvent: event];
+            return;
+        }
     }
+    [[self nextResponder] mouseMoved:event];
 }
 
 - (void) mouseDragged: (NSEvent *)event {
@@ -364,6 +373,21 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
     // if IM is active key events should be ignored
     if (![self hasMarkedText] && !fInPressAndHold) {
         [self deliverJavaKeyEventHelper: event];
+    }
+    // Workaround for 8020209: special case for "Cmd =" and "Cmd ."
+    // because Cocoa calls performKeyEquivalent twice for these keystrokes
+    NSUInteger modFlags = [event modifierFlags] &
+    (NSCommandKeyMask | NSAlternateKeyMask | NSShiftKeyMask | NSControlKeyMask);
+    if (modFlags == NSCommandKeyMask) {
+        NSString *eventChars = [event charactersIgnoringModifiers];
+        if ([eventChars length] == 1) {
+            unichar ch = [eventChars characterAtIndex:0];
+            if (ch == '=' || ch == '.' ||
+                ch == 0x044E) { // small cyrillic u
+                [[NSApp mainMenu] performKeyEquivalent: event];
+                return YES;
+            }
+        }
     }
 
     NSUInteger deviceIndependentModifierFlagsMask =
@@ -498,10 +522,10 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
 
     const UCKeyboardLayout *keyboardLayout =  (UCKeyboardLayout*)CFDataGetBytePtr(keyLayoutPtr);
 
-    UInt32 isDeadKeyPressed;
+    UInt32 isDeadKeyPressed = 0;
     UInt32 lengthOfBuffer = 8;
     UniChar stringWithChars[lengthOfBuffer];
-    UniCharCount actualLength;
+    UniCharCount actualLength = 0;
 
     OSStatus status =  UCKeyTranslate(
                    keyboardLayout,
@@ -725,7 +749,7 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
         NSLog(@"Apple AWT : Error AWTView:awtComponent given bad parameters.");
         if (env != NULL)
         {
-            JNFDumpJavaStack(env);
+            JNF_EXECUTE_AND_HANDLE(JNFDumpJavaStack(env));
         }
         return NULL;
     }
@@ -740,7 +764,7 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
     static JNF_MEMBER_CACHE(jf_Target, jc_LWWindowPeer, "target", "Ljava/awt/Component;");
     if (peer == NULL) {
         NSLog(@"Apple AWT : Error AWTView:awtComponent got null peer from CPlatformView");
-        JNFDumpJavaStack(env);
+        JNF_EXECUTE_AND_HANDLE(JNFDumpJavaStack(env));
         return NULL;
     }
     jobject comp = JNFGetObjectField(env, peer, jf_Target);

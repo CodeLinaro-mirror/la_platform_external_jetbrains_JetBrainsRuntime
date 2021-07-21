@@ -31,6 +31,8 @@
 #include <sys/auxv.h>
 #include <sys/prctl.h>
 
+#include <assert.h>
+
 #ifndef HWCAP_AES
 #define HWCAP_AES   (1<<3)
 #endif
@@ -55,13 +57,17 @@
 #define HWCAP_ATOMICS (1<<8)
 #endif
 
+#ifndef HWCAP2_SVE2
+#define HWCAP2_SVE2	(1 << 1)
+#endif
+
 int VM_Version::get_current_sve_vector_length() {
-  assert(_features & CPU_SVE, "should not call this");
+  assert(_features & CPU_SVE); // "should not call this"
   return prctl(PR_SVE_GET_VL);
 }
 
 int VM_Version::set_and_get_current_sve_vector_lenght(int length) {
-  assert(_features & CPU_SVE, "should not call this");
+  assert(_features & CPU_SVE); // "should not call this"
   int new_length = prctl(PR_SVE_SET_VL, length);
   return new_length;
 }
@@ -71,18 +77,6 @@ void VM_Version::get_os_cpu_info() {
   uint64_t auxv = getauxval(AT_HWCAP);
   uint64_t auxv2 = getauxval(AT_HWCAP2);
 
-  static_assert(CPU_FP      == HWCAP_FP);
-  static_assert(CPU_ASIMD   == HWCAP_ASIMD);
-  static_assert(CPU_EVTSTRM == HWCAP_EVTSTRM);
-  static_assert(CPU_AES     == HWCAP_AES);
-  static_assert(CPU_PMULL   == HWCAP_PMULL);
-  static_assert(CPU_SHA1    == HWCAP_SHA1);
-  static_assert(CPU_SHA2    == HWCAP_SHA2);
-  static_assert(CPU_CRC32   == HWCAP_CRC32);
-  static_assert(CPU_LSE     == HWCAP_ATOMICS);
-  static_assert(CPU_DCPOP   == HWCAP_DCPOP);
-  static_assert(CPU_SHA512  == HWCAP_SHA512);
-  static_assert(CPU_SVE     == HWCAP_SVE);
   _features = auxv & (
       HWCAP_FP      |
       HWCAP_ASIMD   |

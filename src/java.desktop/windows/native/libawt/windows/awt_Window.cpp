@@ -306,7 +306,7 @@ AwtWindow::Grab() {
         // we shouldn't perform grab in this case (see 4841881 & 6539458)
         Ungrab();
     } else if (GetHWnd() != AwtComponent::GetFocusedWindow()) {
-        _ToFront(env->NewGlobalRef(GetPeer(env)));
+        _ToFront(env->NewGlobalRef(GetPeer(env)), FALSE);
         // Global ref was deleted in _ToFront
     }
 }
@@ -1626,6 +1626,34 @@ void AwtWindow::SendComponentEvent(jint eventId)
     env->DeleteLocalRef(event);
 }
 
+static void SendPriorityEvent(jobject event) {
+    JNIEnv *env = (JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2);
+
+    static jclass toolkitClass;
+    if (toolkitClass == NULL) {
+        toolkitClass = env->FindClass("sun/awt/SunToolkit");
+        if (toolkitClass != NULL) {
+            toolkitClass = (jclass)env->NewGlobalRef(toolkitClass);
+        }
+        if (toolkitClass == NULL) {
+            return;
+        }
+    }
+
+    static jmethodID postPriorityEventMID;
+    if (postPriorityEventMID == NULL) {
+        postPriorityEventMID =
+            env->GetStaticMethodID(toolkitClass, "postPriorityEvent",
+                             "(Ljava/awt/AWTEvent;)V");
+        DASSERT(postPriorityEventMID);
+        if (postPriorityEventMID == NULL) {
+            return;
+        }
+    }
+
+    env->CallStaticVoidMethod(toolkitClass, postPriorityEventMID, event);
+}
+
 void AwtWindow::SendWindowEvent(jint id, HWND opposite,
                                 jint oldState, jint newState)
 {
@@ -1654,25 +1682,6 @@ void AwtWindow::SendWindowEvent(jint id, HWND opposite,
         if (wEventInitMID == NULL) {
             return;
         }
-    }
-
-    static jclass sequencedEventCls;
-    if (sequencedEventCls == NULL) {
-        jclass sequencedEventClsLocal
-            = env->FindClass("java/awt/SequencedEvent");
-        DASSERT(sequencedEventClsLocal);
-        CHECK_NULL(sequencedEventClsLocal);
-        sequencedEventCls =
-            (jclass)env->NewGlobalRef(sequencedEventClsLocal);
-        env->DeleteLocalRef(sequencedEventClsLocal);
-    }
-
-    static jmethodID sequencedEventConst;
-    if (sequencedEventConst == NULL) {
-        sequencedEventConst =
-            env->GetMethodID(sequencedEventCls, "<init>",
-                             "(Ljava/awt/AWTEvent;)V");
-        CHECK_NULL(sequencedEventConst);
     }
 
     static jclass windowCls = NULL;
@@ -1728,19 +1737,14 @@ void AwtWindow::SendWindowEvent(jint id, HWND opposite,
     env->DeleteLocalRef(target); target = NULL;
     CHECK_NULL(event);
 
-    if (id == java_awt_event_WindowEvent_WINDOW_GAINED_FOCUS ||
-        id == java_awt_event_WindowEvent_WINDOW_LOST_FOCUS)
+    if (AwtComponent::sm_priorityFocusEvents &&
+        (id == java_awt_event_WindowEvent_WINDOW_GAINED_FOCUS ||
+         id == java_awt_event_WindowEvent_WINDOW_LOST_FOCUS))
     {
-        jobject sequencedEvent = env->NewObject(sequencedEventCls,
-                                                sequencedEventConst,
-                                                event);
-        DASSERT(!safe_ExceptionOccurred(env));
-        DASSERT(sequencedEvent != NULL);
-        env->DeleteLocalRef(event);
-        event = sequencedEvent;
+        SendPriorityEvent(event);
+    } else {
+        SendEvent(event);
     }
-
-    SendEvent(event);
 
     env->DeleteLocalRef(event);
 }
@@ -1853,18 +1857,20 @@ MsgRouting AwtWindow::WmShowWindow(BOOL show, UINT status)
     /*
      * Original fix for 4810575. Modified for 6386592.
      * If a simple window gets disposed we should synthesize
-     * WM_ACTIVATE for its nearest owner. This is not performed by default because
+     * WM_ACTIVATE for its nearest focusable owner. This is not performed by default because
      * the owner frame/dialog is natively active.
      */
     HWND hwndSelf = GetHWnd();
     HWND hwndOwner = ::GetParent(hwndSelf);
 
-    if (!show && IsSimpleWindow() && hwndSelf == AwtComponent::GetFocusedWindow() &&
-        hwndOwner != NULL && ::IsWindowVisible(hwndOwner))
-    {
-        AwtFrame *owner = (AwtFrame*)AwtComponent::GetComponent(hwndOwner);
-        if (owner != NULL) {
-            owner->AwtSetActiveWindow();
+    if (!show && IsSimpleWindow() && hwndSelf == AwtComponent::GetFocusedWindow()) {
+        while (hwndOwner != NULL && ::IsWindowVisible(hwndOwner)) {
+            AwtWindow *owner = (AwtWindow*)AwtComponent::GetComponent(hwndOwner);
+            if (owner != NULL && owner->IsFocusableWindow()) {
+                owner->AwtSetActiveWindow();
+                break;
+            }
+            hwndOwner = ::GetParent(hwndOwner);
         }
     }
 
@@ -2468,7 +2474,25 @@ ret:
     return result;
 }
 
-void AwtWindow::_ToFront(void *param)
+void AwtWindow::ToFront() {
+    if (::IsWindow(GetHWnd())) {
+        UINT flags = SWP_NOMOVE|SWP_NOSIZE;
+        BOOL focusable = IsFocusableWindow();
+        BOOL autoRequestFocus = IsAutoRequestFocus();
+
+        if (!focusable || !autoRequestFocus)
+        {
+            flags = flags|SWP_NOACTIVATE;
+        }
+        ::SetWindowPos(GetHWnd(), HWND_TOP, 0, 0, 0, 0, flags);
+        if (focusable && autoRequestFocus)
+        {
+            ::SetForegroundWindow(GetHWnd());
+        }
+    }
+}
+
+void AwtWindow::_ToFront(void *param, BOOL wait)
 {
     JNIEnv *env = (JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2);
 
@@ -2481,22 +2505,18 @@ void AwtWindow::_ToFront(void *param)
     w = (AwtWindow *)pData;
     if (::IsWindow(w->GetHWnd()))
     {
-        UINT flags = SWP_NOMOVE|SWP_NOSIZE;
-        BOOL focusable = w->IsFocusableWindow();
-        BOOL autoRequestFocus = w->IsAutoRequestFocus();
-
-        if (!focusable || !autoRequestFocus)
-        {
-            flags = flags|SWP_NOACTIVATE;
-        }
-        ::SetWindowPos(w->GetHWnd(), HWND_TOP, 0, 0, 0, 0, flags);
-        if (focusable && autoRequestFocus)
-        {
-            ::SetForegroundWindow(w->GetHWnd());
+        if (wait) {
+            w->SendMessage(WM_AWT_WINDOW_TOFRONT, 0, 0);
+        } else {
+            w->ToFront();
         }
     }
 ret:
     env->DeleteGlobalRef(self);
+}
+
+static void _ToFrontWait(void *param) {
+    AwtWindow::_ToFront(param, TRUE);
 }
 
 void AwtWindow::_ToBack(void *param)
@@ -3527,7 +3547,7 @@ Java_sun_awt_windows_WWindowPeer__1toFront(JNIEnv *env, jobject self)
 {
     TRY;
 
-    AwtToolkit::GetInstance().SyncCall(AwtWindow::_ToFront,
+    AwtToolkit::GetInstance().SyncCall(_ToFrontWait,
         env->NewGlobalRef(self));
     // global ref is deleted in _ToFront()
 
