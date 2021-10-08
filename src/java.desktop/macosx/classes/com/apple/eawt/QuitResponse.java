@@ -47,8 +47,6 @@ public class QuitResponse {
      * Notifies the external quit requester that the quit will proceed, and performs the default {@link QuitStrategy}.
      */
     public void performQuit() {
-        if (appEventHandler.currentQuitResponse != this) return;
-        appEventHandler.performQuit();
     }
 
     /**
@@ -56,7 +54,5 @@ public class QuitResponse {
      * <b>Note: this will cancel a pending log-out, restart, or shutdown.</b>
      */
     public void cancelQuit() {
-        if (appEventHandler.currentQuitResponse != this) return;
-        appEventHandler.cancelQuit();
     }
 }

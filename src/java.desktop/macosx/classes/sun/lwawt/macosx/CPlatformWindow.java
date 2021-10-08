@@ -89,7 +89,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     private static native void nativeSetNSWindowStyleBits(long nsWindowPtr, int mask, int data);
     private static native void nativeSetNSWindowMenuBar(long nsWindowPtr, long menuBarPtr);
     private static native Insets nativeGetNSWindowInsets(long nsWindowPtr);
-    private static native void nativeSetNSWindowBounds(long nsWindowPtr, double x, double y, double w, double h, boolean wait);
+    private static native void nativeSetNSWindowBounds(long nsWindowPtr, double x, double y, double w, double h);
     private static native void nativeSetNSWindowLocationByPlatform(long nsWindowPtr);
     private static native void nativeSetNSWindowStandardFrame(long nsWindowPtr,
                                                               double x, double y, double w, double h);
@@ -683,7 +683,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
 
     @Override // PlatformWindow
     public void setBounds(int x, int y, int w, int h) {
-        execute(ptr -> AWTThreading.executeWaitToolkit(wait -> nativeSetNSWindowBounds(ptr, x, y, w, h, wait)));
+        execute(ptr -> nativeSetNSWindowBounds(ptr, x, y, w, h));
     }
 
     public void setMaximizedBounds(int x, int y, int w, int h) {
@@ -745,6 +745,8 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
             execute(CPlatformWindow::nativeSetNSWindowLocationByPlatform);
         }
 
+        this.visible = visible;
+
         // Actually show or hide the window
         LWWindowPeer blocker = (peer == null)? null : peer.getBlocker();
         if (blocker == null || !visible) {
@@ -796,7 +798,6 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
                 });
             });
         }
-        this.visible = visible;
 
         // Manage the extended state when showing
         if (visible) {

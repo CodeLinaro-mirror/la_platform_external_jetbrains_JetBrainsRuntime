@@ -7,20 +7,20 @@
 #import "JavaColumnAccessibility.h"
 #import "JavaTableAccessibility.h"
 #import "ThreadUtilities.h"
+#import "JNIUtilities.h"
 
+// GET* macros defined in JavaAccessibilityUtilities.h, so they can be shared.
+static jclass sjc_CAccessibility = NULL;
 
-
-static JNF_STATIC_MEMBER_CACHE(jm_getChildrenAndRoles, sjc_CAccessibility, "getChildrenAndRoles", "(Ljavax/accessibility/Accessible;Ljava/awt/Component;IZ)[Ljava/lang/Object;");
+static jmethodID jm_getChildrenAndRoles = NULL;
+#define GET_CHILDRENANDROLES_METHOD_RETURN(ret) \
+    GET_CACCESSIBILITY_CLASS_RETURN(ret); \
+    GET_STATIC_METHOD_RETURN(jm_getChildrenAndRoles, sjc_CAccessibility, "getChildrenAndRoles",\
+                      "(Ljavax/accessibility/Accessible;Ljava/awt/Component;IZ)[Ljava/lang/Object;", ret);
 
 @implementation JavaColumnAccessibility
 
-- (NSString *)getPlatformAxElementClassName {
-    return @"PlatformAxColumn";
-}
-
-@end
-
-@implementation PlatformAxColumn
+// NSAccessibilityElement protocol methods
 
 - (NSAccessibilityRole)accessibilityRole {
     return NSAccessibilityColumnRole;
@@ -30,8 +30,11 @@ static JNF_STATIC_MEMBER_CACHE(jm_getChildrenAndRoles, sjc_CAccessibility, "getC
     NSArray *children = [super accessibilityChildren];
     if (children == NULL) {
         JNIEnv *env = [ThreadUtilities getJNIEnv];
-        if ([[[self accessibilityParent] javaBase] accessible] == NULL) return nil;
-        jobjectArray jchildrenAndRoles = (jobjectArray)JNFCallStaticObjectMethod(env, jm_getChildrenAndRoles, [[[self accessibilityParent] javaBase] accessible], [[[self accessibilityParent] javaBase] component], JAVA_AX_ALL_CHILDREN, NO);
+        JavaComponentAccessibility *parent = [self accessibilityParent];
+        if (parent->fAccessible == NULL) return nil;
+        GET_CHILDRENANDROLES_METHOD_RETURN(nil);
+        jobjectArray jchildrenAndRoles = (jobjectArray)(*env)->CallStaticObjectMethod(env, sjc_CAccessibility, jm_getChildrenAndRoles, parent->fAccessible, parent->fComponent, JAVA_AX_ALL_CHILDREN, NO);
+        CHECK_EXCEPTION();
         if (jchildrenAndRoles == NULL) return nil;
 
         jsize arrayLen = (*env)->GetArrayLength(env, jchildrenAndRoles);
@@ -39,8 +42,7 @@ static JNF_STATIC_MEMBER_CACHE(jm_getChildrenAndRoles, sjc_CAccessibility, "getC
 
         NSUInteger childIndex = [self columnNumberInTable];
 
-        JavaColumnAccessibility *selfRow = [self javaBase];
-        int inc = [(JavaTableAccessibility *)[[self accessibilityParent] javaBase] accessibleColCount] * 2;
+        int inc = [(JavaTableAccessibility *)[self accessibilityParent] accessibleColCount] * 2;
         NSInteger i = childIndex * 2;
         for(NSInteger i; i < arrayLen; i += inc)
         {
@@ -49,18 +51,20 @@ static JNF_STATIC_MEMBER_CACHE(jm_getChildrenAndRoles, sjc_CAccessibility, "getC
 
             NSString *childJavaRole = nil;
             if (jchildJavaRole != NULL) {
-                jobject jkey = JNFGetObjectField(env, jchildJavaRole, sjf_key);
-                childJavaRole = JNFJavaToNSString(env, jkey);
+                DECLARE_CLASS_RETURN(sjc_AccessibleRole, "javax/accessibility/AccessibleRole", nil);
+                DECLARE_FIELD_RETURN(sjf_key, sjc_AccessibleRole, "key", "Ljava/lang/String;", nil);
+                jobject jkey = (*env)->GetObjectField(env, jchildJavaRole, sjf_key);
+                childJavaRole = JavaStringToNSString(env, jkey);
                 (*env)->DeleteLocalRef(env, jkey);
             }
 
-            JavaCellAccessibility *child = [[JavaCellAccessibility alloc] initWithParent:selfRow
+            JavaCellAccessibility *child = [[JavaCellAccessibility alloc] initWithParent:self
                                                                                  withEnv:env
                                                                           withAccessible:jchild
                                                                                withIndex:childIndex
-                                                                                withView:[selfRow view]
+                                                                                withView:self->fView
                                                                             withJavaRole:childJavaRole];
-            [childrenCells addObject:[child autorelease].platformAxElement];
+            [childrenCells addObject:[[child retain] autorelease]];
 
             (*env)->DeleteLocalRef(env, jchild);
             (*env)->DeleteLocalRef(env, jchildJavaRole);
@@ -75,7 +79,7 @@ static JNF_STATIC_MEMBER_CACHE(jm_getChildrenAndRoles, sjc_CAccessibility, "getC
 }
 
 - (NSUInteger)columnNumberInTable {
-    return [[self javaBase] index];
+    return self->fIndex;
 }
 
 @end

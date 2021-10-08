@@ -143,7 +143,6 @@ java/awt/EmbeddedFrame/EmbeddedFrameGrabTest/EmbeddedFrameGrabTest.java         
 java/awt/EventDispatchThread/HandleExceptionOnEDT/HandleExceptionOnEDT.java         8203047 macosx-all,linux-all,windows-all
 java/awt/EventDispatchThread/LoopRobustness/LoopRobustness.html                     8073636 macosx-all
 java/awt/EventQueue/6980209/bug6980209.java                                         8198615 macosx-all,linux-all,windows-all
-java/awt/FileDialog/8003399/bug8003399.java                                         8198334 windows-all
 java/awt/FileDialog/FileDialogIconTest/FileDialogIconTest.java                      8160558 windows-all
 java/awt/FileDialog/FilenameFilterTest/FilenameFilterTest.html                      8202882 linux-all
 java/awt/FileDialog/ModalFocus/FileDialogModalFocusTest.java                        8194751 linux-all,macosx-all
@@ -248,12 +247,12 @@ java/awt/Mixing/AWT_Mixing/HierarchyBoundsListenerMixingTest.java               
 java/awt/Mixing/AWT_Mixing/JButtonInGlassPaneOverlapping.java                       8158801 windows-all,macosx-all,linux-all
 java/awt/Mixing/AWT_Mixing/JButtonOverlapping.java                                  8158801 windows-all,macosx-all,linux-all
 java/awt/Mixing/AWT_Mixing/JColorChooserOverlapping.java                            8158801 windows-all,macosx-all,linux-all
-java/awt/Mixing/AWT_Mixing/JComboBoxOverlapping.java                                8158801 windows-all,macosx-all,linux-all
+java/awt/Mixing/AWT_Mixing/JComboBoxOverlapping.java                                8158801,8049405 windows-all,macosx-all,linux-all
 java/awt/Mixing/AWT_Mixing/JEditorPaneInGlassPaneOverlapping.java                   8158801 windows-all,macosx-all,linux-all
 java/awt/Mixing/AWT_Mixing/JEditorPaneOverlapping.java                              8158801 windows-all,macosx-all,linux-all
 java/awt/Mixing/AWT_Mixing/JGlassPaneInternalFrameOverlapping.java                  8158801,8049405 windows-all,macosx-all,linux-all
 java/awt/Mixing/AWT_Mixing/JGlassPaneMoveOverlapping.java                           8158801 windows-all,macosx-all,linux-all
-java/awt/Mixing/AWT_Mixing/JInternalFrameMoveOverlapping.java                       8158801 windows-all,macosx-all,linux-all
+java/awt/Mixing/AWT_Mixing/JInternalFrameMoveOverlapping.java                       8158801,6986109 windows-all,macosx-all,linux-all
 java/awt/Mixing/AWT_Mixing/JInternalFrameOverlapping.java                           8158801 windows-all,macosx-all,linux-all
 java/awt/Mixing/AWT_Mixing/JLabelInGlassPaneOverlapping.java                        8158801 windows-all,macosx-all,linux-all
 java/awt/Mixing/AWT_Mixing/JLabelOverlapping.java                                   8158801 windows-all,macosx-all,linux-all
@@ -281,8 +280,6 @@ java/awt/Mixing/AWT_Mixing/JTextFieldInGlassPaneOverlapping.java                
 java/awt/Mixing/AWT_Mixing/JTextFieldOverlapping.java                               8158801 windows-all,macosx-all,linux-all
 java/awt/Mixing/AWT_Mixing/JToggleButtonInGlassPaneOverlapping.java                 8158801 windows-all,macosx-all,linux-all
 java/awt/Mixing/AWT_Mixing/JToggleButtonOverlapping.java                            8158801 windows-all,macosx-all,linux-all
-java/awt/Mixing/AWT_Mixing/JInternalFrameMoveOverlapping.java                       6986109 windows-all
-java/awt/Mixing/AWT_Mixing/JComboBoxOverlapping.java                                8049405 macosx-all,windows-all
 java/awt/Mixing/AWT_Mixing/MixingFrameResizing.java                                 8049405 generic-all
 java/awt/Mixing/AWT_Mixing/MixingPanelsResizing.java                                8049405 generic-all
 java/awt/Mixing/AWT_Mixing/OpaqueOverlapping.java                                   8194045 generic-all
@@ -641,6 +638,7 @@ java/awt/event/ComponentEvent/MovedResizedTwiceTest/MovedResizedTwiceTest.java  
 java/awt/event/HierarchyEvent/AncestorResized/AncestorResized.java                  6618538 generic-all
 java/awt/event/InputEvent/EventWhenTest/EventWhenTest.java                          8168646 generic-all
 java/awt/event/KeyEvent/CorrectTime/CorrectTime.java                                6626492 generic-all
+java/awt/event/KeyEvent/DeadKey/DeadKeyMacOSXInputText.java                         8233568 macosx-all
 java/awt/event/KeyEvent/DeadKey/DeadKeySystemAssertionDialog.java                   8194045 generic-all
 java/awt/event/KeyEvent/ExtendedKeyCode/ExtendedKeyCodeTest.java                    8169476 windows-all,linux-all,macosx-all
 java/awt/event/KeyEvent/ExtendedModifiersTest/ExtendedModifiersTest.java            8129778 generic-all
@@ -699,9 +697,9 @@ java/awt/xembed/server/RunTestXEmbed.java                                       
 sun/awt/datatransfer/SuplementaryCharactersTransferTest.java                        8011371 generic-all
 sun/awt/shell/ShellFolderMemoryLeak.java                                            8197794 windows-all
 
-# Fedora & ArchLinux (Wayland)
+# Fedora & ArchLinux (Wayland) & Ubuntu 21.04
 sun/java2d/AcceleratedXORModeTest.java                                              JBR-3167 linux-5.10.12-200.fc33.x86_64,linux-5.11.6-arch1-1
-sun/java2d/ClassCastExceptionForInvalidSurface.java                                 JBR-3167 linux-5.10.12-200.fc33.x86_64,linux-5.11.6-arch1-1
+sun/java2d/ClassCastExceptionForInvalidSurface.java                                 JBR-3167 linux-all
 
 sun/java2d/DirectX/OnScreenRenderingResizeTest/OnScreenRenderingResizeTest.java     8022403 generic-all
 sun/java2d/DirectX/OverriddenInsetsTest/OverriddenInsetsTest.java                   8196102 generic-all
@@ -843,10 +841,16 @@ sun/security/pkcs11/Secmod/AddTrustedCert.java                                  
 sun/security/pkcs11/tls/TestKeyMaterial.java                                        8180837 generic-all
 
 sun/security/pkcs11/KeyStore/SecretKeysBasic.sh                                     8209398 generic-all
+sun/security/pkcs11/Secmod/AddTrustedCert.java                                      8180837 generic-all
+sun/security/pkcs11/tls/TestKeyMaterial.java                                        8180837 generic-all
+
+sun/security/tools/keytool/ListKeychainStore.sh                                     8156889 macosx-all
 
 security/infra/java/security/cert/CertPathValidator/certification/ActalisCA.java    8224768 generic-all
-security/infra/java/security/cert/CertPathValidator/certification/GlobalSignR6CA.java 8249176 generic-all
-security/infra/java/security/cert/CertPathValidator/certification/LuxTrustCA.java   8237888 generic-all
+security/infra/java/security/cert/CertPathValidator/certification/BuypassCA.java    8243543 generic-all
+security/infra/java/security/cert/CertPathValidator/certification/ComodoCA.java     8263059 generic-all
+security/infra/java/security/cert/CertPathValidator/certification/LetsEncryptCA.java 8268678 generic-all
+security/infra/java/security/cert/CertPathValidator/certification/QuoVadisCA.java   8248899 generic-all
 
 ############################################################################
 
@@ -1235,6 +1239,7 @@ tools/jlink/JLink2Test.java                                                     
 tools/jlink/JLinkNegativeTest.java                                                  nobug windows-6.1 fails on Windows 7 only
 tools/jlink/JLinkPluginsTest.java                                                   nobug windows-6.1 fails on Windows 7 only
 tools/jlink/JLinkPostProcessingTest.java                                            nobug windows-6.1 fails on Windows 7 only
+tools/jlink/JLinkReproducibleTest.java                                              8258945 linux-all,macosx-all
 tools/jlink/NativeTest.java                                                         nobug windows-6.1 fails on Windows 7 only
 tools/jlink/basic/AllModulePath.java                                                nobug windows-6.1 fails on Windows 7 only
 tools/jlink/basic/BasicTest.java                                                    nobug windows-6.1 fails on Windows 7 only

@@ -23,13 +23,13 @@
  * questions.
  */
 
-#import <JavaNativeFoundation/JavaNativeFoundation.h>
 #import "java_awt_geom_PathIterator.h"
 #import "sun_font_CStrike.h"
 #import "sun_font_CStrikeDisposer.h"
 #import "CGGlyphImages.h"
 #import "CGGlyphOutlines.h"
 #import "CoreTextSupport.h"
+#import "JNIUtilities.h"
 #include "fontscalerdefs.h"
 #import "LWCToolkit.h"
 
@@ -42,7 +42,9 @@ static CGAffineTransform sInverseTX = { 1, 0, 0, -1, 0, 0 };
            invDevTx:(CGAffineTransform)invDevTx
               style:(JRSFontRenderingStyle)style
             aaStyle:(jint)aaStyle
-             fmHint:(jint)fmHint {
+             fmHint:(jint)fmHint
+subpixelResolutionX:(jint)subpixelResolutionX
+subpixelResolutionY:(jint)subpixelResolutionY {
 
     self = [super init];
     if (self) {
@@ -50,6 +52,8 @@ static CGAffineTransform sInverseTX = { 1, 0, 0, -1, 0, 0 };
         fStyle = style;
         fAAStyle = aaStyle;
         fFmHint = fmHint;
+        fSubpixelResolutionX = subpixelResolutionX;
+        fSubpixelResolutionY = subpixelResolutionY;
 
         fTx = tx; // composited glyph and device transform
 
@@ -80,13 +84,17 @@ static CGAffineTransform sInverseTX = { 1, 0, 0, -1, 0, 0 };
                         invDevTx:(CGAffineTransform)invDevTx
                            style:(JRSFontRenderingStyle)style
                          aaStyle:(jint)aaStyle
-                          fmHint:(jint)fmHint {
+                          fmHint:(jint)fmHint
+             subpixelResolutionX:(jint)subpixelResolutionX
+             subpixelResolutionY:(jint)subpixelResolutionY {
 
     return [[[AWTStrike alloc] initWithFont:awtFont
                                          tx:tx invDevTx:invDevTx
                                       style:style
                                     aaStyle:aaStyle
-                                     fmHint:fmHint] autorelease];
+                                     fmHint:fmHint
+                        subpixelResolutionX:subpixelResolutionX
+                        subpixelResolutionY:subpixelResolutionY] autorelease];
 }
 
 @end
@@ -108,7 +116,7 @@ static CGAffineTransform sInverseTX = { 1, 0, 0, -1, 0, 0 };
     if (_fontThrowJavaException == YES) {                               \
         char s[512];                                                    \
         sprintf(s, "%s-%s:%d", __FILE__, __FUNCTION__, __LINE__);       \
-        [JNFException raise:env as:kRuntimeException reason:s];         \
+        JNU_ThrowByName(env, "java/lang/RuntimeException", s);          \
     }
 
 
@@ -148,7 +156,7 @@ Java_sun_font_CStrike_getNativeGlyphAdvance
     (JNIEnv *env, jclass clazz, jlong awtStrikePtr, jint glyphCode)
 {
     CGSize advance;
-JNF_COCOA_ENTER(env);
+JNI_COCOA_ENTER(env);
     AWTStrike *awtStrike = (AWTStrike *)jlong_to_ptr(awtStrikePtr);
     AWTFont *awtFont = awtStrike->fAWTFont;
 
@@ -175,7 +183,7 @@ JNF_COCOA_ENTER(env);
         advance.width = round(advance.width);
     }
 
-JNF_COCOA_EXIT(env);
+JNI_COCOA_EXIT(env);
     return advance.width;
 }
 
@@ -190,7 +198,7 @@ Java_sun_font_CStrike_getNativeGlyphImageBounds
      jlong awtStrikePtr, jint glyphCode,
      jobject result /*Rectangle*/, jdouble x, jdouble y)
 {
-JNF_COCOA_ENTER(env);
+JNI_COCOA_ENTER(env);
 
     AWTStrike *awtStrike = (AWTStrike *)jlong_to_ptr(awtStrikePtr);
     AWTFont *awtFont = awtStrike->fAWTFont;
@@ -213,11 +221,13 @@ JNF_COCOA_ENTER(env);
     bbox.origin.y = -bbox.size.height + decender;
 
     // Rectangle2D.Float.setRect(float x, float y, float width, float height);
-    static JNF_CLASS_CACHE(sjc_Rectangle2D_Float, "java/awt/geom/Rectangle2D$Float");    // cache class id for Rectangle
-    static JNF_MEMBER_CACHE(sjr_Rectangle2DFloat_setRect, sjc_Rectangle2D_Float, "setRect", "(FFFF)V");
-    JNFCallVoidMethod(env, result, sjr_Rectangle2DFloat_setRect, (jfloat)bbox.origin.x, (jfloat)bbox.origin.y, (jfloat)bbox.size.width, (jfloat)bbox.size.height);
+    DECLARE_CLASS(sjc_Rectangle2D_Float, "java/awt/geom/Rectangle2D$Float");    // cache class id for Rectangle
+    DECLARE_METHOD(sjr_Rectangle2DFloat_setRect, sjc_Rectangle2D_Float, "setRect", "(FFFF)V");
+    (*env)->CallVoidMethod(env, result, sjr_Rectangle2DFloat_setRect,
+             (jfloat)bbox.origin.x, (jfloat)bbox.origin.y, (jfloat)bbox.size.width, (jfloat)bbox.size.height);
+    CHECK_EXCEPTION();
 
-JNF_COCOA_EXIT(env);
+JNI_COCOA_EXIT(env);
 }
 
 /*
@@ -232,11 +242,14 @@ Java_sun_font_CStrike_getNativeGlyphOutline
 {
     jobject generalPath = NULL;
 
-JNF_COCOA_ENTER(env);
+JNI_COCOA_ENTER(env);
 
     AWTPathRef path = NULL;
     jfloatArray pointCoords = NULL;
     jbyteArray pointTypes = NULL;
+
+    DECLARE_CLASS_RETURN(jc_GeneralPath, "java/awt/geom/GeneralPath", NULL);
+    DECLARE_METHOD_RETURN(jc_GeneralPath_ctor, jc_GeneralPath, "<init>", "(I[BI[FI)V", NULL);
 
 AWT_FONT_CLEANUP_SETUP;
 
@@ -280,9 +293,8 @@ AWT_FONT_CLEANUP_CHECK(pointTypes);
 
     (*env)->SetByteArrayRegion(env, pointTypes, 0, path->fNumberOfSegments, (jbyte*)path->fSegmentType);
 
-    static JNF_CLASS_CACHE(jc_GeneralPath, "java/awt/geom/GeneralPath");
-    static JNF_CTOR_CACHE(jc_GeneralPath_ctor, jc_GeneralPath, "(I[BI[FI)V");
-    generalPath = JNFNewObject(env, jc_GeneralPath_ctor, java_awt_geom_PathIterator_WIND_NON_ZERO, pointTypes, path->fNumberOfSegments, pointCoords, path->fNumberOfDataElements); // AWT_THREADING Safe (known object)
+    generalPath = (*env)->NewObject(env, jc_GeneralPath, jc_GeneralPath_ctor, java_awt_geom_PathIterator_WIND_NON_ZERO, pointTypes,
+                    path->fNumberOfSegments, pointCoords, path->fNumberOfDataElements); // AWT_THREADING Safe (known object)
 
     // Cleanup
 cleanup:
@@ -302,7 +314,7 @@ cleanup:
     }
 
     AWT_FONT_CLEANUP_FINISH;
-JNF_COCOA_EXIT(env);
+JNI_COCOA_EXIT(env);
     return generalPath;
 }
 
@@ -315,7 +327,7 @@ JNIEXPORT void JNICALL Java_sun_font_CStrike_getNativeGlyphOutlineBounds
         (JNIEnv *env, jclass clazz, jlong awtStrikePtr, jint glyphCode,
          jfloatArray rectData)
 {
-    JNF_COCOA_ENTER(env);
+    JNI_COCOA_ENTER(env);
     AWTStrike *awtStrike = (AWTStrike *)jlong_to_ptr(awtStrikePtr);
     AWTFont *awtfont = awtStrike->fAWTFont;
 
@@ -355,7 +367,7 @@ JNIEXPORT void JNICALL Java_sun_font_CStrike_getNativeGlyphOutlineBounds
     cleanup:
         AWT_FONT_CLEANUP_FINISH;
 
-    JNF_COCOA_EXIT(env);
+    JNI_COCOA_EXIT(env);
 }
 /*
  * Class:     sun_font_CStrike
@@ -368,7 +380,7 @@ Java_sun_font_CStrike_getGlyphImagePtrsNative
      jlong awtStrikePtr, jlongArray glyphInfoLongArray,
      jintArray glyphCodes, jint len)
 {
-JNF_COCOA_ENTER(env);
+JNI_COCOA_ENTER(env);
 
     AWTStrike *awtStrike = (AWTStrike *)jlong_to_ptr(awtStrikePtr);
 
@@ -396,7 +408,7 @@ JNF_COCOA_ENTER(env);
         }
     }
 
-JNF_COCOA_EXIT(env);
+JNI_COCOA_EXIT(env);
 }
 
 /*
@@ -405,10 +417,11 @@ JNF_COCOA_EXIT(env);
  * Signature: (J[D[DII)J
  */
 JNIEXPORT jlong JNICALL Java_sun_font_CStrike_createNativeStrikePtr
-(JNIEnv *env, jclass clazz, jlong nativeFontPtr, jdoubleArray glyphTxArray, jdoubleArray invDevTxArray, jint aaStyle, jint fmHint)
+(JNIEnv *env, jclass clazz, jlong nativeFontPtr, jdoubleArray glyphTxArray, jdoubleArray invDevTxArray,
+ jint aaStyle, jint fmHint, jint subpixelResolutionX, jint subpixelResolutionY)
 {
     AWTStrike *awtStrike = nil;
-JNF_COCOA_ENTER(env);
+JNI_COCOA_ENTER(env);
 
     AWTFont *awtFont = (AWTFont *)jlong_to_ptr(nativeFontPtr);
     JRSFontRenderingStyle style = JRSFontGetRenderingStyleForHints(fmHint, aaStyle);
@@ -416,14 +429,15 @@ JNF_COCOA_ENTER(env);
     CGAffineTransform glyphTx = GetTxFromDoubles(env, glyphTxArray);
     CGAffineTransform invDevTx = GetTxFromDoubles(env, invDevTxArray);
 
-    awtStrike = [AWTStrike awtStrikeForFont:awtFont tx:glyphTx invDevTx:invDevTx style:style aaStyle:aaStyle fmHint:fmHint]; // autoreleased
+    awtStrike = [AWTStrike awtStrikeForFont:awtFont tx:glyphTx invDevTx:invDevTx style:style
+                 aaStyle:aaStyle fmHint:fmHint subpixelResolutionX:subpixelResolutionX subpixelResolutionY:subpixelResolutionY]; // autoreleased
 
     if (awtStrike)
     {
         CFRetain(awtStrike); // GC
     }
 
-JNF_COCOA_EXIT(env);
+JNI_COCOA_EXIT(env);
     return ptr_to_jlong(awtStrike);
 }
 
@@ -436,13 +450,13 @@ JNIEXPORT void JNICALL
 Java_sun_font_CStrike_disposeNativeStrikePtr
     (JNIEnv *env, jclass clazz, jlong awtStrike)
 {
-JNF_COCOA_ENTER(env);
+JNI_COCOA_ENTER(env);
 
     if (awtStrike) {
         CFRelease((AWTStrike *)jlong_to_ptr(awtStrike)); // GC
     }
 
-JNF_COCOA_EXIT(env);
+JNI_COCOA_EXIT(env);
 }
 
 /*
@@ -456,7 +470,7 @@ Java_sun_font_CStrike_getFontMetrics
 {
     jobject metrics = NULL;
 
-JNF_COCOA_ENTER(env);
+JNI_COCOA_ENTER(env);
     AWT_FONT_CLEANUP_SETUP;
 
     AWTFont *awtfont = ((AWTStrike *)jlong_to_ptr(awtStrikePtr))->fAWTFont;
@@ -491,15 +505,15 @@ JNF_COCOA_ENTER(env);
      * advance:  no need to set yMaxLinearAdvanceWidth - it will be zero.
      */
 
-    JNF_CLASS_CACHE(sjc_StrikeMetrics, "sun/font/StrikeMetrics");
-    JNF_CTOR_CACHE(strikeMetricsCtr, sjc_StrikeMetrics, "(FFFFFFFFFF)V");
-    metrics = JNFNewObject(env, strikeMetricsCtr,
+    DECLARE_CLASS_RETURN(sjc_StrikeMetrics, "sun/font/StrikeMetrics", NULL);
+    DECLARE_METHOD_RETURN(strikeMetricsCtr, sjc_StrikeMetrics, "<init>", "(FFFFFFFFFF)V", NULL);
+    metrics = (*env)->NewObject(env, sjc_StrikeMetrics, strikeMetricsCtr,
                            0.0, ay, 0.0, dy, 1.0,
                            0.0, 0.0, ly, mx, 0.0);
 
 cleanup:
     AWT_FONT_CLEANUP_FINISH;
-JNF_COCOA_EXIT(env);
+JNI_COCOA_EXIT(env);
 
     return metrics;
 }
@@ -513,9 +527,9 @@ extern void AccelGlyphCache_RemoveAllInfos(GlyphInfo* glyph);
 JNIEXPORT void JNICALL Java_sun_font_CStrikeDisposer_removeGlyphInfoFromCache
 (JNIEnv *env, jclass cls, jlong glyphInfo)
 {
-    JNF_COCOA_ENTER(env);
+    JNI_COCOA_ENTER(env);
 
     AccelGlyphCache_RemoveAllCellInfos((GlyphInfo*)jlong_to_ptr(glyphInfo));
 
-    JNF_COCOA_EXIT(env);
+    JNI_COCOA_EXIT(env);
 }

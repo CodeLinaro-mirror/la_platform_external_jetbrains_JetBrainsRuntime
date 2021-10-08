@@ -976,9 +976,12 @@ class WindowsNativeDispatcher {
                     CreateSymbolicLink0(linkBuffer.address(),
                                         targetBuffer.address(), flags);
                     return;
-                } catch (WindowsException ignored) {
+                } catch (WindowsException xx) {
                     // Will fail with ERROR_INVALID_PARAMETER for Windows
                     // builds older than 14972.
+                    if (xx.lastError() != ERROR_INVALID_PARAMETER) {
+                        x = xx;
+                    }
                 }
             }
             throw x;

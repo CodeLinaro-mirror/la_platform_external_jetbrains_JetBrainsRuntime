@@ -1411,19 +1411,7 @@ void AwtWindow::Show()
             if (nCmdShow == SW_SHOWNA || m_isIgnoringMouseEvents) {
                 flags |= SWP_NOACTIVATE;
             }
-            // This flag allows the toplevel to be bellow other process toplevels.
-            // This behaviour is preferable for popups, but it is not appropriate
-            // for menus
-            BOOL isLightweightDialog = TRUE;
-            jclass windowPeerClass = env->FindClass("java/awt/peer/WindowPeer");
-            if (windowPeerClass != NULL) {
-                jmethodID isLightweightDialogMID = env->GetStaticMethodID(windowPeerClass, "isLightweightDialog", "(Ljava/awt/Window;)Z");
-                if (isLightweightDialogMID != NULL) {
-                    isLightweightDialog = env->CallStaticBooleanMethod(windowPeerClass, isLightweightDialogMID, target);
-                }
-            }
-
-            HWND hInsertAfter = isLightweightDialog ? HWND_TOP : HWND_TOPMOST;
+            HWND hInsertAfter = HWND_TOP;
             if (m_isIgnoringMouseEvents) {
                 HWND hFgWindow = ::GetForegroundWindow();
                 HWND hOwner = ::GetWindow(GetHWnd(), GW_OWNER);
@@ -1980,8 +1968,8 @@ MsgRouting AwtWindow::WmGetMinMaxInfo(LPMINMAXINFO lpmmi)
     if ((m_minSize.x == 0) && (m_minSize.y == 0)) {
         return r;
     }
-    lpmmi->ptMinTrackSize.x = m_minSize.x;
-    lpmmi->ptMinTrackSize.y = m_minSize.y;
+    lpmmi->ptMinTrackSize.x = ScaleUpX(m_minSize.x);
+    lpmmi->ptMinTrackSize.y = ScaleUpY(m_minSize.y);
     return mrConsume;
 }
 
@@ -2260,7 +2248,16 @@ void AwtWindow::RecalcNonClient()
 //
 void AwtWindow::RedrawNonClient()
 {
-    ::SetWindowPos(GetHWnd(), (HWND) NULL, 0, 0, 0, 0, SwpFrameChangeFlags|SWP_ASYNCWINDOWPOS);
+    UINT flags = SwpFrameChangeFlags;
+    if (!HasCustomDecoration()) {
+        // With custom decorations enabled, SetWindowPos call below can cause WM_SIZE message being sent.
+        // If we're coming here from WFramePeer.initialize (as part of 'setResizable' call),
+        // WM_SIZE message processing can happen concurrently with window flags update done as part of
+        // 'setState' call), and lead to inconsistent state.
+        // So, we disable asynchronous processing in case we have custom decorations to avoid the race condition.
+        flags |= SWP_ASYNCWINDOWPOS;
+    }
+    ::SetWindowPos(GetHWnd(), (HWND) NULL, 0, 0, 0, 0, flags);
 }
 
 int AwtWindow::GetScreenImOn() {

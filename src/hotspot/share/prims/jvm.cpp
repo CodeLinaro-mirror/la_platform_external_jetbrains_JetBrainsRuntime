@@ -3442,6 +3442,7 @@ JVM_END
 
 // Library support ///////////////////////////////////////////////////////////////////////////
 
+// The name of the library is in UTF8
 JVM_ENTRY_NO_ENV(void*, JVM_LoadLibrary(const char* name))
   //%note jvm_ct
   JVMWrapper("JVM_LoadLibrary");
@@ -3450,19 +3451,15 @@ JVM_ENTRY_NO_ENV(void*, JVM_LoadLibrary(const char* name))
   {
     ThreadToNativeFromVM ttnfvm(thread);
     Thread::WXWriteVerifier wx_write;
-    load_result = os::dll_load(name, ebuf, sizeof ebuf);
+    load_result = os::dll_load_utf8(name, ebuf, sizeof ebuf);
   }
   if (load_result == NULL) {
     char msg[1024];
     jio_snprintf(msg, sizeof msg, "%s: %s", name, ebuf);
-    // Since 'ebuf' may contain a string encoded using
-    // platform encoding scheme, we need to pass
-    // Exceptions::unsafe_to_utf8 to the new_exception method
-    // as the last argument. See bug 6367357.
     Handle h_exception =
       Exceptions::new_exception(thread,
                                 vmSymbols::java_lang_UnsatisfiedLinkError(),
-                                msg, Exceptions::unsafe_to_utf8);
+                                msg);
 
     THROW_HANDLE_0(h_exception);
   }

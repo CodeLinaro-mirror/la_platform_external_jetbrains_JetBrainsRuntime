@@ -5,13 +5,7 @@
 
 @implementation JavaCellAccessibility
 
-- (NSString *)getPlatformAxElementClassName {
-    return @"PlatformAxCell";
-}
-
-@end
-
-@implementation PlatformAxCell
+// NSAccessibilityElement protocol methods
 
 - (NSAccessibilityRole)accessibilityRole {
     return NSAccessibilityCellRole;;
@@ -20,15 +14,15 @@
 - (NSArray *)accessibilityChildren {
     NSArray *children = [super accessibilityChildren];
     if (children == NULL) {
-        NSString *javaRole = [[self javaBase] javaRole];
-        JavaBaseAccessibility *newChild = [JavaBaseAccessibility createWithParent:[self javaBase]
-                                                                       accessible:[[self javaBase] accessible]
-                                                                             role:javaRole
-                                                                            index:[[self javaBase] index]
-                                                                          withEnv:[ThreadUtilities getJNIEnv]
-                                                                         withView:[[self javaBase] view]
-                                                                        isWrapped:YES];
-        return [NSArray arrayWithObject:newChild.platformAxElement];
+        NSString *javaRole = [self  javaRole];
+        JavaComponentAccessibility *newChild = [JavaComponentAccessibility createWithParent:self
+                                                                                 accessible:self->fAccessible
+                                                                                       role:javaRole
+                                                                                      index:self->fIndex
+                                                                                    withEnv:[ThreadUtilities getJNIEnv]
+                                                                                   withView:self->fView
+                                                                                  isWrapped:NO];
+        return [NSArray arrayWithObject:newChild];
     } else {
         return children;
     }

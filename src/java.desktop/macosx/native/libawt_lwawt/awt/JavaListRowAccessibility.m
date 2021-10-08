@@ -4,45 +4,46 @@
 #import "JavaListRowAccessibility.h"
 #import "JavaAccessibilityAction.h"
 #import "JavaAccessibilityUtilities.h"
-#import "JavaTextAccessibility.h"
 #import "JavaListAccessibility.h"
 #import "ThreadUtilities.h"
 
-static JNF_STATIC_MEMBER_CACHE(jm_getChildrenAndRoles, sjc_CAccessibility, "getChildrenAndRoles", "(Ljavax/accessibility/Accessible;Ljava/awt/Component;IZ)[Ljava/lang/Object;");
-
 @implementation JavaListRowAccessibility
 
-- (NSString *)getPlatformAxElementClassName {
-    return @"PlatformAxListRow";
+// NSAccessibilityElement protocol methods
+
+- (NSAccessibilityRole)accessibilityRole {
+    return NSAccessibilityRowRole;;
 }
-
-@end
-
-@implementation PlatformAxListRow
 
 - (NSArray *)accessibilityChildren {
     NSArray *children = [super accessibilityChildren];
     if (children == NULL) {
-        JavaBaseAccessibility *newChild = [JavaBaseAccessibility createWithParent:[self javaBase]
-                                                                       accessible:[[self javaBase] accessible]
-                                                                             role:[[self javaBase] javaRole]
-                                                                            index:[[self javaBase] index]
-                                                                          withEnv:[ThreadUtilities getJNIEnv]
-                                                                         withView:[[self javaBase] view]
-                                                                        isWrapped:YES];
-        return [NSArray arrayWithObject:[newChild autorelease].platformAxElement];
+
+        // Since the row element has already been created, we should no create it again, but just retrieve it by a pointer, that's why isWrapped is set to YES.
+        JavaComponentAccessibility *newChild = [JavaComponentAccessibility createWithParent:self
+                                                                                 accessible:self->fAccessible
+                                                                                       role:self->fJavaRole
+                                                                                      index:self->fIndex
+                                                                                    withEnv:[ThreadUtilities getJNIEnv]
+                                                                                   withView:self->fView
+                                                                                  isWrapped:YES];
+        return [NSArray arrayWithObject:newChild];
     } else {
         return children;
     }
 }
 
 - (NSInteger)accessibilityIndex {
-    return [super accessibilityIndex];
+    return [[self accessibilityParent] accessibilityIndexOfChild:self];
 }
 
 - (id)accessibilityParent
 {
     return [super accessibilityParent];
+}
+
+- (NSRect)accessibilityFrame {
+    return [super accessibilityFrame];
 }
 
 @end

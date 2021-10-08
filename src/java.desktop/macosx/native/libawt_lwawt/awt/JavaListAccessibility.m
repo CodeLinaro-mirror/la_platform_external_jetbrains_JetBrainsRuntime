@@ -6,22 +6,13 @@
 
 @implementation JavaListAccessibility
 
-- (NSString *)getPlatformAxElementClassName
-{
-    return @"PlatformAxList";
-}
+// NSAccessibilityElement protocol methods
 
-@end
-
-@implementation PlatformAxList
-
-- (nullable NSArray<id<NSAccessibilityRow>> *)accessibilityRows
-{
+- (nullable NSArray<id<NSAccessibilityRow>> *)accessibilityRows {
     return [self accessibilityChildren];
 }
 
-- (nullable NSArray<id<NSAccessibilityRow>> *)accessibilitySelectedRows
-{
+- (nullable NSArray<id<NSAccessibilityRow>> *)accessibilitySelectedRows {
     return [self accessibilitySelectedChildren];
 }
 
@@ -30,23 +21,15 @@
     return [super accessibilityLabel] == NULL ? @"list" : [super accessibilityLabel];
 }
 
-- (BOOL)accessibilityIsIgnored
-{
-    return NO;
-}
-
-- (BOOL)isAccessibilityEnabled
-{
-    return YES;
-}
-
 // to avoid warning (why?): method in protocol 'NSAccessibilityElement' not implemented
+
 - (NSRect)accessibilityFrame
 {
     return [super accessibilityFrame];
 }
 
 // to avoid warning (why?): method in protocol 'NSAccessibilityElement' not implemented
+
 - (id)accessibilityParent
 {
     return [super accessibilityParent];

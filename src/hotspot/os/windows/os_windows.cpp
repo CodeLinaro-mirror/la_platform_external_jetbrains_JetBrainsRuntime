@@ -417,6 +417,7 @@ struct tm* os::gmtime_pd(const time_t* clock, struct tm* res) {
   return NULL;
 }
 
+JNIEXPORT
 LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo);
 
 // Thread start routine for all newly created threads
@@ -1354,9 +1355,219 @@ static int _print_module(const char* fname, address base_address,
   return 0;
 }
 
+static errno_t convert_to_UTF16(char const* source_str, UINT source_encoding, LPWSTR* dest_utf16_str) {
+  const int len_estimated = MultiByteToWideChar(source_encoding,
+                                                MB_ERR_INVALID_CHARS,
+                                                source_str,
+                                                -1, // source is null-terminated
+                                                NULL,
+                                                0); // estimate characters count
+  if (len_estimated == 0) {
+    // Probably source_str contains characters that cannot be represented in the source_encoding given.
+    *dest_utf16_str = NULL;
+    return EINVAL;
+  }
+
+  *dest_utf16_str = NEW_C_HEAP_ARRAY(WCHAR, len_estimated, mtInternal);
+
+  const int len_real = MultiByteToWideChar(source_encoding,
+                                           MB_ERR_INVALID_CHARS,
+                                           source_str,
+                                           -1, // source is null-terminated
+                                           *dest_utf16_str, len_estimated);
+  assert(len_real == len_estimated, "length already checked above");
+
+  return ERROR_SUCCESS;
+}
+
+// Converts a string in the "platform" encoding to UTF16.
+static errno_t convert_to_UTF16(char const* platform_str, LPWSTR* utf16_str) {
+  return convert_to_UTF16(platform_str, CP_ACP, utf16_str);
+}
+
+static errno_t convert_UTF8_to_UTF16(char const* utf8_str, LPWSTR* utf16_str) {
+  return convert_to_UTF16(utf8_str, CP_UTF8, utf16_str);
+}
+
+// Converts a wide-character string in UTF-16 encoding to the 8-bit "platform" encoding.
+// Unless the platform encoding is UTF-8, not all characters in the source string can be represented in the dest string.
+// The function succeeds in this case anyway and just replaces these with a certain character.
+static errno_t convert_UTF16_to_platform(LPWSTR source_utf16_str, char*& dest_str) {
+  const int len_estimated = WideCharToMultiByte(CP_ACP,
+                                                0,
+                                                source_utf16_str,
+                                                -1, // source is null-terminated
+                                                NULL,
+                                                0, // estimate characters count
+                                                NULL, NULL);
+  if (len_estimated == 0) {
+    dest_str = NULL;
+    return EINVAL;
+  }
+
+  dest_str = NEW_C_HEAP_ARRAY(CHAR, len_estimated, mtInternal);
+
+  const int len_real = WideCharToMultiByte(CP_ACP,
+                                           0,
+                                           source_utf16_str,
+                                           -1, // source is null-terminated
+                                           dest_str, len_estimated, NULL, NULL);
+  assert(len_real == len_estimated, "length already checked above");
+
+  return ERROR_SUCCESS;
+}
+
+class MemoryReleaserW : public StackObj {
+private:
+  WCHAR* _object_ptr;
+
+public:
+  MemoryReleaserW(WCHAR * object_ptr) : _object_ptr(object_ptr) {}
+  ~MemoryReleaserW() { if (_object_ptr != NULL) FREE_C_HEAP_ARRAY(WCHAR, _object_ptr); }
+};
+
+class MemoryReleaser : public StackObj {
+private:
+  CHAR* _object_ptr;
+
+public:
+  MemoryReleaser(CHAR * object_ptr) : _object_ptr(object_ptr) {}
+  ~MemoryReleaser() { if (_object_ptr != NULL) FREE_C_HEAP_ARRAY(CHAR, _object_ptr); }
+};
+
 // Loads .dll/.so and
 // in case of error it checks if .dll/.so was built for the
 // same architecture as Hotspot is running on
+// The name given is in UTF-8.
+void * os::dll_load_utf8(const char *utf8_name, char *ebuf, int ebuflen) {
+  LPWSTR utf16_name = NULL;
+  errno_t err = convert_UTF8_to_UTF16(utf8_name, &utf16_name);
+  MemoryReleaserW release_utf16_name(utf16_name);
+  if (err != ERROR_SUCCESS) {
+    errno = err;
+    return NULL;
+  }
+
+  char* platform_name = NULL; // name of the library converted to the "platform" encoding for use in log messages
+  errno_t ignored_err = convert_UTF16_to_platform(utf16_name, platform_name);
+  MemoryReleaser release_platform_name(platform_name);
+
+  log_info(os)("attempting shared library load of %s", platform_name);
+
+  void * result = LoadLibraryW(utf16_name);
+
+  if (result != NULL) {
+    Events::log(NULL, "Loaded shared library %s", platform_name);
+    // Recalculate pdb search path if a DLL was loaded successfully.
+    SymbolEngine::recalc_search_path();
+    log_info(os)("shared library load of %s was successful", platform_name);
+    return result;
+  }
+  DWORD errcode = GetLastError();
+  // Read system error message into ebuf
+  // It may or may not be overwritten below (in the for loop and just above)
+  lasterror(ebuf, (size_t) ebuflen);
+  ebuf[ebuflen - 1] = '\0';
+  Events::log(NULL, "Loading shared library %s failed, error code %lu", platform_name, errcode);
+  log_info(os)("shared library load of %s failed, error code %lu", platform_name, errcode);
+
+  if (errcode == ERROR_MOD_NOT_FOUND) {
+    strncpy(ebuf, "Can't find dependent libraries", ebuflen - 1);
+    ebuf[ebuflen - 1] = '\0';
+    return NULL;
+  }
+
+  // Parsing dll below
+  // If we can read dll-info and find that dll was built
+  // for an architecture other than Hotspot is running in
+  // - then print to buffer "DLL was built for a different architecture"
+  // else call os::lasterror to obtain system error message
+  int fd = ::wopen(utf16_name, O_RDONLY | O_BINARY, 0);
+  if (fd < 0) {
+    return NULL;
+  }
+
+  uint32_t signature_offset;
+  uint16_t lib_arch = 0;
+  bool failed_to_get_lib_arch =
+    ( // Go to position 3c in the dll
+     (os::seek_to_file_offset(fd, IMAGE_FILE_PTR_TO_SIGNATURE) < 0)
+     ||
+     // Read location of signature
+     (sizeof(signature_offset) !=
+     (os::read(fd, (void*)&signature_offset, sizeof(signature_offset))))
+     ||
+     // Go to COFF File Header in dll
+     // that is located after "signature" (4 bytes long)
+     (os::seek_to_file_offset(fd,
+     signature_offset + IMAGE_FILE_SIGNATURE_LENGTH) < 0)
+     ||
+     // Read field that contains code of architecture
+     // that dll was built for
+     (sizeof(lib_arch) != (os::read(fd, (void*)&lib_arch, sizeof(lib_arch))))
+    );
+
+  ::close(fd);
+  if (failed_to_get_lib_arch) {
+    // file i/o error - report os::lasterror(...) msg
+    return NULL;
+  }
+
+  typedef struct {
+    uint16_t arch_code;
+    char* arch_name;
+  } arch_t;
+
+  static const arch_t arch_array[] = {
+    {IMAGE_FILE_MACHINE_I386,      (char*)"IA 32"},
+    {IMAGE_FILE_MACHINE_AMD64,     (char*)"AMD 64"}
+  };
+#if (defined _M_AMD64)
+  static const uint16_t running_arch = IMAGE_FILE_MACHINE_AMD64;
+#elif (defined _M_IX86)
+  static const uint16_t running_arch = IMAGE_FILE_MACHINE_I386;
+#else
+  #error Method os::dll_load requires that one of following \
+         is defined :_M_AMD64 or _M_IX86
+#endif
+
+
+  // Obtain a string for printf operation
+  // lib_arch_str shall contain string what platform this .dll was built for
+  // running_arch_str shall string contain what platform Hotspot was built for
+  char *running_arch_str = NULL, *lib_arch_str = NULL;
+  for (unsigned int i = 0; i < ARRAY_SIZE(arch_array); i++) {
+    if (lib_arch == arch_array[i].arch_code) {
+      lib_arch_str = arch_array[i].arch_name;
+    }
+    if (running_arch == arch_array[i].arch_code) {
+      running_arch_str = arch_array[i].arch_name;
+    }
+  }
+
+  assert(running_arch_str,
+         "Didn't find running architecture code in arch_array");
+
+  // If the architecture is right
+  // but some other error took place - report os::lasterror(...) msg
+  if (lib_arch == running_arch) {
+    return NULL;
+  }
+
+  if (lib_arch_str != NULL) {
+    ::_snprintf(ebuf, ebuflen - 1,
+                "Can't load %s-bit .dll on a %s-bit platform",
+                lib_arch_str, running_arch_str);
+  } else {
+    // don't know what architecture this dll was build for
+    ::_snprintf(ebuf, ebuflen - 1,
+                "Can't load this .dll (machine code=0x%x) on a %s-bit platform",
+                lib_arch, running_arch_str);
+  }
+
+  return NULL;
+}
+
 void * os::dll_load(const char *name, char *ebuf, int ebuflen) {
   log_info(os)("attempting shared library load of %s", name);
 
@@ -2134,23 +2345,23 @@ int os::signal_wait() {
 
 LONG Handle_Exception(struct _EXCEPTION_POINTERS* exceptionInfo,
                       address handler) {
-  JavaThread* thread = (JavaThread*) Thread::current_or_null();
-  // Save pc in thread
-#ifdef _M_AMD64
-  // Do not blow up if no thread info available.
-  if (thread) {
-    thread->set_saved_exception_pc((address)(DWORD_PTR)exceptionInfo->ContextRecord->Rip);
-  }
-  // Set pc to handler
-  exceptionInfo->ContextRecord->Rip = (DWORD64)handler;
+  Thread* thread = Thread::current_or_null();
+
+#if defined(_M_AMD64)
+  #define PC_NAME Rip
+#elif defined(_M_IX86)
+  #define PC_NAME Eip
 #else
-  // Do not blow up if no thread info available.
-  if (thread) {
-    thread->set_saved_exception_pc((address)(DWORD_PTR)exceptionInfo->ContextRecord->Eip);
-  }
-  // Set pc to handler
-  exceptionInfo->ContextRecord->Eip = (DWORD)(DWORD_PTR)handler;
+  #error unknown architecture
 #endif
+
+  // Save pc in thread
+  if (thread != nullptr && thread->is_Java_thread()) {
+    ((JavaThread*)thread)->set_saved_exception_pc((address)(DWORD_PTR)exceptionInfo->ContextRecord->PC_NAME);
+  }
+
+  // Set pc to handler
+  exceptionInfo->ContextRecord->PC_NAME = (DWORD64)handler;
 
   // Continue the execution
   return EXCEPTION_CONTINUE_EXECUTION;
@@ -2355,6 +2566,7 @@ bool os::win32::get_frame_at_stack_banging_point(JavaThread* thread,
 }
 
 //-----------------------------------------------------------------------------
+JNIEXPORT
 LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
   if (InterceptOSException) return EXCEPTION_CONTINUE_SEARCH;
   DWORD exception_code = exceptionInfo->ExceptionRecord->ExceptionCode;
@@ -3081,8 +3293,9 @@ char* os::reserve_memory_aligned(size_t size, size_t alignment, int file_desc) {
   assert(extra_size >= size, "overflow, size is too large to allow alignment");
 
   char* aligned_base = NULL;
+  static const int max_attempts = 20;
 
-  do {
+  for (int attempt = 0; attempt < max_attempts && aligned_base == NULL; attempt ++) {
     char* extra_base = os::reserve_memory(extra_size, NULL, alignment, file_desc);
     if (extra_base == NULL) {
       return NULL;
@@ -3090,15 +3303,22 @@ char* os::reserve_memory_aligned(size_t size, size_t alignment, int file_desc) {
     // Do manual alignment
     aligned_base = align_up(extra_base, alignment);
 
+    bool rc = false;
     if (file_desc != -1) {
-      os::unmap_memory(extra_base, extra_size);
+      rc = os::unmap_memory(extra_base, extra_size);
     } else {
-      os::release_memory(extra_base, extra_size);
+      rc = os::release_memory(extra_base, extra_size);
+    }
+    assert(rc, "release failed");
+    if (!rc) {
+      return NULL;
     }
 
     aligned_base = os::reserve_memory(size, aligned_base, 0, file_desc);
 
-  } while (aligned_base == NULL);
+  }
+
+  assert(aligned_base != NULL, "Did not manage to re-map after %d attempts?", max_attempts);
 
   return aligned_base;
 }
@@ -4283,27 +4503,6 @@ static void file_attribute_data_to_stat(struct stat* sbuf, WIN32_FILE_ATTRIBUTE_
   }
 }
 
-static errno_t convert_to_unicode(char const* char_path, LPWSTR* unicode_path) {
-  // Get required buffer size to convert to Unicode
-  int unicode_path_len = MultiByteToWideChar(CP_ACP,
-                                             MB_ERR_INVALID_CHARS,
-                                             char_path, -1,
-                                             NULL, 0);
-  if (unicode_path_len == 0) {
-    return EINVAL;
-  }
-
-  *unicode_path = NEW_C_HEAP_ARRAY(WCHAR, unicode_path_len, mtInternal);
-
-  int result = MultiByteToWideChar(CP_ACP,
-                                   MB_ERR_INVALID_CHARS,
-                                   char_path, -1,
-                                   *unicode_path, unicode_path_len);
-  assert(result == unicode_path_len, "length already checked above");
-
-  return ERROR_SUCCESS;
-}
-
 static errno_t get_full_path(LPCWSTR unicode_path, LPWSTR* full_path) {
   // Get required buffer size to convert to full path. The return
   // value INCLUDES the terminating null character.
@@ -4364,7 +4563,7 @@ static wchar_t* wide_abs_unc_path(char const* path, errno_t & err, int additiona
   set_path_prefix(buf, &prefix, &prefix_off, &needs_fullpath);
 
   LPWSTR unicode_path = NULL;
-  err = convert_to_unicode(buf, &unicode_path);
+  err = convert_to_UTF16(buf, &unicode_path);
   FREE_C_HEAP_ARRAY(char, buf);
   if (err != ERROR_SUCCESS) {
     return NULL;
@@ -4919,15 +5118,25 @@ static int stdinAvailable(int fd, long *pbytes) {
 char* os::pd_map_memory(int fd, const char* file_name, size_t file_offset,
                         char *addr, size_t bytes, bool read_only,
                         bool allow_exec) {
+
+  errno_t err;
+  wchar_t* wide_path = wide_abs_unc_path(file_name, err);
+
+  if (wide_path == NULL) {
+    return NULL;
+  }
+
   HANDLE hFile;
   char* base;
 
-  hFile = CreateFile(file_name, GENERIC_READ, FILE_SHARE_READ, NULL,
+  hFile = CreateFileW(wide_path, GENERIC_READ, FILE_SHARE_READ, NULL,
                      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
   if (hFile == INVALID_HANDLE_VALUE) {
-    log_info(os)("CreateFile() failed: GetLastError->%ld.", GetLastError());
+    log_info(os)("CreateFileW() failed: GetLastError->%ld.", GetLastError());
+    os::free(wide_path);
     return NULL;
   }
+  os::free(wide_path);
 
   if (allow_exec) {
     // CreateFileMapping/MapViewOfFileEx can't map executable memory
