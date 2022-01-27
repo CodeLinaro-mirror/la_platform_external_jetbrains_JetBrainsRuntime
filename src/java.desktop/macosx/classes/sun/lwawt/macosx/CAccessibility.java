@@ -29,13 +29,18 @@ import sun.lwawt.LWWindowPeer;
 
 import java.awt.*;
 import java.beans.*;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 import javax.accessibility.*;
 import javax.swing.*;
+import javax.swing.tree.TreePath;
+
 import sun.awt.AWTAccessor;
 
 class CAccessibility implements PropertyChangeListener {
@@ -105,7 +110,7 @@ class CAccessibility implements PropertyChangeListener {
     static <T> T invokeAndWait(final Callable<T> callable, final Component c, final T defValue) {
         T value = null;
         try {
-            value = EventQueue.isDispatchThread() ? callable.call() : LWCToolkit.invokeAndWait(callable, c, INVOKE_TIMEOUT_SECONDS);
+            value = LWCToolkit.invokeAndWait(callable, c, INVOKE_TIMEOUT_SECONDS);
         } catch (final Exception e) { e.printStackTrace(); }
 
         return value != null ? value : defValue;
@@ -598,92 +603,248 @@ class CAccessibility implements PropertyChangeListener {
     static final int JAVA_AX_SELECTED_CHILDREN = -2;
     static final int JAVA_AX_VISIBLE_CHILDREN = -3;
 
+    // [tav] todo: the visibility detection is incomplete
+    private static int[] getTableVisibleRowRange(Accessible a, Component c) {
+        if (a == null) return null;
+        Integer[] result = invokeAndWait(new Callable<Integer[]>() {
+            public Integer[] call() throws Exception {
+                final AccessibleContext ac = a.getAccessibleContext();
+                if (!(ac instanceof AccessibleComponent) && !(ac instanceof AccessibleTable)) return null;
+
+                Accessible parent = ac.getAccessibleParent();
+                if (parent == null) return null;
+                AccessibleContext parentContext = parent.getAccessibleContext();
+                if (!(parentContext instanceof AccessibleComponent)) return null;
+
+                Rectangle bounds = ((AccessibleComponent) ac).getBounds();
+                Rectangle parentBounds = ((AccessibleComponent) parentContext).getBounds();
+                int y = bounds.y >= 0 ? 0 : -bounds.y;
+                int h = Math.min(bounds.height, parentBounds.height);
+                Point location1 = new Point(0, y);
+                Point location2 = new Point(0, y + h);
+
+                Function<Point, Integer> calcRowIndex = (location) -> {
+                    Accessible rowChild = ((AccessibleComponent) ac).getAccessibleAt(location);
+                    if (rowChild == null) return null;
+
+                    AccessibleContext rowChildContext = rowChild.getAccessibleContext();
+                    if (rowChildContext == null) return null;
+
+                    int rowChildIndex = rowChildContext.getAccessibleIndexInParent();
+                    return rowChildIndex / ((AccessibleTable) ac).getAccessibleColumnCount();
+                };
+                int firstVisibleRow = calcRowIndex.apply(location1);
+                int lastVisibleRow = calcRowIndex.apply(location2);
+
+                return new Integer[]{firstVisibleRow, lastVisibleRow};
+            }
+        }, c);
+        if (result != null) {
+            return new int[]{result[0], result[1]};
+        }
+        return null;
+    }
+
+    private static Object[] getTableRowChildrenAndRoles(Accessible a, Component c, int whichChildren, boolean allowIgnored, int tableRowIndex) {
+        return invokeGetChildrenAndRoles(a, c, whichChildren, allowIgnored, ChildrenOperations.createForTableRow(tableRowIndex));
+    }
+
     // Each child takes up two entries in the array: one for itself and one for its role
-    public static Object[] getChildrenAndRoles(final Accessible a, final Component c, final int whichChildren, final boolean allowIgnored) {
+    private static Object[] getChildrenAndRoles(final Accessible a, final Component c, final int whichChildren, final boolean allowIgnored) {
+        return invokeGetChildrenAndRoles(a, c, whichChildren, allowIgnored, ChildrenOperations.COMMON);
+    }
+
+    private static Object[] invokeGetChildrenAndRoles(Accessible a, Component c, int whichChildren, boolean allowIgnored, ChildrenOperations ops) {
         if (a == null) return null;
         return invokeAndWait(new Callable<Object[]>() {
             public Object[] call() throws Exception {
-                ArrayList<Object> childrenAndRoles = new ArrayList<Object>();
-                _addChildren(a, whichChildren, allowIgnored, childrenAndRoles);
-
-                /* In the case of fetching a selection, need to check to see if
-                 * the active descendant is at the beginning of the list.  If it
-                 * is not it needs to be moved to the beginning of the list so
-                 * VoiceOver will annouce it correctly.  The list returned
-                 * from Java is always in order from top to bottom, but when shift
-                 * selecting downward (extending the list) or multi-selecting using
-                 * the VO keys control+option+command+return the active descendant
-                 * is not at the top of the list in the shift select down case and
-                 * may not be in the multi select case.
-                 */
-                if (whichChildren == JAVA_AX_SELECTED_CHILDREN) {
-                    if (!childrenAndRoles.isEmpty()) {
-                        AccessibleContext activeDescendantAC =
-                            CAccessible.getActiveDescendant(a);
-                        if (activeDescendantAC != null) {
-                            String activeDescendantName =
-                                activeDescendantAC.getAccessibleName();
-                            AccessibleRole activeDescendantRole =
-                                activeDescendantAC.getAccessibleRole();
-                            // Move active descendant to front of list.
-                            // List contains pairs of each selected item's
-                            // Accessible and AccessibleRole.
-                            ArrayList<Object> newArray  = new ArrayList<Object>();
-                            int count = childrenAndRoles.size();
-                            Accessible currentAccessible = null;
-                            AccessibleContext currentAC = null;
-                            String currentName = null;
-                            AccessibleRole currentRole = null;
-                            for (int i = 0; i < count; i+=2) {
-                                // Is this the active descendant?
-                                currentAccessible = (Accessible)childrenAndRoles.get(i);
-                                currentAC = currentAccessible.getAccessibleContext();
-                                currentName = currentAC.getAccessibleName();
-                                currentRole = (AccessibleRole)childrenAndRoles.get(i+1);
-                                if ( currentName.equals(activeDescendantName) &&
-                                     currentRole.equals(activeDescendantRole) ) {
-                                    newArray.add(0, currentAccessible);
-                                    newArray.add(1, currentRole);
-                                } else {
-                                    newArray.add(currentAccessible);
-                                    newArray.add(currentRole);
-                                }
-                            }
-                            childrenAndRoles = newArray;
-                        }
-                    }
-                }
-
-                if ((whichChildren < 0) || (whichChildren * 2 >= childrenAndRoles.size())) {
-                    return childrenAndRoles.toArray();
-                }
-
-                return new Object[] { childrenAndRoles.get(whichChildren * 2), childrenAndRoles.get((whichChildren * 2) + 1) };
+                return getChildrenAndRolesImpl(a, c, whichChildren, allowIgnored, ops);
             }
         }, c);
     }
 
+    private static Object[] getChildrenAndRolesImpl(Accessible a, Component c, int whichChildren, boolean allowIgnored, ChildrenOperations ops) {
+        if (a == null) return null;
+
+        ArrayList<Object> childrenAndRoles = new ArrayList<Object>();
+        _addChildren(a, whichChildren, allowIgnored, childrenAndRoles, ops);
+
+        /* In case of fetching a selection, we need to check if
+         * the active descendant is at the beginning of the list, or
+         * otherwise move it, so that VoiceOver announces it correctly.
+         * The java list is always in order from top to bottom, but when
+         * (1) shift-selecting downward (extending the list) or (2) multi-selecting with
+         * the VO keys (CTRL+ALT+CMD+RETURN) the active descendant
+         * is not at the top of the list in the 1st case and may not be in the 2nd.
+         */
+        if (whichChildren == JAVA_AX_SELECTED_CHILDREN) {
+            if (!childrenAndRoles.isEmpty()) {
+                AccessibleContext activeDescendantAC =
+                        CAccessible.getActiveDescendant(a);
+                if (activeDescendantAC != null) {
+                    String activeDescendantName =
+                            activeDescendantAC.getAccessibleName();
+                    AccessibleRole activeDescendantRole =
+                            activeDescendantAC.getAccessibleRole();
+                    // Move active descendant to front of list.
+                    // List contains pairs of each selected item's
+                    // Accessible and AccessibleRole.
+                    ArrayList<Object> newArray = new ArrayList<Object>();
+                    int count = childrenAndRoles.size();
+                    Accessible currentAccessible = null;
+                    AccessibleContext currentAC = null;
+                    String currentName = null;
+                    AccessibleRole currentRole = null;
+                    for (int i = 0; i < count; i += 2) {
+                        // Is this the active descendant?
+                        currentAccessible = (Accessible) childrenAndRoles.get(i);
+                        currentAC = currentAccessible.getAccessibleContext();
+                        currentName = currentAC.getAccessibleName();
+                        currentRole = (AccessibleRole) childrenAndRoles.get(i + 1);
+                        if (currentName != null && currentName.equals(activeDescendantName) &&
+                                currentRole.equals(activeDescendantRole)) {
+                            newArray.add(0, currentAccessible);
+                            newArray.add(1, currentRole);
+                        } else {
+                            newArray.add(currentAccessible);
+                            newArray.add(currentRole);
+                        }
+                    }
+                    childrenAndRoles = newArray;
+                }
+            }
+        }
+
+        if ((whichChildren < 0) || (whichChildren * 2 >= childrenAndRoles.size())) {
+            return childrenAndRoles.toArray();
+        }
+
+        return new Object[]{childrenAndRoles.get(whichChildren * 2), childrenAndRoles.get((whichChildren * 2) + 1)};
+    }
+
+    private static Accessible createAccessibleTreeNode(JTree t, TreePath p) {
+        Accessible a = null;
+
+        try {
+            Class<?> accessibleJTreeNodeClass = Class.forName("javax.swing.JTree$AccessibleJTree$AccessibleJTreeNode");
+            Constructor<?> constructor = accessibleJTreeNodeClass.getConstructor(t.getAccessibleContext().getClass(), JTree.class, TreePath.class, Accessible.class);
+            constructor.setAccessible(true);
+            a = ((Accessible) constructor.newInstance(t.getAccessibleContext(), t, p, null));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return a;
+    }
+
     // This method is called from the native
     // Each child takes up three entries in the array: one for itself, one for its role, and one for the recursion level
-    public static Object[] getChildrenAndRolesRecursive(final Accessible a, final Component c, final int whichChildren, final boolean allowIgnored, final int level) {
+    private static Object[] getChildrenAndRolesRecursive(final Accessible a, final Component c, final int whichChildren, final boolean allowIgnored) {
         if (a == null) return null;
         return invokeAndWait(new Callable<Object[]>() {
             public Object[] call() throws Exception {
-                ArrayList<Object> currentLevelChildren = new ArrayList<Object>();
-                currentLevelChildren.addAll(Arrays.asList(getChildrenAndRoles(a, c, JAVA_AX_ALL_CHILDREN, allowIgnored)));
                 ArrayList<Object> allChildren = new ArrayList<Object>();
-                for (int i = 0; i < currentLevelChildren.size(); i += 2) {
-                    if ((((Accessible) currentLevelChildren.get(i)).getAccessibleContext().getAccessibleStateSet().contains(AccessibleState.SELECTED) && (whichChildren == JAVA_AX_SELECTED_CHILDREN)) ||
-                            (((Accessible) currentLevelChildren.get(i)).getAccessibleContext().getAccessibleStateSet().contains(AccessibleState.VISIBLE) && (whichChildren == JAVA_AX_VISIBLE_CHILDREN)) ||
-                            (whichChildren == JAVA_AX_ALL_CHILDREN)) {
-                        allChildren.add(currentLevelChildren.get(i));
-                        allChildren.add(currentLevelChildren.get(i + 1));
-                        allChildren.add(String.valueOf(level));
-                    }
-                    if (getAccessibleStateSet(((Accessible) currentLevelChildren.get(i)).getAccessibleContext(), c).contains(AccessibleState.EXPANDED)) {
-                        allChildren.addAll(Arrays.asList(getChildrenAndRolesRecursive(((Accessible) currentLevelChildren.get(i)), c, whichChildren, allowIgnored, level + 1)));
-                    }
+
+                Accessible at = null;
+                if (a instanceof CAccessible) {
+                    at = CAccessible.getSwingAccessible(a);
+                } else {
+                    at = a;
                 }
+
+                if (at instanceof JTree) {
+                    JTree tree = ((JTree) at);
+
+                    if (whichChildren == JAVA_AX_ALL_CHILDREN) {
+                        int count = tree.getRowCount();
+                        for (int i = 0; i < count; i++) {
+                            TreePath path = tree.getPathForRow(i);
+                            Accessible an = createAccessibleTreeNode(tree, path);
+                            if (an != null) {
+                                AccessibleContext ac = an.getAccessibleContext();
+                                if (ac != null) {
+                                    allChildren.add(an);
+                                    allChildren.add(ac.getAccessibleRole());;
+                                    allChildren.add(String.valueOf((tree.isRootVisible() ? path.getPathCount() : path.getPathCount() - 1)));
+                                }
+                            }
+                        }
+                    }
+
+                    if (whichChildren == JAVA_AX_SELECTED_CHILDREN) {
+                        int count = tree.getSelectionCount();
+                        for (int i = 0; i < count; i++) {
+                            TreePath path = tree.getSelectionPaths()[i];
+                            Accessible an = createAccessibleTreeNode(tree, path);
+                            if (an != null) {
+                                AccessibleContext ac = an.getAccessibleContext();
+                                if (ac != null) {
+                                    allChildren.add(an);
+                                    allChildren.add(ac.getAccessibleRole());
+                                    allChildren.add(String.valueOf((tree.isRootVisible() ? path.getPathCount() : path.getPathCount() - 1)));
+                                }
+                            }
+                        }
+                    }
+
+                    return allChildren.toArray();
+                }
+
+                ArrayList<Object> currentLevelChildren = new ArrayList<Object>();
+                ArrayList<Accessible> parentStack = new ArrayList<Accessible>();
+                parentStack.add(a);
+                ArrayList<Integer> indexses = new ArrayList<Integer>();
+                Integer index = 0;
+                int currentLevel = 0;
+                while (!parentStack.isEmpty()) {
+                    Accessible p = parentStack.get(parentStack.size() - 1);
+
+                    currentLevelChildren.addAll(Arrays.asList(getChildrenAndRolesImpl(p, c, JAVA_AX_ALL_CHILDREN, allowIgnored, ChildrenOperations.COMMON)));
+                    if ((currentLevelChildren.size() == 0) || (index >= currentLevelChildren.size())) {
+                        if (!parentStack.isEmpty()) parentStack.remove(parentStack.size() - 1);
+                        if (!indexses.isEmpty()) index = indexses.remove(indexses.size() - 1);
+                        currentLevel -= 1;
+                        currentLevelChildren.clear();
+                        continue;
+                    }
+
+                    Accessible ca = null;
+                    Object obj = currentLevelChildren.get(index);
+                    if (!(obj instanceof Accessible)) {
+                        index += 2;
+                        currentLevelChildren.clear();
+                        continue;
+                    }
+                    ca = (Accessible) obj;
+                    Object role = currentLevelChildren.get(index + 1);
+                    currentLevelChildren.clear();
+
+                    AccessibleContext cac = ca.getAccessibleContext();
+                    if (cac == null) {
+                        index += 2;
+                        continue;
+                    }
+
+                    if ((cac.getAccessibleStateSet().contains(AccessibleState.SELECTED) && (whichChildren == JAVA_AX_SELECTED_CHILDREN)) ||
+                            (cac.getAccessibleStateSet().contains(AccessibleState.VISIBLE) && (whichChildren == JAVA_AX_VISIBLE_CHILDREN)) ||
+                            (whichChildren == JAVA_AX_ALL_CHILDREN)) {
+                        allChildren.add(ca);
+                        allChildren.add(role);
+                        allChildren.add(String.valueOf(currentLevel));
+                    }
+
+                    index += 2;
+
+                    if (cac.getAccessibleStateSet().contains(AccessibleState.EXPANDED)) {
+                        parentStack.add(ca);
+                        indexses.add(index);
+                        index = 0;
+                        currentLevel += 1;
+                        continue;
+                    }
+
+                }
+
                 return allChildren.toArray();
             }
         }, c);
@@ -713,20 +874,70 @@ class CAccessibility implements PropertyChangeListener {
         return role;
     }
 
+    private interface ChildrenOperations {
+        boolean isContextValid(AccessibleContext accessibleContext);
+        int getChildrenCount(AccessibleContext accessibleContext);
+        Accessible getAccessibleChild(AccessibleContext accessibleContext, int childIndex);
+
+        static ChildrenOperations COMMON = createForCommon();
+
+        static ChildrenOperations createForCommon() {
+            return new ChildrenOperations() {
+                @Override
+                public boolean isContextValid(AccessibleContext accessibleContext) {
+                    return accessibleContext != null;
+                }
+
+                @Override
+                public int getChildrenCount(AccessibleContext accessibleContext) {
+                    assert isContextValid(accessibleContext);
+                    return accessibleContext.getAccessibleChildrenCount();
+                }
+
+                @Override
+                public Accessible getAccessibleChild(AccessibleContext accessibleContext, int childIndex) {
+                    assert isContextValid(accessibleContext);
+                    return accessibleContext.getAccessibleChild(childIndex);
+                }
+            };
+        }
+
+        static ChildrenOperations createForTableRow(int tableRowIndex) {
+            return new ChildrenOperations() {
+                @Override
+                public boolean isContextValid(AccessibleContext accessibleContext) {
+                    return accessibleContext instanceof AccessibleTable;
+                }
+
+                @Override
+                public int getChildrenCount(AccessibleContext accessibleContext) {
+                    assert isContextValid(accessibleContext);
+                    return ((AccessibleTable)accessibleContext).getAccessibleColumnCount();
+                }
+
+                @Override
+                public Accessible getAccessibleChild(AccessibleContext accessibleContext, int childIndex) {
+                    assert isContextValid(accessibleContext);
+                    return ((AccessibleTable)accessibleContext).getAccessibleAt(tableRowIndex, childIndex);
+                }
+            };
+        }
+    }
+
 
     // Either gets the immediate children of a, or recursively gets all unignored children of a
-    private static void _addChildren(final Accessible a, final int whichChildren, final boolean allowIgnored, final ArrayList<Object> childrenAndRoles) {
+    private static void _addChildren(Accessible a, int whichChildren, boolean allowIgnored, ArrayList<Object> childrenAndRoles, ChildrenOperations ops) {
         if (a == null) return;
 
         final AccessibleContext ac = a.getAccessibleContext();
-        if (ac == null) return;
+        if (!ops.isContextValid(ac)) return;
 
-        final int numChildren = ac.getAccessibleChildrenCount();
+        final int numChildren = ops.getChildrenCount(ac);
 
         // each child takes up two entries in the array: itself, and its role
         // so the array holds alternating Accessible and AccessibleRole objects
         for (int i = 0; i < numChildren; i++) {
-            final Accessible child = ac.getAccessibleChild(i);
+            final Accessible child = ops.getAccessibleChild(ac, i);
             if (child == null) continue;
 
             final AccessibleContext context = child.getAccessibleContext();
@@ -748,7 +959,7 @@ class CAccessibility implements PropertyChangeListener {
                 final AccessibleRole role = context.getAccessibleRole();
                 if (role != null && ignoredRoles != null && ignoredRoles.contains(roleKey(role))) {
                     // Get the child's unignored children.
-                    _addChildren(child, whichChildren, false, childrenAndRoles);
+                    _addChildren(child, whichChildren, false, childrenAndRoles, ChildrenOperations.COMMON);
                 } else {
                     childrenAndRoles.add(child);
                     childrenAndRoles.add(getAccessibleRole(child));

@@ -40,11 +40,18 @@ NSString* JavaStringToNSString(JNIEnv *env, jstring jstr) {
 }
 
 jstring NSStringToJavaString(JNIEnv* env, NSString *str) {
-
     if (str == NULL) {
        return NULL;
     }
-    jstring jStr = (*env)->NewStringUTF(env, [str UTF8String]);
+    jsize len = [str length];
+    unichar *buffer = (unichar*)calloc(len, sizeof(unichar));
+    if (buffer == NULL) {
+       return NULL;
+    }
+    NSRange crange = NSMakeRange(0, len);
+    [str getCharacters:buffer range:crange];
+    jstring jStr = (*env)->NewString(env, buffer, len);
+    free(buffer);
     CHECK_EXCEPTION();
     return jStr;
 }
@@ -115,5 +122,34 @@ NSString *JNIObjectToNSString(JNIEnv *env, jobject obj)
 
     NSString* result = JavaStringToNSString(env, name);
     (*env)->DeleteLocalRef(env, name);
+    return result;
+}
+
+NSString *ThrowableToNSString(JNIEnv *env, jthrowable exc) {
+    DECLARE_CLASS_RETURN(sjc_Object, "java/lang/Object", nil);
+    DECLARE_METHOD_RETURN(jm_toString, sjc_Object, "toString", "()Ljava/lang/String;", nil);
+    DECLARE_CLASS_RETURN(sjc_Throwable, "java/lang/Throwable", nil);
+    DECLARE_METHOD_RETURN(jm_getStackTrace, sjc_Throwable, "getStackTrace",
+                          "()[Ljava/lang/StackTraceElement;", nil);
+    jobject jstr = (*env)->CallObjectMethod(env, exc, jm_toString);
+
+    NSString* result = JavaStringToNSString(env, jstr);
+
+    jobjectArray frames = 
+        (jobjectArray) (*env)->CallObjectMethod(env, exc, jm_getStackTrace);
+    if (frames != NULL) {
+        jsize framesLen = (*env)->GetArrayLength(env, frames);
+
+        for (int i = 0; i < framesLen; i++) {
+            jobject stackElem = (*env)->GetObjectArrayElement(env, frames, i);
+            jobject stackElemStr = (*env)->CallObjectMethod(env, stackElem, jm_toString);
+            NSString *frameStr = JavaStringToNSString(env, stackElemStr);
+            result = [result stringByAppendingFormat:@"\n%@", frameStr];
+            (*env)->DeleteLocalRef(env, stackElem);
+            (*env)->DeleteLocalRef(env, stackElemStr);
+        }
+        (*env)->DeleteLocalRef(env, frames);
+    }
+    (*env)->DeleteLocalRef(env, jstr);
     return result;
 }

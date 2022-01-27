@@ -1,0 +1,31 @@
+From 6dc05f05716854367e229d72d5fa03f8f7d0739d Mon Sep 17 00:00:00 2001
+From: Vladimir Dvorak <vladimir.dvorak@jetbrains.com>
+Date: Tue, 19 Oct 2021 17:02:35 +0200
+Subject: [PATCH 31/33] Attempt to fix JBR-3887
+
+---
+ src/hotspot/share/prims/jvmtiExtensions.cpp | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/hotspot/share/prims/jvmtiExtensions.cpp b/src/hotspot/share/prims/jvmtiExtensions.cpp
+index 8a6058fd884..9c8c98cb70e 100644
+--- a/src/hotspot/share/prims/jvmtiExtensions.cpp
++++ b/src/hotspot/share/prims/jvmtiExtensions.cpp
+@@ -50,7 +50,13 @@ static jvmtiError JNICALL IsClassUnloadingEnabled(const jvmtiEnv* env, ...) {
+ }
+ 
+ // extension function
+-static jvmtiError JNICALL IsEnhancedClassRedefinitionEnabled(const jvmtiEnv* env, jboolean* enabled, ...) {
++static jvmtiError JNICALL IsEnhancedClassRedefinitionEnabled(const jvmtiEnv* env, ...) {
++  jboolean* enabled = NULL;
++  va_list ap;
++
++  va_start(ap, env);
++  enabled = va_arg(ap, jboolean *);
++  va_end(ap);
+   if (enabled == NULL) {
+     return JVMTI_ERROR_NULL_POINTER;
+   }
+-- 
+2.23.0
+

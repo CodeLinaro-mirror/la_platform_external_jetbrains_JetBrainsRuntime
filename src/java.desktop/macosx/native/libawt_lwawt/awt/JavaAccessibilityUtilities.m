@@ -50,6 +50,7 @@ static jclass sjc_CAccessibility = NULL;
 
 NSSize getAxComponentSize(JNIEnv *env, jobject axComponent, jobject component)
 {
+    GET_CACCESSIBILITY_CLASS_RETURN(NSZeroSize);
     DECLARE_CLASS_RETURN(jc_Dimension, "java/awt/Dimension", NSZeroSize);
     DECLARE_FIELD_RETURN(jf_width, jc_Dimension, "width", "I", NSZeroSize);
     DECLARE_FIELD_RETURN(jf_height, jc_Dimension, "height", "I", NSZeroSize);
@@ -60,7 +61,10 @@ NSSize getAxComponentSize(JNIEnv *env, jobject axComponent, jobject component)
     CHECK_EXCEPTION();
 
     if (dimension == NULL) return NSZeroSize;
-    return NSMakeSize((*env)->GetIntField(env, dimension, jf_width), (*env)->GetIntField(env, dimension, jf_height));
+
+    NSSize size = NSMakeSize((*env)->GetIntField(env, dimension, jf_width), (*env)->GetIntField(env, dimension, jf_height));
+    (*env)->DeleteLocalRef(env, dimension);
+    return size;
 }
 
 NSString *getJavaRole(JNIEnv *env, jobject axComponent, jobject component)
@@ -253,7 +257,10 @@ NSPoint getAxComponentLocationOnScreen(JNIEnv *env, jobject axComponent, jobject
                       axComponent, component);
     CHECK_EXCEPTION();
     if (jpoint == NULL) return NSZeroPoint;
-    return NSMakePoint((*env)->GetIntField(env, jpoint, sjf_X), (*env)->GetIntField(env, jpoint, sjf_Y));
+
+    NSPoint p = NSMakePoint((*env)->GetIntField(env, jpoint, sjf_X), (*env)->GetIntField(env, jpoint, sjf_Y));
+    (*env)->DeleteLocalRef(env, jpoint);
+    return p;
 }
 
 jint getAxTextCharCount(JNIEnv *env, jobject axText, jobject component)

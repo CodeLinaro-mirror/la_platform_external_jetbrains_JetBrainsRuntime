@@ -118,7 +118,7 @@ class Thread: public ThreadShadow {
 
 #ifndef USE_LIBRARY_BASED_TLS_ONLY
   // Current thread is maintained as a thread-local variable
-  static THREAD_LOCAL_DECL Thread* _thr_current;
+  static THREAD_LOCAL Thread* _thr_current;
 #endif
 
  private:
@@ -1157,6 +1157,11 @@ class JavaThread: public Thread {
 
   // Support for high precision, thread sensitive counters in JVMCI compiled code.
   jlong*    _jvmci_counters;
+
+  // Fast thread locals for use by JVMCI
+  intptr_t*  _jvmci_reserved0;
+  intptr_t*  _jvmci_reserved1;
+  oop        _jvmci_reserved_oop0;
 
  public:
   static jlong* _jvmci_old_thread_counters;

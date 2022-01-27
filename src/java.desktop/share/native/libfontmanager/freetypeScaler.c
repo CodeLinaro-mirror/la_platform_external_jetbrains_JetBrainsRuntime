@@ -68,6 +68,12 @@
 
 #include "fontscaler.h"
 
+#define CHECK_EXCEPTION(env, describe)                 \
+    if ((*(env))->ExceptionCheck(env)) {               \
+        if (describe) (*(env))->ExceptionDescribe(env);\
+        else          (*(env))->ExceptionClear(env);   \
+    }
+
 #define  ftFixed1  (FT_Fixed) (1 << 16)
 #define  FloatToFTFixed(f) (FT_Fixed)((f) * (float)(ftFixed1))
 #define  FTFixedToFloat(x) ((x) / (float)(ftFixed1))
@@ -133,6 +139,7 @@ typedef struct FTScalerContext {
     int        ptsz;          /* size in points */
     int        fixedSizeIndex;/* -1 for scalable fonts and index inside
                                * scalerInfo->face->available_sizes otherwise */
+    jboolean colorFont;
 } FTScalerContext;
 
 /* SampledBGRABitmap contains (possibly) downscaled image data
@@ -158,6 +165,7 @@ static jclass tkClass;
 static jmethodID getScreenResolutionMID;
 static jfieldID platNameFID;
 static jfieldID familyNameFID;
+static jboolean  debugFonts; // Stores the value of FontUtilities.debugFonts()
 
 #ifndef DISABLE_FONTCONFIG
 typedef FcBool (*FcPatternAddPtrType) (FcPattern *p, const char *object, FcValue value, FcBool append);
@@ -247,6 +255,11 @@ Java_sun_font_FreetypeFontScaler_initIDs(
 
     invalidateScalerMID =
         (*env)->GetMethodID(env, FFSClass, "invalidateScaler", "()V");
+
+    jboolean ignoreException;
+    debugFonts = JNU_CallStaticMethodByName(env, &ignoreException,
+                                            "sun/font/FontUtilities",
+                                            "debugFonts", "()Z").z;
     getDefaultToolkitMID =
         (*env)->GetStaticMethodID(env, TKClass, "getDefaultToolkit",
                                   "()Ljava/awt/Toolkit;");
@@ -337,6 +350,11 @@ static int getScreenResolution(JNIEnv *env) {
     jthrowable exc;
     jclass tk = (*env)->CallStaticObjectMethod(
         env, tkClass, getDefaultToolkitMID);
+    exc = (*env)->ExceptionOccurred(env);
+    if (exc) {
+        (*env)->ExceptionClear(env);
+        return DEFAULT_DPI;
+    }
     int dpi = (*env)->CallIntMethod(env, tk, getScreenResolutionMID);
 
     /* Test if there is no exception here (can get java.awt.HeadlessException)
@@ -396,6 +414,9 @@ static void invalidateJavaScaler(JNIEnv *env,
                                  FTScalerInfo* scalerInfo) {
     freeNativeResources(env, scalerInfo);
     (*env)->CallVoidMethod(env, scaler, invalidateScalerMID);
+    // NB: Exceptions must not be cleared (and therefore no JNI calls
+    // performed) after calling this method because it intentionally
+    // leaves an exception pending.
 }
 
 /******************* I/O handlers ***************************/
@@ -446,6 +467,7 @@ static unsigned long ReadTTFontFileFunc(FT_Stream stream,
                                           scalerInfo->font2D,
                                           sunFontIDs.ttReadBlockMID,
                                           bBuffer, offset, numBytes);
+            CHECK_EXCEPTION(env, debugFonts);
             if (bread < 0) {
                 return 0;
             } else {
@@ -465,7 +487,8 @@ static unsigned long ReadTTFontFileFunc(FT_Stream stream,
             (*env)->CallObjectMethod(env, scalerInfo->font2D,
                                      sunFontIDs.ttReadBytesMID,
                                      offset, numBytes);
-            /* If there's an OutofMemoryError then byteArray will be null */
+            CHECK_EXCEPTION(env, debugFonts);
+            /* If there's an OutOfMemoryError then byteArray will be null */
             if (byteArray == NULL) {
                 return 0;
             } else {
@@ -498,6 +521,7 @@ static unsigned long ReadTTFontFileFunc(FT_Stream stream,
                                       sunFontIDs.ttReadBlockMID,
                                       bBuffer, offset,
                                       scalerInfo->fontDataLength);
+        CHECK_EXCEPTION(env, debugFonts);
         if (bread <= 0) {
             return 0;
         } else if (bread < numBytes) {
@@ -732,10 +756,10 @@ Java_sun_font_FreetypeFontScaler_createScalerContextNative(
 }
 
 static void setDefaultScalerSettings(FTScalerContext *context) {
-    if (context->aaType == TEXT_AA_OFF) {
-        context->loadFlags = FT_LOAD_TARGET_MONO;
-    } else if (context->aaType == TEXT_AA_ON) {
+    if (context->aaType == TEXT_AA_ON || context->colorFont) {
         context->loadFlags = FT_LOAD_TARGET_NORMAL;
+    } else if (context->aaType == TEXT_AA_OFF) {
+        context->loadFlags = FT_LOAD_TARGET_MONO;
     } else {
         context->lcdFilter = FT_LCD_FILTER_LIGHT;
         if (context->aaType == TEXT_AA_LCD_HRGB ||
@@ -806,12 +830,13 @@ static int setupFTContext(JNIEnv *env, jobject font2D, FTScalerInfo *scalerInfo,
 
         FT_UInt dpi = (FT_UInt) getScreenResolution(env);
         if (FT_IS_SCALABLE(scalerInfo->face)) { // Standard scalable face
+            context->colorFont = FT_HAS_COLOR(scalerInfo->face);
             context->fixedSizeIndex = -1;
             errCode = FT_Set_Char_Size(scalerInfo->face, 0,
                                        ADJUST_FONT_SIZE(context->ptsz, dpi),
                                        dpi, dpi);
-        }
-        else { // Non-scalable face (that should only be bitmap faces)
+        } else { // Non-scalable face (that should only be bitmap faces)
+            context->colorFont = TRUE;
             const int ptsz = context->ptsz;
             // Best size is smallest, but not smaller than requested
             int bestSizeIndex = 0;
@@ -948,17 +973,10 @@ static int setupFTContext(JNIEnv *env, jobject font2D, FTScalerInfo *scalerInfo,
 
             if (logFC && fcAutohintSet) fprintf(stderr, "FC_AUTOHINT(%d) ", fcAutohint);
 
-            if (context->aaType == TEXT_AA_ON) { // Greyscale AA
+            if (context->aaType == TEXT_AA_ON || context->colorFont) { // Greyscale AA or color glyph
                 setupLoadRenderFlags(context, fcHintStyle, fcAutohint, fcAutohintSet, FT_LOAD_DEFAULT, FT_RENDER_MODE_NORMAL);
-            }
-            else if (context->aaType == TEXT_AA_OFF) { // No AA
-                /* We disable MONO for non-scalable fonts, because that
-                 * is most probably a colored bitmap glyph */
-                setupLoadRenderFlags(context, fcHintStyle, fcAutohint, fcAutohintSet,
-                        context->fixedSizeIndex == -1 ?
-                            FT_LOAD_TARGET_MONO : FT_LOAD_TARGET_NORMAL,
-                        context->fixedSizeIndex == -1 ?
-                            FT_RENDER_MODE_MONO : FT_RENDER_MODE_NORMAL);
+            } else if (context->aaType == TEXT_AA_OFF) { // No AA
+                setupLoadRenderFlags(context, fcHintStyle, fcAutohint, fcAutohintSet, FT_LOAD_TARGET_MONO, FT_RENDER_MODE_MONO);
             } else {
                 int fcRGBA = FC_RGBA_UNKNOWN;
                 if (fcAntialiasSet && fcAntialias) {
@@ -996,10 +1014,6 @@ static int setupFTContext(JNIEnv *env, jobject font2D, FTScalerInfo *scalerInfo,
                                              FT_LOAD_TARGET_LCD_V, FT_RENDER_MODE_LCD_V);
                     }
                 }
-            }
-            if (context->fixedSizeIndex != -1) {
-                // This is most probably a colored bitmap glyph, so enable COLOR
-                context->loadFlags |= FT_LOAD_COLOR;
             }
 
             FT_LcdFilter fcLCDFilter;
@@ -1529,69 +1543,6 @@ static void transformBGRABitmapGlyph(FT_GlyphSlot ftglyph, GlyphInfo* glyphInfo,
     freeSampledBGRABitmap(&sampledBitmap);
 }
 
-/* Size (in pixels) of stack-allocated temporary buffer for glyph downscaling.
- * If glyph is too big and requires more memory, it will use malloc. */
-#define SUBPIXEL_DOWNSCALE_STATIC_BUFFER_SIZE 2048
-
-/* In order to get an extended set of grayscale glyph images, we pick single
- * upscaled image and downscale it with different offsets by x and y axis */
-static void CopySupplementarySubpixelToGrey8(const UInt8* srcImage, int srcRowBytes,
-                                             int srcWidth, int srcHeight,
-                                             UInt8* dstImage, int dstRowBytes,
-                                             int dstWidth, int dstHeight,
-                                             int xOffset, int yOffset,
-                                             int xResolution, int yResolution,
-                                             int imageSize) {
-    short staticBuffer[SUBPIXEL_DOWNSCALE_STATIC_BUFFER_SIZE];
-    int bufferSize = dstWidth * srcHeight;
-    int useStaticBuffer = bufferSize <= SUBPIXEL_DOWNSCALE_STATIC_BUFFER_SIZE;
-    short *buffer = useStaticBuffer ?
-            staticBuffer : malloc(sizeof(short) * bufferSize);
-
-    int xGlyph, yGlyph, x, y;
-    // For each subpixel offset by x axis
-    for (xGlyph = 0; xGlyph < xResolution; xGlyph++) {
-        // Sum values by x axis and store into temporary buffer
-        for (y = 0; y < srcHeight; y++) {
-            for (x = 0; x < dstWidth; x++) {
-                int value = 0;
-                int xFrom = x * xResolution - xOffset - xGlyph,
-                    xTo = xFrom + xResolution;
-                if (xFrom < 0) xFrom = 0;
-                if (xTo > srcWidth) xTo = srcWidth;
-                int i;
-                for (i = xFrom; i < xTo; i++) {
-                    value += srcImage[y * srcRowBytes + i];
-                }
-                buffer[y * dstWidth + x] = (short) value;
-            }
-        }
-        // For each subpixel offset by y axis
-        for (yGlyph = 0; yGlyph < yResolution; yGlyph++) {
-            UInt8 *dst = dstImage +
-                         imageSize * (xGlyph + yGlyph * xResolution);
-            // Sum values by y axis and store average into destination image
-            for (y = 0; y < dstHeight; y++) {
-                for (x = 0; x < dstWidth; x++) {
-                    int value = 0;
-                    int yFrom = y * yResolution - yOffset - yGlyph,
-                        yTo = yFrom + yResolution;
-                    if (yFrom < 0) yFrom = 0;
-                    if (yTo > srcHeight) yTo = srcHeight;
-                    int j;
-                    for (j = yFrom; j < yTo; j++) {
-                        value += buffer[j * dstWidth + x];
-                    }
-                    dst[y * dstRowBytes + x] =
-                            value / xResolution / yResolution;
-                }
-            }
-        }
-    }
-
-    if (!useStaticBuffer) free(buffer);
-}
-
 /* JDK does not use glyph images for fonts with a
  * pixel size > 100 (see THRESHOLD in OutlineTextRenderer.java)
  * so if the glyph bitmap image dimension is > 1024 pixels,
@@ -1686,10 +1637,13 @@ static jlong
         context->loadFlags |= FT_LOAD_NO_HINTING;
     }
 
-    /* Don't disable bitmaps when working with fixed-size glyph,
-     * this is most probably a BGRA glyph */
-    if (!context->useSbits && context->fixedSizeIndex == -1) {
-        context->loadFlags |=  FT_LOAD_NO_BITMAP;
+    if (context->colorFont) {
+        context->loadFlags |= FT_LOAD_COLOR;
+    }
+
+    /* Don't disable bitmaps for color glyphs */
+    if (!context->useSbits && !context->colorFont) {
+        context->loadFlags |= FT_LOAD_NO_BITMAP;
     }
 
     /* NB: in case of non identity transform
@@ -1707,14 +1661,14 @@ static jlong
     library = ftglyph->library;
     FT_Library_SetLcdFilter_Proxy(library, context->lcdFilter);
 
-    /* apply styles */
-    if (context->doBold && context->fixedSizeIndex == -1) { /* if bold style */
-        FT_GlyphSlot_Embolden(ftglyph);
-    }
-
     /* After call to FT_Render_Glyph, glyph format will be changed from
      * FT_GLYPH_FORMAT_OUTLINE to FT_GLYPH_FORMAT_BITMAP, so save this value */
     int outlineGlyph = ftglyph->format == FT_GLYPH_FORMAT_OUTLINE;
+
+    /* apply styles */
+    if (context->doBold && outlineGlyph && !context->colorFont) { /* if bold style */
+        FT_GlyphSlot_Embolden(ftglyph);
+    }
 
     /* generate bitmap if it is not done yet
      e.g. if algorithmic styling is performed and style was added to outline */
@@ -1727,18 +1681,12 @@ static jlong
          * We do this by rendering the glyph in bigger resolution and then
          * downscaling it with different subpixel offsets, which results in
          * subpixelResolutionX * subpixelResolutionY images per glyph. */
-        if (ftglyph->bitmap.pixel_mode ==  FT_PIXEL_MODE_GRAY &&
+        if (!context->colorFont && ftglyph->bitmap.pixel_mode ==  FT_PIXEL_MODE_GRAY &&
             context->aaType == TEXT_AA_ON && context->fmType == TEXT_FM_ON) {
             subpixelResolutionX = supplementarySubpixelGlyphResolution.x;
             subpixelResolutionY = supplementarySubpixelGlyphResolution.y;
             if (subpixelResolutionX > 1 || subpixelResolutionY > 1) {
                 subpixelGlyph = TRUE;
-                FT_Matrix matrix;
-                matrix.xx = (long) FT_MATRIX_ONE * subpixelResolutionX;
-                matrix.xy = 0;
-                matrix.yx = 0;
-                matrix.yy = (long) FT_MATRIX_ONE * subpixelResolutionY;
-                FT_Outline_Transform(&(ftglyph->outline), &matrix);
             }
         }
         FT_BBox bbox;
@@ -1761,19 +1709,9 @@ static jlong
     FT_BBox manualTransformBoundingBox;
     int topLeftX, topLeftY;
     if (renderImage) {
-        if (subpixelGlyph) {
-            topLeftX = FLOOR_DIV(ftglyph->bitmap_left, subpixelResolutionX);
-            topLeftY = FLOOR_DIV(-ftglyph->bitmap_top, subpixelResolutionY);
-            width = -FLOOR_DIV(
-                    -ftglyph->bitmap_left - (int) ftglyph->bitmap.width -
-                    subpixelResolutionX + 1, subpixelResolutionX) - topLeftX;
-            height = -FLOOR_DIV(
-                    ftglyph->bitmap_top - (int) ftglyph->bitmap.rows -
-                    subpixelResolutionX + 1, subpixelResolutionY) - topLeftY;
-        }
-        else if (context->fixedSizeIndex == -1) {
-            width  = (UInt16) ftglyph->bitmap.width;
-            height = (UInt16) ftglyph->bitmap.rows;
+        if (context->fixedSizeIndex == -1) {
+            width  = (UInt16) ftglyph->bitmap.width + subpixelGlyph;
+            height = (UInt16) ftglyph->bitmap.rows + subpixelGlyph;
             topLeftX = ftglyph->bitmap_left;
             topLeftY = -ftglyph->bitmap_top;
         }
@@ -1830,6 +1768,11 @@ static jlong
     glyphInfo->subpixelResolutionX = subpixelResolutionX;
     glyphInfo->subpixelResolutionY = subpixelResolutionY;
 
+    if (ftglyph->bitmap.pixel_mode == FT_PIXEL_MODE_BGRA) glyphInfo->format = sun_font_StrikeCache_PIXEL_FORMAT_BGRA;
+    else if (ftglyph->bitmap.pixel_mode == FT_PIXEL_MODE_LCD ||
+             ftglyph->bitmap.pixel_mode == FT_PIXEL_MODE_LCD_V) glyphInfo->format = sun_font_StrikeCache_PIXEL_FORMAT_LCD;
+    else glyphInfo->format = sun_font_StrikeCache_PIXEL_FORMAT_GREYSCALE;
+
     if (renderImage) {
         if (ftglyph->bitmap.pixel_mode ==  FT_PIXEL_MODE_LCD && width > 0) {
             glyphInfo->width = width/3;
@@ -1872,23 +1815,35 @@ static jlong
         //4 bytes per pixel for BGRA glyphs
         // or 1 byte per pixel for AA and B&W
         if (subpixelGlyph) {
-            int offsetX = ftglyph->bitmap_left - topLeftX * subpixelResolutionX;
-            int offsetY = -ftglyph->bitmap_top - topLeftY * subpixelResolutionY;
-            CopySupplementarySubpixelToGrey8(ftglyph->bitmap.buffer,
-                                             ftglyph->bitmap.pitch,
-                                             ftglyph->bitmap.width,
-                                             ftglyph->bitmap.rows,
-                                             glyphInfo->image,
-                                             rowBytes,
-                                             width,
-                                             height,
-                                             offsetX,
-                                             offsetY,
-                                             subpixelResolutionX,
-                                             subpixelResolutionY,
-                                             imageSize);
-        }
-        else if (context->fixedSizeIndex == -1) {
+            // Copy first image with zero subpixel offset
+            unsigned int i;
+            for (i = 0; i < ftglyph->bitmap.rows; i++) {
+                const UInt8* src = ftglyph->bitmap.buffer + i * ftglyph->bitmap.pitch;
+                UInt8* dst = glyphInfo->image + i * rowBytes;
+                memcpy(dst, src, ftglyph->bitmap.width);
+            }
+            // Render remaining images
+            int sx = (1 << 6) / subpixelResolutionX, sy = (1 << 6) / subpixelResolutionY;
+            FT_Bitmap bitmap = ftglyph->bitmap;
+            bitmap.rows = height;
+            bitmap.pitch = bitmap.width = width;
+            int prevX = ftglyph->bitmap_left * (1 << 6), prevY = (ftglyph->bitmap_top - height) * (1 << 6);
+            int x, y;
+            for (y = 0; y < subpixelResolutionY; y++) {
+                for (x = (y == 0); x < subpixelResolutionX; x++) {
+                    bitmap.buffer = glyphInfo->image + imageSize * (subpixelResolutionX * y + x);
+                    int newX = sx * x, newY = -sy * y;
+                    FT_Outline_Translate(&ftglyph->outline, newX - prevX, newY - prevY);
+                    error = FT_Outline_Get_Bitmap(library, &ftglyph->outline, &bitmap);
+                    if (error) {
+                        // In case of error, copy first image
+                        memcpy(bitmap.buffer, glyphInfo->image, imageSize);
+                    }
+                    prevX = newX;
+                    prevY = newY;
+                }
+            }
+        } else if (context->fixedSizeIndex == -1) {
             // Standard format conversion without image transformation
             if (ftglyph->bitmap.pixel_mode ==  FT_PIXEL_MODE_MONO) {
                 /* convert from 8 pixels per byte to 1 byte per pixel */

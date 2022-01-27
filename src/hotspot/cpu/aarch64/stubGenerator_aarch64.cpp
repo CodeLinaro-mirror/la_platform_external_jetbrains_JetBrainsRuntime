@@ -683,7 +683,6 @@ class StubGenerator: public StubCodeGenerator {
     int unit = wordSize * direction;
     int bias = (UseSIMDForMemoryOps ? 4:2) * wordSize;
 
-    int offset;
     const Register t0 = r3, t1 = r4, t2 = r5, t3 = r6,
       t4 = r7, t5 = r10, t6 = r11, t7 = r12;
     const Register stride = r13;
@@ -1300,14 +1299,14 @@ class StubGenerator: public StubCodeGenerator {
 
   // Scan over array at a for count oops, verifying each one.
   // Preserves a and count, clobbers rscratch1 and rscratch2.
-  void verify_oop_array (size_t size, Register a, Register count, Register temp) {
+  void verify_oop_array (int size, Register a, Register count, Register temp) {
     Label loop, end;
     __ mov(rscratch1, a);
     __ mov(rscratch2, zr);
     __ bind(loop);
     __ cmp(rscratch2, count);
     __ br(Assembler::HS, end);
-    if (size == (size_t)wordSize) {
+    if (size == wordSize) {
       __ ldr(temp, Address(a, rscratch2, Address::lsl(exact_log2(size))));
       __ verify_oop(temp);
     } else {
@@ -1338,7 +1337,7 @@ class StubGenerator: public StubCodeGenerator {
   //   disjoint_int_copy_entry is set to the no-overlap entry point
   //   used by generate_conjoint_int_oop_copy().
   //
-  address generate_disjoint_copy(size_t size, bool aligned, bool is_oop, address *entry,
+  address generate_disjoint_copy(int size, bool aligned, bool is_oop, address *entry,
                                   const char *name, bool dest_uninitialized = false) {
     Register s = c_rarg0, d = c_rarg1, count = c_rarg2;
     RegSet saved_reg = RegSet::of(s, d, count);
@@ -1399,7 +1398,7 @@ class StubGenerator: public StubCodeGenerator {
   // the hardware handle it.  The two dwords within qwords that span
   // cache line boundaries will still be loaded and stored atomically.
   //
-  address generate_conjoint_copy(size_t size, bool aligned, bool is_oop, address nooverlap_target,
+  address generate_conjoint_copy(int size, bool aligned, bool is_oop, address nooverlap_target,
                                  address *entry, const char *name,
                                  bool dest_uninitialized = false) {
     Register s = c_rarg0, d = c_rarg1, count = c_rarg2;
@@ -1645,7 +1644,7 @@ class StubGenerator: public StubCodeGenerator {
   address generate_disjoint_oop_copy(bool aligned, address *entry,
                                      const char *name, bool dest_uninitialized) {
     const bool is_oop = true;
-    const size_t size = UseCompressedOops ? sizeof (jint) : sizeof (jlong);
+    const int size = UseCompressedOops ? sizeof (jint) : sizeof (jlong);
     return generate_disjoint_copy(size, aligned, is_oop, entry, name, dest_uninitialized);
   }
 
@@ -1663,7 +1662,7 @@ class StubGenerator: public StubCodeGenerator {
                                      address nooverlap_target, address *entry,
                                      const char *name, bool dest_uninitialized) {
     const bool is_oop = true;
-    const size_t size = UseCompressedOops ? sizeof (jint) : sizeof (jlong);
+    const int size = UseCompressedOops ? sizeof (jint) : sizeof (jlong);
     return generate_conjoint_copy(size, aligned, is_oop, nooverlap_target, entry,
                                   name, dest_uninitialized);
   }
@@ -4024,7 +4023,7 @@ class StubGenerator: public StubCodeGenerator {
     FloatRegister vtmpZ = v0, vtmp = v1, vtmp3 = v2;
     RegSet spilled_regs = RegSet::of(tmp3, tmp4);
 
-    int prefetchLoopExitCondition = MAX(64, SoftwarePrefetchHintDistance/2);
+    int prefetchLoopExitCondition = MAX2(64, SoftwarePrefetchHintDistance/2);
 
     __ eor(vtmpZ, __ T16B, vtmpZ, vtmpZ);
     // cnt2 == amount of characters left to compare
@@ -4140,7 +4139,7 @@ class StubGenerator: public StubCodeGenerator {
         DIFF_LAST_POSITION, DIFF_LAST_POSITION2;
     // exit from large loop when less than 64 bytes left to read or we're about
     // to prefetch memory behind array border
-    int largeLoopExitCondition = MAX(64, SoftwarePrefetchHintDistance)/(isLL ? 1 : 2);
+    int largeLoopExitCondition = MAX2(64, SoftwarePrefetchHintDistance)/(isLL ? 1 : 2);
     // cnt1/cnt2 contains amount of characters to compare. cnt1 can be re-used
     // update cnt2 counter with already loaded 8 bytes
     __ sub(cnt2, cnt2, wordSize/(isLL ? 1 : 2));
@@ -4565,7 +4564,7 @@ class StubGenerator: public StubCodeGenerator {
     address entry = __ pc();
     Label LOOP, LOOP_START, LOOP_PRFM, LOOP_PRFM_START, DONE;
     Register src = r0, dst = r1, len = r2, octetCounter = r3;
-    const int large_loop_threshold = MAX(64, SoftwarePrefetchHintDistance)/8 + 4;
+    const int large_loop_threshold = MAX2(64, SoftwarePrefetchHintDistance)/8 + 4;
 
     // do one more 8-byte read to have address 16-byte aligned in most cases
     // also use single store instruction

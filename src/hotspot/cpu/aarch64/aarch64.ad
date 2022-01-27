@@ -201,43 +201,43 @@ reg_def R31_H   (  NS,  NS, Op_RegI, 31, r31_sp->as_VMReg()->next());
   reg_def V7_J ( SOC, SOC, Op_RegF,  7, v7->as_VMReg()->next(2) );
   reg_def V7_K ( SOC, SOC, Op_RegF,  7, v7->as_VMReg()->next(3) );
 
-  reg_def V8   ( SOC, SOC, Op_RegF,  8, v8->as_VMReg()          );
-  reg_def V8_H ( SOC, SOC, Op_RegF,  8, v8->as_VMReg()->next()  );
+  reg_def V8   ( SOC, SOE, Op_RegF,  8, v8->as_VMReg()          );
+  reg_def V8_H ( SOC, SOE, Op_RegF,  8, v8->as_VMReg()->next()  );
   reg_def V8_J ( SOC, SOC, Op_RegF,  8, v8->as_VMReg()->next(2) );
   reg_def V8_K ( SOC, SOC, Op_RegF,  8, v8->as_VMReg()->next(3) );
 
-  reg_def V9   ( SOC, SOC, Op_RegF,  9, v9->as_VMReg()          );
-  reg_def V9_H ( SOC, SOC, Op_RegF,  9, v9->as_VMReg()->next()  );
+  reg_def V9   ( SOC, SOE, Op_RegF,  9, v9->as_VMReg()          );
+  reg_def V9_H ( SOC, SOE, Op_RegF,  9, v9->as_VMReg()->next()  );
   reg_def V9_J ( SOC, SOC, Op_RegF,  9, v9->as_VMReg()->next(2) );
   reg_def V9_K ( SOC, SOC, Op_RegF,  9, v9->as_VMReg()->next(3) );
 
-  reg_def V10  ( SOC, SOC, Op_RegF, 10, v10->as_VMReg()         );
-  reg_def V10_H( SOC, SOC, Op_RegF, 10, v10->as_VMReg()->next() );
+  reg_def V10  ( SOC, SOE, Op_RegF, 10, v10->as_VMReg()         );
+  reg_def V10_H( SOC, SOE, Op_RegF, 10, v10->as_VMReg()->next() );
   reg_def V10_J( SOC, SOC, Op_RegF, 10, v10->as_VMReg()->next(2));
   reg_def V10_K( SOC, SOC, Op_RegF, 10, v10->as_VMReg()->next(3));
 
-  reg_def V11  ( SOC, SOC, Op_RegF, 11, v11->as_VMReg()         );
-  reg_def V11_H( SOC, SOC, Op_RegF, 11, v11->as_VMReg()->next() );
+  reg_def V11  ( SOC, SOE, Op_RegF, 11, v11->as_VMReg()         );
+  reg_def V11_H( SOC, SOE, Op_RegF, 11, v11->as_VMReg()->next() );
   reg_def V11_J( SOC, SOC, Op_RegF, 11, v11->as_VMReg()->next(2));
   reg_def V11_K( SOC, SOC, Op_RegF, 11, v11->as_VMReg()->next(3));
 
-  reg_def V12  ( SOC, SOC, Op_RegF, 12, v12->as_VMReg()         );
-  reg_def V12_H( SOC, SOC, Op_RegF, 12, v12->as_VMReg()->next() );
+  reg_def V12  ( SOC, SOE, Op_RegF, 12, v12->as_VMReg()         );
+  reg_def V12_H( SOC, SOE, Op_RegF, 12, v12->as_VMReg()->next() );
   reg_def V12_J( SOC, SOC, Op_RegF, 12, v12->as_VMReg()->next(2));
   reg_def V12_K( SOC, SOC, Op_RegF, 12, v12->as_VMReg()->next(3));
 
-  reg_def V13  ( SOC, SOC, Op_RegF, 13, v13->as_VMReg()         );
-  reg_def V13_H( SOC, SOC, Op_RegF, 13, v13->as_VMReg()->next() );
+  reg_def V13  ( SOC, SOE, Op_RegF, 13, v13->as_VMReg()         );
+  reg_def V13_H( SOC, SOE, Op_RegF, 13, v13->as_VMReg()->next() );
   reg_def V13_J( SOC, SOC, Op_RegF, 13, v13->as_VMReg()->next(2));
   reg_def V13_K( SOC, SOC, Op_RegF, 13, v13->as_VMReg()->next(3));
 
-  reg_def V14  ( SOC, SOC, Op_RegF, 14, v14->as_VMReg()         );
-  reg_def V14_H( SOC, SOC, Op_RegF, 14, v14->as_VMReg()->next() );
+  reg_def V14  ( SOC, SOE, Op_RegF, 14, v14->as_VMReg()         );
+  reg_def V14_H( SOC, SOE, Op_RegF, 14, v14->as_VMReg()->next() );
   reg_def V14_J( SOC, SOC, Op_RegF, 14, v14->as_VMReg()->next(2));
   reg_def V14_K( SOC, SOC, Op_RegF, 14, v14->as_VMReg()->next(3));
 
-  reg_def V15  ( SOC, SOC, Op_RegF, 15, v15->as_VMReg()         );
-  reg_def V15_H( SOC, SOC, Op_RegF, 15, v15->as_VMReg()->next() );
+  reg_def V15  ( SOC, SOE, Op_RegF, 15, v15->as_VMReg()         );
+  reg_def V15_H( SOC, SOE, Op_RegF, 15, v15->as_VMReg()->next() );
   reg_def V15_J( SOC, SOC, Op_RegF, 15, v15->as_VMReg()->next(2));
   reg_def V15_K( SOC, SOC, Op_RegF, 15, v15->as_VMReg()->next(3));
 
@@ -2055,11 +2055,6 @@ int HandlerImpl::emit_deopt_handler(CodeBuffer& cbuf)
 
 const bool Matcher::match_rule_supported(int opcode) {
 
-  switch (opcode) {
-  default:
-    break;
-  }
-
   if (!has_match_rule(opcode)) {
     return false;
   }
@@ -2982,7 +2977,7 @@ encode %{
 
   enc_class aarch64_enc_movw_imm(iRegI dst, immI src) %{
     MacroAssembler _masm(&cbuf);
-    u_int32_t con = (u_int32_t)$src$$constant;
+    uint32_t con = (uint32_t)$src$$constant;
     Register dst_reg = as_Register($dst$$reg);
     if (con == 0) {
       __ movw(dst_reg, zr);
@@ -2994,7 +2989,7 @@ encode %{
   enc_class aarch64_enc_mov_imm(iRegL dst, immL src) %{
     MacroAssembler _masm(&cbuf);
     Register dst_reg = as_Register($dst$$reg);
-    u_int64_t con = (u_int64_t)$src$$constant;
+    uint64_t con = (uint64_t)$src$$constant;
     if (con == 0) {
       __ mov(dst_reg, zr);
     } else {
@@ -3036,7 +3031,7 @@ encode %{
   enc_class aarch64_enc_mov_p1(iRegP dst, immP_1 src) %{
     MacroAssembler _masm(&cbuf);
     Register dst_reg = as_Register($dst$$reg);
-    __ mov(dst_reg, (u_int64_t)1);
+    __ mov(dst_reg, (uint64_t)1);
   %}
 
   enc_class aarch64_enc_mov_poll_page(iRegP dst, immPollPage src) %{
@@ -3170,7 +3165,7 @@ encode %{
   enc_class aarch64_enc_cmpw_imm(iRegI src1, immI src2) %{
     MacroAssembler _masm(&cbuf);
     Register reg1 = as_Register($src1$$reg);
-    u_int32_t val = (u_int32_t)$src2$$constant;
+    uint32_t val = (uint32_t)$src2$$constant;
     __ movw(rscratch1, val);
     __ cmpw(reg1, rscratch1);
   %}
@@ -3192,7 +3187,7 @@ encode %{
       __ adds(zr, reg, -val);
     } else {
     // aargh, Long.MIN_VALUE is a special case
-      __ orr(rscratch1, zr, (u_int64_t)val);
+      __ orr(rscratch1, zr, (uint64_t)val);
       __ subs(zr, reg, rscratch1);
     }
   %}
@@ -3200,7 +3195,7 @@ encode %{
   enc_class aarch64_enc_cmp_imm(iRegL src1, immL src2) %{
     MacroAssembler _masm(&cbuf);
     Register reg1 = as_Register($src1$$reg);
-    u_int64_t val = (u_int64_t)$src2$$constant;
+    uint64_t val = (uint64_t)$src2$$constant;
     __ mov(rscratch1, val);
     __ cmp(reg1, rscratch1);
   %}
@@ -9674,7 +9669,7 @@ instruct lshift_ext(iRegLNoSp dst, iRegIorL2I src, immI scale, rFlagsReg cr) %{
   ins_encode %{
     __ sbfiz(as_Register($dst$$reg),
           as_Register($src$$reg),
-          $scale$$constant & 63, MIN(32, (-$scale$$constant) & 63));
+          $scale$$constant & 63, MIN2(32, (int)((-$scale$$constant) & 63)));
   %}
 
   ins_pipe(ialu_reg_shift);
@@ -13712,8 +13707,8 @@ instruct clearArray_reg_reg(iRegL_R11 cnt, iRegP_R10 base, Universe dummy, rFlag
 
 instruct clearArray_imm_reg(immL cnt, iRegP_R10 base, Universe dummy, rFlagsReg cr)
 %{
-  predicate((u_int64_t)n->in(2)->get_long()
-            < (u_int64_t)(BlockZeroingLowLimit >> LogBytesPerWord));
+  predicate((uint64_t)n->in(2)->get_long()
+            < (uint64_t)(BlockZeroingLowLimit >> LogBytesPerWord));
   match(Set dummy (ClearArray cnt base));
   effect(USE_KILL base);
 
@@ -13721,7 +13716,7 @@ instruct clearArray_imm_reg(immL cnt, iRegP_R10 base, Universe dummy, rFlagsReg 
   format %{ "ClearArray $cnt, $base" %}
 
   ins_encode %{
-    __ zero_words($base$$Register, (u_int64_t)$cnt$$constant);
+    __ zero_words($base$$Register, (uint64_t)$cnt$$constant);
   %}
 
   ins_pipe(pipe_class_memory);

@@ -934,7 +934,7 @@ public abstract class LWComponentPeer<T extends Component, D extends JComponent>
 
         int result = LWKeyboardFocusManagerPeer.shouldNativelyFocusHeavyweight(
                 getTarget(), lightweightChild, temporary,
-                focusedWindowChangeAllowed, time, cause, false);
+                focusedWindowChangeAllowed, time, cause, true);
         switch (result) {
             case LWKeyboardFocusManagerPeer.SNFH_FAILURE:
                 return false;
@@ -968,15 +968,22 @@ public abstract class LWComponentPeer<T extends Component, D extends JComponent>
                     return false;
                 }
 
-                return parentPeer.requestWindowFocus(cause, () -> {
+                boolean res = parentPeer.requestWindowFocus(cause);
+                // If parent window can be made focused and has been made focused (synchronously)
+                // then we can proceed with children, otherwise we retreat
+                if (!res || !parentWindow.isFocused()) {
+                    if (focusLog.isLoggable(PlatformLogger.Level.FINE)) {
+                        focusLog.fine("request rejected, res= " + res + ", parentWindow.isFocused()=" +
+                                      parentWindow.isFocused());
+                    }
                     LWKeyboardFocusManagerPeer.removeLastFocusRequest(getTarget());
-                }, () -> {
-                    KeyboardFocusManagerPeer kfmPeer = LWKeyboardFocusManagerPeer.getInstance();
+                    return false;
+                }
 
-                    Component focusOwner = kfmPeer.getCurrentFocusOwner();
-                    LWKeyboardFocusManagerPeer.deliverFocus(lightweightChild,
-                            getTarget(), false, cause, focusOwner);
-                });
+                KeyboardFocusManagerPeer kfmPeer = LWKeyboardFocusManagerPeer.getInstance();
+                Component focusOwner = kfmPeer.getCurrentFocusOwner();
+                return LWKeyboardFocusManagerPeer.deliverFocus(lightweightChild,
+                        getTarget(), true, cause, focusOwner);
 
             case LWKeyboardFocusManagerPeer.SNFH_SUCCESS_HANDLED:
                 return true;
@@ -1342,7 +1349,7 @@ public abstract class LWComponentPeer<T extends Component, D extends JComponent>
 
     public Point windowToLocal(Point p, LWWindowPeer wp) {
         LWComponentPeer<?, ?> cp = this;
-        while (cp != wp) {
+        while (cp != wp && cp != null) {
             Rectangle cpb = cp.getBounds();
             p.x -= cpb.x;
             p.y -= cpb.y;

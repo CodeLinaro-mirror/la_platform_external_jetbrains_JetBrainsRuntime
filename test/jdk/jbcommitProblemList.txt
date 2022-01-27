@@ -13,7 +13,6 @@ java/awt/Dialog/SiblingChildOrder/SiblingChildOrderTest.java                    
 java/awt/EventDispatchThread/LoopRobustness/LoopRobustness.html                             nobug macosx-all,windows-all
 java/awt/EventDispatchThread/PreserveDispathThread/PreserveDispatchThread.java              nobug windows-all
 java/awt/FileDialog/FileDialogMemoryLeak/FileDialogLeakTest.java                            nobug windows-all
-java/awt/FileDialog/FilenameFilterTest/FilenameFilterTest.html                              nobug macosx-all
 java/awt/FileDialog/MoveToTrashTest.java                                                    nobug windows-all
 java/awt/FileDialog/ModalFocus/FileDialogModalFocusTest.java                                nobug linux-all,windows-all
 java/awt/Focus/6981400/Test2.java                                                           nobug linux-all
@@ -166,7 +165,6 @@ javax/swing/JList/6510999/bug6510999.java                                       
 javax/swing/JList/BasicListTest.java                                                        nobug macosx-all
 javax/swing/JMenu/6538132/bug6538132.java                                                   nobug windows-all
 javax/swing/JMenu/8178430/LabelDotTest.java                                                 nobug linux-all
-javax/swing/JMenuItem/8139169/ScreenMenuBarInputTwice.java                                  nobug macosx-all
 javax/swing/JMenuItem/8158566/CloseOnMouseClickPropertyTest.java                            nobug windows-all
 javax/swing/JOptionPane/6428694/bug6428694.java                                             nobug windows-all
 javax/swing/JPopupMenu/4634626/bug4634626.java                                              nobug windows-all
@@ -211,7 +209,6 @@ jb/javax/swing/JDialog/JDialog705.java                                          
 jb/javax/swing/JDialog/JDialog741/JDialog741.html                                           nobug macosx-all,linux-all,windows-all
 jb/sun/awt/macos/KeyPressAndHoldTest.java                                                   nobug macosx-all
 jb/sun/lwawt/macosx/NSEvent/nsevent422.sh                                                   nobug macosx-all
-jb/java/awt/Focus/ModalDialogFromMenuTest.java                                              JBR-2768 macosx-all
 
 jb/java/jcef/MouseEventTest.java                                                            JBR-2750 linux-all
 jb/java/jcef/MouseEventAfterHideAndShowBrowserTest.java                                     JBR-2750 linux-all

@@ -154,6 +154,8 @@ final class XWM
               return "Awesome";
           case DWM_WM:
               return "DWM";
+          case XWM.I3_WM:
+              return "I3WM";
           case UNDETERMINED_WM:
           default:
               return "Undetermined WM";
@@ -1484,6 +1486,8 @@ final class XWM
           case XWM.ENLIGHTEN_WM:
               /* At least E16 is buggy. */
               return true;
+          case XWM.I3_WM:
+              return true;
           default:
               return false;
         }
@@ -1497,11 +1501,27 @@ final class XWM
         if (window == XConstants.None) {
             return null;
         }
-        XNETProtocol net_protocol = getWM().getNETProtocol();
-        if (net_protocol != null && net_protocol.active()) {
-            Insets insets = getInsetsFromProp(window, XA_NET_FRAME_EXTENTS);
-            if (insLog.isLoggable(PlatformLogger.Level.FINE)) {
-                insLog.fine("_NET_FRAME_EXTENTS: {0}", insets);
+        final XNETProtocol net_protocol = getWM().getNETProtocol();
+        final boolean frameExtentsSupported =
+                           net_protocol != null
+                        && net_protocol.active()
+                        && net_protocol.checkProtocol(net_protocol.XA_NET_SUPPORTED, XA_NET_FRAME_EXTENTS);
+        if (frameExtentsSupported) {
+            Insets insets = null;
+            final int MAX_RETRY_COUNT = 3;
+            for (int i = 0; i < MAX_RETRY_COUNT; i++) {
+                insets = getInsetsFromProp(window, XA_NET_FRAME_EXTENTS);
+                if (insLog.isLoggable(PlatformLogger.Level.FINE)) {
+                    insLog.fine("_NET_FRAME_EXTENTS: {0}", insets);
+                }
+                if (insets == null) {
+                    final long timeForInsetExtentToBecomeReadyMs = (i + 1)*5;
+                    insLog.fine("_NET_FRAME_EXTENTS not available (yet?), retrying in {0} ms",
+                                timeForInsetExtentToBecomeReadyMs);
+                    try {
+                        Thread.sleep(timeForInsetExtentToBecomeReadyMs);
+                    } catch (InterruptedException ignored) {}
+                }
             }
 
             if (insets != null) {

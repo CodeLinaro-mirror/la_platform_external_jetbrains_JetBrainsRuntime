@@ -1,7 +1,7 @@
-From c8850725d4c84f93beaee3c05f9d8f9862fe6159 Mon Sep 17 00:00:00 2001
+From 9d8b4cee545f9895b77f5f05059cbd519c6c8094 Mon Sep 17 00:00:00 2001
 From: skybber <lada.dvorak7@gmail.com>
 Date: Thu, 15 Nov 2018 03:20:08 +0700
-Subject: [PATCH 05/28] HotswapAgent integration
+Subject: [PATCH 05/33] HotswapAgent integration
 
 It include:
 
@@ -390,10 +390,10 @@ index 82311e69fd6..bd39f8595b2 100644
      CFLAGS := -DENABLE_ARG_FILES, \
  ))
 diff --git a/src/hotspot/share/classfile/vmSymbols.hpp b/src/hotspot/share/classfile/vmSymbols.hpp
-index 26ff6ee9853..2409af9b06e 100644
+index 17f7e720c95..0d0badeabd0 100644
 --- a/src/hotspot/share/classfile/vmSymbols.hpp
 +++ b/src/hotspot/share/classfile/vmSymbols.hpp
-@@ -342,6 +342,7 @@
+@@ -343,6 +343,7 @@
    /* common method and field names */                                                             \
    template(object_initializer_name,                   "<init>")                                   \
    template(class_initializer_name,                    "<clinit>")                                 \
@@ -415,10 +415,10 @@ index 0c24146ff00..9dc184d02f5 100644
                                                       !fd.is_static() &&
                                                       !m->is_object_initializer());
 diff --git a/src/hotspot/share/runtime/arguments.cpp b/src/hotspot/share/runtime/arguments.cpp
-index 013ba213c00..2b5ba619f43 100644
+index e3cb44d8690..36276741b5c 100644
 --- a/src/hotspot/share/runtime/arguments.cpp
 +++ b/src/hotspot/share/runtime/arguments.cpp
-@@ -3962,6 +3962,8 @@ jint Arguments::parse(const JavaVMInitArgs* initial_cmd_args) {
+@@ -3967,6 +3967,8 @@ jint Arguments::parse(const JavaVMInitArgs* initial_cmd_args) {
    // Set object alignment values.
    set_object_alignment();
  
@@ -427,7 +427,7 @@ index 013ba213c00..2b5ba619f43 100644
  #if !INCLUDE_CDS
    if (DumpSharedSpaces || RequireSharedSpaces) {
      jio_fprintf(defaultStream::error_stream(),
-@@ -4295,3 +4297,68 @@ bool Arguments::copy_expand_pid(const char* src, size_t srclen,
+@@ -4300,3 +4302,68 @@ bool Arguments::copy_expand_pid(const char* src, size_t srclen,
    *b = '\0';
    return (p == src_end); // return false if not all of the source was copied
  }
@@ -511,7 +511,7 @@ index cc7f71a4404..b2bab2e1f44 100644
    static size_t max_heap_for_compressed_oops();
  
 diff --git a/src/hotspot/share/runtime/globals.hpp b/src/hotspot/share/runtime/globals.hpp
-index a6c33744760..b8dba232fc1 100644
+index 194242e4c4b..9c007fc2d82 100644
 --- a/src/hotspot/share/runtime/globals.hpp
 +++ b/src/hotspot/share/runtime/globals.hpp
 @@ -32,6 +32,12 @@
@@ -527,7 +527,7 @@ index a6c33744760..b8dba232fc1 100644
  // The larger HeapWordSize for 64bit requires larger heaps
  // for the same application running in 64bit.  See bug 4967770.
  // The minimum alignment to a heap word size is done.  Other
-@@ -2678,8 +2684,10 @@ define_pd_global(uint64_t,MaxRAM,                    1ULL*G);
+@@ -2684,8 +2690,10 @@ define_pd_global(uint64_t,MaxRAM,                    1ULL*G);
                                                                              \
    product(bool, AllowEnhancedClassRedefinition, true,                       \
               "Allow enhanced class redefinition beyond swapping method "    \

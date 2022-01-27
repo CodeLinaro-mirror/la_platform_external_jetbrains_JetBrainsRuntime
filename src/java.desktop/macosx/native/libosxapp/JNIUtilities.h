@@ -183,22 +183,27 @@
  * or maybe a way for the app to continue running depending on the exact
  * nature of the problem that has been detected and how survivable it is.
  */
-#define CHECK_EXCEPTION() \
-    if ((*env)->ExceptionOccurred(env) != NULL) { \
+#define CHECK_EXCEPTION_IN_ENV(env) { \
+    jthrowable exc = (*(env))->ExceptionOccurred(env); \
+    if (exc != NULL) { \
         if ([NSThread isMainThread] == YES) { \
             if (getenv("JNU_APPKIT_TRACE")) { \
-                (*env)->ExceptionDescribe(env); \
+                (*(env))->ExceptionDescribe(env); \
                 NSLog(@"%@",[NSThread callStackSymbols]); \
               } else { \
-                  (*env)->ExceptionClear(env); \
+                  (*(env))->ExceptionClear(env); \
               } \
          }  \
-        if (getenv("JNU_NO_COCOA_EXCEPTION") == NULL) { \
-            [NSException raise:NSGenericException format:@"Java Exception"]; \
+        if (getenv("JNU_NO_COCOA_EXCEPTION") == NULL) {\
+            [NSException raise:NSGenericException \
+                        format:@"%@", ThrowableToNSString(env, exc)]; \
         } else { \
-            (*env)->ExceptionClear(env); \
+            (*(env))->ExceptionClear(env); \
         } \
-    };
+    } \
+};
+
+#define CHECK_EXCEPTION() CHECK_EXCEPTION_IN_ENV(env)
 
 #define CHECK_EXCEPTION_NULL_RETURN(x, y) \
     CHECK_EXCEPTION(); \
@@ -261,5 +266,7 @@ JNIEXPORT NSString* NormalizedPathNSStringFromJavaString(JNIEnv *env, jstring pa
 JNIEXPORT jstring NormalizedPathJavaStringFromNSString(JNIEnv* env, NSString *str);
 
 JNIEXPORT NSString* JNIObjectToNSString(JNIEnv *env, jobject obj);
+
+JNIEXPORT NSString *ThrowableToNSString(JNIEnv *env, jthrowable exc);
 
 #endif /* __JNIUTILITIES_H */

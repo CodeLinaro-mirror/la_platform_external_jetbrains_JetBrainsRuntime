@@ -7,12 +7,15 @@
 #import "JavaAccessibilityAction.h"
 #import "JavaAccessibilityUtilities.h"
 #import "JavaTableAccessibility.h"
-#import "JavaCellAccessibility.h"
 #import "JavaColumnAccessibility.h"
 #import "ThreadUtilities.h"
 #import "JNIUtilities.h"
+#import "sun_lwawt_macosx_CAccessible.h"
+#import "PropertiesUtilities.h"
 
 @implementation JavaTableAccessibility
+
+static jclass sjc_CAccessibility = NULL;
 
 - (int)accessibleRowCount {
     JNIEnv *env = [ThreadUtilities getJNIEnv];
@@ -121,20 +124,64 @@
 // NSAccessibilityElement protocol methods
 
 - (NSArray *)accessibilityChildren {
-    NSArray *children = [super accessibilityChildren];
-    NSArray *columns = [self accessibilityColumns];
-    NSMutableArray *results = [NSMutableArray arrayWithCapacity:[children count] + [columns count]];
-    [results addObjectsFromArray:children];
-    [results addObjectsFromArray:columns];
-    return [NSArray arrayWithArray:results];
+    return [self accessibilityRows];
+}
+
+- (NSArray *)accessibilitySelectedChildren {
+    return [self accessibilitySelectedRows];
+}
+
+- (NSArray *)accessibilityVisibleChildren {
+    return [self accessibilityVisibleRows];
 }
 
 - (NSArray *)accessibilityRows {
-    return [super accessibilityChildren];
+    JNIEnv *env = [ThreadUtilities getJNIEnv];
+    NSString *maxTableAccessibleRowCountProp = [PropertiesUtilities javaSystemPropertyForKey:@"sun.awt.mac.a11y.tableAccessibleRowCountThreshold" withEnv:env];
+    NSInteger maxAccessibleTableRowCount = maxTableAccessibleRowCountProp != NULL ? [maxTableAccessibleRowCountProp integerValue] : 0;
+    if (maxAccessibleTableRowCount > 0 && [self accessibleRowCount] > maxAccessibleTableRowCount) {
+        return [self accessibilityVisibleRows];
+    }
+    int rowCount = [self accessibleRowCount];
+    NSMutableArray *children = [NSMutableArray arrayWithCapacity:rowCount];
+    for (int i = 0; i < rowCount; i++) {
+        [children addObject:[self createRowForIndex:[NSNumber numberWithInt:i]]];
+    }
+
+    return children;
 }
 
 - (nullable NSArray<id<NSAccessibilityRow>> *)accessibilitySelectedRows {
-    return [super accessibilitySelectedChildren];
+    NSArray *selectedRows = [self selectedAccessibleRows];
+    NSMutableArray *children = [NSMutableArray arrayWithCapacity:[selectedRows count]];
+    for (NSNumber *index in selectedRows) {
+        [children addObject:[self createRowForIndex:index]];
+    }
+
+    return children;
+}
+
+- (nullable NSArray<id<NSAccessibilityRow>> *)accessibilityVisibleRows {
+    JNIEnv *env = [ThreadUtilities getJNIEnv];
+    GET_CACCESSIBILITY_CLASS_RETURN(nil);
+    DECLARE_STATIC_METHOD_RETURN(sjm_getTableVisibleRowRange, sjc_CAccessibility, \
+     "getTableVisibleRowRange", "(Ljavax/accessibility/Accessible;Ljava/awt/Component;)[I", nil);
+
+    jintArray jIndices = (*env)->CallStaticObjectMethod(env, sjc_CAccessibility, sjm_getTableVisibleRowRange,
+                                                        self->fAccessible, self->fComponent);
+    CHECK_EXCEPTION();
+
+    if (jIndices == NULL) return nil;
+    jint *range = (*env)->GetIntArrayElements(env, jIndices, NULL);
+    int firstRow = range[0];
+    int lastRow = range[1];
+    (*env)->ReleaseIntArrayElements(env, jIndices, range, 0);
+
+    NSMutableArray *children = [NSMutableArray arrayWithCapacity:lastRow - firstRow + 1];
+    for (int i = firstRow; i <= lastRow; i++) {
+        [children addObject:[self createRowForIndex:[NSNumber numberWithInt:i]]];
+    }
+    return children;
 }
 
 - (NSString *)accessibilityLabel {
@@ -149,32 +196,38 @@
     return [super accessibilityParent];
 }
 
-- (nullable NSArray *)accessibilityColumns {
-    int colCount = [self accessibleColCount];
-    NSMutableArray *columns = [NSMutableArray arrayWithCapacity:colCount];
-    for (int i = 0; i < colCount; i++) {
-        [columns addObject:[[JavaColumnAccessibility alloc] initWithParent:self
-                                                                   withEnv:[ThreadUtilities getJNIEnv]
-                                                            withAccessible:NULL
-                                                                 withIndex:i
-                                                                  withView:self->fView
-                                                              withJavaRole:JavaAccessibilityIgnore]];
-    }
-    return [NSArray arrayWithArray:columns];
+- (void)dealloc
+{
+    [self clearCache];
+    [super dealloc];
 }
 
-- (nullable NSArray *)accessibilitySelectedColumns {
-    NSArray<NSNumber *> *indexes = [self selectedAccessibleColumns];
-    NSMutableArray *columns = [NSMutableArray arrayWithCapacity:[indexes count]];
-    for (NSNumber *i in indexes) {
-        [columns addObject:[[JavaColumnAccessibility alloc] initWithParent:self
-                                                                   withEnv:[ThreadUtilities getJNIEnv]
-                                                            withAccessible:NULL
-                                                                 withIndex:i.unsignedIntValue
-                                                                  withView:self->fView
-                                                              withJavaRole:JavaAccessibilityIgnore]];
+- (JavaTableAccessibility *)createRowForIndex:(NSNumber *)index {
+    if (rowCache == nil) {
+        int rowCount = [self accessibleRowCount];
+        rowCache = [[NSMutableDictionary<NSNumber*, id> dictionaryWithCapacity:rowCount] retain];
     }
-    return [NSArray arrayWithArray:columns];
+
+    id row = [rowCache objectForKey:index];
+    if (row == nil) {
+        row = [[JavaTableRowAccessibility alloc] initWithParent:self
+                                                        withEnv:[ThreadUtilities getJNIEnv]
+                                                 withAccessible:NULL
+                                                      withIndex:index.intValue
+                                                       withView:[self view]
+                                                   withJavaRole:JavaAccessibilityIgnore];
+        [rowCache setObject:row forKey:index];
+    }
+
+    return row;
+}
+
+- (void)clearCache {
+    for (NSNumber *key in [rowCache allKeys]) {
+        [[rowCache objectForKey:key] release];
+    }
+    [rowCache release];
+    rowCache = nil;
 }
 
 /*
@@ -190,3 +243,22 @@
  */
 
 @end
+
+/*
+ * Class:     sun_lwawt_macosx_CAccessible
+ * Method:    tableContentIndexDestroy
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_sun_lwawt_macosx_CAccessible_tableContentCacheClear
+ (JNIEnv *env, jclass class, jlong element)
+{
+    JNI_COCOA_ENTER(env);
+    JavaComponentAccessibility *obj = (JavaComponentAccessibility *)jlong_to_ptr(element);
+    if ([obj respondsToSelector:@selector(clearCache)]) {
+        [ThreadUtilities performOnMainThread:@selector(clearCache)
+                                          on:obj
+                                  withObject:nil
+                               waitUntilDone:NO];
+    }
+    JNI_COCOA_EXIT(env);
+}

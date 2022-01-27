@@ -341,14 +341,14 @@ abstract class XDecoratedPeer extends XWindowPeer {
             || ev.get_atom() == XWM.XA_NET_FRAME_EXTENTS.getAtom())
         {
             if (XWM.getWMID() != XWM.UNITY_COMPIZ_WM) {
-                if (getWindowTitleVisibleProperty().isPresent()) {
+                if (getMWMDecorTitleProperty().isPresent()) {
                     // Insets might have changed "in-flight" if that property
                     // is present, so we need to get the actual values of
                     // insets from the WM and propagate them through all the
                     // proper channels.
                     wm_set_insets = null;
                     Insets in = getWMSetInsets(XAtom.get(ev.get_atom()));
-                    if (!in.equals(dimensions.getInsets())) {
+                    if (in != null && !in.equals(dimensions.getInsets())) {
                         handleCorrectInsets(in);
                     }
                 } else {
@@ -1072,10 +1072,13 @@ abstract class XDecoratedPeer extends XWindowPeer {
         XClientMessageEvent cl = xev.get_xclient();
         if ((wm_protocols != null) && (cl.get_message_type() == wm_protocols.getAtom())) {
             long timestamp = getTimeStampFromClientMessage(cl);
-            // we should treat WM_TAKE_FOCUS and WM_DELETE_WINDOW messages as user interaction, as they can originate
+            // We should treat WM_TAKE_FOCUS and WM_DELETE_WINDOW messages as user interaction, as they can originate
             // e.g. from user clicking on window title bar and window close button correspondingly
-            // (there will be no ButtonPress/ButtonRelease events in those cases)
-            setUserTime(timestamp, true);
+            // (there will be no ButtonPress/ButtonRelease events in those cases).
+            // The received timestamp will be used to set _NET_WM_USER_TIME on newly opened windows to ensure their
+            // correct focusing/positioning, but we don't set it on current window to avoid race conditions (when e.g.
+            // WM_TAKE_FOCUS arrives around the time of new window opening).
+            setUserTime(timestamp, true, false);
 
             if (cl.get_data(0) == wm_delete_window.getAtom()) {
                 handleQuit();
@@ -1333,15 +1336,14 @@ abstract class XDecoratedPeer extends XWindowPeer {
         super.handleWindowFocusOut(oppositeWindow, serial);
     }
 
-    // Client properties
-    public static final String WINDOW_TITLE_VISIBLE = "linux.awt.windowTitleVisible";
+    public static final String MWM_DECOR_TITLE_PROPERTY_NAME = "xawt.mwm_decor_title";
 
-    public final Optional<Boolean> getWindowTitleVisibleProperty() {
+    public final Optional<Boolean> getMWMDecorTitleProperty() {
         Optional<Boolean> res = Optional.empty();
 
-        if (target instanceof javax.swing.RootPaneContainer) {
+        if (SunToolkit.isInstanceOf(target, "javax.swing.RootPaneContainer")) {
             javax.swing.JRootPane rootpane = ((javax.swing.RootPaneContainer) target).getRootPane();
-            Object prop = rootpane.getClientProperty(WINDOW_TITLE_VISIBLE);
+            Object prop = rootpane.getClientProperty(MWM_DECOR_TITLE_PROPERTY_NAME);
             if (prop != null) {
                 res = Optional.of(Boolean.parseBoolean(prop.toString()));
             }
@@ -1351,6 +1353,6 @@ abstract class XDecoratedPeer extends XWindowPeer {
     }
 
     public final boolean getWindowTitleVisible() {
-        return getWindowTitleVisibleProperty().orElse(true);
+        return getMWMDecorTitleProperty().orElse(true);
     }
 }

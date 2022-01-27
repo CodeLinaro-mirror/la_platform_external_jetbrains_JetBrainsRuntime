@@ -88,15 +88,6 @@ static DCList passiveDCList;
 
 extern void CheckFontSmoothingSettings(HWND);
 
-extern "C" {
-    // Remember the input language has changed by some user's action
-    // (Alt+Shift or through the language icon on the Taskbar) to control the
-    // race condition between the toolkit thread and the AWT event thread.
-    // This flag remains TRUE until the next WInputMethod.getNativeLocale() is
-    // issued.
-    BOOL g_bUserHasChangedInputLang = FALSE;
-}
-
 BOOL AwtComponent::sm_suppressFocusAndActivation = FALSE;
 BOOL AwtComponent::sm_restoreFocusAndActivation = FALSE;
 HWND AwtComponent::sm_focusOwner = NULL;
@@ -1900,9 +1891,6 @@ LRESULT AwtComponent::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
           ::ToAsciiEx(VK_SPACE, ::MapVirtualKey(VK_SPACE, 0),
                       keyboardState, &ignored, 0, GetKeyboardLayout());
 
-          // Set this flag to block ActivateKeyboardLayout from
-          // WInputMethod.activate()
-          g_bUserHasChangedInputLang = TRUE;
           CallProxyDefWindowProc(message, wParam, lParam, retValue, mr);
           break;
       }
@@ -1911,7 +1899,6 @@ LRESULT AwtComponent::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
                           "new = 0x%08X",
                           GetHWnd(), GetClassName(), (UINT)lParam);
           mr = WmInputLangChange(static_cast<UINT>(wParam), reinterpret_cast<HKL>(lParam));
-          g_bUserHasChangedInputLang = TRUE;
           CallProxyDefWindowProc(message, wParam, lParam, retValue, mr);
           // should return non-zero if we process this message
           retValue = 1;
@@ -2865,11 +2852,9 @@ AwtComponent::GetJavaModifiers()
     if (HIBYTE(::GetKeyState(VK_MENU)) != 0) {
         modifiers |= java_awt_event_InputEvent_ALT_DOWN_MASK;
     }
-// Reverted fix of JDK-8041928: MouseEvent.getModifiersEx gives wrong result
-// Because it breaks AltGr shortcuts
-//    if (HIBYTE(::GetKeyState(VK_RMENU)) != 0) {
-//        modifiers |= java_awt_event_InputEvent_ALT_GRAPH_DOWN_MASK;
-//    }
+    if (HIBYTE(::GetKeyState(VK_RMENU)) != 0) {
+        modifiers |= java_awt_event_InputEvent_ALT_GRAPH_DOWN_MASK;
+    }
     if (HIBYTE(::GetKeyState(VK_MBUTTON)) != 0) {
        modifiers |= java_awt_event_InputEvent_BUTTON2_DOWN_MASK;
     }
@@ -6765,11 +6750,11 @@ JNIEXPORT void JNICALL
 Java_java_awt_Component_initIDs(JNIEnv *env, jclass cls)
 {
     TRY;
-    jclass inputEventClazz = env->FindClass("java/awt/event/InputEvent");
-    CHECK_NULL(inputEventClazz);
-    jmethodID getButtonDownMasksID = env->GetStaticMethodID(inputEventClazz, "getButtonDownMasks", "()[I");
-    CHECK_NULL(getButtonDownMasksID);
-    jintArray obj = (jintArray)env->CallStaticObjectMethod(inputEventClazz, getButtonDownMasksID);
+    jboolean ignoreException;
+    jintArray obj = (jintArray)JNU_CallStaticMethodByName(env, &ignoreException,
+                                                          "java/awt/event/InputEvent",
+                                                          "getButtonDownMasks", "()[I").l;
+    CHECK_NULL(obj);
     jint * tmp = env->GetIntArrayElements(obj, JNI_FALSE);
     CHECK_NULL(tmp);
     jsize len = env->GetArrayLength(obj);
