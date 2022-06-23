@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,29 +30,17 @@ import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.peer.RobotPeer;
 
-import sun.java2d.SunGraphicsEnvironment;
+import static sun.java2d.SunGraphicsEnvironment.toDeviceSpaceAbs;
 
-final class WRobotPeer extends WObjectPeer implements RobotPeer
-{
-    WRobotPeer() {
-        create();
-    }
+final class WRobotPeer implements RobotPeer {
+
     WRobotPeer(GraphicsDevice screen) {
-        create();
     }
 
-    private synchronized native void _dispose();
-
-    @Override
-    protected void disposeImpl() {
-        _dispose();
-    }
-
-    public native void create();
     public native void mouseMoveImpl(int x, int y);
     @Override
     public void mouseMove(int x, int y) {
-        Point point = SunGraphicsEnvironment.convertToDeviceSpace(x, y);
+        Point point = toDeviceSpaceAbs(x, y);
         mouseMoveImpl(point.x, point.y);
     }
     @Override
@@ -71,6 +59,11 @@ final class WRobotPeer extends WObjectPeer implements RobotPeer
     public int getRGBPixel(int x, int y) {
          // See 7002846: that's ineffective, but works correctly with non-opaque windows
         return getRGBPixels(new Rectangle(x, y, 1, 1))[0];
+    }
+
+    @Override
+    public boolean useAbsoluteCoordinates() {
+        return true;
     }
 
     @Override

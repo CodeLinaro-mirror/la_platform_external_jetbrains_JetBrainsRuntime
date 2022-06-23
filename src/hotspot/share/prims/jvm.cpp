@@ -2387,7 +2387,7 @@ JVM_QUICK_ENTRY(void, JVM_GetClassCPTypes(JNIEnv *env, jclass cls, unsigned char
     ConstantPool* cp = InstanceKlass::cast(k)->constants();
     for (int index = cp->length() - 1; index >= 0; index--) {
       constantTag tag = cp->tag_at(index);
-      types[index] = (tag.is_unresolved_klass()) ? JVM_CONSTANT_Class : tag.value();
+      types[index] = (tag.is_unresolved_klass()) ? (unsigned char) JVM_CONSTANT_Class : tag.value();
     }
   }
 JVM_END
@@ -3443,25 +3443,28 @@ JVM_END
 // Library support ///////////////////////////////////////////////////////////////////////////
 
 // The name of the library is in UTF8
-JVM_ENTRY_NO_ENV(void*, JVM_LoadLibrary(const char* name))
+JVM_ENTRY_NO_ENV(void*, JVM_LoadLibrary(const char* name, jboolean throwException))
   //%note jvm_ct
   JVMWrapper("JVM_LoadLibrary");
   char ebuf[1024];
   void *load_result;
   {
     ThreadToNativeFromVM ttnfvm(thread);
-    Thread::WXWriteVerifier wx_write;
     load_result = os::dll_load_utf8(name, ebuf, sizeof ebuf);
   }
   if (load_result == NULL) {
-    char msg[1024];
-    jio_snprintf(msg, sizeof msg, "%s: %s", name, ebuf);
-    Handle h_exception =
-      Exceptions::new_exception(thread,
-                                vmSymbols::java_lang_UnsatisfiedLinkError(),
-                                msg);
+    if (throwException) {
+      char msg[1024];
+      jio_snprintf(msg, sizeof msg, "%s: %s", name, ebuf);
+      Handle h_exception =
+        Exceptions::new_exception(thread,
+                                  vmSymbols::java_lang_UnsatisfiedLinkError(),
+                                  msg);
 
-    THROW_HANDLE_0(h_exception);
+      THROW_HANDLE_0(h_exception);
+    } else {
+      return load_result;
+    }
   }
   return load_result;
 JVM_END

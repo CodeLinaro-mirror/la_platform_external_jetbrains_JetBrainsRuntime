@@ -32,7 +32,6 @@
 #include "awt_Brush.h"
 #include "awt_Pen.h"
 #include "awt_Win32GraphicsDevice.h"
-#include "awt_Util.h"
 
 #include "GDIWindowSurfaceData.h"
 
@@ -272,10 +271,11 @@ public:
     /*
      * methods on this component
      */
+    virtual int GetScreenImOn();
     virtual void Show();
     virtual void Hide();
     virtual void Reshape(int x, int y, int w, int h);
-//    void ReshapeNoScale(int x, int y, int w, int h);
+    void ReshapeNoScale(int x, int y, int w, int h);
 
     /*
      * Fix for 4046446.
@@ -526,6 +526,7 @@ public:
                                     int wheelRotation, BOOL isHorizontal);
     virtual MsgRouting WmNcMouseDown(WPARAM hitTest, int x, int y, int button);
     virtual MsgRouting WmNcMouseUp(WPARAM hitTest, int x, int y, int button);
+    virtual MsgRouting WmNcMouseMove(WPARAM hitTest, int x, int y);
     virtual MsgRouting WmWindowPosChanging(LPARAM windowPos);
     virtual MsgRouting WmWindowPosChanged(LPARAM windowPos);
     virtual void WmTouch(WPARAM wParam, LPARAM lParam);
@@ -602,10 +603,6 @@ public:
     virtual MsgRouting WmSettingChange(UINT wFlag, LPCTSTR pszSection);
 
     virtual MsgRouting WmContextMenu(HWND hCtrl, UINT xPos, UINT yPos) {
-        return mrDoDefault;
-    }
-
-    virtual MsgRouting WmDPIChanged(UINT xDPI, UINT yDPI, RECT* bounds) {
         return mrDoDefault;
     }
 
@@ -699,7 +696,6 @@ public:
     static void *GetNativeFocusOwner();
 
     static BOOL sm_inSynthesizeFocus;
-    static BOOL sm_priorityFocusEvents;
 
     // Execute on Toolkit only.
     INLINE static LRESULT SynthesizeWmSetFocus(HWND targetHWnd, HWND oppositeHWnd) {
@@ -732,14 +728,14 @@ public:
         return m_bPauseDestroy;
     }
 
-    int ScaleUpX(int x, const UCoordRelativity& relativity = RELATIVE_COORD);
-    int ScaleUpY(int y, const UCoordRelativity& relativity = RELATIVE_COORD);
-    int ScaleDownX(int x, const UCoordRelativity& relativity = RELATIVE_COORD);
-    int ScaleDownY(int y, const UCoordRelativity& relativity = RELATIVE_COORD);
-    int ScaleUpDX(int x);
-    int ScaleUpDY(int y);
-    int ScaleDownDX(int x);
-    int ScaleDownDY(int y);
+    int ScaleUpX(int x);
+    int ScaleUpAbsX(int x);
+    int ScaleUpY(int y);
+    int ScaleUpAbsY(int y);
+    int ScaleDownX(int x);
+    int ScaleDownAbsX(int x);
+    int ScaleDownY(int y);
+    int ScaleDownAbsY(int y);
     void ScaleDownRect(RECT& r);
     //void ScaleDownDRect(RECT& r);
 
@@ -755,8 +751,6 @@ protected:
 
     static BOOL sm_suppressFocusAndActivation;
     static BOOL sm_restoreFocusAndActivation;
-
-    INLINE BOOL IsInMoveResizeLoop() { return m_inMoveResizeLoop; }
 
     /*
      * The function sets the focus-restore flag ON/OFF.
@@ -853,8 +847,6 @@ private:
     // 6524352: support finer-resolution
     int m_wheelRotationAmountX;
     int m_wheelRotationAmountY;
-
-    BOOL m_inMoveResizeLoop;
 
     BOOL deadKeyActive;
 

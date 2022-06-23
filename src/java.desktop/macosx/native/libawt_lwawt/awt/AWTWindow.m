@@ -23,6 +23,7 @@
  * questions.
  */
 
+#include <objc/objc-runtime.h>
 #import <Cocoa/Cocoa.h>
 
 #import "sun_lwawt_macosx_CPlatformWindow.h"
@@ -34,6 +35,7 @@
 #import "AWTView.h"
 #import "GeomUtilities.h"
 #import "ThreadUtilities.h"
+#import "NSApplicationAWT.h"
 #import "JNIUtilities.h"
 #import "NSApplicationAWT.h"
 
@@ -67,6 +69,9 @@ static AWTWindow* lastKeyWindow = nil;
 static NSPoint lastTopLeftPoint;
 
 static BOOL ignoreResizeWindowDuringAnotherWindowEnd = NO;
+
+static BOOL fullScreenTransitionInProgress = NO;
+static BOOL orderingScheduled = NO;
 
 // --------------------------------------------------------------
 // NSWindow/NSPanel descendants implementation
@@ -130,7 +135,18 @@ AWT_NS_WINDOW_IMPLEMENTATION
 // workaround for https://youtrack.jetbrains.com/issue/JBR-2562
 - (void)_changeJustMain {
     @try {
-        [super _changeJustMain];
+        // NOTE: we can't use [super _changeJustMain] directly because of the warning ('may not perform to selector')
+        // And [super performSelector:@selector(_changeJustMain)] will invoke this method (not a base method).
+        // So do it with objc-runtime.h (see stackoverflow.com/questions/14635024/using-objc-msgsendsuper-to-invoke-a-class-method)
+        Class superClass = [self superclass];
+        struct objc_super mySuper = {
+            self,
+            class_isMetaClass(object_getClass(self))        //check if we are an instance or Class
+                            ? object_getClass(superClass)   //if we are a Class, we need to send our metaclass (our Class's Class)
+                            : superClass                    //if we are an instance, we need to send our Class (which we already have)
+        };
+        void (*_objc_msgSendSuper)(struct objc_super *, SEL) = (void *)&objc_msgSendSuper; //cast our pointer so the compiler can sort out the ABI
+        (*_objc_msgSendSuper)(&mySuper, @selector(_changeJustMain));
     } @catch (NSException *ex) {
         NSLog(@"WARNING: suppressed exception from _changeJustMain (workaround for JBR-2562)");
         NSProcessInfo *processInfo = [NSProcessInfo processInfo];
@@ -257,7 +273,7 @@ AWT_NS_WINDOW_IMPLEMENTATION
 
 // Call over Foundation from Java
 - (CGFloat) getTabBarVisibleAndHeight {
-    if ([self respondsToSelector:@selector(tabGroup)]) { // API_AVAILABLE(macos(10.13))
+    if (@available(macOS 10.13, *)) {
         id tabGroup = [self tabGroup];
 #ifdef DEBUG
         NSLog(@"=== Window tabBar: %@ ===", tabGroup);
@@ -280,7 +296,7 @@ AWT_NS_WINDOW_IMPLEMENTATION
 #endif
     } else {
 #ifdef DEBUG
-        NSLog(@"=== Window tabBar not found ===");
+        NSLog(@"=== Window tabGroup not supported before macOS 10.13 ===");
 #endif
     }
     return 0;
@@ -387,10 +403,11 @@ AWT_NS_WINDOW_IMPLEMENTATION
 
     if (IS(mask, FULLSCREENABLE) && [self.nsWindow respondsToSelector:@selector(toggleFullScreen:)]) {
         if (IS(bits, FULLSCREENABLE)) {
-            [self.nsWindow setCollectionBehavior:
-                NSWindowCollectionBehaviorFullScreenPrimary | NSWindowCollectionBehaviorManaged];
+            self.nsWindow.collectionBehavior = self.nsWindow.collectionBehavior |
+                                               NSWindowCollectionBehaviorFullScreenPrimary;
         } else {
-            [self.nsWindow setCollectionBehavior: NSWindowCollectionBehaviorManaged];
+            self.nsWindow.collectionBehavior = self.nsWindow.collectionBehavior &
+                                               ~NSWindowCollectionBehaviorFullScreenPrimary;
         }
     }
 
@@ -457,9 +474,10 @@ AWT_ASSERT_APPKIT_THREAD;
     [self setPropertiesForStyleBits:styleBits mask:MASK(_METHOD_PROP_BITMASK)];
 
     self.javaWindowTabbingMode = [self getJavaWindowTabbingMode];
+    self.nsWindow.collectionBehavior = NSWindowCollectionBehaviorManaged;
     self.isEnterFullScreen = NO;
     self.isJustCreated = YES;
-    
+
     return self;
 }
 
@@ -481,7 +499,7 @@ AWT_ASSERT_APPKIT_THREAD;
     AWT_ASSERT_APPKIT_THREAD;
 
     BOOL result = NO;
-    
+
     JNIEnv *env = [ThreadUtilities getJNIEnv];
     jobject platformWindow = (*env)->NewLocalRef(env, self.javaPlatformWindow);
     if (platformWindow != NULL) {
@@ -502,7 +520,7 @@ AWT_ASSERT_APPKIT_THREAD;
 #ifdef DEBUG
     NSLog(@"=== getJavaWindowTabbingMode: %d ===", result);
 #endif
-    
+
     return result ? NSWindowTabbingModeAutomatic : NSWindowTabbingModeDisallowed;
 }
 
@@ -621,8 +639,9 @@ AWT_ASSERT_APPKIT_THREAD;
 - (BOOL) delayShowing {
     AWT_ASSERT_APPKIT_THREAD;
 
-    return ownerWindow != nil && ([ownerWindow delayShowing] || !ownerWindow.nsWindow.onActiveSpace)
-           && !nsWindow.visible;
+    return ownerWindow != nil &&
+           ([ownerWindow delayShowing] || !ownerWindow.nsWindow.onActiveSpace) &&
+           !nsWindow.visible;
 }
 
 - (void) checkBlockingAndOrder {
@@ -642,14 +661,19 @@ AWT_ASSERT_APPKIT_THREAD;
 + (void)activeSpaceDidChange {
     AWT_ASSERT_APPKIT_THREAD;
 
-    for (NSWindow* window in [NSApp windows]) {
-        if (window.onActiveSpace && window.mainWindow && [AWTWindow isJavaPlatformWindowVisible:window]) {
+    if (fullScreenTransitionInProgress) {
+        orderingScheduled = YES;
+        return;
+    }
+
+    // show delayed windows
+    for (NSWindow *window in NSApp.windows) {
+        if ([AWTWindow isJavaPlatformWindowVisible:window] && !window.visible) {
             AWTWindow *awtWindow = (AWTWindow *)[window delegate];
-             // there can be only one current blocker per window hierarchy,
-             // so we're checking just hierarchy root
-            if (awtWindow.ownerWindow == nil) {
-                // this should ensure that delayed blocking windows
-                // show up on space activation
+            while (awtWindow.ownerWindow != nil) {
+                awtWindow = awtWindow.ownerWindow;
+            }
+            if (awtWindow.nsWindow.visible && awtWindow.nsWindow.onActiveSpace) {
                 [awtWindow checkBlockingAndOrder];
             }
         }
@@ -698,11 +722,6 @@ AWT_ASSERT_APPKIT_THREAD;
                 // back to normal window level
                 [window setLevel:NSNormalWindowLevel];
             }
-            if (window.onActiveSpace && owner.onActiveSpace) {
-                // The childWindow should be displayed in front of
-                // its nearest parentWindow
-                [window orderWindow:NSWindowAbove relativeTo:[owner windowNumber]];
-            }
         }
     }];
 }
@@ -748,7 +767,7 @@ AWT_ASSERT_APPKIT_THREAD;
 // NSWindowDelegate methods
 
 - (void) _deliverMoveResizeEvent {
-AWT_ASSERT_APPKIT_THREAD;
+    AWT_ASSERT_APPKIT_THREAD;
 
     // deliver the event if this is a user-initiated live resize or as a side-effect
     // of a Java initiated resize, because AppKit can override the bounds and force
@@ -757,10 +776,18 @@ AWT_ASSERT_APPKIT_THREAD;
     JNIEnv *env = [ThreadUtilities getJNIEnv];
     jobject platformWindow = (*env)->NewLocalRef(env, self.javaPlatformWindow);
     if (platformWindow == NULL) {
-        // TODO: create generic AWT assert
+        NSLog(@"[AWTWindow _deliverMoveResizeEvent]: platformWindow == NULL");
+        return;
     }
-
-    NSRect frame = ConvertNSScreenRect(env, [self.nsWindow frame]);
+    NSRect frame;
+    @try {
+        frame = ConvertNSScreenRect(env, [self.nsWindow frame]);
+    } @catch (NSException *e) {
+        NSLog(@"WARNING: suppressed exception from ConvertNSScreenRect() in [AWTWindow _deliverMoveResizeEvent]");
+        NSProcessInfo *processInfo = [NSProcessInfo processInfo];
+        [NSApplicationAWT logException:e forProcess:processInfo];
+        return;
+    }
 
     GET_CPLATFORM_WINDOW_CLASS();
     DECLARE_METHOD(jm_deliverMoveResizeEvent, jc_CPlatformWindow, "deliverMoveResizeEvent", "(IIIIZ)V");
@@ -790,7 +817,7 @@ AWT_ASSERT_APPKIT_THREAD;
 #endif
         return;
     }
-    
+
     [self _deliverMoveResizeEvent];
 }
 
@@ -1040,15 +1067,28 @@ AWT_ASSERT_APPKIT_THREAD;
     [self processVisibleChildren:^void(AWTWindow* child){
         NSWindow *window = child.nsWindow;
         NSWindowCollectionBehavior behavior = window.collectionBehavior;
-        behavior &= !(NSWindowCollectionBehaviorManaged | NSWindowCollectionBehaviorTransient);
+        behavior &= ~(NSWindowCollectionBehaviorManaged | NSWindowCollectionBehaviorTransient);
         behavior |= allow ? NSWindowCollectionBehaviorTransient : NSWindowCollectionBehaviorManaged;
         window.collectionBehavior = behavior;
     }];
 }
 
+- (void) fullScreenTransitionStarted {
+    fullScreenTransitionInProgress = YES;
+}
+
+- (void) fullScreenTransitionFinished {
+    fullScreenTransitionInProgress = NO;
+    if (orderingScheduled) {
+        orderingScheduled = NO;
+        [self checkBlockingAndOrder];
+    }
+}
+
 - (void)windowWillEnterFullScreen:(NSNotification *)notification {
     self.isEnterFullScreen = YES;
 
+    [self fullScreenTransitionStarted];
     [self allowMovingChildrenBetweenSpaces:YES];
 
     JNIEnv *env = [ThreadUtilities getJNIEnv];
@@ -1067,6 +1107,7 @@ AWT_ASSERT_APPKIT_THREAD;
     self.isEnterFullScreen = YES;
 
     [self allowMovingChildrenBetweenSpaces:NO];
+    [self fullScreenTransitionFinished];
 
     JNIEnv *env = [ThreadUtilities getJNIEnv];
     GET_CPLATFORM_WINDOW_CLASS();
@@ -1083,6 +1124,8 @@ AWT_ASSERT_APPKIT_THREAD;
 
 - (void)windowWillExitFullScreen:(NSNotification *)notification {
     self.isEnterFullScreen = NO;
+
+    [self fullScreenTransitionStarted];
 
     JNIEnv *env = [ThreadUtilities getJNIEnv];
     GET_CPLATFORM_WINDOW_CLASS();
@@ -1103,6 +1146,8 @@ AWT_ASSERT_APPKIT_THREAD;
 
 - (void)windowDidExitFullScreen:(NSNotification *)notification {
     self.isEnterFullScreen = NO;
+
+    [self fullScreenTransitionFinished];
 
     JNIEnv *env = [ThreadUtilities getJNIEnv];
     jobject platformWindow = (*env)->NewLocalRef(env, self.javaPlatformWindow);
@@ -1889,7 +1934,7 @@ JNI_COCOA_ENTER(env);
         [nsWindow setDelegate: nil];
 
         [window release];
-        
+
         ignoreResizeWindowDuringAnotherWindowEnd = NO;
     }];
 
@@ -1946,6 +1991,29 @@ JNI_COCOA_ENTER(env);
         } else {
             [NSException raise:@"Java Exception" reason:@"Failed to exit full screen." userInfo:nil];
         }
+    }];
+
+JNI_COCOA_EXIT(env);
+}
+
+JNIEXPORT void JNICALL Java_sun_lwawt_macosx_CPlatformWindow_nativeRaiseLevel
+(JNIEnv *env, jclass clazz, jlong windowPtr, jboolean popup, jboolean onlyIfParentIsActive)
+{
+JNI_COCOA_ENTER(env);
+
+    NSWindow *nsWindow = OBJC(windowPtr);
+    [ThreadUtilities performOnMainThreadWaiting:NO block:^(){
+        AWTWindow *window = (AWTWindow*)[nsWindow delegate];
+        if (onlyIfParentIsActive) {
+            AWTWindow *parent = window;
+            do {
+                parent = parent.ownerWindow;
+            } while (parent != nil && !parent.nsWindow.isMainWindow);
+            if (parent == nil) {
+                return;
+            }
+        }
+        [nsWindow setLevel: popup ? NSPopUpMenuWindowLevel : NSFloatingWindowLevel];
     }];
 
 JNI_COCOA_EXIT(env);

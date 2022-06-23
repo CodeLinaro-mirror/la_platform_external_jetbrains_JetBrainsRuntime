@@ -34,6 +34,7 @@
 
 #if !defined(_WIN32) && !defined(__APPLE__)
 #include <dlfcn.h>
+#include <time.h>
 #else
 #define DISABLE_FONTCONFIG
 #endif
@@ -99,6 +100,28 @@
 #define TRUE  1
 #endif
 
+#ifndef DISABLE_FONTCONFIG
+typedef struct CachedMatch {
+    // Assume familyName and scaleable are constant
+    double fcSize;
+
+    FcBool fcHinting;
+    FcBool fcHintingSet;
+    int fcHintStyle;
+    FcBool fcHintStyleSet;
+    FcBool fcAntialias;
+    FcBool fcAntialiasSet;
+    FcBool fcAutohint;
+    FcBool fcAutohintSet;
+    int fcRGBA;
+    FcBool fcRGBASet;
+    int fcLCDFilter;
+    FcBool fcLCDFilterSet;
+} CachedMatch;
+
+#define NUM_CACHED_VALUES 8
+#endif
+
 typedef struct {
     /* Important note:
          JNI forbids sharing same env between different threads.
@@ -120,6 +143,12 @@ typedef struct {
     unsigned fontDataOffset;
     unsigned fontDataLength;
     unsigned fileSize;
+
+#ifndef DISABLE_FONTCONFIG
+    CachedMatch cachedMatches[NUM_CACHED_VALUES];
+    // Next index to insert a value
+    int nextCacheIdx;
+#endif
 } FTScalerInfo;
 
 typedef struct FTScalerContext {
@@ -492,7 +521,7 @@ static unsigned long ReadTTFontFileFunc(FT_Stream stream,
             if (byteArray == NULL) {
                 return 0;
             } else {
-                jsize len = (*env)->GetArrayLength(env, byteArray);
+                unsigned long len = (*env)->GetArrayLength(env, byteArray);
                 if (len < numBytes) {
                     numBytes = len; // don't get more bytes than there are ..
                 }
@@ -524,7 +553,7 @@ static unsigned long ReadTTFontFileFunc(FT_Stream stream,
         CHECK_EXCEPTION(env, debugFonts);
         if (bread <= 0) {
             return 0;
-        } else if (bread < numBytes) {
+        } else if ((unsigned long)bread < numBytes) {
            numBytes = bread;
         }
         memcpy(destBuffer, scalerInfo->fontData, numBytes);
@@ -870,10 +899,6 @@ static int setupFTContext(JNIEnv *env, jobject font2D, FTScalerInfo *scalerInfo,
                 return 0;
             }
 #ifndef DISABLE_FONTCONFIG
-            FcPattern *fcPattern = 0;
-            fcPattern = (*FcPatternCreatePtr)();
-            FcValue fcValue;
-            fcValue.type = FcTypeString;
             jstring jfontFamilyName = (*env)->GetObjectField(env, font2D, familyNameFID);
             const char *cfontFamilyName = (*env)->GetStringUTFChars(env, jfontFamilyName, NULL);
 
@@ -884,36 +909,90 @@ static int setupFTContext(JNIEnv *env, jobject font2D, FTScalerInfo *scalerInfo,
                 (*env)->ReleaseStringUTFChars(env, jfontPath, cfontPath);
             }
 
-            fcValue.u.s = (const FcChar8 *) cfontFamilyName;
-            (*FcPatternAddPtr)(fcPattern, FC_FAMILY, fcValue, FcTrue);
-            (*FcPatternAddBoolPtr)(fcPattern, FC_SCALABLE, FcTrue);
             double fcSize = FT26Dot6ToDouble(ADJUST_FONT_SIZE(context->ptsz, dpi));
-            (*FcPatternAddDoublePtr)(fcPattern, FC_SIZE, fcSize);
-
             if (logFC) fprintf(stderr, " size=%f", fcSize);
 
-            (*FcConfigSubstitutePtr)(0, fcPattern, FcMatchPattern);
-            (*FcDefaultSubstitutePtr)(fcPattern);
-            FcResult matchResult = FcResultNoMatch;
-            FcPattern *resultPattern = 0;
-            resultPattern = (*FcFontMatchPtr)(0, fcPattern, &matchResult);
-            if (matchResult != FcResultMatch) {
-                (*FcPatternDestroyPtr)(fcPattern);
-                if (logFC) fprintf(stderr, " - NOT FOUND\n");
-                setDefaultScalerSettings(context);
-                return 0;
+            // Find cached value
+            CachedMatch cachedMatch;
+            cachedMatch.fcSize = 0; // Initialize to empty
+            for (int cacheIdx = 0; cacheIdx < NUM_CACHED_VALUES; ++cacheIdx) {
+                if (scalerInfo->cachedMatches[cacheIdx].fcSize == fcSize) {
+                    cachedMatch = scalerInfo->cachedMatches[cacheIdx];
+                    break;
+                }
             }
-            if (logFC) fprintf(stderr, "\nFC_LOG:   ");
-            (*FcPatternDestroyPtr)(fcPattern);
-            FcPattern *pattern = resultPattern;
 
-            FcBool fcHinting = FcFalse;
-            FcBool fcHintingSet = (*FcPatternGetBoolPtr)(pattern, FC_HINTING, 0, &fcHinting) == FcResultMatch;
+            if (cachedMatch.fcSize == 0) {
+                cachedMatch.fcSize = fcSize;
+                clock_t begin = logFC ? clock() : 0;
+                // Setup query
+                FcPattern *fcPattern = 0;
+                fcPattern = (*FcPatternCreatePtr)();
+                FcValue fcValue;
+                fcValue.type = FcTypeString;
+
+                fcValue.u.s = (const FcChar8 *) cfontFamilyName;
+                (*FcPatternAddPtr)(fcPattern, FC_FAMILY, fcValue, FcTrue);
+                (*FcPatternAddBoolPtr)(fcPattern, FC_SCALABLE, FcTrue);
+                (*FcPatternAddDoublePtr)(fcPattern, FC_SIZE, fcSize);
+
+                (*FcConfigSubstitutePtr)(0, fcPattern, FcMatchPattern);
+                (*FcDefaultSubstitutePtr)(fcPattern);
+                FcResult matchResult = FcResultNoMatch;
+                // Match on pattern
+                FcPattern *resultPattern = 0;
+                resultPattern = (*FcFontMatchPtr)(0, fcPattern, &matchResult);
+
+                if (logFC) {
+                    clock_t end = clock();
+                    double time_spent = (double)(end - begin) * 1000.0 / CLOCKS_PER_SEC;
+                    fprintf(stderr, " in %f ms", time_spent);
+                }
+
+                if (matchResult != FcResultMatch) {
+                    (*FcPatternDestroyPtr)(fcPattern);
+                    if (logFC) fprintf(stderr, " - NOT FOUND\n");
+                    setDefaultScalerSettings(context);
+                    return 0;
+                }
+                (*FcPatternDestroyPtr)(fcPattern);
+                FcPattern *pattern = resultPattern;
+
+                // Extract values from result
+                cachedMatch.fcHintingSet = (*FcPatternGetBoolPtr)(pattern, FC_HINTING, 0, &cachedMatch.fcHinting) == FcResultMatch;
+
+                cachedMatch.fcHintStyleSet =
+                        (*FcPatternGetIntegerPtr)(pattern, FC_HINT_STYLE, 0, &cachedMatch.fcHintStyle) == FcResultMatch;
+
+                cachedMatch.fcAntialiasSet = (*FcPatternGetBoolPtr)(pattern, FC_ANTIALIAS, 0, &cachedMatch.fcAntialias) == FcResultMatch;
+                cachedMatch.fcAutohintSet = (*FcPatternGetBoolPtr)(pattern, FC_AUTOHINT, 0, &cachedMatch.fcAutohint) == FcResultMatch;
+                cachedMatch.fcLCDFilterSet =
+                        (*FcPatternGetIntegerPtr)(pattern, FC_LCD_FILTER, 0, &cachedMatch.fcLCDFilter) == FcResultMatch;
+
+                cachedMatch.fcRGBASet = (*FcPatternGetIntegerPtr)(pattern, FC_RGBA, 0, &cachedMatch.fcRGBA) == FcResultMatch;
+
+                (*FcPatternDestroyPtr)(pattern);
+
+                if (NUM_CACHED_VALUES > 0) {
+                    int nextCacheIdx = scalerInfo->nextCacheIdx;
+                    // Store newly queried value
+                    scalerInfo->cachedMatches[nextCacheIdx] = cachedMatch;
+                    // Update next index
+                    scalerInfo->nextCacheIdx = (nextCacheIdx + 1) % NUM_CACHED_VALUES;
+                } // else caching is disabled
+            } else {
+                if (logFC) fprintf(stderr, " - CACHED");
+            } // end invoke/setup cache
+
+            if (logFC) fprintf(stderr, "\nFC_LOG:   ");
+
+            FcBool fcHinting = cachedMatch.fcHinting;
+            FcBool fcHintingSet = cachedMatch.fcHintStyleSet;
 
             if (logFC && fcHintingSet) fprintf(stderr, "FC_HINTING(%d) ", fcHinting);
 
-            int fcHintStyle = FC_HINT_NONE;
-            FcBool fcHintStyleSet = (*FcPatternGetIntegerPtr)(pattern, FC_HINT_STYLE, 0, &fcHintStyle) == FcResultMatch;
+            int fcHintStyle = cachedMatch.fcHintStyle;
+            FcBool fcHintStyleSet = cachedMatch.fcHintStyleSet;
 
             if (logFC && fcHintStyleSet) {
                 switch (fcHintStyle) {
@@ -944,8 +1023,8 @@ static int setupFTContext(JNIEnv *env, jobject font2D, FTScalerInfo *scalerInfo,
                 fcHinting = FcFalse;
             }
 
-            FcBool fcAntialias = FcFalse;
-            FcBool fcAntialiasSet = (*FcPatternGetBoolPtr)(pattern, FC_ANTIALIAS, 0, &fcAntialias) == FcResultMatch;
+            FcBool fcAntialias = cachedMatch.fcAntialias;
+            FcBool fcAntialiasSet = cachedMatch.fcAntialiasSet;
 
             if (logFC) {
                 switch(context->aaType) {
@@ -968,8 +1047,8 @@ static int setupFTContext(JNIEnv *env, jobject font2D, FTScalerInfo *scalerInfo,
                 if (fcAntialiasSet) fprintf(stderr, "FC_ANTIALIAS(%d) ", fcAntialias);
             }
 
-            FcBool fcAutohint = FcFalse;
-            FcBool fcAutohintSet = (*FcPatternGetBoolPtr)(pattern, FC_AUTOHINT, 0, &fcAutohint) == FcResultMatch;
+            FcBool fcAutohintSet = cachedMatch.fcAutohintSet;
+            FcBool fcAutohint = cachedMatch.fcAutohint;
 
             if (logFC && fcAutohintSet) fprintf(stderr, "FC_AUTOHINT(%d) ", fcAutohint);
 
@@ -980,7 +1059,9 @@ static int setupFTContext(JNIEnv *env, jobject font2D, FTScalerInfo *scalerInfo,
             } else {
                 int fcRGBA = FC_RGBA_UNKNOWN;
                 if (fcAntialiasSet && fcAntialias) {
-                    if ((*FcPatternGetIntegerPtr)(pattern, FC_RGBA, 0, &fcRGBA) == FcResultMatch) {
+                    FcBool fcRGBASet = cachedMatch.fcRGBASet;
+                    int fcRGBA = cachedMatch.fcRGBA;
+                    if (fcRGBASet) {
                         switch (fcRGBA) {
                             case FC_RGBA_RGB:
                             case FC_RGBA_BGR:
@@ -1016,8 +1097,8 @@ static int setupFTContext(JNIEnv *env, jobject font2D, FTScalerInfo *scalerInfo,
                 }
             }
 
-            FT_LcdFilter fcLCDFilter;
-            FcBool fcLCDFilterSet = (*FcPatternGetIntegerPtr)(pattern, FC_LCD_FILTER, 0, &fcLCDFilter) == FcResultMatch;
+            int fcLCDFilter = cachedMatch.fcLCDFilter;
+            FcBool fcLCDFilterSet = cachedMatch.fcLCDFilterSet;
             context->lcdFilter = FT_LCD_FILTER_DEFAULT;
             if (fcLCDFilterSet) {
                 switch (fcLCDFilter) {
@@ -1041,7 +1122,7 @@ static int setupFTContext(JNIEnv *env, jobject font2D, FTScalerInfo *scalerInfo,
                         ;
                 }
             }
-            (*FcPatternDestroyPtr)(pattern);
+
             (*env)->ReleaseStringUTFChars(env, jfontFamilyName, cfontFamilyName);
             if (logFC) fprintf(stderr, "\n");
 #endif
@@ -1440,9 +1521,9 @@ static SampledBGRABitmap createSampledBGRABitmap(FT_GlyphSlot ftglyph,
                     xTo = xFrom + xDownscale,
                     yTo = yFrom + yDownscale;
                 if (xFrom < 0) xFrom = 0;
-                if (xTo > ftglyph->bitmap.width) xTo = ftglyph->bitmap.width;
+                if (xTo > (int)ftglyph->bitmap.width) xTo = ftglyph->bitmap.width;
                 if (yFrom < 0) yFrom = 0;
-                if (yTo > ftglyph->bitmap.rows) yTo = ftglyph->bitmap.rows;
+                if (yTo > (int)ftglyph->bitmap.rows) yTo = ftglyph->bitmap.rows;
                 int i, j;
                 for (j = yFrom; j < yTo; j++) {
                     for (i = xFrom; i < xTo; i++) {
@@ -1678,8 +1759,8 @@ static jlong
     if (renderImage && outlineGlyph) {
         /* We can create an extended glyph when rendering with grayscale AA thus
          * increasing subpixel resolution & reducing glyph spacing issues.
-         * We do this by rendering the glyph in bigger resolution and then
-         * downscaling it with different subpixel offsets, which results in
+         * We do this by rendering the glyph multiple times with
+         * different subpixel offsets, which results in
          * subpixelResolutionX * subpixelResolutionY images per glyph. */
         if (!context->colorFont && ftglyph->bitmap.pixel_mode ==  FT_PIXEL_MODE_GRAY &&
             context->aaType == TEXT_AA_ON && context->fmType == TEXT_FM_ON) {
@@ -1707,7 +1788,7 @@ static jlong
             context->ptsz, scalerInfo->face->available_sizes[context->fixedSizeIndex].size);
     FT_Matrix manualTransform;
     FT_BBox manualTransformBoundingBox;
-    int topLeftX, topLeftY;
+    int topLeftX = 0, topLeftY = 0;
     if (renderImage) {
         if (context->fixedSizeIndex == -1) {
             width  = (UInt16) ftglyph->bitmap.width + subpixelGlyph;
@@ -2343,7 +2424,7 @@ Java_sun_font_FreetypeFontScaler_getGlyphVectorOutlineNative(
              (FTScalerInfo*) jlong_to_ptr(pScaler);
 
     glyphs = NULL;
-    if (numGlyphs > 0 && 0xffffffffu / sizeof(jint) >= numGlyphs) {
+    if (numGlyphs > 0 && 0xffffffffu / sizeof(jint) >= (unsigned int)numGlyphs) {
         glyphs = (jint*) malloc(numGlyphs*sizeof(jint));
     }
     if (glyphs == NULL) {

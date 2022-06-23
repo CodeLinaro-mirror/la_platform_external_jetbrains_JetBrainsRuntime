@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -45,9 +45,9 @@
 #include "awt_Toolkit.h"
 #include "awt_Window.h"
 #include "awt_Win32GraphicsDevice.h"
-#include "awt_Win32GraphicsConfig.h"
 #include "Hashtable.h"
 #include "ComCtl32Util.h"
+#include "math.h"
 
 #include <Region.h>
 
@@ -94,7 +94,6 @@ HWND AwtComponent::sm_focusOwner = NULL;
 HWND AwtComponent::sm_focusedWindow = NULL;
 BOOL AwtComponent::sm_bMenuLoop = FALSE;
 BOOL AwtComponent::sm_inSynthesizeFocus = FALSE;
-BOOL AwtComponent::sm_priorityFocusEvents = FALSE;
 
 /************************************************************************/
 // Struct for _Reshape() and ReshapeNoCheck() methods
@@ -599,7 +598,7 @@ AwtComponent::CreateHWnd(JNIEnv *env, LPCWSTR title,
     /*
       * Fix for 4046446.
       */
-    SetWindowPos(GetHWnd(), 0, x, y, w, h, SWP_NOZORDER | SWP_NOCOPYBITS | SWP_NOACTIVATE);
+    Reshape(x, y, w, h);
 
     /* Set default colors. */
     m_colorForeground = colorForeground;
@@ -965,11 +964,11 @@ AwtComponent::SetWindowPos(HWND wnd, HWND after,
 }
 
 void AwtComponent::Reshape(int x, int y, int w, int h) {
-/*    ReshapeNoScale(ScaleUpX(x), ScaleUpY(y), ScaleUpX(w), ScaleUpY(h));
+    ReshapeNoScale(ScaleUpX(x), ScaleUpY(y), ScaleUpX(w), ScaleUpY(h));
 }
 
 void AwtComponent::ReshapeNoScale(int x, int y, int w, int h)
-{*/
+{
 #if defined(DEBUG)
     RECT        rc;
     ::GetWindowRect(GetHWnd(), &rc);
@@ -977,56 +976,8 @@ void AwtComponent::ReshapeNoScale(int x, int y, int w, int h)
     DTRACE_PRINTLN4("AwtComponent::Reshape from %d, %d, %d, %d", rc.left, rc.top, rc.right-rc.left, rc.bottom-rc.top);
 #endif
 
-    int usrX = x;
-    int usrY = y;
-
-    AwtWin32GraphicsDevice* device = UGetDeviceByBounds(URectBounds(x, y, w, h, USER_SPACE), this);
-    x = device->ScaleUpX(x, RELATIVITY_FOR_COMP_XY(this));
-    y = device->ScaleUpY(y, RELATIVITY_FOR_COMP_XY(this));
-    w = device->ScaleUpX(w);
-    h = device->ScaleUpY(h);
-
     AwtWindow* container = GetContainer();
     AwtComponent* parent = GetParent();
-
-    // [tav] Handle the fact that an owned window is most likely positioned relative to its owner, and it may
-    // require pixel-perfect alignment. For that, compensate rounding errors (caused by converting from the device
-    // space to the integer user space and back) for the owner's origin and for the owner's client area origin.
-    if (IsTopLevel() && parent != NULL &&
-        (device->GetScaleX() > 1 || device->GetScaleY() > 1))
-    {
-        RECT parentInsets;
-        parent->GetInsets(&parentInsets);
-        // Convert the owner's client area origin to user space
-        int parentInsetsUsrX = device->ScaleDownX(parentInsets.left);
-        int parentInsetsUsrY = device->ScaleDownY(parentInsets.top);
-
-        RECT parentRect;
-        VERIFY(::GetWindowRect(parent->GetHWnd(), &parentRect));
-        // Convert the owner's origin to user space
-        int parentUsrX = device->ScaleDownDX(parentRect.left);
-        int parentUsrY = device->ScaleDownDY(parentRect.top);
-
-        // Calc the offset from the owner's client area in user space
-        int offsetUsrX = usrX - parentUsrX - parentInsetsUsrX;
-        int offsetUsrY = usrY - parentUsrY - parentInsetsUsrY;
-
-        // Convert the offset to device space
-        int offsetDevX = device->ScaleUpX(offsetUsrX);
-        int offsetDevY = device->ScaleUpY(offsetUsrY);
-
-        // Finally calc the window's location based on the frame's and its insets system numbers.
-        int devX = parentRect.left + parentInsets.left + offsetDevX;
-        int devY = parentRect.top + parentInsets.top + offsetDevY;
-
-        // Check the toplevel is not going to be moved to another screen.
-        ::SetRect(&parentRect, devX, devY, devX + w, devY + h);
-        HMONITOR hmon = ::MonitorFromRect(&parentRect, MONITOR_DEFAULTTONEAREST);
-        if (hmon != NULL && AwtWin32GraphicsDevice::GetScreenFromHMONITOR(hmon) == device->GetDeviceIndex()) {
-            x = devX;
-            y = devY;
-        }
-    }
 
     if (container != NULL && container == parent) {
         container->SubtractInsetPoint(x, y);
@@ -1134,6 +1085,7 @@ void SpyWinMessage(HWND hwnd, UINT message, LPCTSTR szComment) {
         WIN_MSG(WM_DESTROY)
         WIN_MSG(WM_MOVE)
         WIN_MSG(WM_SIZE)
+        WIN_MSG(WM_DPICHANGED)
         WIN_MSG(WM_ACTIVATE)
         WIN_MSG(WM_SETFOCUS)
         WIN_MSG(WM_KILLFOCUS)
@@ -1572,9 +1524,9 @@ LRESULT AwtComponent::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
       case WM_SIZE:
       {
           RECT r;
-          // fix 4128317 : use GetClientRect for full 32-bit int precision and
+          // fix 4128317 : use GetWindowRect for full 32-bit int precision and
           // to avoid negative client area dimensions overflowing 16-bit params - robi
-          ::GetClientRect( GetHWnd(), &r );
+          ::GetWindowRect(GetHWnd(), &r);
           mr = WmSize(static_cast<UINT>(wParam), r.right - r.left, r.bottom - r.top);
           //mr = WmSize(wParam, LOWORD(lParam), HIWORD(lParam));
           SetCompositionWindow(r);
@@ -1591,11 +1543,9 @@ LRESULT AwtComponent::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
                             GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
           break;
       case WM_ENTERSIZEMOVE:
-          m_inMoveResizeLoop = TRUE;
           mr = WmEnterSizeMove();
           break;
       case WM_EXITSIZEMOVE:
-          m_inMoveResizeLoop = FALSE;
           mr = WmExitSizeMove();
           break;
       // Bug #4039858 (Selecting menu item causes bogus mouse click event)
@@ -1700,6 +1650,9 @@ LRESULT AwtComponent::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
       case WM_NCRBUTTONDOWN:
            mr = WmNcMouseDown(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), RIGHT_BUTTON);
            break;
+        case WM_NCMOUSEMOVE:
+            mr = WmNcMouseMove(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            break;
       case WM_LBUTTONUP:
           if (ignoreNextLBTNUP) {
               ignoreNextLBTNUP = FALSE;
@@ -2016,10 +1969,6 @@ LRESULT AwtComponent::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
           mr = WmContextMenu((HWND)wParam,
                              GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
           break;
-#define WM_DPICHANGED       0x02E0 // Since Win 8.1 in WinUser.h
-      case WM_DPICHANGED:
-          mr = WmDPIChanged(HIWORD(wParam), LOWORD(wParam), (RECT*)lParam);
-          break;
 
           /*
            * These messages are used to route Win32 calls to the
@@ -2027,38 +1976,28 @@ LRESULT AwtComponent::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
            * there.
            */
       case WM_AWT_COMPONENT_SHOW:
-          sm_priorityFocusEvents = TRUE;
           Show();
-          sm_priorityFocusEvents = FALSE;
           mr = mrConsume;
           break;
       case WM_AWT_COMPONENT_HIDE:
-          sm_priorityFocusEvents = TRUE;
           Hide();
-          sm_priorityFocusEvents = FALSE;
           mr = mrConsume;
           break;
 
       case WM_AWT_COMPONENT_SETFOCUS:
-          sm_priorityFocusEvents = TRUE;
           if ((BOOL)wParam) {
               retValue = SynthesizeWmSetFocus(GetHWnd(), NULL);
           } else {
               retValue = SynthesizeWmKillFocus(GetHWnd(), NULL);
           }
-          sm_priorityFocusEvents = FALSE;
           mr = mrConsume;
           break;
       case WM_AWT_WINDOW_SETACTIVE:
-          sm_priorityFocusEvents = TRUE;
           retValue = (LRESULT)((AwtWindow*)this)->AwtSetActiveWindow((BOOL)wParam);
-          sm_priorityFocusEvents = FALSE;
           mr = mrConsume;
           break;
       case WM_AWT_WINDOW_TOFRONT:
-          sm_priorityFocusEvents = TRUE;
           ((AwtWindow*)this)->ToFront();
-          sm_priorityFocusEvents = FALSE;
           mr = mrConsume;
           break;
 
@@ -2334,14 +2273,22 @@ void AwtComponent::PaintUpdateRgn(const RECT *insets)
                 }
             }
         }
+        // The Windows may request to update the small region of pixels that
+        // cannot be represented in the user's space, in this case, we will
+        // request to repaint the smallest non-empty bounding box in the user's
+        // space
+        int screen = GetScreenImOn();
+        Devices::InstanceAccess devices;
+        AwtWin32GraphicsDevice* device = devices->GetDevice(screen);
+        float scaleX = (device == NULL) ? 1 : device->GetScaleX();
+        float scaleY = (device == NULL) ? 1 : device->GetScaleY();
         for(i = 0; i < 2; i++) {
             if (un[i] != 0) {
-                ScaleDownRect(*un[i]);
-                DoCallback("handleExpose", "(IIII)V",
-                           un[i]->left,
-                           un[i]->top,
-                           un[i]->right - un[i]->left,
-                           un[i]->bottom - un[i]->top);
+                int x1 = floor(un[i]->left / scaleX);
+                int y1 = floor(un[i]->top / scaleY);
+                int x2 = ceil(un[i]->right / scaleX);
+                int y2 = ceil(un[i]->bottom  / scaleY);
+                DoCallback("handleExpose", "(IIII)V", x1, y1, x2 - x1, y2 - y1);
             }
         }
         delete [] buffer;
@@ -2396,6 +2343,9 @@ MsgRouting AwtComponent::WmNcMouseDown(WPARAM hitTest, int x, int y, int button)
     return mrDoDefault;
 }
 MsgRouting AwtComponent::WmNcMouseUp(WPARAM hitTest, int x, int y, int button) {
+    return mrDoDefault;
+}
+MsgRouting AwtComponent::WmNcMouseMove(WPARAM hitTest, int x, int y) {
     return mrDoDefault;
 }
 
@@ -2484,7 +2434,7 @@ void AwtComponent::WmTouchHandler(const TOUCHINPUT& touchInput)
             const jint scrollModifiers = modifiers & ~java_awt_event_InputEvent_SHIFT_DOWN_MASK;
             SendMouseWheelEventFromTouch(p, scrollModifiers, sun_awt_event_TouchEvent_TOUCH_UPDATE, deltaY);
         }
-        
+
         const jint deltaX = ScaleDownX(static_cast<int>(m_lastTouchPoint.x - p.x));
         if (deltaX != 0) {
             const jint scrollModifiers = modifiers | java_awt_event_InputEvent_SHIFT_DOWN_MASK;
@@ -2852,9 +2802,12 @@ AwtComponent::GetJavaModifiers()
     if (HIBYTE(::GetKeyState(VK_MENU)) != 0) {
         modifiers |= java_awt_event_InputEvent_ALT_DOWN_MASK;
     }
-    if (HIBYTE(::GetKeyState(VK_RMENU)) != 0) {
-        modifiers |= java_awt_event_InputEvent_ALT_GRAPH_DOWN_MASK;
-    }
+// Reverted fix of JDK-8041928: MouseEvent.getModifiersEx gives wrong result
+// Because it breaks AltGr shortcuts.
+// See IDEA-287559, JBR-4207 for more info.
+//    if (HIBYTE(::GetKeyState(VK_RMENU)) != 0) {
+//        modifiers |= java_awt_event_InputEvent_ALT_GRAPH_DOWN_MASK;
+//    }
     if (HIBYTE(::GetKeyState(VK_MBUTTON)) != 0) {
        modifiers |= java_awt_event_InputEvent_BUTTON2_DOWN_MASK;
     }
@@ -4065,8 +4018,8 @@ void AwtComponent::OpenCandidateWindow(int x, int y)
     }
     HWND hTop = GetTopLevelParentForWindow(hWnd);
     ::ClientToScreen(hTop, &p);
-    int sx = ScaleUpX(x, ABSOLUTE_COORD) - p.x;
-    int sy = ScaleUpY(y, ABSOLUTE_COORD) - p.y;
+    int sx = ScaleUpAbsX(x) - p.x;
+    int sy = ScaleUpAbsY(y) - p.y;
     if (!m_bitsCandType) {
         SetCandidateWindow(m_bitsCandType, sx, sy);
         return;
@@ -4805,6 +4758,14 @@ MsgRouting AwtComponent::WmNcPaint(HRGN hrgn)
 
 MsgRouting AwtComponent::WmNcHitTest(int x, int y, LRESULT &retVal)
 {
+    AwtWindow* window = GetContainer();
+    if (window == NULL || window->IsSimpleWindow()) return mrDoDefault;
+    AwtFrame* frame = (AwtFrame*)window;
+    if (frame->HasCustomDecoration() &&
+        frame->WmNcHitTest(x, y, retVal) == mrConsume) {
+        retVal = HTTRANSPARENT;
+        return mrConsume;
+    }
     return mrDoDefault;
 }
 
@@ -4944,64 +4905,70 @@ void AwtComponent::FillAlpha(void *bitmapBits, SIZE &size, BYTE alpha)
     }
 }
 
-int AwtComponent::ScaleUpX(int x, const UCoordRelativity& relativity) {
-    if (relativity == ABSOLUTE_COORD) return ScaleUpDX(x);
-    int screen = AwtWin32GraphicsDevice::DeviceIndexForWindow(GetHWnd());
+int AwtComponent::GetScreenImOn() {
+    HWND hWindow = GetAncestor(GetHWnd(), GA_ROOT);
+    AwtComponent *comp = AwtComponent::GetComponent(hWindow);
+    if (comp && comp->IsTopLevel()) {
+        return comp->GetScreenImOn();
+    }
+    return AwtWin32GraphicsDevice::DeviceIndexForWindow(hWindow);
+}
+
+
+int AwtComponent::ScaleUpX(int x) {
+    int screen = GetScreenImOn();
     Devices::InstanceAccess devices;
     AwtWin32GraphicsDevice* device = devices->GetDevice(screen);
     return device == NULL ? x : device->ScaleUpX(x);
 }
 
-int AwtComponent::ScaleUpDX(int x) {
-    int screen = AwtWin32GraphicsDevice::DeviceIndexForWindow(GetHWnd());
+int AwtComponent::ScaleUpAbsX(int x) {
+    int screen = GetScreenImOn();
     Devices::InstanceAccess devices;
     AwtWin32GraphicsDevice* device = devices->GetDevice(screen);
-    return device == NULL ? x : device->ScaleUpDX(x);
+    return device == NULL ? x : device->ScaleUpAbsX(x);
 }
 
-int AwtComponent::ScaleUpY(int y, const UCoordRelativity& relativity) {
-    if (relativity == ABSOLUTE_COORD) return ScaleUpDY(y);
-    int screen = AwtWin32GraphicsDevice::DeviceIndexForWindow(GetHWnd());
+int AwtComponent::ScaleUpY(int y) {
+    int screen = GetScreenImOn();
     Devices::InstanceAccess devices;
     AwtWin32GraphicsDevice* device = devices->GetDevice(screen);
     return device == NULL ? y : device->ScaleUpY(y);
 }
 
-int AwtComponent::ScaleUpDY(int y) {
-    int screen = AwtWin32GraphicsDevice::DeviceIndexForWindow(GetHWnd());
+int AwtComponent::ScaleUpAbsY(int y) {
+    int screen = GetScreenImOn();
     Devices::InstanceAccess devices;
     AwtWin32GraphicsDevice* device = devices->GetDevice(screen);
-    return device == NULL ? y : device->ScaleUpDY(y);
+    return device == NULL ? y : device->ScaleUpAbsY(y);
 }
 
-int AwtComponent::ScaleDownX(int x, const UCoordRelativity& relativity) {
-    if (relativity == ABSOLUTE_COORD) return ScaleDownDX(x);
-    int screen = AwtWin32GraphicsDevice::DeviceIndexForWindow(GetHWnd());
+int AwtComponent::ScaleDownX(int x) {
+    int screen = GetScreenImOn();
     Devices::InstanceAccess devices;
     AwtWin32GraphicsDevice* device = devices->GetDevice(screen);
     return device == NULL ? x : device->ScaleDownX(x);
 }
 
-int AwtComponent::ScaleDownDX(int x) {
-    int screen = AwtWin32GraphicsDevice::DeviceIndexForWindow(GetHWnd());
+int AwtComponent::ScaleDownAbsX(int x) {
+    int screen = GetScreenImOn();
     Devices::InstanceAccess devices;
     AwtWin32GraphicsDevice* device = devices->GetDevice(screen);
-    return device == NULL ? x : device->ScaleDownDX(x);
+    return device == NULL ? x : device->ScaleDownAbsX(x);
 }
 
-int AwtComponent::ScaleDownY(int y, const UCoordRelativity& relativity) {
-    if (relativity == ABSOLUTE_COORD) return ScaleUpDY(y);
-    int screen = AwtWin32GraphicsDevice::DeviceIndexForWindow(GetHWnd());
+int AwtComponent::ScaleDownY(int y) {
+    int screen = GetScreenImOn();
     Devices::InstanceAccess devices;
     AwtWin32GraphicsDevice* device = devices->GetDevice(screen);
     return device == NULL ? y : device->ScaleDownY(y);
 }
 
-int AwtComponent::ScaleDownDY(int y) {
-    int screen = AwtWin32GraphicsDevice::DeviceIndexForWindow(GetHWnd());
+int AwtComponent::ScaleDownAbsY(int y) {
+    int screen = GetScreenImOn();
     Devices::InstanceAccess devices;
     AwtWin32GraphicsDevice* device = devices->GetDevice(screen);
-    return device == NULL ? y : device->ScaleDownDY(y);
+    return device == NULL ? y : device->ScaleDownAbsY(y);
 }
 
 void AwtComponent::ScaleDownRect(RECT& r) {
@@ -5309,7 +5276,7 @@ void AwtComponent::SendMouseEvent(jint id, jlong when, jint x, jint y,
                                         id, when, modifiers,
                                         ScaleDownX(x + insets.left),
                                         ScaleDownY(y + insets.top),
-                                        ScaleDownDX(xAbs), ScaleDownDY(yAbs),
+                                        ScaleDownAbsX(xAbs), ScaleDownAbsY(yAbs),
                                         clickCount, popupTrigger, button);
 
     if (safe_ExceptionOccurred(env)) {
@@ -5382,8 +5349,8 @@ AwtComponent::SendMouseWheelEvent(jint id, jlong when, jint x, jint y,
                                              id, when, modifiers,
                                              ScaleDownX(x + insets.left),
                                              ScaleDownY(y + insets.top),
-                                             ScaleDownDX(xAbs),
-                                             ScaleDownDY(yAbs),
+                                             ScaleDownAbsX(xAbs),
+                                             ScaleDownAbsY(yAbs),
                                              clickCount, popupTrigger,
                                              scrollType, scrollAmount,
                                              roundedWheelRotation, preciseWheelRotation);
@@ -5893,8 +5860,8 @@ jobject AwtComponent::_GetLocationOnScreen(void *param)
         RECT rect;
         VERIFY(::GetWindowRect(p->GetHWnd(),&rect));
         result = JNU_NewObjectByName(env, "java/awt/Point", "(II)V",
-                                     p->ScaleDownDX(rect.left),
-                                     p->ScaleDownDY(rect.top));
+                                     p->ScaleDownAbsX(rect.left),
+                                     p->ScaleDownAbsY(rect.top));
     }
 ret:
     env->DeleteGlobalRef(self);
@@ -7494,8 +7461,8 @@ void AwtComponent::VerifyState()
         target = parent;
     }
 
-    x = ScaleUpX(x, RELATIVITY_FOR_COMP_XY(this));
-    y = ScaleUpY(y, RELATIVITY_FOR_COMP_XY(this));
+    x = ScaleUpX(x);
+    y = ScaleUpY(y);
     width = ScaleUpX(width);
     height = ScaleUpY(height);
 

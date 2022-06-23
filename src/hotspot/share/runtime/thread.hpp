@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 1997, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2021, Azul Systems, Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -753,80 +754,14 @@ protected:
   static void muxAcquireW(volatile intptr_t * Lock, ParkEvent * ev);
   static void muxRelease(volatile intptr_t * Lock);
 
-private:
-#ifdef ASSERT
-  bool _wx_init;
+#if defined(__APPLE__) && defined(AARCH64)
+ private:
+  DEBUG_ONLY(bool _wx_init);
   WXMode _wx_state;
-  static inline void verify_wx_init(WXMode state) {
-    Thread* current = Thread::current();
-    assert(!current->_wx_init, "second init");
-    current->_wx_init = true;
-    current->_wx_state = state;
-  }
-  static inline void verify_wx_transition(WXMode from, WXMode to) {
-    Thread* current = Thread::current();
-    assert(current->_wx_init, "no init");
-    assert(current->_wx_state == from, "wrong state");
-    current->_wx_init = true;
-    current->_wx_state = to;
-  }
-  static inline void verify_wx_state(WXMode now) {
-    Thread* current = Thread::current();
-    assert(current->_wx_init, "no init");
-    assert(current->_wx_state == now, "wrong state");
-  }
-#else
-  static inline void verify_wx_init(WXMode state) { }
-  static inline void verify_wx_transition(WXMode from, WXMode to) { }
-  static inline void verify_wx_state(WXMode now) { }
-#endif // ASSERT
-public:
-  void init_wx() {
-    WXMode init_mode = WXWrite;
-    verify_wx_init(init_mode);
-    os::current_thread_enable_wx(init_mode);
-  }
-  static inline void enable_wx_from_write(WXMode to) {
-    verify_wx_transition(WXWrite, to);
-    os::current_thread_enable_wx(to);
-  }
-  static inline void enable_wx_from_exec(WXMode to) {
-    verify_wx_transition(WXExec, to);
-    os::current_thread_enable_wx(to);
-  }
-
-  class WXWriteFromExecSetter {
-  public:
-    WXWriteFromExecSetter() {
-      enable_wx_from_exec(WXWrite);
-    }
-    ~WXWriteFromExecSetter() {
-      enable_wx_from_write(WXExec);
-    }
-  };
-
-  class WXExecFromWriteSetter {
-  public:
-    WXExecFromWriteSetter() {
-      enable_wx_from_write(WXExec);
-    }
-    ~WXExecFromWriteSetter() {
-      enable_wx_from_exec(WXWrite);
-    }
-  };
-
-  class WXWriteVerifier {
-  public:
-    WXWriteVerifier() {
-      verify_wx_state(WXWrite);
-    }
-  };
-  class WXExecVerifier {
-  public:
-    WXExecVerifier() {
-      verify_wx_state(WXExec);
-    }
-  };
+ public:
+  void init_wx();
+  WXMode enable_wx(WXMode new_state);
+#endif // __APPLE__ && AARCH64
 };
 
 // Inline implementation of Thread::current()
@@ -1254,7 +1189,7 @@ class JavaThread: public Thread {
   };
   void exit(bool destroy_vm, ExitType exit_type = normal_exit);
 
-  void cleanup_failed_attach_current_thread();
+  void cleanup_failed_attach_current_thread(bool is_daemon);
 
   // Testers
   virtual bool is_Java_thread() const            { return true;  }
@@ -2247,7 +2182,7 @@ class Threads: AllStatic {
   // force_daemon is a concession to JNI, where we may need to add a
   // thread to the thread list before allocating its thread object
   static void add(JavaThread* p, bool force_daemon = false);
-  static void remove(JavaThread* p);
+  static void remove(JavaThread* p, bool is_daemon);
   static void non_java_threads_do(ThreadClosure* tc);
   static void java_threads_do(ThreadClosure* tc);
   static void java_threads_and_vm_thread_do(ThreadClosure* tc);

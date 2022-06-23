@@ -30,6 +30,8 @@ JBSDK_VERSION=$1
 JDK_BUILD_NUMBER=$2
 build_number=$3
 
+BOOT_JDK=${BOOT_JDK:=$(amazon-corretto-11.0.5.10.1-linux-aarch64)}
+
 JBSDK_VERSION_WITH_DOTS=$(echo $JBSDK_VERSION | sed 's/_/\./g')
 
 source jb/project/tools/common.sh
@@ -45,7 +47,8 @@ function do_configure {
     --with-version-build=${JDK_BUILD_NUMBER} \
     --with-version-opt=b${build_number} \
     --with-import-modules=./modular-sdk \
-    --with-boot-jdk=amazon-corretto-11.0.5.10.1-linux-aarch64 \
+    --with-boot-jdk=${BOOT_JDK} \
+    $WITH_ZIPPED_NATIVE_DEBUG_SYMBOLS \
     --enable-cds=yes || exit $?
 }
 
@@ -77,12 +80,14 @@ tar -pcf $JBSDK.tar \
   -C $BASE_DIR ${JBRSDK_BUNDLE} || exit $?
 gzip $JBSDK.tar || exit $?
 
+zip_native_debug_symbols ${BASE_DIR}/jdk "${JBSDK}_diz"
+
 JBR_BUNDLE=jbr
 JBR_BASE_NAME=jbr-$JBSDK_VERSION
 rm -rf $BASE_DIR/$JBR_BUNDLE
 
 JBR=$JBR_BASE_NAME-linux-aarch64-b$build_number
-grep -v javafx modules.list | grep -v "jdk.internal.vm\|jdk.aot\|jcef" > modules.list.aarch64
+grep -v javafx jb/project/tools/common/modules.list | grep -v "jdk.internal.vm\|jdk.aot\|jcef" > modules.list.aarch64
 echo Running jlink....
 ${JSDK}/bin/jlink \
   --module-path ${JSDK}/jmods --no-man-pages --compress=2 \

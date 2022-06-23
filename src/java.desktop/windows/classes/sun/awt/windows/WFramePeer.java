@@ -35,10 +35,13 @@ import java.awt.peer.FramePeer;
 import java.security.AccessController;
 
 import sun.awt.AWTAccessor;
+import sun.awt.SunToolkit;
 import sun.awt.im.InputMethodManager;
 import sun.security.action.GetPropertyAction;
 
-import static sun.java2d.SunGraphicsEnvironment.convertToDeviceSpace;
+import static sun.java2d.SunGraphicsEnvironment.getGCDeviceBounds;
+import static sun.java2d.SunGraphicsEnvironment.toDeviceSpaceAbs;
+import static sun.java2d.SunGraphicsEnvironment.toUserSpace;
 
 class WFramePeer extends WWindowPeer implements FramePeer {
 
@@ -97,10 +100,10 @@ class WFramePeer extends WWindowPeer implements FramePeer {
      */
     private Rectangle adjustMaximizedBounds(Rectangle bounds) {
         // All calculations should be done in the device space
-        bounds = convertToDeviceSpace(bounds);
+        bounds = toDeviceSpaceAbs(bounds);
 
         GraphicsConfiguration gc = getGraphicsConfiguration();
-        Rectangle currentDevBounds = convertToDeviceSpace(gc, gc.getBounds());
+        Rectangle currentDevBounds = getGCDeviceBounds(gc);
         // Prepare data for WM_GETMINMAXINFO message.
         // ptMaxPosition should be in coordinate system of the current monitor,
         // not the main monitor, or monitor on which we maximize the window.
@@ -124,16 +127,7 @@ class WFramePeer extends WWindowPeer implements FramePeer {
     @Override
     public void displayChanged() {
         super.displayChanged();
-        updateIcon();
-        if (!screenChangedFlag &&
-            (getExtendedState() & Frame.MAXIMIZED_BOTH) != 0 &&
-            (getExtendedState() & Frame.ICONIFIED) == 0)
-        {
-            // A workaround to update the maximized state of the frame
-            int state = getExtendedState();
-            setState(Frame.NORMAL);
-            setState(state);
-        }
+        SunToolkit.executeOnEventHandlerThread(target, this::updateIcon);
     }
 
     private native void updateIcon();
@@ -165,13 +159,13 @@ class WFramePeer extends WWindowPeer implements FramePeer {
 
     @Override
     public final Dimension getMinimumSize() {
+        GraphicsConfiguration gc = getGraphicsConfiguration();
         Dimension d = new Dimension();
         if (!((Frame)target).isUndecorated()) {
-            d.setSize(scaleDownX(getSysMinWidth()),
-                      scaleDownY(getSysMinHeight()));
+            d.setSize(toUserSpace(gc, getSysMinWidth(), getSysMinHeight()));
         }
         if (((Frame)target).getMenuBar() != null) {
-            d.height += scaleDownY(getSysMenuHeight());
+            d.height += toUserSpace(gc, 0, getSysMenuHeight()).height;
         }
         return d;
     }

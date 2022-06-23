@@ -33,7 +33,7 @@
 JavaVM *jvm = NULL;
 static JNIEnv *appKitEnv = NULL;
 static jobject appkitThreadGroup = NULL;
-static NSString* JavaRunLoopMode = @"javaRunLoopMode";
+static NSString* JavaRunLoopMode = @"AWTRunLoopMode";
 static NSArray<NSString*> *javaModes = nil;
 
 static inline void attachCurrentThread(void** env) {
@@ -49,6 +49,24 @@ static inline void attachCurrentThread(void** env) {
 }
 
 @implementation ThreadUtilities
+
+static BOOL _blockingEventDispatchThread = NO;
+static long eventDispatchThreadPtr = (long)nil;
+
+static BOOL isEventDispatchThread() {
+    return (long)[NSThread currentThread] == eventDispatchThreadPtr;
+}
+
+// The [blockingEventDispatchThread] property is readonly, so we implement a private setter
+static void setBlockingEventDispatchThread(BOOL value) {
+    assert([NSThread isMainThread]);
+    _blockingEventDispatchThread = value;
+}
+
++ (BOOL) blockingEventDispatchThread {
+    assert([NSThread isMainThread]);
+    return _blockingEventDispatchThread;
+}
 
 + (void)initialize {
     /* All the standard modes plus ours */
@@ -81,13 +99,6 @@ AWT_ASSERT_APPKIT_THREAD;
     appkitThreadGroup = group;
 }
 
-/* This is needed because we can't directly pass a block to
- * performSelectorOnMainThreadWaiting .. since it expects a selector
- */
-+ (void)invokeBlock:(void (^)())block {
-  block();
-}
-
 /*
  * When running a block where either we don't wait, or it needs to run on another thread
  * we need to copy it from stack to heap, use the copy in the call and release after use.
@@ -103,12 +114,7 @@ AWT_ASSERT_APPKIT_THREAD;
     if ([NSThread isMainThread] && wait == YES) {
         block();
     } else {
-        if (wait == YES) {
-            [self performOnMainThread:@selector(invokeBlock:) on:self withObject:block waitUntilDone:YES];
-        } else {
-            void (^blockCopy)(void) = Block_copy(block);
-            [self performOnMainThread:@selector(invokeBlockCopy:) on:self withObject:blockCopy waitUntilDone:NO];
-        }
+        [self performOnMainThread:@selector(invokeBlockCopy:) on:self withObject:Block_copy(block) waitUntilDone:wait];
     }
 }
 
@@ -116,7 +122,19 @@ AWT_ASSERT_APPKIT_THREAD;
     if ([NSThread isMainThread] && wait == YES) {
         [target performSelector:aSelector withObject:arg];
     } else {
-        [target performSelectorOnMainThread:aSelector withObject:arg waitUntilDone:wait modes:javaModes];
+        if (wait && isEventDispatchThread()) {
+            void (^blockCopy)(void) = Block_copy(^(){
+                setBlockingEventDispatchThread(YES);
+                @try {
+                    [target performSelector:aSelector withObject:arg];
+                } @finally {
+                    setBlockingEventDispatchThread(NO);
+                }
+            });
+            [self performSelectorOnMainThread:@selector(invokeBlockCopy:) withObject:blockCopy waitUntilDone:YES modes:javaModes];
+        } else {
+            [target performSelectorOnMainThread:aSelector withObject:arg waitUntilDone:wait modes:javaModes];
+        }
     }
 }
 
@@ -141,5 +159,18 @@ JNIEXPORT jboolean JNICALL Java_sun_lwawt_macosx_CThreading_isMainThread
   (JNIEnv *env, jclass c)
 {
     return [NSThread isMainThread];
+}
+
+/*
+ * Class:     sun_awt_AWTThreading
+ * Method:    notifyEventDispatchThreadStartedNative
+ * Signature: ()V
+ */
+JNIEXPORT void JNICALL Java_sun_awt_AWTThreading_notifyEventDispatchThreadStartedNative
+  (JNIEnv *env, jclass c)
+{
+    @synchronized([ThreadUtilities class]) {
+        eventDispatchThreadPtr = (long)[NSThread currentThread];
+    }
 }
 

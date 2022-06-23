@@ -5,12 +5,15 @@ import sun.util.logging.PlatformLogger;
 
 import java.awt.*;
 import java.awt.event.InvocationEvent;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.lang.ref.WeakReference;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.util.Map;
 import java.util.Stack;
 import java.util.concurrent.*;
+import java.util.function.Consumer;
 
 /**
  * Used to perform a cross threads (EventDispatch, Toolkit) execution so that the execution does not cause a deadlock.
@@ -54,14 +57,25 @@ public class AWTThreading {
     }
 
     /**
-     * Same as {@link #executeWaitToolkit(Callable)}, but without returning a value. If requested (as indicated by
-     * the passed parameter), the invoked native method is supposed to wait for the result of invocation on AppKit
-     * thread, and vice versa.
+     * A boolean value passed to the consumer indicates whether the consumer should perform
+     * a synchronous invocation on the Toolkit thread and wait, or return immediately.
+     *
+     * @see #executeWaitToolkit(Callable).
      */
-    public static void executeWaitToolkit(Task runnable) {
+    public static void executeWaitToolkit(Consumer<Boolean> consumer) {
         boolean wait = EventQueue.isDispatchThread();
         executeWaitToolkit(() -> {
-            runnable.run(wait);
+            consumer.accept(wait);
+            return null;
+        });
+    }
+
+    /**
+     * @see #executeWaitToolkit(Callable).
+     */
+    public static void executeWaitToolkit(Runnable runnable) {
+        executeWaitToolkit(() -> {
+            runnable.run();
             return null;
         });
     }
@@ -81,12 +95,6 @@ public class AWTThreading {
             }
         }
 
-        if (!isEDT && logger.isLoggable(PlatformLogger.Level.FINE)) {
-            // this can cause deadlock if calling thread is holding a lock which EDT might require (e.g. AWT tree lock)
-            logger.fine("AWTThreading.executeWaitToolkit invoked from non-EDT thread", new Throwable());
-        }
-
-        // fallback to default
         try {
             return callable.call();
         } catch (Exception e) {
@@ -240,13 +248,18 @@ public class AWTThreading {
         return getInstance(AWTAccessor.getEventQueueAccessor().getDispatchThread(eq));
     }
 
-    private static AWTThreading getInstance(Thread edt) {
+    public static AWTThreading getInstance(Thread edt) {
         if (edt == null) return null;
 
         return EDT_TO_INSTANCE_MAP.computeIfAbsent(edt, key -> new AWTThreading());
     }
 
-    public interface Task {
-        void run(boolean wait);
+    /**
+     * Must be called on the EventDispatch thread.
+     */
+    public void notifyEventDispatchThreadStarted() {
+        if (FontUtilities.isMacOSX) notifyEventDispatchThreadStartedNative();
     }
+
+    private static native void notifyEventDispatchThreadStartedNative();
 }

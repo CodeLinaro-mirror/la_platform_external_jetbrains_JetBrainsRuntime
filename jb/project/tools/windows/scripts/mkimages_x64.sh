@@ -20,7 +20,7 @@
 #
 # Environment variables:
 #   MODULAR_SDK_PATH - specifies the path to the directory where imported modules are located.
-#               By default imported modules should be located in ./modular-sdk
+#               By default imported modules should be located in ./jcef_win_x64/modular-sdk
 #   JCEF_PATH - specifies the path to the directory with JCEF binaries.
 #               By default JCEF binaries should be located in ./jcef_win_x64
 
@@ -40,9 +40,9 @@ build_number=$3
 bundle_type=$4
 JBSDK_VERSION_WITH_DOTS=$(echo $JBSDK_VERSION | sed 's/_/\./g')
 WORK_DIR=$(pwd)
-WITH_IMPORT_MODULES="--with-import-modules=${MODULAR_SDK_PATH:=${WORK_DIR}/modular-sdk}"
 JCEF_PATH=${JCEF_PATH:=${WORK_DIR}/jcef_win_x64}
-TOOLCHAIN_VERSION=${TOOLCHAIN_VERSION:=2015}
+WITH_IMPORT_MODULES="--with-import-modules=${MODULAR_SDK_PATH:=${JCEF_PATH}/modular-sdk}"
+TOOLCHAIN_VERSION=${TOOLCHAIN_VERSION:=2017}
 
 source jb/project/tools/common.sh
 
@@ -75,7 +75,8 @@ function create_jbr {
     echo "***ERR*** bundle was not specified" && do_exit 1
     ;;
   esac
-  cat modules.list > modules_tmp.list
+  cat jb/project/tools/common/modules.list > modules_tmp.list
+  echo ",jdk.crypto.mscapi" >> modules_tmp.list
   rm -rf ${JBR_BUNDLE}
 
   echo Running jlink....
@@ -90,7 +91,7 @@ function create_jbr {
   cat ${JSDK}/release | tr -d '\r' | grep -v 'JAVA_VERSION' | grep -v 'MODULES' >> ${JBR_BUNDLE}/release
 }
 
-JBRSDK_BASE_NAME=jbrsdk-${JBSDK_VERSION}
+JBRSDK_BASE_NAME=jbrsdk_${bundle_type}-${JBSDK_VERSION}
 WITH_DEBUG_LEVEL="--with-debug-level=release"
 RELEASE_NAME=windows-x86_64-normal-server-release
 JBSDK=${JBRSDK_BASE_NAME}-windows-x64-b${build_number}
@@ -115,7 +116,7 @@ case "$bundle_type" in
     WITH_DEBUG_LEVEL="--with-debug-level=fastdebug"
     RELEASE_NAME=windows-x86_64-normal-server-fastdebug
     JBRSDK_BASE_NAME=jbrsdk-${JBSDK_VERSION}-fastdebug
-    JBSDK=${JBRSDK_BASE_NAME}-windows-x64-fastdebug-b${build_number}
+    JBSDK=jbrsdk-${JBSDK_VERSION}-windows-x64-fastdebug-b${build_number}
     ;;
   *)
     echo "***ERR*** bundle was not specified" && do_exit 1
@@ -124,13 +125,13 @@ esac
 
 if [ -z "$INC_BUILD" ]; then
   do_configure || do_exit $?
-  if [ "${bundle_type}" == "jcef" ]; then
+  if [ "${bundle_type}" == "dcevm" ]; then
     make LOG=info CONF=$RELEASE_NAME clean images test-image || do_exit $?
   else
     make LOG=info CONF=$RELEASE_NAME clean images || do_exit $?
   fi
 else
-  if [ "${bundle_type}" == "jcef" ]; then
+  if [ "${bundle_type}" == "dcevm" ]; then
     make LOG=info CONF=$RELEASE_NAME images test-image || do_exit $?
   else
     make LOG=info CONF=$RELEASE_NAME images || do_exit $?
@@ -139,7 +140,12 @@ fi
 
 JSDK=build/$RELEASE_NAME/images/jdk
 BASE_DIR=build/$RELEASE_NAME/images
-JBRSDK_BUNDLE=jbrsdk
+BASE_DIR=jre
+if [ "${bundle_type}" == "fd" ]; then
+  JBRSDK_BUNDLE=jbrsdk
+else
+  JBRSDK_BUNDLE=jbrsdk_${bundle_type}
+fi
 
 rm -rf ${BASE_DIR}/${JBRSDK_BUNDLE} && rsync -a --exclude demo --exclude sample ${JSDK}/ ${JBRSDK_BUNDLE} || do_exit $?
 if [[ "${bundle_type}" == *jcef* ]] || [[ "${bundle_type}" == *dcevm* ]] || [[ "${bundle_type}" == fd ]]

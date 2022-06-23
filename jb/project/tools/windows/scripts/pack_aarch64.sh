@@ -20,9 +20,9 @@
 #
 # Environment variables:
 #   MODULAR_SDK_PATH - specifies the path to the directory where imported modules are located.
-#                      By default imported modules should be located in ./modular-sdk.
+#                      By default imported modules should be located in ./jcef_win_aarch64/modular-sdk
 #   JCEF_PATH        - specifies the path to the directory with JCEF binaries.
-#                      By default JCEF binaries should be located in ./jcef_win_aarch64.
+#                      By default JCEF binaries should be located in ./jcef_win_aarch64
 
 JBSDK_VERSION=$1
 JDK_BUILD_NUMBER=$2
@@ -67,7 +67,7 @@ IMAGES_DIR=build/$RELEASE_NAME/images
 JSDK=$IMAGES_DIR/jdk
 BASE_DIR=.
 
-if [ "${bundle_type}" == "jcef" ] || [ "${bundle_type}" == "fd" ]; then
+if [ "${bundle_type}" == "dcevm" ] || [ "${bundle_type}" == "fd" ]; then
   JBRSDK_BUNDLE=jbrsdk
   echo Creating $JBSDK.tar.gz ...
   [ -f "$JBSDK.tar.gz" ] && rm "$JBSDK.tar.gz"
@@ -76,7 +76,7 @@ fi
 
 pack_jbr $bundle_type
 
-if [ "$bundle_type" == "jcef" ]; then
+if [ "$bundle_type" == "dcevm" ]; then
   JBRSDK_TEST=$JBRSDK_BASE_NAME-windows-test-aarch64-b$build_number
   echo Creating $JBRSDK_TEST.tar.gz ...
   /usr/bin/tar -czf $JBRSDK_TEST.tar.gz -C $IMAGES_DIR --exclude='test/jdk/demos' test || do_exit $?

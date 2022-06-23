@@ -127,11 +127,11 @@ module java.base {
     exports javax.security.auth.spi;
     exports javax.security.auth.x500;
     exports javax.security.cert;
-    exports com.jetbrains.bootstrap;
-
 
     // additional qualified exports may be inserted at build time
     // see make/gensrc/GenModuleInfo.gmk
+
+    opens com.jetbrains.bootstrap;
 
     exports com.jetbrains.internal to
             java.desktop;
@@ -189,6 +189,7 @@ module java.base {
         jdk.attach,
         jdk.charsets,
         jdk.compiler,
+        jdk.crypto.cryptoki,
         java.net.http,
         jdk.jfr,
         jdk.jlink,

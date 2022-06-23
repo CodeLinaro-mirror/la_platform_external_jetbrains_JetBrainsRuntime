@@ -29,6 +29,7 @@ import sun.lwawt.LWWindowPeer;
 
 import java.awt.*;
 import java.beans.*;
+import java.lang.annotation.Native;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -625,13 +626,16 @@ class CAccessibility implements PropertyChangeListener {
 
                 Function<Point, Integer> calcRowIndex = (location) -> {
                     Accessible rowChild = ((AccessibleComponent) ac).getAccessibleAt(location);
-                    if (rowChild == null) return null;
+                    if (rowChild == null) return -1;
 
                     AccessibleContext rowChildContext = rowChild.getAccessibleContext();
-                    if (rowChildContext == null) return null;
+                    if (rowChildContext == null) return -1;
 
                     int rowChildIndex = rowChildContext.getAccessibleIndexInParent();
-                    return rowChildIndex / ((AccessibleTable) ac).getAccessibleColumnCount();
+                    int accessibleColumnCount = ((AccessibleTable) ac).getAccessibleColumnCount();
+                    if (accessibleColumnCount <= 0) return -1;
+                    
+                    return rowChildIndex / accessibleColumnCount;
                 };
                 int firstVisibleRow = calcRowIndex.apply(location1);
                 int lastVisibleRow = calcRowIndex.apply(location2);
@@ -847,6 +851,43 @@ class CAccessibility implements PropertyChangeListener {
 
                 return allChildren.toArray();
             }
+        }, c);
+    }
+
+    @Native private static final int JAVA_AX_ROWS = 1;
+    @Native private static final int JAVA_AX_COLS = 2;
+
+    public static int getTableInfo(final Accessible a, final Component c,
+                                   final int info) {
+        if (a == null) return 0;
+        return invokeAndWait(() -> {
+            AccessibleContext ac = a.getAccessibleContext();
+            AccessibleTable table = ac.getAccessibleTable();
+            if (table != null) {
+                if (info == JAVA_AX_COLS) {
+                    return table.getAccessibleColumnCount();
+                } else if (info == JAVA_AX_ROWS) {
+                    return table.getAccessibleRowCount();
+                }
+            }
+            return 0;
+        }, c);
+    }
+
+    private static int[] getTableSelectedInfo(final Accessible a, final Component c,
+                                              final int info) {
+        if (a == null) return null;
+        return invokeAndWait(() -> {
+            AccessibleContext ac = a.getAccessibleContext();
+            AccessibleTable table = ac.getAccessibleTable();
+            if (table != null) {
+                if (info == JAVA_AX_COLS) {
+                    return table.getSelectedAccessibleColumns();
+                } else if (info == JAVA_AX_ROWS) {
+                    return table.getSelectedAccessibleRows();
+                }
+            }
+            return null;
         }, c);
     }
 

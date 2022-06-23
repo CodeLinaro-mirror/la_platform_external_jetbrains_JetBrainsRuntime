@@ -109,6 +109,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     private static native void nativeExitFullScreenMode(long nsWindowPtr);
     static native CPlatformWindow nativeGetTopmostPlatformWindowUnderMouse();
     private static native boolean nativeDelayShowing(long nsWindowPtr);
+    private static native void nativeRaiseLevel(long nsWindowPtr, boolean popup, boolean onlyIfParentIsActive);
 
     // Loger to report issues happened during execution but that do not affect functionality
     private static final PlatformLogger logger = PlatformLogger.getLogger("sun.lwawt.macosx.CPlatformWindow");
@@ -1372,7 +1373,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
         // which is going to become 'main window', are placed above their siblings.
         CPlatformWindow rootOwner = getRootOwner();
         if (rootOwner.isVisible() && !rootOwner.isIconified() && !rootOwner.isActive()) {
-            rootOwner.execute(CWrapper.NSWindow::orderFront);
+            rootOwner.execute(CWrapper.NSWindow::orderFrontIfOnActiveSpace);
         }
 
         // Do not order child windows of iconified owner.
@@ -1408,7 +1409,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
                         }
                         pwUnder.execute(underPtr -> {
                             pw.execute(ptr -> {
-                                CWrapper.NSWindow.orderWindow(ptr, CWrapper.NSWindow.NSWindowAbove, underPtr);
+                                CWrapper.NSWindow.orderWindowIfOnActiveSpace(ptr, CWrapper.NSWindow.NSWindowAbove, underPtr);
                             });
                         });
                         pwUnder = pw;
@@ -1432,10 +1433,10 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     }
 
     protected void applyWindowLevel(Window target) {
-        if (target.isAlwaysOnTop() && target.getType() != Window.Type.POPUP) {
-            execute(ptr->CWrapper.NSWindow.setLevel(ptr, CWrapper.NSWindow.NSFloatingWindowLevel));
-        } else if (target.getType() == Window.Type.POPUP) {
-            execute(ptr->CWrapper.NSWindow.setLevel(ptr, CWrapper.NSWindow.NSPopUpMenuWindowLevel));
+        boolean popup = target.getType() == Window.Type.POPUP;
+        boolean alwaysOnTop = target.isAlwaysOnTop();
+        if (popup || alwaysOnTop || owner != null) {
+            execute(ptr -> nativeRaiseLevel(ptr, popup, !popup && !alwaysOnTop));
         }
     }
 

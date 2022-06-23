@@ -42,7 +42,9 @@ import java.util.concurrent.TimeUnit;
  * @requires (os.family == "mac")
  * @modules java.desktop/com.apple.eawt
  *          java.desktop/com.apple.eawt.event
- */
+ * @compile MacSpacesUtil.java
+ * @run main FullScreenChildWindow
+*/
 
 public class FullScreenChildWindow {
     private static final CompletableFuture<Boolean> shownAtFullScreen = new CompletableFuture<>();
@@ -60,8 +62,7 @@ public class FullScreenChildWindow {
             shownAtFullScreen.get(5, TimeUnit.SECONDS);
             clickAt(button);
             dialogShown.get(5, TimeUnit.SECONDS);
-            switchToPreviousSpace();
-            robot.delay(2000);
+            MacSpacesUtil.switchToPreviousSpace();
             if (!frame1.isFocused()) {
                 throw new RuntimeException("Unexpected state");
             }
@@ -118,12 +119,5 @@ public class FullScreenChildWindow {
     private static void clickAt(Component component) {
         Point location = component.getLocationOnScreen();
         clickAt(location.x + component.getWidth() / 2, location.y + component.getHeight() / 2);
-    }
-
-    private static void switchToPreviousSpace() {
-        robot.keyPress(KeyEvent.VK_CONTROL);
-        robot.keyPress(KeyEvent.VK_LEFT);
-        robot.keyRelease(KeyEvent.VK_LEFT);
-        robot.keyRelease(KeyEvent.VK_CONTROL);
     }
 }

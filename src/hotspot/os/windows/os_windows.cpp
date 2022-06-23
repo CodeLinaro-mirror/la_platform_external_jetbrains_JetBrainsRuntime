@@ -632,6 +632,9 @@ bool os::create_thread(Thread* thread, ThreadType thr_type,
     return false;
   }
 
+  // Initial state is ALLOCATED but not INITIALIZED
+  osthread->set_state(ALLOCATED);
+
   // Initialize support for Java interrupts
   HANDLE interrupt_event = CreateEvent(NULL, true, false, NULL);
   if (interrupt_event == NULL) {
@@ -723,7 +726,7 @@ bool os::create_thread(Thread* thread, ThreadType thr_type,
   osthread->set_thread_handle(thread_handle);
   osthread->set_thread_id(thread_id);
 
-  // Initial thread state is INITIALIZED, not SUSPENDED
+  // Thread state now is INITIALIZED, not SUSPENDED
   osthread->set_state(INITIALIZED);
 
   // The thread is returned suspended (in state INITIALIZED), and is started higher up in the call chain
@@ -1971,9 +1974,13 @@ void os::win32::print_windows_version(outputStream* st) {
         st->print("10");
       }
     } else {
-      // distinguish Windows Server 2016 and 2019 by build number
-      // Windows server 2019 GA 10/2018 build number is 17763
-      if (build_number > 17762) {
+      // distinguish Windows Server by build number
+      // - 2016 GA 10/2016 build: 14393
+      // - 2019 GA 11/2018 build: 17763
+      // - 2022 GA 08/2021 build: 20348
+      if (build_number > 20347) {
+        st->print("Server 2022");
+      } else if (build_number > 17762) {
         st->print("Server 2019");
       } else {
         st->print("Server 2016");
@@ -2407,6 +2414,8 @@ LONG Handle_Exception(struct _EXCEPTION_POINTERS* exceptionInfo,
   #define PC_NAME Rip
 #elif defined(_M_IX86)
   #define PC_NAME Eip
+#elif defined(_M_ARM64)
+  #define PC_NAME Pc
 #else
   #error unknown architecture
 #endif
@@ -2712,15 +2721,14 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
         return EXCEPTION_CONTINUE_EXECUTION;
       }
     }
-  }
 
 #if defined(_M_AMD64) || defined(_M_IX86)
-  if ((exception_code == EXCEPTION_ACCESS_VIOLATION) &&
-      VM_Version::is_cpuinfo_segv_addr(pc)) {
-    // Verify that OS save/restore AVX registers.
-    return Handle_Exception(exceptionInfo, VM_Version::cpuinfo_cont_addr());
-  }
+    if (VM_Version::is_cpuinfo_segv_addr(pc)) {
+      // Verify that OS save/restore AVX registers.
+      return Handle_Exception(exceptionInfo, VM_Version::cpuinfo_cont_addr());
+    }
 #endif
+  }
 
   if (t != NULL && t->is_Java_thread()) {
     JavaThread* thread = (JavaThread*) t;
@@ -2753,7 +2761,7 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
         tty->print_raw_cr("An unrecoverable stack overflow has occurred.");
 #if !defined(USE_VECTORED_EXCEPTION_HANDLING)
         report_error(t, exception_code, pc, exception_record,
-                      exceptionInfo->ContextRecord);
+                     exceptionInfo->ContextRecord);
 #endif
         return EXCEPTION_CONTINUE_SEARCH;
       }
@@ -2834,7 +2842,7 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
 #ifdef _M_ARM64
     if (in_java &&
         (exception_code == EXCEPTION_ILLEGAL_INSTRUCTION ||
-          exception_code == EXCEPTION_ILLEGAL_INSTRUCTION_2)) {
+         exception_code == EXCEPTION_ILLEGAL_INSTRUCTION_2)) {
       if (nativeInstruction_at(pc)->is_sigill_zombie_not_entrant()) {
         if (TraceTraps) {
           tty->print_cr("trap: zombie_not_entrant");
@@ -2906,7 +2914,7 @@ LONG WINAPI topLevelUnhandledExceptionFilter(struct _EXCEPTION_POINTERS* excepti
   if (InterceptOSException) goto exit;
   DWORD exception_code = exceptionInfo->ExceptionRecord->ExceptionCode;
 #if defined(_M_ARM64)
-  address pc = (address)exceptionInfo->ContextRecord->Pc;
+  address pc = (address) exceptionInfo->ContextRecord->Pc;
 #elif defined(_M_AMD64)
   address pc = (address) exceptionInfo->ContextRecord->Rip;
 #else
@@ -2916,7 +2924,7 @@ LONG WINAPI topLevelUnhandledExceptionFilter(struct _EXCEPTION_POINTERS* excepti
 
   if (exception_code != EXCEPTION_BREAKPOINT) {
     report_error(t, exception_code, pc, exceptionInfo->ExceptionRecord,
-                exceptionInfo->ContextRecord);
+                 exceptionInfo->ContextRecord);
   }
 exit:
   return previousUnhandledExceptionFilter ? previousUnhandledExceptionFilter(exceptionInfo) : EXCEPTION_CONTINUE_SEARCH;

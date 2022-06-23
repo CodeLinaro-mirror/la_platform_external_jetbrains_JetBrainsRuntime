@@ -269,6 +269,7 @@ BOOL isSWTInWebStart(JNIEnv* env) {
 
 static void AWT_NSUncaughtExceptionHandler(NSException *exception) {
     NSLog(@"Apple AWT Internal Exception: %@", [exception description]);
+    NSLog(@"trace: %@", [exception callStackSymbols]);
 }
 
 @interface AWTStarter : NSObject
@@ -628,6 +629,17 @@ JNI_COCOA_EXIT(env);
 
 /*
  * Class:     sun_lwawt_macosx_LWCToolkit
+ * Method:    isBlockingEventDispatchThread
+ * Signature: ()Z
+ */
+JNIEXPORT jboolean JNICALL Java_sun_lwawt_macosx_LWCToolkit_isBlockingEventDispatchThread
+        (JNIEnv *env, jclass clz)
+{
+    return ThreadUtilities.blockingEventDispatchThread;
+}
+
+/*
+ * Class:     sun_lwawt_macosx_LWCToolkit
  * Method:    stopAWTRunLoop
  * Signature: (J)V
  */
@@ -663,6 +675,23 @@ JNI_COCOA_ENTER(env);
 JNI_COCOA_EXIT(env);
 }
 
+/*
+ * Class:     sun_lwawt_macosx_LWCToolkit
+ * Method:    performOnMainThreadAndWait
+ * Signature: (Ljava/lang/Runnable)V
+ */
+JNIEXPORT void JNICALL Java_sun_lwawt_macosx_LWCToolkit_performOnMainThreadAndWait
+(JNIEnv *env, jclass clz, jobject runnable)
+{
+JNI_COCOA_ENTER(env);
+    jobject gRunnable = (*env)->NewGlobalRef(env, runnable);
+    CHECK_NULL(gRunnable);
+    [ThreadUtilities performOnMainThreadWaiting:YES block:^() {
+        JavaRunnable* performer = [[JavaRunnable alloc] initWithRunnable:gRunnable];
+        [performer perform];
+    }];
+JNI_COCOA_EXIT(env);
+}
 
 /*
  * Class:     sun_lwawt_macosx_LWCToolkit

@@ -57,8 +57,11 @@ import java.awt.image.DataBufferInt;
 import java.awt.peer.WindowPeer;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
+import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import sun.awt.AWTAccessor;
@@ -74,6 +77,8 @@ import sun.java2d.pipe.Region;
 import sun.java2d.SunGraphics2D;
 import sun.util.logging.PlatformLogger;
 
+import static sun.java2d.SunGraphicsEnvironment.toUserSpace;
+
 public class WWindowPeer extends WPanelPeer implements WindowPeer,
        DisplayChangedListener
 {
@@ -88,9 +93,6 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
     private boolean isOpaque;
 
     private TranslucentWindowPainter painter;
-
-    private int screenNum;
-    protected boolean screenChangedFlag;
 
     /*
      * A key used for storing a list of active windows in AppContext. The value
@@ -120,8 +122,6 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
     private WindowListener windowListener;
     private MouseMotionListener mouseMotionListener;
     private MouseListener mouseListener;
-    private float scaleX;
-    private float scaleY;
 
     private Insets sysInsets; // set from native updateInsets
 
@@ -239,8 +239,6 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
         GraphicsConfiguration gc = getGraphicsConfiguration();
         Win32GraphicsDevice gd = (Win32GraphicsDevice) gc.getDevice();
         gd.addDisplayChangedListener(this);
-        scaleX = gd.getDefaultScaleX();
-        scaleY = gd.getDefaultScaleY();
 
         initActiveWindowsTracking((Window)target);
 
@@ -325,6 +323,12 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
             Rectangle b = getBounds();
             handleExpose(0, 0, b.width, b.height);
         }
+    }
+
+    @Override
+    final void syncBounds() {
+        // Windows will take care of the top-level window/frame/dialog, and
+        // update the location/size when DPI changes.
     }
 
     // Synchronize the insets members (here & in helper) with actual window
@@ -508,9 +512,10 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
             minimumSize = ((Component)target).getMinimumSize();
         }
         if (minimumSize != null) {
-            int w = Math.max(minimumSize.width, scaleDownX(getSysMinWidth()));
-            int h = Math.max(minimumSize.height, scaleDownY(getSysMinHeight()));
-            setMinSize(w, h);
+            Dimension sysMin = toUserSpace(getGraphicsConfiguration(),
+                                           getSysMinWidth(), getSysMinHeight());
+            setMinSize(Math.max(minimumSize.width, sysMin.width),
+                       Math.max(minimumSize.height, sysMin.height));
         } else {
             setMinSize(0, 0);
         }
@@ -630,9 +635,6 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
 
     public void updateGC() {
         int scrn = getScreenImOn();
-        screenChangedFlag = scrn != screenNum;
-        screenNum = scrn;
-
         if (screenLog.isLoggable(PlatformLogger.Level.FINER)) {
             log.finer("Screen number: " + scrn);
         }
@@ -671,22 +673,7 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
 
         AWTAccessor.getComponentAccessor().
             setGraphicsConfiguration((Component)target, winGraphicsConfig);
-
-//        checkDPIChange(oldDev, newDev);
     }
-
-    /*private void checkDPIChange(Win32GraphicsDevice oldDev,
-                                Win32GraphicsDevice newDev) {
-        float newScaleX = newDev.getDefaultScaleX();
-        float newScaleY = newDev.getDefaultScaleY();
-
-        if (scaleX != newScaleX || scaleY != newScaleY) {
-            windowDPIChange(oldDev.getScreen(), scaleX, scaleY,
-                            newDev.getScreen(), newScaleX, newScaleY);
-            scaleX = newScaleX;
-            scaleY = newScaleY;
-        }
-    }*/
 
     /**
      * From the DisplayChangedListener interface.
@@ -701,13 +688,8 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
      */
     @Override
     public void displayChanged() {
-        SunToolkit.executeOnEventHandlerThread(target, ()->{
-            updateGC();
-            adjustBoundsOnDPIChange();
-        });
+        SunToolkit.executeOnEventHandlerThread(target, this::updateGC);
     }
-
-    private native void adjustBoundsOnDPIChange();
 
     /**
      * Part of the DisplayChangedListener interface: components
@@ -744,77 +726,8 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
          return true;
      }
 
-     // These are the peer bounds. They get updated at:
-     //    1. the WWindowPeer.setBounds() method.
-     //    2. the native code (on WM_SIZE/WM_MOVE)
-     private volatile int sysX = 0;
-     private volatile int sysY = 0;
-     private volatile int sysW = 0;
-     private volatile int sysH = 0;
-
      @Override
      public native void repositionSecurityWarning();
-
-     @Override
-     public void setBounds(int x, int y, int width, int height, int op) {
-         sysX = x;
-         sysY = y;
-         sysW = width;
-         sysH = height;
-
-         /* [tav] JDK-8176097 fixed by JRE-119
-         int cx = x + width / 2;
-         int cy = y + height / 2;
-         GraphicsConfiguration current = getGraphicsConfiguration();
-         GraphicsConfiguration other = SunGraphicsEnvironment
-                 .getGraphicsConfigurationAtPoint(current, cx, cy);
-         if (!current.equals(other)) {
-             AffineTransform tx = other.getDefaultTransform();
-             double otherScaleX = tx.getScaleX();
-             double otherScaleY = tx.getScaleY();
-             initScales();
-             if (scaleX != otherScaleX || scaleY != otherScaleY) {
-                 x = (int) Math.floor(x * otherScaleX / scaleX);
-                 y = (int) Math.floor(y * otherScaleY / scaleY);
-             }
-         }*/
-
-         super.setBounds(x, y, width, height, op);
-     }
-
-    private void initScales() {
-
-        if (scaleX >= 1 && scaleY >= 1) {
-            return;
-        }
-
-        GraphicsConfiguration gc = getGraphicsConfiguration();
-        if (gc instanceof Win32GraphicsConfig) {
-            Win32GraphicsDevice gd = ((Win32GraphicsConfig) gc).getDevice();
-            scaleX = gd.getDefaultScaleX();
-            scaleY = gd.getDefaultScaleY();
-        } else {
-            AffineTransform tx = gc.getDefaultTransform();
-            scaleX = (float) tx.getScaleX();
-            scaleY = (float) tx.getScaleY();
-        }
-    }
-
-    final int scaleUpX(int x) {
-        return Region.clipRound(x * scaleX);
-    }
-
-    final int scaleUpY(int y) {
-        return Region.clipRound(y * scaleY);
-    }
-
-    final int scaleDownX(int x) {
-        return Region.clipRound(x / scaleX);
-    }
-
-    final int scaleDownY(int y) {
-        return Region.clipRound(y / scaleY);
-    }
 
     @Override
     public void print(Graphics g) {
@@ -984,9 +897,6 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
         }
     }
 
-    /*native void windowDPIChange(int prevScreen, float prevScaleX, float prevScaleY,
-                                int newScreen, float newScaleX, float newScaleY);*/
-
     /*
      * The method maps the list of the active windows to the window's AppContext,
      * then the method registers ActiveWindowListener, GuiDisposedListener listeners;
@@ -1138,31 +1048,29 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
         return err;
     }
 
-    private volatile List<Rectangle> customDecorHitTestSpots;
-    private volatile int customDecorTitleBarHeight = -1; // 0 can be a legal value when no title bar is expected
-
     // called from client via reflection
+    @Deprecated
     private void setCustomDecorationHitTestSpots(List<Rectangle> hitTestSpots) {
-        this.customDecorHitTestSpots = new CopyOnWriteArrayList<>(hitTestSpots);
+        List<Map.Entry<Shape, Integer>> spots = new ArrayList<>();
+        for (Rectangle spot : hitTestSpots) spots.add(Map.entry(spot, 1));
+        try {
+            Field f = Window.class.getDeclaredField("customDecorHitTestSpots");
+            f.setAccessible(true);
+            f.set(target, spots);
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            throw new Error(e);
+        }
     }
 
     // called from client via reflection
+    @Deprecated
     private void setCustomDecorationTitleBarHeight(int height) {
-        if (height >= 0) customDecorTitleBarHeight = height;
-    }
-
-    // called from native
-    private boolean hitTestCustomDecoration(int x, int y) {
-        List<Rectangle> spots = customDecorHitTestSpots;
-        if (spots == null) return false;
-        for (Rectangle spot : spots) {
-            if (spot.contains(x, y)) return true;
+        try {
+            Field f = Window.class.getDeclaredField("customDecorTitleBarHeight");
+            f.setAccessible(true);
+            f.set(target, height);
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            throw new Error(e);
         }
-        return false;
-    }
-
-    // called from native
-    private int getCustomDecorationTitleBarHeight() {
-        return customDecorTitleBarHeight;
     }
 }

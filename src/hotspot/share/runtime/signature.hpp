@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 1997, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2021, Azul Systems, Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -283,7 +284,7 @@ class NativeSignatureIterator: public SignatureIterator {
   int          _jni_offset;            // the current parameter offset, starting with 0
 
   void do_bool  ()                     { pass_byte();   _jni_offset++; _offset++;       }
-  void do_char  ()                     { pass_short();   _jni_offset++; _offset++;       }
+  void do_char  ()                     { pass_short();  _jni_offset++; _offset++;       }
   void do_float ()                     { pass_float();  _jni_offset++; _offset++;       }
 #ifdef _LP64
   void do_double()                     { pass_double(); _jni_offset++; _offset += 2;    }
@@ -308,12 +309,12 @@ class NativeSignatureIterator: public SignatureIterator {
   int      jni_offset() const          { return _jni_offset + _prepended; }
 //  int     java_offset() const          { return method()->size_of_parameters() - _offset - 1; }
   bool      is_static() const          { return method()->is_static(); }
-  virtual void pass_byte()             { pass_int(); }
-  virtual void pass_short()            { pass_int(); }
   virtual void pass_int()              = 0;
   virtual void pass_long()             = 0;
   virtual void pass_object()           = 0;
   virtual void pass_float()            = 0;
+  virtual void pass_byte()             { pass_int(); };
+  virtual void pass_short()            { pass_int(); };
 #ifdef _LP64
   virtual void pass_double()           = 0;
 #else

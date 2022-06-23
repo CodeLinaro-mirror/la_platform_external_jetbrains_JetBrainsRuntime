@@ -20,7 +20,7 @@
 #
 # Environment variables:
 #   MODULAR_SDK_PATH - specifies the path to the directory where imported modules are located.
-#               By default imported modules should be located in ./modular-sdk
+#               By default imported modules should be located in ./jcef_linux_x64/modular-sdk
 #   JCEF_PATH - specifies the path to the directory with JCEF binaries.
 #               By default JCEF binaries should be located in ./jcef_linux_x64
 
@@ -39,8 +39,8 @@ JDK_BUILD_NUMBER=$2
 build_number=$3
 bundle_type=$4
 JBSDK_VERSION_WITH_DOTS=$(echo $JBSDK_VERSION | sed 's/_/\./g')
-WITH_IMPORT_MODULES="--with-import-modules=${MODULAR_SDK_PATH:=./modular-sdk}"
 JCEF_PATH=${JCEF_PATH:=./jcef_linux_x64}
+WITH_IMPORT_MODULES="--with-import-modules=${MODULAR_SDK_PATH:=${JCEF_PATH}/modular-sdk}"
 
 source jb/project/tools/common.sh
 
@@ -54,7 +54,9 @@ function do_configure {
     --with-version-pre= \
     --with-version-build=${JDK_BUILD_NUMBER} \
     --with-version-opt=b${build_number} \
+    --with-boot-jdk=${BOOT_JDK} \
     $WITH_IMPORT_MODULES \
+    $WITH_ZIPPED_NATIVE_DEBUG_SYMBOLS \
     --enable-cds=yes || do_exit $?
 }
 
@@ -70,7 +72,7 @@ function create_jbr {
     echo "***ERR*** bundle was not specified" && do_exit 1
     ;;
   esac
-  cat modules.list > modules_tmp.list
+  cat jb/project/tools/common/modules.list > modules_tmp.list
   rm -rf ${BASE_DIR}/${JBR_BUNDLE}
 
   JBR=${JBR_BASE_NAME}-linux-x64-b${build_number}
@@ -94,7 +96,7 @@ function create_jbr {
   rm -rf ${BASE_DIR}/${JBR_BUNDLE}
 }
 
-JBRSDK_BASE_NAME=jbrsdk-${JBSDK_VERSION}
+JBRSDK_BASE_NAME=jbrsdk_${bundle_type}-${JBSDK_VERSION}
 WITH_DEBUG_LEVEL="--with-debug-level=release"
 RELEASE_NAME=linux-x86_64-normal-server-release
 JBSDK=${JBRSDK_BASE_NAME}-linux-x64-b${build_number}
@@ -118,7 +120,7 @@ case "$bundle_type" in
     do_reset_changes=1
     WITH_DEBUG_LEVEL="--with-debug-level=fastdebug"
     RELEASE_NAME=linux-x86_64-normal-server-fastdebug
-    JBSDK=${JBRSDK_BASE_NAME}-linux-x64-fastdebug-b${build_number}
+    JBSDK=jbrsdk-${JBSDK_VERSION}-linux-x64-fastdebug-b${build_number}
     ;;
   *)
     echo "***ERR*** bundle was not specified" && do_exit 1
@@ -137,7 +139,11 @@ echo Fixing permissions
 chmod -R a+r $JSDK
 
 BASE_DIR=build/${RELEASE_NAME}/images
-JBRSDK_BUNDLE=jbrsdk
+if [ "${bundle_type}" == "dcevm" ] || [ "${bundle_type}" == "jcef" ]; then
+  JBRSDK_BUNDLE=jbrsdk_${bundle_type}
+else
+  JBRSDK_BUNDLE=jbrsdk
+fi
 
 rm -rf ${BASE_DIR}/${JBRSDK_BUNDLE}
 cp -r $JSDK $BASE_DIR/$JBRSDK_BUNDLE || do_exit $?
@@ -145,22 +151,23 @@ cp -r $JSDK $BASE_DIR/$JBRSDK_BUNDLE || do_exit $?
 if [[ "${bundle_type}" == *jcef* ]] || [[ "${bundle_type}" == *dcevm* ]] || [[ "${bundle_type}" == fd ]]; then
   rsync -av ${JCEF_PATH}/ $BASE_DIR/$JBRSDK_BUNDLE/lib --exclude="modular-sdk" || do_exit $?
 fi
-if [ "${bundle_type}" == "jcef" ] || [ "${bundle_type}" == "fd" ]; then
-  echo Creating $JBSDK.tar.gz ...
-  sed 's/JBR/JBRSDK/g' ${BASE_DIR}/${JBRSDK_BUNDLE}/release > release
-  mv release ${BASE_DIR}/${JBRSDK_BUNDLE}/release
 
-  tar -pcf ${JBSDK}.tar --exclude=*.debuginfo --exclude=demo --exclude=sample --exclude=man \
-    -C ${BASE_DIR} ${JBRSDK_BUNDLE} || do_exit $?
-  gzip -f ${JBSDK}.tar || do_exit $?
-fi
+echo Creating $JBSDK.tar.gz ...
+sed 's/JBR/JBRSDK/g' ${BASE_DIR}/${JBRSDK_BUNDLE}/release > release
+mv release ${BASE_DIR}/${JBRSDK_BUNDLE}/release
+
+tar -pcf ${JBSDK}.tar --exclude=*.debuginfo --exclude=demo --exclude=sample --exclude=man \
+  -C ${BASE_DIR} ${JBRSDK_BUNDLE} || do_exit $?
+gzip -f ${JBSDK}.tar || do_exit $?
+
+zip_native_debug_symbols ${BASE_DIR}/jdk "${JBSDK}_diz"
 
 create_jbr || do_exit $?
 
-if [ "$bundle_type" == "jcef" ]; then
+if [ "$bundle_type" == "dcevm" ]; then
   make test-image CONF=$RELEASE_NAME || do_exit $?
 
-  JBRSDK_TEST=$JBRSDK_BASE_NAME-linux-test-x64-b$build_number
+  JBRSDK_TEST=jbrsdk-${JBSDK_VERSION}-linux-test-x64-b$build_number
 
   echo Creating $JBSDK_TEST.tar.gz ...
   tar -pcf ${JBRSDK_TEST}.tar -C ${BASE_DIR} --exclude='test/jdk/demos' test || do_exit $?

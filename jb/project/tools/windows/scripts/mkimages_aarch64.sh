@@ -20,9 +20,9 @@
 #
 # Environment variables:
 #   MODULAR_SDK_PATH - specifies the path to the directory where imported modules are located.
-#                      By default imported modules should be located in ./modular-sdk.
+#                      By default imported modules should be located in ./jcef_win_aarch64/modular-sdk
 #   JCEF_PATH        - specifies the path to the directory with JCEF binaries.
-#                      By default JCEF binaries should be located in ./jcef_win_aarch64.
+#                      By default JCEF binaries should be located in ./jcef_win_aarch64
 #   BOOT_JDK         - specifies the path to the directory with a ready build of OpenJDK 11 with
 #                      the same architecture as the build system. It will be used as the boot jdk.
 
@@ -42,8 +42,8 @@ build_number=$3
 bundle_type=$4
 JBSDK_VERSION_WITH_DOTS=$(echo $JBSDK_VERSION | sed 's/_/\./g')
 WORK_DIR=$(pwd)
-WITH_IMPORT_MODULES="--with-import-modules=${MODULAR_SDK_PATH:=${WORK_DIR}/modular-sdk}"
 JCEF_PATH=${JCEF_PATH:=${WORK_DIR}/jcef_win_aarch64}
+WITH_IMPORT_MODULES="--with-import-modules=${MODULAR_SDK_PATH:=${JCEF_PATH}/modular-sdk}"
 TOOLCHAIN_VERSION=${TOOLCHAIN_VERSION:=2019}
 
 source jb/project/tools/common.sh
@@ -81,9 +81,10 @@ function create_jbr {
   esac
 
   echo "Exclude jdk.internal.vm.compiler and jdk.aot (because aot is not supported yet)"
-  cat modules.list | \
+  cat jb/project/tools/common/modules.list | \
     grep -v "jdk.internal.vm.compiler\|jdk.aot" \
     > modules_tmp.list
+  echo ",jdk.crypto.mscapi" >> modules_tmp.list
 
   rm -rf ${JBR_BUNDLE}
 
@@ -105,21 +106,21 @@ RELEASE_NAME=windows-aarch64-normal-server-release
 JBSDK=${JBRSDK_BASE_NAME}-windows-aarch64-b${build_number}
 case "$bundle_type" in
   "jcef")
-    git apply -p0 < jb/project/tools/patches/add_jcef_module.patch || do_exit $?
+    git apply -p0 < jb/project/tools/patches/add_jcef_module_winaarch64.patch || do_exit $?
     do_reset_changes=1
     ;;
   "dcevm")
     HEAD_REVISION=$(git rev-parse HEAD)
     git am jb/project/tools/patches/dcevm/*.patch || do_exit $?
     do_reset_dcevm=1
-    git apply -p0 < jb/project/tools/patches/add_jcef_module.patch || do_exit $?
+    git apply -p0 < jb/project/tools/patches/add_jcef_module_winaarch64.patch || do_exit $?
     do_reset_changes=1
     ;;
   "nomod")
     WITH_IMPORT_MODULES=""
     ;;
   "fd")
-    git apply -p0 < jb/project/tools/patches/add_jcef_module.patch || do_exit $?
+    git apply -p0 < jb/project/tools/patches/add_jcef_module_winaarch64.patch || do_exit $?
     do_reset_changes=1
     WITH_DEBUG_LEVEL="--with-debug-level=fastdebug"
     RELEASE_NAME=windows-aarch64-normal-server-fastdebug

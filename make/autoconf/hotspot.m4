@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2011, 2021, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -278,7 +278,7 @@ AC_DEFUN_ONCE([HOTSPOT_ENABLE_DISABLE_CDS],
   if test "x$OPENJDK_TARGET_OS" = "xmacosx" && test "x$OPENJDK_TARGET_CPU" = "xaarch64"; then
     ENABLE_CDS="false"
     if test "x$enable_cds" = "xyes"; then
-      AC_MSG_ERROR([CDS is currently not supported on AIX. Remove --enable-cds.])
+      AC_MSG_ERROR([CDS is currently not supported on macOS/aarch64. Remove --enable-cds.])
     fi
   fi
 
@@ -363,7 +363,8 @@ AC_DEFUN_ONCE([HOTSPOT_SETUP_JVM_FEATURES],
   # Only enable Shenandoah on supported arches, and only if requested
   AC_MSG_CHECKING([if shenandoah can be built])
   if HOTSPOT_CHECK_JVM_FEATURE(shenandoahgc); then
-    if test "x$OPENJDK_TARGET_CPU_ARCH" = "xx86" || test "x$OPENJDK_TARGET_CPU" = "xaarch64" ; then
+    if test "x$OPENJDK_TARGET_CPU_ARCH" = "xx86" || \
+       test "x$OPENJDK_TARGET_CPU" = "xaarch64"; then
       # Filter out Shenandoah from user requested features, as it's already in non-minimal set
       if HOTSPOT_CHECK_JVM_VARIANT(minimal); then
         BASIC_GET_NON_MATCHING_VALUES(JVM_FEATURES, $JVM_FEATURES, shenandoahgc)
@@ -425,9 +426,7 @@ AC_DEFUN_ONCE([HOTSPOT_SETUP_JVM_FEATURES],
     # Only enable jvmci on x86_64, sparcv9 and aarch64
     if test "x$OPENJDK_TARGET_CPU" = "xx86_64" || \
        test "x$OPENJDK_TARGET_CPU" = "xsparcv9" || \
-       test "x$OPENJDK_TARGET_OS-$OPENJDK_TARGET_CPU" = "xwindows-aarch64" || \
-       test "x$OPENJDK_TARGET_OS-$OPENJDK_TARGET_CPU" = "xlinux-aarch64"   || \
-       test "x$OPENJDK_TARGET_OS-$OPENJDK_TARGET_CPU" = "xmacosx-aarch64" ; then
+       test "x$OPENJDK_TARGET_CPU" = "xaarch64" ; then
       AC_MSG_RESULT([yes])
       JVM_FEATURES_jvmci="jvmci"
       INCLUDE_JVMCI="true"

@@ -1492,7 +1492,7 @@ void MacroAssembler::movptr(Register r, uintptr_t imm64) {
 #ifndef PRODUCT
   {
     char buffer[64];
-    snprintf(buffer, sizeof(buffer), PTR64_FORMAT, imm64);
+    snprintf(buffer, sizeof(buffer), "0x%" PRIX64, (uint64_t)imm64);
     block_comment(buffer);
   }
 #endif
@@ -1555,7 +1555,7 @@ void MacroAssembler::mov_immediate64(Register dst, uint64_t imm64)
 #ifndef PRODUCT
   {
     char buffer[64];
-    snprintf(buffer, sizeof(buffer), PTR64_FORMAT, imm64);
+    snprintf(buffer, sizeof(buffer), "0x%" PRIX64, imm64);
     block_comment(buffer);
   }
 #endif
@@ -1668,7 +1668,7 @@ void MacroAssembler::mov_immediate32(Register dst, uint32_t imm32)
 #ifndef PRODUCT
     {
       char buffer[64];
-      snprintf(buffer, sizeof(buffer), PTR32_FORMAT, imm32);
+      snprintf(buffer, sizeof(buffer), "0x%" PRIX32, imm32);
       block_comment(buffer);
     }
 #endif
@@ -2040,11 +2040,17 @@ void MacroAssembler::increment(Address dst, int value)
 
 
 void MacroAssembler::pusha() {
-  push(0x7fffffff, sp);
+  push(RegSet::range(r0, r30), sp);
 }
 
 void MacroAssembler::popa() {
-  pop(0x7fffffff, sp);
+  pop(RegSet::range(r0, r17), sp);
+#ifdef R18_RESERVED
+  ldp(zr, r19, Address(post(sp, 2 * wordSize)));
+  pop(RegSet::range(r20, r30), sp);
+#else
+  pop(RegSet::range(r18_tls, r30), sp);
+#endif
 }
 
 // Push lots of registers in the bit set supplied.  Don't push sp.
@@ -2547,14 +2553,14 @@ void MacroAssembler::debug64(char* msg, int64_t pc, int64_t regs[])
 RegSet MacroAssembler::call_clobbered_registers() {
   RegSet regs = RegSet::range(r0, r17) - RegSet::of(rscratch1, rscratch2);
 #ifndef R18_RESERVED
-  regs += r18_reserved;
+  regs += r18_tls;
 #endif
   return regs;
 }
 
 void MacroAssembler::push_call_clobbered_registers() {
   int step = 4 * wordSize;
-  push(call_clobbered_registers() - RegSet::of(rscratch1, rscratch2), sp);
+  push(call_clobbered_registers(), sp);
   sub(sp, sp, step);
   mov(rscratch1, -step);
   // Push v0-v7, v16-v31.
@@ -2579,7 +2585,7 @@ void MacroAssembler::pop_call_clobbered_registers() {
 
 void MacroAssembler::push_CPU_state(bool save_vectors) {
   int step = (save_vectors ? 8 : 4) * wordSize;
-  push(0x3fffffff, sp);         // integer registers except lr & sp
+  push(RegSet::range(r0, r29), sp);         // integer registers except lr & sp
   mov(rscratch1, -step);
   sub(sp, sp, step);
   for (int i = 28; i >= 4; i -= 4) {
@@ -2594,7 +2600,15 @@ void MacroAssembler::pop_CPU_state(bool restore_vectors) {
   for (int i = 0; i <= 28; i += 4)
     ld1(as_FloatRegister(i), as_FloatRegister(i+1), as_FloatRegister(i+2),
         as_FloatRegister(i+3), restore_vectors ? T2D : T1D, Address(post(sp, step)));
-  pop(0x3fffffff, sp);         // integer registers except lr & sp
+
+  // integer registers except lr & sp
+  pop(RegSet::range(r0, r17), sp);
+#ifdef R18_RESERVED
+  ldp(zr, r19, Address(post(sp, 2 * wordSize)));
+  pop(RegSet::range(r20, r29), sp);
+#else
+  pop(RegSet::range(r18_tls, r29), sp);
+#endif
 }
 
 /**
