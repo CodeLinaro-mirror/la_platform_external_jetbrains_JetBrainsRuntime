@@ -1,5 +1,5 @@
  /*
- * Copyright (c) 2012, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -55,6 +55,7 @@
 #include "classfile/packageEntry.hpp"
 #include "classfile/symbolTable.hpp"
 #include "classfile/systemDictionary.hpp"
+#include "classfile/systemDictionaryShared.hpp"
 #include "classfile/vmClasses.hpp"
 #include "logging/log.hpp"
 #include "logging/logStream.hpp"
@@ -66,6 +67,7 @@
 #include "memory/universe.hpp"
 #include "oops/access.inline.hpp"
 #include "oops/klass.inline.hpp"
+#include "oops/objArrayKlass.hpp"
 #include "oops/oop.inline.hpp"
 #include "oops/oopHandle.inline.hpp"
 #include "oops/weakHandle.inline.hpp"
@@ -133,8 +135,7 @@ void ClassLoaderData::initialize_name(Handle class_loader) {
 
 ClassLoaderData::ClassLoaderData(Handle h_class_loader, bool has_class_mirror_holder) :
   _metaspace(NULL),
-  _metaspace_lock(new Mutex(Mutex::leaf+1, "Metaspace allocation lock", true,
-                            Mutex::_safepoint_check_never)),
+  _metaspace_lock(new Mutex(Mutex::nosafepoint-2, "MetaspaceAllocation_lock")),
   _unloading(false), _has_class_mirror_holder(has_class_mirror_holder),
   _modified_oops(true),
   // A non-strong hidden class loader data doesn't have anything to keep
@@ -335,16 +336,6 @@ void ClassLoaderData::classes_do(KlassClosure* klass_closure) {
   }
 }
 
-void ClassLoaderData::initialized_classes_do(KlassClosure* klass_closure) {
-  // Lock-free access requires load_acquire
-  for (Klass* k = Atomic::load_acquire(&_klasses); k != NULL; k = k->next_link()) {
-    if (k->is_instance_klass() && InstanceKlass::cast(k)->is_initialized()) {
-      klass_closure->do_klass(k);
-    }
-    assert(k != k->next_link(), "no loops!");
-  }
-}
-
 void ClassLoaderData::classes_do(void f(Klass * const)) {
   // Lock-free access requires load_acquire
   for (Klass* k = Atomic::load_acquire(&_klasses); k != NULL; k = k->next_link()) {
@@ -368,15 +359,28 @@ void ClassLoaderData::loaded_classes_do(KlassClosure* klass_closure) {
 
   // Lock-free access requires load_acquire
   for (Klass* k = Atomic::load_acquire(&_klasses); k != NULL; k = k->next_link()) {
-    // Do not filter ArrayKlass oops here...
-    if (k->is_array_klass() || (k->is_instance_klass() && InstanceKlass::cast(k)->is_loaded())) {
-#ifdef ASSERT
-      oop m = k->java_mirror();
-      assert(m != NULL, "NULL mirror");
-      assert(m->is_a(vmClasses::Class_klass()), "invalid mirror");
-#endif
-      klass_closure->do_klass(k);
+    // Filter out InstanceKlasses (or their ObjArrayKlasses) that have not entered the
+    // loaded state.
+    if (k->is_instance_klass()) {
+      if (!InstanceKlass::cast(k)->is_loaded()) {
+        continue;
+      }
+    } else if (k->is_shared() && k->is_objArray_klass()) {
+      Klass* bottom = ObjArrayKlass::cast(k)->bottom_klass();
+      if (bottom->is_instance_klass() && !InstanceKlass::cast(bottom)->is_loaded()) {
+        // This could happen if <bottom> is a shared class that has been restored
+        // but is not yet marked as loaded. All archived array classes of the
+        // bottom class are already restored and placed in the _klasses list.
+        continue;
+      }
     }
+
+#ifdef ASSERT
+    oop m = k->java_mirror();
+    assert(m != NULL, "NULL mirror");
+    assert(m->is_a(vmClasses::Class_klass()), "invalid mirror");
+#endif
+    klass_closure->do_klass(k);
   }
 }
 
@@ -561,6 +565,21 @@ void ClassLoaderData::unload() {
   // after erroneous classes are released.
   classes_do(InstanceKlass::unload_class);
 
+  // Method::clear_jmethod_ids only sets the jmethod_ids to NULL without
+  // releasing the memory for related JNIMethodBlocks and JNIMethodBlockNodes.
+  // This is done intentionally because native code (e.g. JVMTI agent) holding
+  // jmethod_ids may access them after the associated classes and class loader
+  // are unloaded. The Java Native Interface Specification says "method ID
+  // does not prevent the VM from unloading the class from which the ID has
+  // been derived. After the class is unloaded, the method or field ID becomes
+  // invalid". In real world usages, the native code may rely on jmethod_ids
+  // being NULL after class unloading. Hence, it is unsafe to free the memory
+  // from the VM side without knowing when native code is going to stop using
+  // them.
+  if (_jmethod_ids != NULL) {
+    Method::clear_jmethod_ids(this);
+  }
+
   // Clean up global class iterator for compiler
   ClassLoaderDataGraph::adjust_saved_class(this);
 }
@@ -610,17 +629,9 @@ Dictionary* ClassLoaderData::create_dictionary() {
   return new Dictionary(this, size, resizable);
 }
 
-void ClassLoaderData::exchange_holders(ClassLoaderData* cld) {
-  oop holder_oop = _holder.peek();
-  _holder.replace(cld->_holder.peek());
-  cld->_holder.replace(holder_oop);
-  WeakHandle exchange = _holder;
-  _holder = cld->_holder;
-  cld->_holder = exchange;
-}
-
-// Tell the GC to keep this klass alive while iterating ClassLoaderDataGraph
-oop ClassLoaderData::holder_phantom() const {
+// Tell the GC to keep this klass alive. Needed while iterating ClassLoaderDataGraph,
+// and any runtime code that uses klasses.
+oop ClassLoaderData::holder() const {
   // A klass that was previously considered dead can be looked up in the
   // CLD/SD, and its _java_mirror or _class_loader can be stored in a root
   // or a reachable object making it alive again. The SATB part of G1 needs
@@ -714,20 +725,7 @@ ClassLoaderData::~ClassLoaderData() {
     _metaspace = NULL;
     delete m;
   }
-  // Method::clear_jmethod_ids only sets the jmethod_ids to NULL without
-  // releasing the memory for related JNIMethodBlocks and JNIMethodBlockNodes.
-  // This is done intentionally because native code (e.g. JVMTI agent) holding
-  // jmethod_ids may access them after the associated classes and class loader
-  // are unloaded. The Java Native Interface Specification says "method ID
-  // does not prevent the VM from unloading the class from which the ID has
-  // been derived. After the class is unloaded, the method or field ID becomes
-  // invalid". In real world usages, the native code may rely on jmethod_ids
-  // being NULL after class unloading. Hence, it is unsafe to free the memory
-  // from the VM side without knowing when native code is going to stop using
-  // them.
-  if (_jmethod_ids != NULL) {
-    Method::clear_jmethod_ids(this);
-  }
+
   // Delete lock
   delete _metaspace_lock;
 
@@ -905,6 +903,8 @@ void ClassLoaderData::free_deallocate_list_C_heap_structures() {
       // Remove the class so unloading events aren't triggered for
       // this class (scratch or error class) in do_unloading().
       remove_class(ik);
+      // But still have to remove it from the dumptime_table.
+      SystemDictionaryShared::handle_class_unloading(ik);
     }
   }
 }
@@ -982,22 +982,33 @@ void ClassLoaderData::print_on(outputStream* out) const {
   out->print_cr(" - keep alive          %d", _keep_alive);
   out->print   (" - claim               ");
   switch(_claim) {
-    case _claim_none:       out->print_cr("none"); break;
-    case _claim_finalizable:out->print_cr("finalizable"); break;
-    case _claim_strong:     out->print_cr("strong"); break;
-    case _claim_other:      out->print_cr("other"); break;
-    default:                ShouldNotReachHere();
+    case _claim_none:                       out->print_cr("none"); break;
+    case _claim_finalizable:                out->print_cr("finalizable"); break;
+    case _claim_strong:                     out->print_cr("strong"); break;
+    case _claim_other:                      out->print_cr("other"); break;
+    case _claim_other | _claim_finalizable: out->print_cr("other and finalizable"); break;
+    case _claim_other | _claim_strong:      out->print_cr("other and strong"); break;
+    default:                                ShouldNotReachHere();
   }
   out->print_cr(" - handles             %d", _handles.count());
   out->print_cr(" - dependency count    %d", _dependency_count);
-  out->print   (" - klasses             {");
-  PrintKlassClosure closure(out);
-  ((ClassLoaderData*)this)->classes_do(&closure);
+  out->print   (" - klasses             { ");
+  if (Verbose) {
+    PrintKlassClosure closure(out);
+    ((ClassLoaderData*)this)->classes_do(&closure);
+  } else {
+     out->print("...");
+  }
   out->print_cr(" }");
   out->print_cr(" - packages            " INTPTR_FORMAT, p2i(_packages));
   out->print_cr(" - module              " INTPTR_FORMAT, p2i(_modules));
   out->print_cr(" - unnamed module      " INTPTR_FORMAT, p2i(_unnamed_module));
-  out->print_cr(" - dictionary          " INTPTR_FORMAT, p2i(_dictionary));
+  if (_dictionary != nullptr) {
+    out->print   (" - dictionary          " INTPTR_FORMAT " ", p2i(_dictionary));
+    _dictionary->print_size(out);
+  } else {
+    out->print_cr(" - dictionary          " INTPTR_FORMAT, p2i(_dictionary));
+  }
   if (_jmethod_ids != NULL) {
     out->print   (" - jmethod count       ");
     Method::print_jmethod_ids_count(this, out);

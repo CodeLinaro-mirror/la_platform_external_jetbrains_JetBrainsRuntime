@@ -154,7 +154,6 @@ class ClassFileParser {
 
   int _num_miranda_methods;
 
-  ReferenceType _rt;
   Handle _protection_domain;
   AccessFlags _access_flags;
 
@@ -197,9 +196,6 @@ class ClassFileParser {
   bool _has_empty_finalizer;
   bool _has_vanilla_constructor;
   int _max_bootstrap_specifier_index;  // detects BSS values
-
-  // (DCEVM) Enhanced class redefinition
-  const bool _pick_newest;
 
   void parse_stream(const ClassFileStream* const stream, TRAPS);
 
@@ -465,6 +461,9 @@ class ClassFileParser {
   int  verify_legal_method_signature(const Symbol* methodname,
                                      const Symbol* signature,
                                      TRAPS) const;
+  void verify_legal_name_with_signature(const Symbol* name,
+                                        const Symbol* signature,
+                                        TRAPS) const;
 
   void verify_class_version(u2 major, u2 minor, Symbol* class_name, TRAPS);
 
@@ -528,8 +527,6 @@ class ClassFileParser {
                                TRAPS);
 
   void update_class_name(Symbol* new_name);
-  // (DCEVM) Enhanced class redefinition
-  inline const Klass* maybe_newest(const Klass* klass) const { return klass != NULL && _pick_newest ? klass->newest_version() : klass; }
 
  public:
   ClassFileParser(ClassFileStream* stream,
@@ -537,7 +534,6 @@ class ClassFileParser {
                   ClassLoaderData* loader_data,
                   const ClassLoadInfo* cl_info,
                   Publicity pub_level,
-                  const bool pick_newest,
                   TRAPS);
 
   ~ClassFileParser();
@@ -563,9 +559,11 @@ class ClassFileParser {
   ClassLoaderData* loader_data() const { return _loader_data; }
   const Symbol* class_name() const { return _class_name; }
   const InstanceKlass* super_klass() const { return _super_klass; }
-  Array<InstanceKlass*>* local_interfaces() const { return _local_interfaces; }
 
-  ReferenceType reference_type() const { return _rt; }
+  ReferenceType super_reference_type() const;
+  bool is_instance_ref_klass() const;
+  bool is_java_lang_ref_Reference_subclass() const;
+
   AccessFlags access_flags() const { return _access_flags; }
 
   bool is_internal() const { return INTERNAL == _pub_level; }

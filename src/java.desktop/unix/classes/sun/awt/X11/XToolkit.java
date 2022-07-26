@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -501,6 +501,8 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
 
     private static XMouseInfoPeer xPeer;
 
+    private static Boolean isXWayland;
+
     static {
         initSecurityWarning();
         if (GraphicsEnvironment.isHeadless()) {
@@ -933,9 +935,7 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
             }
         }
         if (dispatchers != null) {
-            Iterator<XEventDispatcher> iter = dispatchers.iterator();
-            while (iter.hasNext()) {
-                XEventDispatcher disp = iter.next();
+            for (XEventDispatcher disp : dispatchers) {
                 disp.dispatchEvent(ev);
             }
         }
@@ -1022,19 +1022,26 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
                         }
                     }
                 }
-                if (keyEventLog.isLoggable(PlatformLogger.Level.FINE) && (
-                        ev.get_type() == XConstants.KeyPress
-                                || ev.get_type() == XConstants.KeyRelease)) {
+
+                final boolean isKeyEvent = ( (ev.get_type() == XConstants.KeyPress) ||
+                                             (ev.get_type() == XConstants.KeyRelease) );
+
+                if (keyEventLog.isLoggable(PlatformLogger.Level.FINE) && isKeyEvent) {
                     keyEventLog.fine("before XFilterEvent:" + ev);
                 }
                 if (XlibWrapper.XFilterEvent(ev.getPData(), w)) {
+                    if (isKeyEvent) {
+                        XInputMethod.onXKeyEventFiltering(true);
+                    }
                     continue;
                 }
-                if (keyEventLog.isLoggable(PlatformLogger.Level.FINE) && (
-                        ev.get_type() == XConstants.KeyPress
-                                || ev.get_type() == XConstants.KeyRelease)) {
+                if (keyEventLog.isLoggable(PlatformLogger.Level.FINE) && isKeyEvent) {
                     keyEventLog.fine(
                             "after XFilterEvent:" + ev); // IS THIS CORRECT?
+                }
+
+                if (isKeyEvent) {
+                    XInputMethod.onXKeyEventFiltering(false);
                 }
 
                 dispatchEvent(ev);
@@ -1705,9 +1712,7 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
                         awt_multiclick_time = AWT_MULTICLICK_DEFAULT_TIME;
                     }
                 }
-            } catch (NumberFormatException nf) {
-                awt_multiclick_time = AWT_MULTICLICK_DEFAULT_TIME;
-            } catch (NullPointerException npe) {
+            } catch (NumberFormatException | NullPointerException e) {
                 awt_multiclick_time = AWT_MULTICLICK_DEFAULT_TIME;
             }
         } finally {
@@ -1896,7 +1901,7 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
     @Override
     protected Object lazilyLoadDesktopProperty(String name) {
         if (name.startsWith(prefix)) {
-            String cursorName = name.substring(prefix.length(), name.length()) + postfix;
+            String cursorName = name.substring(prefix.length()) + postfix;
 
             try {
                 return Cursor.getSystemCustomCursor(cursorName);
@@ -1988,9 +1993,7 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
             return;
         }
 
-        Iterator<Map.Entry<String, Object>> i = updatedSettings.entrySet().iterator();
-        while (i.hasNext()) {
-            Map.Entry<String, Object> e = i.next();
+        for (Map.Entry<String, Object> e : updatedSettings.entrySet()) {
             String name = e.getKey();
 
             name = "gnome." + name;
@@ -2319,9 +2322,7 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
         while (time.compareTo(currentTime) <= 0) {
             java.util.List<Runnable> tasks = timeoutTasks.remove(time);
 
-            for (Iterator<Runnable> iter = tasks.iterator(); iter.hasNext();) {
-                Runnable task = iter.next();
-
+            for (Runnable task : tasks) {
                 if (timeoutTaskLog.isLoggable(PlatformLogger.Level.FINER)) {
                     timeoutTaskLog.finer("XToolkit.callTimeoutTasks(): current time={0}" +
                                          ";  about to run task={1}", Long.valueOf(currentTime), task);
@@ -2920,6 +2921,11 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
         return ((X11GraphicsConfig)gc).isTranslucencyCapable();
     }
 
+    @Override
+    public boolean popupMenusAreSpecial() {
+        return XWM.isKDE2();
+    }
+
     /**
      * Returns the value of "sun.awt.disablegrab" property. Default
      * value is {@code false}.
@@ -2927,6 +2933,13 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
     @SuppressWarnings("removal")
     public static boolean getSunAwtDisableGrab() {
         return AccessController.doPrivileged(new GetBooleanAction("sun.awt.disablegrab"));
+    }
+
+    static synchronized boolean isXWayland() {
+        if (isXWayland == null) {
+            isXWayland = getEnv("WAYLAND_DISPLAY") != null;
+        }
+        return isXWayland;
     }
 
     @SuppressWarnings("removal")

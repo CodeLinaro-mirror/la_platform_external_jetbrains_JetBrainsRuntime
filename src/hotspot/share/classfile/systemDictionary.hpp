@@ -71,7 +71,6 @@ class ClassFileStream;
 class ClassLoadInfo;
 class Dictionary;
 template <MEMFLAGS F> class HashtableBucket;
-class ResolutionErrorTable;
 class SymbolPropertyTable;
 class PackageEntry;
 class ProtectionDomainCacheTable;
@@ -124,7 +123,6 @@ class SystemDictionary : AllStatic {
                                                          Symbol* class_name,
                                                          Handle class_loader,
                                                          const ClassLoadInfo& cl_info,
-                                                         InstanceKlass* old_klass,
                                                          TRAPS);
 
   // Resolve a class from stream (called by jni_DefineClass and JVM_DefineClass)
@@ -133,7 +131,6 @@ class SystemDictionary : AllStatic {
                                                   Symbol* class_name,
                                                   Handle class_loader,
                                                   const ClassLoadInfo& cl_info,
-                                                  InstanceKlass* old_klass,
                                                   TRAPS);
 
  public:
@@ -142,7 +139,6 @@ class SystemDictionary : AllStatic {
                                             Symbol* class_name,
                                             Handle class_loader,
                                             const ClassLoadInfo& cl_info,
-                                            InstanceKlass* old_klass,
                                             TRAPS);
 
   // Lookup an already loaded class. If not found NULL is returned.
@@ -205,18 +201,13 @@ class SystemDictionary : AllStatic {
   // Initialization
   static void initialize(TRAPS);
 
-  // (DCEVM) Enhanced class redefinition
-  static void remove_from_hierarchy(InstanceKlass* k);
-  static void update_constraints_after_redefinition();
-
-protected:
-  // Returns the class loader data to be used when looking up/updating the
-  // system dictionary.
-  static ClassLoaderData *class_loader_data(Handle class_loader);
-
 public:
   // Returns java system loader
   static oop java_system_loader();
+
+  // Returns the class loader data to be used when looking up/updating the
+  // system dictionary.
+  static ClassLoaderData *class_loader_data(Handle class_loader);
 
   // Returns java platform loader
   static oop java_platform_loader();
@@ -227,7 +218,6 @@ public:
   // Register a new class loader
   static ClassLoaderData* register_loader(Handle class_loader, bool create_mirror_cld = false);
 
-public:
   static Symbol* check_signature_loaders(Symbol* signature, Klass* klass_being_linked,
                                          Handle loader1, Handle loader2, bool is_method);
 
@@ -302,9 +292,6 @@ public:
  private:
   // Static tables owned by the SystemDictionary
 
-  // Resolution errors
-  static ResolutionErrorTable*   _resolution_errors;
-
   // Invoke methods (JSR 292)
   static SymbolPropertyTable*    _invoke_method_table;
 
@@ -321,15 +308,10 @@ private:
   static OopHandle  _java_system_loader;
   static OopHandle  _java_platform_loader;
 
-  static ResolutionErrorTable* resolution_errors() { return _resolution_errors; }
   static SymbolPropertyTable* invoke_method_table() { return _invoke_method_table; }
 
 private:
   // Basic loading operations
-  static InstanceKlass* resolve_instance_class_or_null_helper(Symbol* name,
-                                                              Handle class_loader,
-                                                              Handle protection_domain,
-                                                              TRAPS);
   static InstanceKlass* resolve_instance_class_or_null(Symbol* class_name,
                                                        Handle class_loader,
                                                        Handle protection_domain, TRAPS);
@@ -343,7 +325,7 @@ private:
                                                 Handle lockObject,
                                                 bool* throw_circularity_error);
 
-  static void define_instance_class(InstanceKlass* k, InstanceKlass* old_klass, Handle class_loader, TRAPS);
+  static void define_instance_class(InstanceKlass* k, Handle class_loader, TRAPS);
   static InstanceKlass* find_or_define_helper(Symbol* class_name,
                                               Handle class_loader,
                                               InstanceKlass* k, TRAPS);

@@ -114,7 +114,7 @@ public class LWWindowPeer
     private volatile int windowState = Frame.NORMAL;
 
     // check that the mouse is over the window
-    private volatile boolean isMouseOver = false;
+    private volatile boolean isMouseOver;
 
     // A peer where the last mouse event came to. Used by cursor manager to
     // find the component under cursor
@@ -198,7 +198,6 @@ public class LWWindowPeer
         }
 
         platformWindow.initialize(target, this, ownerDelegate);
-
         // Init warning window(for applets)
         SecurityWarningWindow warn = null;
         if (target.getWarningString() != null) {
@@ -515,7 +514,10 @@ public class LWWindowPeer
     }
 
     public final void setTextured(final boolean isTextured) {
-        textured = isTextured;
+        if (textured != isTextured) {
+            textured = isTextured;
+            updateOpaque();
+        }
     }
 
     @Override

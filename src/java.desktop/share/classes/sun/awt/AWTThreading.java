@@ -306,19 +306,24 @@ public class AWTThreading {
 
         @Override
         public void dispatch() {
-            completeIfNotYet(super::dispatch);
-            futureResult.complete(null);
+            // Should not complete if competion has already started.
+            if (completeIfNotYet(super::dispatch)) {
+                futureResult.complete(null);
+            }
         }
 
         public void dispose(String reason) {
             completeIfNotYet(() -> AWTAccessor.getInvocationEventAccessor().dispose(this));
+            // Should complete exceptionally regardless of whether completetion has alredy started or hasn't.
             futureResult.completeExceptionally(new Throwable(reason));
         }
 
-        private void completeIfNotYet(Runnable competeRunnable) {
+        private boolean completeIfNotYet(Runnable competeRunnable) {
             if (!isCompletionStarted.getAndSet(true)) {
                 competeRunnable.run();
+                return true;
             }
+            return false;
         }
 
         /**
@@ -441,7 +446,11 @@ public class AWTThreading {
             synchronized (eventDispatchThreadStateNotifiers) {
                 if (!isEventDispatchThreadFree) {
                     eventDispatchThreadStateNotifiers.add(future);
-                    future.whenComplete((r, ex) -> eventDispatchThreadStateNotifiers.remove(future));
+                    future.whenComplete((r, ex) -> {
+                        synchronized (eventDispatchThreadStateNotifiers) {
+                            eventDispatchThreadStateNotifiers.remove(future);
+                        }
+                    });
                     return future;
                 }
             }

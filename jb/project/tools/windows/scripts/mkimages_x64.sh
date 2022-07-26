@@ -1,4 +1,7 @@
-#!/bin/bash -x
+#!/bin/bash
+
+set -euo pipefail
+set -x
 
 # The following parameters must be specified:
 #   build_number - specifies the number of JetBrainsRuntime build
@@ -35,6 +38,7 @@ function do_configure {
     --with-boot-jdk=$BOOT_JDK \
     --disable-ccache \
     --enable-cds=yes \
+    $STATIC_CONF_ARGS \
     $REPRODUCIBLE_BUILD_OPTS \
     || do_exit $?
 }
@@ -45,18 +49,24 @@ function create_image_bundle {
   __modules_path=$3
   __modules=$4
 
+  fastdebug_infix=''
+
   [ "$bundle_type" == "fd" ] && [ "$__arch_name" == "$JBRSDK_BUNDLE" ] && __bundle_name=$__arch_name && fastdebug_infix="fastdebug-"
+  __root_dir=${__bundle_name}-${JBSDK_VERSION}-x64-${fastdebug_infix:-}b${build_number%%.*}
 
   echo Running jlink ...
   ${JSDK}/bin/jlink \
     --module-path $__modules_path --no-man-pages --compress=2 \
-    --add-modules $__modules --output $__arch_name || do_exit $?
+    --add-modules $__modules --output $__root_dir || do_exit $?
 
-  grep -v "^JAVA_VERSION" "$JSDK"/release | grep -v "^MODULES" >> $__arch_name/release
-  if [ "$__arch_name" == "$JBRSDK_BUNDLE" ]; then
-    sed 's/JBR/JBRSDK/g' $__arch_name/release > release
-    mv release $__arch_name/release
-    copy_jmods "$__modules" "$__modules_path" "$__arch_name"/jmods
+    grep -v "^JAVA_VERSION" "$JSDK"/release | grep -v "^MODULES" >> $__root_dir/release
+    if [ "$__arch_name" == "$JBRSDK_BUNDLE" ]; then
+    sed 's/JBR/JBRSDK/g' $__root_dir/release > release
+    mv release $__root_dir/release
+    for dir in $(ls -d $IMAGES_DIR/jdk/*); do
+      rsync -a --exclude demo --exclude sample $dir $__root_dir
+    done
+    copy_jmods "$__modules" "$__modules_path" "$__root_dir"/jmods
   fi
 }
 
@@ -78,7 +88,7 @@ case "$bundle_type" in
     ;;
 esac
 
-if [ -z "$INC_BUILD" ]; then
+if [ -z "${INC_BUILD:-}" ]; then
   do_configure || do_exit $?
   if [ $do_maketest -eq 1 ]; then
     make LOG=info CONF=$RELEASE_NAME clean images test-image || do_exit $?
@@ -98,15 +108,22 @@ JSDK=$IMAGES_DIR/jdk
 JSDK_MODS_DIR=$IMAGES_DIR/jmods
 JBRSDK_BUNDLE=jbrsdk
 
+where cygpath
+if [ $? -eq 0 ]; then
+  JCEF_PATH="$(cygpath -w $JCEF_PATH | sed 's/\\/\//g')"
+fi
+
 if [ "$bundle_type" == "jcef" ] || [ "$bundle_type" == "fd" ]; then
   git apply -p0 < jb/project/tools/patches/add_jcef_module.patch || do_exit $?
   update_jsdk_mods "$JSDK" "$JCEF_PATH"/jmods "$JSDK"/jmods "$JSDK_MODS_DIR" || do_exit $?
   cp $JCEF_PATH/jmods/* ${JSDK_MODS_DIR} # $JSDK/jmods is not unchanged
 
   jbr_name_postfix="_${bundle_type}"
+else
+  jbr_name_postfix=""
 fi
 
-# create runtime image bundlef
+# create runtime image bundle
 modules=$(xargs < jb/project/tools/common/modules.list | sed s/" "//g) || do_exit $?
 modules+=",jdk.crypto.mscapi"
 create_image_bundle "jbr${jbr_name_postfix}" "jbr" $JSDK_MODS_DIR "$modules" || do_exit $?

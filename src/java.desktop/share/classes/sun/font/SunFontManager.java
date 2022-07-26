@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -266,12 +266,6 @@ public abstract class SunFontManager implements FontSupport, FontManagerForSGE {
     private static String[] STR_ARRAY = new String[0];
 
     /**
-     * Deprecated, unsupported hack - actually invokes a bug!
-     * Left in for a customer, don't remove.
-     */
-    private boolean usePlatformFontMetrics = false;
-
-    /**
      * Returns the global SunFontManager instance. This is similar to
      * {@link FontManagerFactory#getInstance()} but it returns a
      * SunFontManager instance instead. This is only used in internal classes
@@ -351,10 +345,25 @@ public abstract class SunFontManager implements FontSupport, FontManagerForSGE {
         jreFamilyMap.put("Roboto-Light", "Roboto Light");
         jreFamilyMap.put("Roboto-Thin", "Roboto Thin");
 
-        jreFontMap.put("JetBrainsMono-Bold.ttf", new BundledFontInfo("JetBrainsMono-Bold", 1, 0, 2));
-        jreFontMap.put("JetBrainsMono-Regular.ttf", new BundledFontInfo("JetBrainsMono-Regular", 1, 0, 2));
-        jreFontMap.put("JetBrainsMono-Italic.ttf", new BundledFontInfo("JetBrainsMono-Italic", 1, 0, 2));
-        jreFontMap.put("JetBrainsMono-Bold-Italic.ttf", new BundledFontInfo("JetBrainsMono-BoldItalic", 1, 0, 2));
+        jreFontMap.put("JetBrainsMono-Bold.ttf", new BundledFontInfo("JetBrainsMono-Bold", 2, 225, 0));
+        jreFontMap.put("JetBrainsMono-BoldItalic.ttf", new BundledFontInfo("JetBrainsMono-BoldItalic", 2, 225, 0));
+        jreFontMap.put("JetBrainsMono-ExtraBold.ttf", new BundledFontInfo("JetBrainsMono-ExtraBold", 2, 225, 0));
+        jreFontMap.put("JetBrainsMono-ExtraBoldItalic.ttf", new BundledFontInfo("JetBrainsMono-ExtraBoldItalic", 2, 225, 0));
+        jreFontMap.put("JetBrainsMono-ExtraLight.ttf", new BundledFontInfo("JetBrainsMono-ExtraLight", 2, 225, 0));
+        jreFontMap.put("JetBrainsMono-ExtraLightItalic.ttf", new BundledFontInfo("JetBrainsMono-ExtraLightItalic", 2, 225, 0));
+        jreFontMap.put("JetBrainsMono-Italic.ttf", new BundledFontInfo("JetBrainsMono-Italic", 2, 225, 0));
+        jreFontMap.put("JetBrainsMono-Light.ttf", new BundledFontInfo("JetBrainsMono-Light", 2, 225, 0));
+        jreFontMap.put("JetBrainsMono-LightItalic.ttf", new BundledFontInfo("JetBrainsMono-LightItalic", 2, 225, 0));
+        jreFontMap.put("JetBrainsMono-Medium.ttf", new BundledFontInfo("JetBrainsMono-Medium", 2, 225, 0));
+        jreFontMap.put("JetBrainsMono-MediumItalic.ttf", new BundledFontInfo("JetBrainsMono-MediumItalic", 2, 225, 0));
+        jreFontMap.put("JetBrainsMono-Regular.ttf", new BundledFontInfo("JetBrainsMono-Regular", 2, 225, 0));
+        jreFontMap.put("JetBrainsMono-Thin.ttf", new BundledFontInfo("JetBrainsMono-Thin", 2, 225, 0));
+        jreFontMap.put("JetBrainsMono-ThinItalic.ttf", new BundledFontInfo("JetBrainsMono-ThinItalic", 2, 225, 0));
+
+        jreFontMap.put("Inter-Bold.otf", new BundledFontInfo("Inter-Bold", 3, 19, 0));
+        jreFontMap.put("Inter-Regular.otf", new BundledFontInfo("Inter-Regular", 3, 19, 0));
+        jreFontMap.put("Inter-Italic.otf", new BundledFontInfo("Inter-Italic", 3, 19, 0));
+        jreFontMap.put("Inter-BoldItalic.otf", new BundledFontInfo("Inter-BoldItalic", 3, 19, 0));
 
         jreBundledFontFiles.addAll(jreFontMap.keySet());
     }
@@ -550,22 +559,6 @@ public abstract class SunFontManager implements FontSupport, FontManagerForSGE {
             }
         });
 
-        boolean platformFont = AccessController.doPrivileged(
-            new PrivilegedAction<Boolean>() {
-                    public Boolean run() {
-                        String prop = System.getProperty("java2d.font.usePlatformFont");
-                        String env = System.getenv("JAVA2D_USEPLATFORMFONT");
-                        return "true".equals(prop) || env != null;
-                    }
-            });
-
-        if (platformFont) {
-            usePlatformFontMetrics = true;
-            System.out.println("Enabling platform font metrics for win32. This is an unsupported option.");
-            System.out.println("This yields incorrect composite font metrics as reported by 1.1.x releases.");
-            System.out.println("It is appropriate only for use by applications which do not use any Java 2");
-            System.out.println("functionality. This property will be removed in a later release.");
-        }
     }
 
     public Font2DHandle getNewComposite(String family, int style,
@@ -2295,15 +2288,6 @@ public abstract class SunFontManager implements FontSupport, FontManagerForSGE {
         }
     }
 
-    /*
-     * Workaround for apps which are dependent on a font metrics bug
-     * in JDK 1.1. This is an unsupported win32 private setting.
-     * Left in for a customer - do not remove.
-     */
-    public boolean usePlatformFontMetrics() {
-        return usePlatformFontMetrics;
-    }
-
     public int getNumFonts() {
         return physicalFonts.size()+maxCompFont;
     }
@@ -3464,14 +3448,7 @@ public abstract class SunFontManager implements FontSupport, FontManagerForSGE {
                 }
             }
 
-            String[] fontNames = null;
-            if (fontMapNames.size() > 0) {
-                fontNames = new String[fontMapNames.size()];
-                Object [] keyNames = fontMapNames.keySet().toArray();
-                for (int i=0; i < keyNames.length; i++) {
-                    fontNames[i] = (String)keyNames[i];
-                }
-            }
+            String[] fontNames = fontMapNames.keySet().toArray(new String[0]);
             Font[] fonts = new Font[fontNames.length];
             for (int i=0; i < fontNames.length; i++) {
                 fonts[i] = new Font(fontNames[i], Font.PLAIN, 1);
@@ -3540,11 +3517,7 @@ public abstract class SunFontManager implements FontSupport, FontManagerForSGE {
         // Add any native font family names here
         addNativeFontFamilyNames(familyNames, requestedLocale);
 
-        String[] retval =  new String[familyNames.size()];
-        Object [] keyNames = familyNames.keySet().toArray();
-        for (int i=0; i < keyNames.length; i++) {
-            retval[i] = familyNames.get(keyNames[i]);
-        }
+        String[] retval = familyNames.values().toArray(new String[0]);
         if (requestedLocale.equals(Locale.getDefault())) {
             lastDefaultLocale = requestedLocale;
             allFamilies = new String[retval.length];
@@ -3620,7 +3593,7 @@ public abstract class SunFontManager implements FontSupport, FontManagerForSGE {
                     String language = System.getProperty("user.language", "en");
                     String country  = System.getProperty("user.country","");
                     String variant  = System.getProperty("user.variant","");
-                    return new Locale(language, country, variant);
+                    return Locale.of(language, country, variant);
                 }
             });
         }

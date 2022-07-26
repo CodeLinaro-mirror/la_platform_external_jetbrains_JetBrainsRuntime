@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2014, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -147,8 +147,7 @@ public final class ModuleBootstrap {
                getProperty("jdk.module.limitmods") == null &&     // --limit-modules
                getProperty("jdk.module.addreads.0") == null &&    // --add-reads
                getProperty("jdk.module.addexports.0") == null &&  // --add-exports
-               getProperty("jdk.module.addopens.0") == null &&    // --add-opens
-               getProperty("jdk.module.illegalAccess") == null;   // --jbr-illegal-access
+               getProperty("jdk.module.addopens.0") == null;      // --add-opens
     }
 
     /**
@@ -189,7 +188,6 @@ public final class ModuleBootstrap {
         String mainModule = System.getProperty("jdk.module.main");
         Set<String> addModules = addModules();
         Set<String> limitModules = limitModules();
-        String illegalAccess = getAndRemoveProperty("jdk.module.illegalAccess");
 
         PrintStream traceOutput = null;
         String trace = getAndRemoveProperty("jdk.module.showModuleResolution");
@@ -221,8 +219,7 @@ public final class ModuleBootstrap {
                 && !haveModulePath
                 && addModules.isEmpty()
                 && limitModules.isEmpty()
-                && !isPatched
-                && illegalAccess == null) {
+                && !isPatched) {
             systemModuleFinder = archivedModuleGraph.finder();
             hasSplitPackages = archivedModuleGraph.hasSplitPackages();
             hasIncubatorModules = archivedModuleGraph.hasIncubatorModules();
@@ -457,18 +454,9 @@ public final class ModuleBootstrap {
             checkIncubatingStatus(cf);
         }
 
-        // --add-reads, --add-exports/--add-opens, and --jbr-illegal-access
+        // --add-reads, --add-exports/--add-opens
         addExtraReads(bootLayer);
         boolean extraExportsOrOpens = addExtraExportsAndOpens(bootLayer);
-
-        if (illegalAccess != null) {
-            assert systemModules != null;
-            addIllegalAccess(illegalAccess,
-                             systemModules,
-                             upgradeModulePath,
-                             bootLayer,
-                             extraExportsOrOpens);
-        }
 
         // add enable native access
         addEnableNativeAccess(bootLayer);
@@ -784,11 +772,23 @@ public final class ModuleBootstrap {
         }
     }
 
+    private static final boolean HAS_ENABLE_NATIVE_ACCESS_FLAG;
+    private static final Set<String> NATIVE_ACCESS_MODULES;
+
+    public static boolean hasEnableNativeAccessFlag() {
+        return HAS_ENABLE_NATIVE_ACCESS_FLAG;
+    }
+
+    static {
+        NATIVE_ACCESS_MODULES = decodeEnableNativeAccess();
+        HAS_ENABLE_NATIVE_ACCESS_FLAG = !NATIVE_ACCESS_MODULES.isEmpty();
+    }
+
     /**
      * Process the --enable-native-access option to grant access to restricted methods to selected modules.
      */
     private static void addEnableNativeAccess(ModuleLayer layer) {
-        for (String name : decodeEnableNativeAccess()) {
+        for (String name : NATIVE_ACCESS_MODULES) {
             if (name.equals("ALL-UNNAMED")) {
                 JLA.addEnableNativeAccessAllUnnamed();
             } else {
@@ -823,74 +823,6 @@ public final class ModuleBootstrap {
             value = getAndRemoveProperty(prefix + index);
         }
         return modules;
-    }
-
-    /**
-     * Process the --jbr-illegal-access option to open packages of system modules
-     * in the boot layer to code in unnamed modules.
-     */
-    private static void addIllegalAccess(String illegalAccess,
-                                         SystemModules systemModules,
-                                         ModuleFinder upgradeModulePath,
-                                         ModuleLayer bootLayer,
-                                         boolean extraExportsOrOpens) {
-
-        Map<String, Set<String>> concealedPackagesToOpen = systemModules.concealedPackagesToOpen();
-        Map<String, Set<String>> exportedPackagesToOpen = systemModules.exportedPackagesToOpen();
-        if (concealedPackagesToOpen.isEmpty() && exportedPackagesToOpen.isEmpty()) {
-            // need to generate (exploded build)
-            IllegalAccessMaps maps = IllegalAccessMaps.generate(limitedFinder());
-            concealedPackagesToOpen = maps.concealedPackagesToOpen();
-            exportedPackagesToOpen = maps.exportedPackagesToOpen();
-        }
-
-        // open specific packages in the system modules
-        Set<String> emptySet = Set.of();
-        for (Module m : bootLayer.modules()) {
-            ModuleDescriptor descriptor = m.getDescriptor();
-            String name = m.getName();
-
-            // skip open modules
-            if (descriptor.isOpen()) {
-                continue;
-            }
-
-            // skip modules loaded from the upgrade module path
-            if (upgradeModulePath != null
-                && upgradeModulePath.find(name).isPresent()) {
-                continue;
-            }
-
-            Set<String> concealedPackages = concealedPackagesToOpen.getOrDefault(name, emptySet);
-            Set<String> exportedPackages = exportedPackagesToOpen.getOrDefault(name, emptySet);
-
-            // refresh the set of concealed and exported packages if needed
-            if (extraExportsOrOpens) {
-                concealedPackages = new HashSet<>(concealedPackages);
-                exportedPackages = new HashSet<>(exportedPackages);
-                Iterator<String> iterator = concealedPackages.iterator();
-                while (iterator.hasNext()) {
-                    String pn = iterator.next();
-                    if (m.isExported(pn, BootLoader.getUnnamedModule())) {
-                        // concealed package is exported to ALL-UNNAMED
-                        iterator.remove();
-                        exportedPackages.add(pn);
-                    }
-                }
-                iterator = exportedPackages.iterator();
-                while (iterator.hasNext()) {
-                    String pn = iterator.next();
-                    if (m.isOpen(pn, BootLoader.getUnnamedModule())) {
-                        // exported package is opened to ALL-UNNAMED
-                        iterator.remove();
-                    }
-                }
-            }
-
-            // open the packages to unnamed modules
-            JLA.addOpensToAllUnnamed(m, concealedPackages, exportedPackages);
-        }
-
     }
 
     /**

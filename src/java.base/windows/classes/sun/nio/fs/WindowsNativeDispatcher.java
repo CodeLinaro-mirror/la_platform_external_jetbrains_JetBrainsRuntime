@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,7 @@
 
 package sun.nio.fs;
 
+import jdk.internal.misc.Blocker;
 import jdk.internal.misc.Unsafe;
 
 import static sun.nio.fs.WindowsConstants.*;
@@ -66,16 +67,18 @@ class WindowsNativeDispatcher {
                            int dwFlagsAndAttributes)
         throws WindowsException
     {
-        NativeBuffer buffer = asNativeBuffer(path);
-        try {
-            return CreateFile0(buffer.address(),
-                               dwDesiredAccess,
-                               dwShareMode,
-                               lpSecurityAttributes,
-                               dwCreationDisposition,
-                               dwFlagsAndAttributes);
-        } finally {
-            buffer.release();
+        try (NativeBuffer buffer = asNativeBuffer(path)) {
+            long comp = Blocker.begin();
+            try {
+                return CreateFile0(buffer.address(),
+                                   dwDesiredAccess,
+                                   dwShareMode,
+                                   lpSecurityAttributes,
+                                   dwCreationDisposition,
+                                   dwFlagsAndAttributes);
+            } finally {
+                Blocker.end(comp);
+            }
         }
     }
     static long CreateFile(String path,
@@ -109,11 +112,13 @@ class WindowsNativeDispatcher {
      * )
      */
     static void DeleteFile(String path) throws WindowsException {
-        NativeBuffer buffer = asNativeBuffer(path);
-        try {
-            DeleteFile0(buffer.address());
-        } finally {
-            buffer.release();
+        try (NativeBuffer buffer = asNativeBuffer(path)) {
+            long comp = Blocker.begin();
+            try {
+                DeleteFile0(buffer.address());
+            } finally {
+                Blocker.end(comp);
+            }
         }
     }
     private static native void DeleteFile0(long lpFileName)
@@ -126,11 +131,13 @@ class WindowsNativeDispatcher {
      * )
      */
     static void CreateDirectory(String path, long lpSecurityAttributes) throws WindowsException {
-        NativeBuffer buffer = asNativeBuffer(path);
-        try {
-            CreateDirectory0(buffer.address(), lpSecurityAttributes);
-        } finally {
-            buffer.release();
+        try (NativeBuffer buffer = asNativeBuffer(path)) {
+            long comp = Blocker.begin();
+            try {
+                CreateDirectory0(buffer.address(), lpSecurityAttributes);
+            } finally {
+                Blocker.end(comp);
+            }
         }
     }
     private static native void CreateDirectory0(long lpFileName, long lpSecurityAttributes)
@@ -142,11 +149,13 @@ class WindowsNativeDispatcher {
      * )
      */
     static void RemoveDirectory(String path) throws WindowsException {
-        NativeBuffer buffer = asNativeBuffer(path);
-        try {
-            RemoveDirectory0(buffer.address());
-        } finally {
-            buffer.release();
+        try (NativeBuffer buffer = asNativeBuffer(path)) {
+            long comp = Blocker.begin();
+            try {
+                RemoveDirectory0(buffer.address());
+            } finally {
+                Blocker.end(comp);
+            }
         }
     }
     private static native void RemoveDirectory0(long lpFileName)
@@ -189,13 +198,15 @@ class WindowsNativeDispatcher {
      * )
      */
     static FirstFile FindFirstFile(String path) throws WindowsException {
-        NativeBuffer buffer = asNativeBuffer(path);
-        try {
+        try (NativeBuffer buffer = asNativeBuffer(path)) {
             FirstFile data = new FirstFile();
-            FindFirstFile0(buffer.address(), data);
+            long comp = Blocker.begin();
+            try {
+                FindFirstFile0(buffer.address(), data);
+            } finally {
+                Blocker.end(comp);
+            }
             return data;
-        } finally {
-            buffer.release();
         }
     }
     static class FirstFile {
@@ -218,11 +229,13 @@ class WindowsNativeDispatcher {
      * )
      */
     static long FindFirstFile(String path, long address) throws WindowsException {
-        NativeBuffer buffer = asNativeBuffer(path);
-        try {
-            return FindFirstFile1(buffer.address(), address);
-        } finally {
-            buffer.release();
+        try (NativeBuffer buffer = asNativeBuffer(path)) {
+            long comp = Blocker.begin();
+            try {
+                return FindFirstFile1(buffer.address(), address);
+            } finally {
+                Blocker.end(comp);
+            }
         }
     }
     private static native long FindFirstFile1(long lpFileName, long address)
@@ -236,7 +249,15 @@ class WindowsNativeDispatcher {
      *
      * @return  lpFindFileData->cFileName or null
      */
-    static native String FindNextFile(long handle, long address)
+    static String FindNextFile(long handle, long address) throws WindowsException {
+        long comp = Blocker.begin();
+        try {
+            return FindNextFile0(handle, address);
+        } finally {
+            Blocker.end(comp);
+        }
+    }
+    private static native String FindNextFile0(long handle, long address)
         throws WindowsException;
 
     /**
@@ -248,15 +269,17 @@ class WindowsNativeDispatcher {
      * )
      */
     static FirstStream FindFirstStream(String path) throws WindowsException {
-        NativeBuffer buffer = asNativeBuffer(path);
-        try {
+        try (NativeBuffer buffer = asNativeBuffer(path)) {
             FirstStream data = new FirstStream();
-            FindFirstStream0(buffer.address(), data);
+            long comp = Blocker.begin();
+            try {
+                FindFirstStream0(buffer.address(), data);
+            } finally {
+                Blocker.end(comp);
+            }
             if (data.handle() == WindowsConstants.INVALID_HANDLE_VALUE)
                 return null;
             return data;
-        } finally {
-            buffer.release();
         }
     }
     static class FirstStream {
@@ -276,7 +299,15 @@ class WindowsNativeDispatcher {
      *   LPVOID lpFindStreamData
      * )
      */
-    static native String FindNextStream(long handle) throws WindowsException;
+    static String FindNextStream(long handle) throws WindowsException {
+        long comp = Blocker.begin();
+        try {
+            return FindNextStream0(handle);
+        } finally {
+            Blocker.end(comp);
+        }
+    }
+    private static native String FindNextStream0(long handle) throws WindowsException;
 
     /**
      * FindClose(
@@ -285,52 +316,23 @@ class WindowsNativeDispatcher {
      */
     static native void FindClose(long handle) throws WindowsException;
 
-    static QueryDirectoryInformation OpenNtQueryDirectoryInformation(String path, NativeBuffer buffer) throws WindowsException {
-        NativeBuffer pathBuffer = asNativeBuffer(path);
-        try {
-            QueryDirectoryInformation data = new QueryDirectoryInformation();
-            OpenNtQueryDirectoryInformation0(pathBuffer.address(), buffer.address(), buffer.size(), data);
-            return data;
-        } finally {
-            pathBuffer.release();
-        }
-    }
-    static class QueryDirectoryInformation {
-        private long handle;
-        private int volSerialNumber;
-        /**
-         * Set by OpenNtQueryDirectoryInformation0() to
-         * true if dealing with struct FILE_ID_FULL_DIR_INFORMATION
-         * and to false if it's struct FILE_DIRECTORY_INFORMATION.
-         */
-        private boolean supportsFullIdInfo;
-
-        private QueryDirectoryInformation() { }
-        public long handle()         { return handle; }
-        public int volSerialNumber() { return volSerialNumber; }
-        public boolean supportsFullIdInfo() { return supportsFullIdInfo; }
-    }
-    private static native void OpenNtQueryDirectoryInformation0(long lpFileName, long buffer, int bufferSize, QueryDirectoryInformation obj)
-        throws WindowsException;
-
-    static boolean NextNtQueryDirectoryInformation(QueryDirectoryInformation data, NativeBuffer buffer) throws WindowsException {
-        return NextNtQueryDirectoryInformation0(data.handle(), data.supportsFullIdInfo(), buffer.address(), buffer.size());
-    }
-
-    private static native boolean NextNtQueryDirectoryInformation0(long handle, boolean supportsFullIdInfo, long buffer, int bufferSize)
-        throws WindowsException;
-
-    static void CloseNtQueryDirectoryInformation(QueryDirectoryInformation data) throws WindowsException {
-        CloseHandle(data.handle);
-    }
-
     /**
      * GetFileInformationByHandle(
      *   HANDLE hFile,
      *   LPBY_HANDLE_FILE_INFORMATION lpFileInformation
      * )
      */
-    static native void GetFileInformationByHandle(long handle, long address)
+    static void GetFileInformationByHandle(long handle, long address)
+        throws WindowsException
+    {
+        long comp = Blocker.begin();
+        try {
+            GetFileInformationByHandle0(handle, address);
+        } finally {
+            Blocker.end(comp);
+        }
+    }
+    private static native void GetFileInformationByHandle0(long handle, long address)
         throws WindowsException;
 
     /**
@@ -347,14 +349,15 @@ class WindowsNativeDispatcher {
                            long addressToPollForCancel)
         throws WindowsException
     {
-        NativeBuffer sourceBuffer = asNativeBuffer(source);
-        NativeBuffer targetBuffer = asNativeBuffer(target);
-        try {
-            CopyFileEx0(sourceBuffer.address(), targetBuffer.address(), flags,
+        try (NativeBuffer sourceBuffer = asNativeBuffer(source);
+             NativeBuffer targetBuffer = asNativeBuffer(target)) {
+            long comp = Blocker.begin();
+            try {
+                CopyFileEx0(sourceBuffer.address(), targetBuffer.address(), flags,
                         addressToPollForCancel);
-        } finally {
-            targetBuffer.release();
-            sourceBuffer.release();
+            } finally {
+                Blocker.end(comp);
+            }
         }
     }
     private static native void CopyFileEx0(long existingAddress, long newAddress,
@@ -370,13 +373,14 @@ class WindowsNativeDispatcher {
     static void MoveFileEx(String source, String target, int flags)
         throws WindowsException
     {
-        NativeBuffer sourceBuffer = asNativeBuffer(source);
-        NativeBuffer targetBuffer = asNativeBuffer(target);
-        try {
-            MoveFileEx0(sourceBuffer.address(), targetBuffer.address(), flags);
-        } finally {
-            targetBuffer.release();
-            sourceBuffer.release();
+        try (NativeBuffer sourceBuffer = asNativeBuffer(source);
+             NativeBuffer targetBuffer = asNativeBuffer(target)) {
+            long comp = Blocker.begin();
+            try {
+                MoveFileEx0(sourceBuffer.address(), targetBuffer.address(), flags);
+            } finally {
+                Blocker.end(comp);
+            }
         }
     }
     private static native void MoveFileEx0(long existingAddress, long newAddress,
@@ -388,11 +392,13 @@ class WindowsNativeDispatcher {
      * )
      */
     static int GetFileAttributes(String path) throws WindowsException {
-        NativeBuffer buffer = asNativeBuffer(path);
-        try {
-            return GetFileAttributes0(buffer.address());
-        } finally {
-            buffer.release();
+        try (NativeBuffer buffer = asNativeBuffer(path)) {
+            long comp = Blocker.begin();
+            try {
+                return GetFileAttributes0(buffer.address());
+            } finally {
+                Blocker.end(comp);
+            }
         }
     }
     private static native int GetFileAttributes0(long lpFileName)
@@ -406,11 +412,13 @@ class WindowsNativeDispatcher {
     static void SetFileAttributes(String path, int dwFileAttributes)
         throws WindowsException
     {
-        NativeBuffer buffer = asNativeBuffer(path);
-        try {
-            SetFileAttributes0(buffer.address(), dwFileAttributes);
-        } finally {
-            buffer.release();
+        try (NativeBuffer buffer = asNativeBuffer(path)) {
+            long comp = Blocker.begin();
+            try {
+                SetFileAttributes0(buffer.address(), dwFileAttributes);
+            } finally {
+                Blocker.end(comp);
+            }
         }
     }
     private static native void SetFileAttributes0(long lpFileName,
@@ -424,15 +432,18 @@ class WindowsNativeDispatcher {
      * );
      */
     static void GetFileAttributesEx(String path, long address) throws WindowsException {
-        NativeBuffer buffer = asNativeBuffer(path);
-        try {
-            GetFileAttributesEx0(buffer.address(), address);
-        } finally {
-            buffer.release();
+        try (NativeBuffer buffer = asNativeBuffer(path)) {
+            long comp = Blocker.begin();
+            try {
+                GetFileAttributesEx0(buffer.address(), address);
+            } finally {
+                Blocker.end(comp);
+            }
         }
     }
     private static native void GetFileAttributesEx0(long lpFileName, long address)
         throws WindowsException;
+
     /**
      * SetFileTime(
      *   HANDLE hFile,
@@ -441,10 +452,20 @@ class WindowsNativeDispatcher {
      *   CONST FILETIME *lpLastWriteTime
      * )
      */
-    static native void SetFileTime(long handle,
-                                   long createTime,
-                                   long lastAccessTime,
-                                   long lastWriteTime)
+    static void SetFileTime(long handle, long createTime, long lastAccessTime, long lastWriteTime)
+        throws WindowsException
+    {
+        long comp = Blocker.begin();
+        try {
+            SetFileTime0(handle, createTime, lastAccessTime, lastWriteTime);
+        } finally {
+            Blocker.end(comp);
+        }
+    }
+    private static native void SetFileTime0(long handle,
+                                            long createTime,
+                                            long lastAccessTime,
+                                            long lastWriteTime)
         throws WindowsException;
 
     /**
@@ -659,8 +680,8 @@ class WindowsNativeDispatcher {
     {
         NativeBuffer buffer = asNativeBuffer(path);
         try {
-            SetFileSecurity0(buffer.address(), securityInformation,
-                pSecurityDescriptor);
+            // may be called with elevated privileges so always run on current thread
+            SetFileSecurity0(buffer.address(), securityInformation, pSecurityDescriptor);
         } finally {
             buffer.release();
         }

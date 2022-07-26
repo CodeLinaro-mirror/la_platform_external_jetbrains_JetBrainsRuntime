@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,7 +27,6 @@
 #include "cds/archiveUtils.hpp"
 #include "classfile/defaultMethods.hpp"
 #include "classfile/javaClasses.hpp"
-#include "classfile/resolutionErrors.hpp"
 #include "classfile/symbolTable.hpp"
 #include "classfile/systemDictionary.hpp"
 #include "classfile/vmClasses.hpp"
@@ -46,7 +45,7 @@
 #include "oops/cpCache.inline.hpp"
 #include "oops/instanceKlass.inline.hpp"
 #include "oops/klass.inline.hpp"
-#include "oops/method.hpp"
+#include "oops/method.inline.hpp"
 #include "oops/objArrayKlass.hpp"
 #include "oops/objArrayOop.hpp"
 #include "oops/oop.inline.hpp"
@@ -54,11 +53,16 @@
 #include "runtime/fieldDescriptor.inline.hpp"
 #include "runtime/frame.inline.hpp"
 #include "runtime/handles.inline.hpp"
+#include "runtime/javaThread.hpp"
 #include "runtime/reflection.hpp"
 #include "runtime/safepointVerifiers.hpp"
+#include "runtime/sharedRuntime.hpp"
 #include "runtime/signature.hpp"
-#include "runtime/thread.inline.hpp"
 #include "runtime/vmThread.hpp"
+#include "utilities/macros.hpp"
+#if INCLUDE_JFR
+#include "jfr/jfr.hpp"
+#endif
 
 //------------------------------------------------------------------------------------------------------------------------
 // Implementation of CallInfo
@@ -94,11 +98,6 @@ void CallInfo::set_virtual(Klass* resolved_klass,
   assert(!resolved_method->is_compiled_lambda_form(), "these must be handled via an invokehandle call");
 }
 
-void CallInfo::set_handle(const methodHandle& resolved_method,
-                          Handle resolved_appendix, TRAPS) {
-  set_handle(vmClasses::MethodHandle_klass(), resolved_method, resolved_appendix, CHECK);
-}
-
 void CallInfo::set_handle(Klass* resolved_klass,
                           const methodHandle& resolved_method,
                           Handle resolved_appendix, TRAPS) {
@@ -131,14 +130,14 @@ void CallInfo::set_common(Klass* resolved_klass,
 }
 
 // utility query for unreflecting a method
-CallInfo::CallInfo(Method* resolved_method, Klass* resolved_klass, Thread* thread) {
+CallInfo::CallInfo(Method* resolved_method, Klass* resolved_klass, TRAPS) {
   Klass* resolved_method_holder = resolved_method->method_holder();
   if (resolved_klass == NULL) { // 2nd argument defaults to holder of 1st
     resolved_klass = resolved_method_holder;
   }
   _resolved_klass  = resolved_klass;
-  _resolved_method = methodHandle(thread, resolved_method);
-  _selected_method = methodHandle(thread, resolved_method);
+  _resolved_method = methodHandle(THREAD, resolved_method);
+  _selected_method = methodHandle(THREAD, resolved_method);
   // classify:
   CallKind kind = CallInfo::unknown_kind;
   int index = resolved_method->vtable_index();
@@ -179,9 +178,7 @@ CallInfo::CallInfo(Method* resolved_method, Klass* resolved_klass, Thread* threa
   _call_index = index;
   _resolved_appendix = Handle();
   // Find or create a ResolvedMethod instance for this Method*
-  if (thread->is_Java_thread()) { // exclude DCEVM VM thread
-    set_resolved_method_name(thread->as_Java_thread());
-  }
+  set_resolved_method_name(CHECK);
 
   DEBUG_ONLY(verify());
 }
@@ -190,10 +187,6 @@ void CallInfo::set_resolved_method_name(TRAPS) {
   assert(_resolved_method() != NULL, "Should already have a Method*");
   oop rmethod_name = java_lang_invoke_ResolvedMethodName::find_resolved_method(_resolved_method, CHECK);
   _resolved_method_name = Handle(THREAD, rmethod_name);
-}
-
-void CallInfo::set_resolved_method_name_dcevm(oop rmethod_name, Thread* thread) {
-  _resolved_method_name = Handle(thread, rmethod_name);
 }
 
 #ifdef ASSERT
@@ -293,14 +286,9 @@ void LinkResolver::check_klass_accessibility(Klass* ref_klass, Klass* sel_klass,
   if (!base_klass->is_instance_klass()) {
     return;  // no relevant check to do
   }
-  Klass* refKlassNewest = ref_klass;
-  Klass* baseKlassNewest = base_klass;
-  if (AllowEnhancedClassRedefinition) {
-    refKlassNewest = ref_klass->newest_version();
-    baseKlassNewest = base_klass->newest_version();
-  }
+
   Reflection::VerifyClassAccessResults vca_result =
-    Reflection::verify_class_access(refKlassNewest, InstanceKlass::cast(baseKlassNewest), true);
+    Reflection::verify_class_access(ref_klass, InstanceKlass::cast(base_klass), true);
   if (vca_result != Reflection::ACCESS_OK) {
     ResourceMark rm(THREAD);
     char* msg = Reflection::verify_class_access_msg(ref_klass,
@@ -487,14 +475,12 @@ Method* LinkResolver::lookup_polymorphic_method(const LinkInfo& link_info,
       }
 
       Handle appendix;
-      Handle method_type;
-      Method* result = SystemDictionary::find_method_handle_invoker(
-                                                            klass,
-                                                            name,
-                                                            full_signature,
-                                                            link_info.current_klass(),
-                                                            &appendix,
-                                                            CHECK_NULL);
+      Method* result = SystemDictionary::find_method_handle_invoker(klass,
+                                                                    name,
+                                                                    full_signature,
+                                                                    link_info.current_klass(),
+                                                                    &appendix,
+                                                                    CHECK_NULL);
       if (lt_mh.is_enabled()) {
         LogStream ls(lt_mh);
         ls.print("lookup_polymorphic_method => (via Java) ");
@@ -562,8 +548,7 @@ void LinkResolver::check_method_accessability(Klass* ref_klass,
   // We'll check for the method name first, as that's most likely
   // to be false (so we'll short-circuit out of these tests).
   if (sel_method->name() == vmSymbols::clone_name() &&
-      ( (!AllowEnhancedClassRedefinition && sel_klass == vmClasses::Object_klass()) ||
-        (AllowEnhancedClassRedefinition && sel_klass->newest_version() == vmClasses::Object_klass()->newest_version()) ) &&
+      sel_klass == vmClasses::Object_klass() &&
       resolved_klass->is_array_klass()) {
     // We need to change "protected" to "public".
     assert(flags.is_protected(), "clone not protected?");
@@ -611,6 +596,16 @@ void LinkResolver::check_method_accessability(Klass* ref_klass,
   }
 }
 
+void LinkResolver::resolve_continuation_enter(CallInfo& callinfo, TRAPS) {
+  Klass* resolved_klass = vmClasses::Continuation_klass();
+  Symbol* method_name = vmSymbols::enter_name();
+  Symbol* method_signature = vmSymbols::continuationEnter_signature();
+  Klass*  current_klass = resolved_klass;
+  LinkInfo link_info(resolved_klass, method_name, method_signature, current_klass);
+  Method* resolved_method = resolve_method(link_info, Bytecodes::_invokestatic, CHECK);
+  callinfo.set_static(resolved_klass, methodHandle(THREAD, resolved_method), CHECK);
+}
+
 Method* LinkResolver::resolve_method_statically(Bytecodes::Code code,
                                                 const constantPoolHandle& pool, int index, TRAPS) {
   // This method is used only
@@ -633,7 +628,7 @@ Method* LinkResolver::resolve_method_statically(Bytecodes::Code code,
   Klass* resolved_klass = link_info.resolved_klass();
 
   if (pool->has_preresolution()
-      || (resolved_klass == vmClasses::MethodHandle_klass() &&
+      || ((resolved_klass == vmClasses::MethodHandle_klass() || resolved_klass == vmClasses::VarHandle_klass()) &&
           MethodHandles::is_signature_polymorphic_name(resolved_klass, link_info.name()))) {
     Method* result = ConstantPool::method_at_if_loaded(pool, index);
     if (result != NULL) {
@@ -832,7 +827,7 @@ static void trace_method_resolution(const char* prefix,
 #endif // PRODUCT
 }
 
-// Do linktime resolution of a method in the interface within the context of the specied bytecode.
+// Do linktime resolution of a method in the interface within the context of the specified bytecode.
 Method* LinkResolver::resolve_interface_method(const LinkInfo& link_info, Bytecodes::Code code, TRAPS) {
 
   Klass* resolved_klass = link_info.resolved_klass();
@@ -1009,7 +1004,7 @@ void LinkResolver::resolve_field(fieldDescriptor& fd,
     //     or by the <init> method (in case of an instance field).
     if (is_put && fd.access_flags().is_final()) {
 
-      if (sel_klass != current_klass && (!AllowEnhancedClassRedefinition || sel_klass != current_klass->active_version())) {
+      if (sel_klass != current_klass) {
         ResourceMark rm(THREAD);
         stringStream ss;
         ss.print("Update to %s final field %s.%s attempted from a different class (%s) than the field's declaring class",
@@ -1090,8 +1085,16 @@ void LinkResolver::resolve_static_call(CallInfo& result,
     resolved_method = linktime_resolve_static_method(new_info, CHECK);
   }
 
+  if (resolved_method->is_continuation_enter_intrinsic()
+      && resolved_method->from_interpreted_entry() == NULL) { // does a load_acquire
+    methodHandle mh(THREAD, resolved_method);
+    // Generate a compiled form of the enterSpecial intrinsic.
+    AdapterHandlerLibrary::create_native_wrapper(mh);
+  }
+
   // setup result
   result.set_static(resolved_klass, methodHandle(THREAD, resolved_method), CHECK);
+  JFR_ONLY(Jfr::on_resolution(result, CHECK);)
 }
 
 // throws linktime exceptions
@@ -1297,6 +1300,7 @@ void LinkResolver::runtime_resolve_special_method(CallInfo& result,
 
   // setup result
   result.set_static(resolved_klass, sel_method, CHECK);
+  JFR_ONLY(Jfr::on_resolution(result, CHECK);)
 }
 
 void LinkResolver::resolve_virtual_call(CallInfo& result, Handle recv, Klass* receiver_klass,
@@ -1395,8 +1399,6 @@ void LinkResolver::runtime_resolve_virtual_method(CallInfo& result,
       assert(resolved_method->can_be_statically_bound(), "cannot override this method");
       selected_method = resolved_method;
     } else {
-      // TODO: (DCEVM) explain
-      assert(recv_klass->is_subtype_of(resolved_method->method_holder()), "receiver and resolved method holder are inconsistent");
       selected_method = methodHandle(THREAD, recv_klass->method_at_vtable(vtable_index));
     }
   }
@@ -1419,6 +1421,7 @@ void LinkResolver::runtime_resolve_virtual_method(CallInfo& result,
   }
   // setup result
   result.set_virtual(resolved_klass, resolved_method, selected_method, vtable_index, CHECK);
+  JFR_ONLY(Jfr::on_resolution(result, CHECK);)
 }
 
 void LinkResolver::resolve_interface_call(CallInfo& result, Handle recv, Klass* recv_klass,
@@ -1530,6 +1533,7 @@ void LinkResolver::runtime_resolve_interface_method(CallInfo& result,
     // This sets up the nonvirtual form of "virtual" call (as needed for final and private methods)
     result.set_virtual(resolved_klass, resolved_method, resolved_method, index, CHECK);
   }
+  JFR_ONLY(Jfr::on_resolution(result, CHECK);)
 }
 
 
@@ -1693,14 +1697,31 @@ void LinkResolver::resolve_invokeinterface(CallInfo& result, Handle recv, const 
   resolve_interface_call(result, recv, recvrKlass, link_info, true, CHECK);
 }
 
+bool LinkResolver::resolve_previously_linked_invokehandle(CallInfo& result, const LinkInfo& link_info, const constantPoolHandle& pool, int index, TRAPS) {
+  int cache_index = ConstantPool::decode_cpcache_index(index, true);
+  ConstantPoolCacheEntry* cpce = pool->cache()->entry_at(cache_index);
+  if (!cpce->is_f1_null()) {
+    Klass* resolved_klass = link_info.resolved_klass();
+    methodHandle method(THREAD, cpce->f1_as_method());
+    Handle     appendix(THREAD, cpce->appendix_if_resolved(pool));
+    result.set_handle(resolved_klass, method, appendix, CHECK_false);
+    JFR_ONLY(Jfr::on_resolution(result, CHECK_false);)
+    return true;
+  } else {
+    return false;
+  }
+}
 
 void LinkResolver::resolve_invokehandle(CallInfo& result, const constantPoolHandle& pool, int index, TRAPS) {
-  // This guy is reached from InterpreterRuntime::resolve_invokehandle.
   LinkInfo link_info(pool, index, CHECK);
   if (log_is_enabled(Info, methodhandles)) {
     ResourceMark rm(THREAD);
     log_info(methodhandles)("resolve_invokehandle %s %s", link_info.name()->as_C_string(),
                             link_info.signature()->as_C_string());
+  }
+  { // Check if the call site has been bound already, and short circuit:
+    bool is_done = resolve_previously_linked_invokehandle(result, link_info, pool, index, CHECK);
+    if (is_done) return;
   }
   resolve_handle_call(result, link_info, CHECK);
 }
@@ -1713,9 +1734,10 @@ void LinkResolver::resolve_handle_call(CallInfo& result,
   assert(resolved_klass == vmClasses::MethodHandle_klass() ||
          resolved_klass == vmClasses::VarHandle_klass(), "");
   assert(MethodHandles::is_signature_polymorphic_name(link_info.name()), "");
-  Handle       resolved_appendix;
+  Handle resolved_appendix;
   Method* resolved_method = lookup_polymorphic_method(link_info, &resolved_appendix, CHECK);
   result.set_handle(resolved_klass, methodHandle(THREAD, resolved_method), resolved_appendix, CHECK);
+  JFR_ONLY(Jfr::on_resolution(result, CHECK);)
 }
 
 void LinkResolver::resolve_invokedynamic(CallInfo& result, const constantPoolHandle& pool, int indy_index, TRAPS) {
@@ -1751,7 +1773,7 @@ void LinkResolver::resolve_invokedynamic(CallInfo& result, const constantPoolHan
   // the interpreter or runtime performs a serialized check of
   // the relevant CPCE::f1 field.  This is done by the caller
   // of this method, via CPCE::set_dynamic_call, which uses
-  // an ObjectLocker to do the final serialization of updates
+  // a lock to do the final serialization of updates
   // to CPCE state, including f1.
 
   // Log dynamic info to CDS classlist.
@@ -1797,6 +1819,7 @@ void LinkResolver::resolve_dynamic_call(CallInfo& result,
   bootstrap_specifier.resolve_newly_linked_invokedynamic(result, CHECK);
   // Exceptions::wrap_dynamic_exception not used because
   // set_handle doesn't throw linkage errors
+  JFR_ONLY(Jfr::on_resolution(result, CHECK);)
 }
 
 // Selected method is abstract.

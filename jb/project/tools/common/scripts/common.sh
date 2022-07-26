@@ -1,12 +1,15 @@
-#!/bin/bash -x
+#!/bin/bash
 
-function do_maketest() {
+set -euo pipefail
+set -x
+
+function check_bundle_type_maketest() {
+  # check whether last char is 't', if so remove it
   if [ "${bundle_type: -1}" == "t" ]; then
-    echo ${bundle_type%?}
-    return 1
+    bundle_type="${bundle_type%?}"
+    do_maketest=1
   else
-    echo ${bundle_type}
-    return 0
+    do_maketest=0
   fi
 }
 
@@ -16,21 +19,24 @@ function getVersionProp() {
 
 while getopts ":i?" o; do
     case "${o}" in
-        i)
-            i="incremental build"
-            INC_BUILD=1
-            ;;
+        i) INC_BUILD=1 ;;
     esac
 done
 shift $((OPTIND-1))
 
+if [[ $# -lt 2 ]]; then
+  echo "Required at least two arguments: build_number bundle_type"
+  exit 1
+fi
+
 build_number=$1
 bundle_type=$2
-architecture=$3 # aarch64 or x64
+# shellcheck disable=SC2034
+architecture=${3:-x64} # aarch64 or x64
 
-bundle_type=$(do_maketest)
-do_maketest=$?
-tag_prefix="jbr-"
+check_bundle_type_maketest
+
+tag_prefix="jdk-"
 OPENJDK_TAG=$(git log --simplify-by-decoration --decorate=short --pretty=short | grep "$tag_prefix" | cut -d "(" -f2 | cut -d ")" -f1 | awk '{print $2}' | sort -t "-" -k 2 -g | tail -n 1)
 VERSION_FEATURE=$(getVersionProp "DEFAULT_VERSION_FEATURE")
 VERSION_INTERIM=$(getVersionProp "DEFAULT_VERSION_INTERIM")
@@ -49,15 +55,22 @@ do_reset_changes=0
 do_reset_dcevm=0
 HEAD_REVISION=0
 
+STATIC_CONF_ARGS=""
+common_conf_props_file="jb/project/tools/common/static_conf_args.txt"
+if [[ -f "$common_conf_props_file" ]]; then
+    STATIC_CONF_ARGS=$(<$common_conf_props_file)
+fi
 OS_NAME=$(uname -s)
 # Enable reproducible builds
 TZ=UTC
 export TZ
 SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
 export SOURCE_DATE_EPOCH
-USER=builduser
-export USER
 
+COPYRIGHT_YEAR=""
+BUILD_TIME=""
+TOUCH_TIME=""
+REPRODUCIBLE_TAR_OPTS=""
 case "$OS_NAME" in
     Linux)
         COPYRIGHT_YEAR="$(date --utc --date=@$SOURCE_DATE_EPOCH +%Y)"
@@ -83,7 +96,8 @@ REPRODUCIBLE_BUILD_OPTS="--enable-reproducible-build
   --with-source-date=$SOURCE_DATE_EPOCH
   --with-hotspot-build-time=$BUILD_TIME
   --with-copyright-year=$COPYRIGHT_YEAR
-  --disable-absolute-paths-in-output"
+  --disable-absolute-paths-in-output
+  --with-build-user=builduser"
 
 function zip_native_debug_symbols() {
   image_bundle_path=$(echo $1 | cut -d"/" -f-4)
@@ -126,7 +140,7 @@ function update_jsdk_mods() {
   # re-create java.base.jmod with updated hashes
   tmp=.java.base.$$.tmp
   mkdir "$tmp" || exit $?
-  hash_modules=$("$JSDK"/bin/jmod describe "$__orig_jsdk_mods"/java.base.jmod | grep hashes | awk '{print $2}' | tr '\n' '|' | sed s/\|$//) || exit $?
+  hash_modules=$("$__jsdk"/bin/jmod describe "$__orig_jsdk_mods"/java.base.jmod | grep hashes | awk '{print $2}' | tr '\n' '|' | sed s/\|$//) || exit $?
   "$__jsdk"/bin/jmod extract --dir "$tmp" "$__orig_jsdk_mods"/java.base.jmod || exit $?
   rm "$__updated_jsdk_mods"/java.base.jmod || exit $? # temp exclude from path
   "$__jsdk"/bin/jmod \

@@ -419,7 +419,15 @@ modules. If multiple modules are specified, they should be separated by space
 
 #### RETRY_COUNT
 
-Retry failed tests up to a set number of times. Defaults to 0.
+Retry failed tests up to a set number of times, until they pass.
+This allows to pass the tests with intermittent failures.
+Defaults to 0.
+
+#### REPEAT_COUNT
+
+Repeat the tests up to a set number of times, stopping at first failure.
+This helps to reproduce intermittent test failures.
+Defaults to 0.
 
 ### Gtest keywords
 
@@ -506,7 +514,7 @@ $ make test TEST="jtreg:test/hotspot/jtreg/containers/docker" \
 
 If your locale is non-US, some tests are likely to fail. To work around this
 you can set the locale to US. On Unix platforms simply setting `LANG="en_US"`
-in the environment before running tests should work. On Windows, setting
+in the environment before running tests should work. On Windows or MacOS, setting
 `JTREG="VM_OPTIONS=-Duser.language=en -Duser.country=US"` helps for most, but
 not all test cases.
 

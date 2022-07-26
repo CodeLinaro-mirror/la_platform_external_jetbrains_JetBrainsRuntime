@@ -57,11 +57,15 @@ import java.util.List;
 import com.jetbrains.desktop.JBRFileDialog;
 import sun.awt.AWTAccessor;
 import sun.java2d.pipe.Region;
+import sun.lwawt.LWWindowPeer;
 import sun.security.action.GetBooleanAction;
+import sun.util.logging.PlatformLogger;
 
 import static com.jetbrains.desktop.JBRFileDialog.*;
 
 class CFileDialog implements FileDialogPeer {
+
+    private static final PlatformLogger log = PlatformLogger.getLogger("sun.lwawt.macosx.CFileDialog");
 
     private class Task implements Runnable {
 
@@ -90,7 +94,16 @@ class CFileDialog implements FileDialogPeer {
                     title = " ";
                 }
 
-                String[] userFileNames = nativeRunFileDialog(title,
+                Window owner = target.getOwner();
+
+                long ownerPtr = owner == null ?
+                        0L :
+                        ((CPlatformWindow) ((LWWindowPeer) AWTAccessor.getComponentAccessor().getPeer(owner))
+                                .getPlatformWindow()).executeGet(ptr -> ptr);
+
+                String[] userFileNames = nativeRunFileDialog(
+                        ownerPtr,
+                        title,
                         dialogMode,
                         target.isMultipleMode(),
                         navigateApps,
@@ -105,7 +118,7 @@ class CFileDialog implements FileDialogPeer {
                 String file = null;
                 File[] files = null;
 
-                if (userFileNames != null) {
+                if (userFileNames != null && userFileNames.length > 0) {
                     // the dialog wasn't cancelled
                     int filesNumber = userFileNames.length;
                     files = new File[filesNumber];
@@ -166,6 +179,10 @@ class CFileDialog implements FileDialogPeer {
      * If the dialog doesn't have a file filter return true.
      */
     private boolean queryFilenameFilter(final String inFilename) {
+        if (!Boolean.getBoolean("awt.file.dialog.enable.filter")) {
+            return true;
+        }
+
         boolean ret = false;
 
         final FilenameFilter ff = target.getFilenameFilter();
@@ -175,12 +192,16 @@ class CFileDialog implements FileDialogPeer {
         if (!fileObj.isDirectory()) {
             File directoryObj = new File(fileObj.getParent());
             String nameOnly = fileObj.getName();
-            ret = ff.accept(directoryObj, nameOnly);
+            try {
+                ret = ff.accept(directoryObj, nameOnly);
+            } catch (Throwable e) {
+                log.warning("FilenameFilter call exception occurred", e);
+            }
         }
         return ret;
     }
 
-    private native String[] nativeRunFileDialog(String title, int mode,
+    private native String[] nativeRunFileDialog(long ownerPtr, String title, int mode,
             boolean multipleMode, boolean shouldNavigateApps,
             boolean canChooseDirectories, boolean canChooseFiles,
             boolean canCreateDirectories, boolean hasFilenameFilter,

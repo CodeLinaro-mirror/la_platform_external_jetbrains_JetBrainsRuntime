@@ -67,7 +67,6 @@ import sun.font.FontDesignMetrics;
 import sun.font.FontLineMetrics;
 import sun.font.FontManager;
 import sun.font.FontManagerFactory;
-import sun.font.FontSubstitution;
 import sun.font.FontUtilities;
 import sun.font.GlyphLayout;
 import sun.font.StandardGlyphVector;
@@ -265,11 +264,6 @@ public class Font implements java.io.Serializable
     private static class FontAccessImpl extends FontAccess {
         public Font2D getFont2D(Font font) {
             return font.getFont2D();
-        }
-
-        @Override
-        public Font2D getFont2DWithSubstitution(Font font) {
-            return font.getFont2DWithSubstitution();
         }
 
         public void setFont2D(Font font, Font2DHandle handle) {
@@ -547,11 +541,6 @@ public class Font implements java.io.Serializable
          * original one is marked invalid
          */
         return font2DHandle.font2D;
-    }
-
-    private Font2D getFont2DWithSubstitution() {
-        Font2D font2D = getFont2D();
-        return font2D instanceof FontSubstitution ? ((FontSubstitution) font2D).getCompositeFont2D() : font2D;
     }
 
     /**
@@ -1157,7 +1146,7 @@ public class Font implements java.io.Serializable
                 if (tracker != null) {
                     tracker.set(tFile, outStream);
                 }
-                try {
+                try (outStream) { /* don't close the input stream */
                     byte[] buf = new byte[8192];
                     for (;;) {
                         int bytesRead = fontStream.read(buf);
@@ -1178,9 +1167,6 @@ public class Font implements java.io.Serializable
                         }
                         outStream.write(buf, 0, bytesRead);
                     }
-                    /* don't close the input stream */
-                } finally {
-                    outStream.close();
                 }
                 /* After all references to a Font2D are dropped, the file
                  * will be removed. To support long-lived AppContexts,
@@ -1747,8 +1733,7 @@ public class Font implements java.io.Serializable
 
         if (sizeIndex > 0 && sizeIndex+1 < strlen) {
             try {
-                fontSize =
-                    Integer.valueOf(str.substring(sizeIndex+1)).intValue();
+                fontSize = Integer.parseInt(str.substring(sizeIndex+1));
                 if (fontSize <= 0) {
                     fontSize = 12;
                 }
@@ -1972,7 +1957,7 @@ public class Font implements java.io.Serializable
      * @throws ClassNotFoundException if the class of a serialized object could
      *         not be found
      * @throws IOException if an I/O error occurs
-     * @serial
+     *
      * @see #writeObject(java.io.ObjectOutputStream)
      */
     @Serial
@@ -2252,7 +2237,7 @@ public class Font implements java.io.Serializable
      * @since 1.2
      */
     public boolean canDisplay(char c){
-        return getFont2DWithSubstitution().canDisplay(c);
+        return getFont2D().canDisplay(c);
     }
 
     /**
@@ -2273,7 +2258,7 @@ public class Font implements java.io.Serializable
             throw new IllegalArgumentException("invalid code point: " +
                                                Integer.toHexString(codePoint));
         }
-        return getFont2DWithSubstitution().canDisplay(codePoint);
+        return getFont2D().canDisplay(codePoint);
     }
 
     /**
@@ -2294,7 +2279,7 @@ public class Font implements java.io.Serializable
      * @since 1.2
      */
     public int canDisplayUpTo(String str) {
-        Font2D font2d = getFont2DWithSubstitution();
+        Font2D font2d = getFont2D();
         int len = str.length();
         for (int i = 0; i < len; i++) {
             char c = str.charAt(i);
@@ -2332,7 +2317,7 @@ public class Font implements java.io.Serializable
      * @since 1.2
      */
     public int canDisplayUpTo(char[] text, int start, int limit) {
-        Font2D font2d = getFont2DWithSubstitution();
+        Font2D font2d = getFont2D();
         for (int i = start; i < limit; i++) {
             char c = text[i];
             if (font2d.canDisplay(c)) {
@@ -2367,7 +2352,7 @@ public class Font implements java.io.Serializable
      * @since 1.2
      */
     public int canDisplayUpTo(CharacterIterator iter, int start, int limit) {
-        Font2D font2d = getFont2DWithSubstitution();
+        Font2D font2d = getFont2D();
         char c = iter.setIndex(start);
         for (int i = start; i < limit; i++, c = iter.next()) {
             if (font2d.canDisplay(c)) {
@@ -2937,6 +2922,7 @@ public class Font implements java.io.Serializable
      * after the indicated limit should not be examined.
      */
     public static final int LAYOUT_NO_LIMIT_CONTEXT = 4;
+
 
     private static void applyTransform(AffineTransform trans, AttributeValues values) {
         if (trans == null) {

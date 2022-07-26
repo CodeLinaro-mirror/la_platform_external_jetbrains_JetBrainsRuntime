@@ -25,7 +25,6 @@
 
 #define CFUNC(x) _##x
 
-        .file "copy_bsd_aarch64.S"
         .global CFUNC(_Copy_conjoint_words)
         .global CFUNC(_Copy_disjoint_words)
 

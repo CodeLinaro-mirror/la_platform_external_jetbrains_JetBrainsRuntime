@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,15 +25,16 @@
 
 package jdk.javadoc.internal.doclets.toolkit.util;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
 import javax.lang.model.element.Element;
+import javax.lang.model.element.ElementKind;
+import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.ModuleElement;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 
 import com.sun.source.doctree.AttributeTree;
@@ -75,19 +76,13 @@ import jdk.javadoc.internal.doclets.toolkit.BaseConfiguration;
 import static com.sun.source.doctree.DocTree.Kind.*;
 
 /**
- *  A utility class.
- *
- *  <p><b>This is NOT part of any supported API.
- *  If you write code that depends on this, you do so at your own risk.
- *  This code and its internal interfaces are subject to change or
- *  deletion without notice.</b>
+ * A utility class.
  */
 public class CommentHelper {
     private final BaseConfiguration configuration;
     public final TreePath path;
     public final DocCommentTree dcTree;
     public final Element element;
-    private Element overriddenElement;
 
     public static final String SPACER = " ";
 
@@ -104,13 +99,6 @@ public class CommentHelper {
         this.element = element;
         this.path = path;
         this.dcTree = dcTree;
-    }
-
-    public void setOverrideElement(Element ove) {
-        if (this.element == ove) {
-            throw new AssertionError("cannot set given element as overridden element");
-        }
-        overriddenElement = ove;
     }
 
     public String getTagName(DocTree dtree) {
@@ -137,19 +125,8 @@ public class CommentHelper {
         }
     }
 
-    public boolean isTypeParameter(DocTree dtree) {
-        if (dtree.getKind() == PARAM) {
-            return ((ParamTree)dtree).isTypeParameter();
-        }
-        return false;
-    }
-
-    public String getParameterName(DocTree dtree) {
-        if (dtree.getKind() == PARAM) {
-            return ((ParamTree) dtree).getName().toString();
-        } else {
-            return null;
-        }
+    public String getParameterName(ParamTree p) {
+        return p.getName().getName().toString();
     }
 
     Element getElement(ReferenceTree rtree) {
@@ -170,7 +147,10 @@ public class CommentHelper {
             return null;
         }
         DocTrees doctrees = configuration.docEnv.getDocTrees();
-        return doctrees.getElement(docTreePath);
+        // Workaround for JDK-8284193
+        // DocTrees.getElement(DocTreePath) returns javac-internal Symbols
+        var e = doctrees.getElement(docTreePath);
+        return e == null || e.getKind() == ElementKind.CLASS && e.asType().getKind() != TypeKind.DECLARED ? null : e;
     }
 
     public TypeMirror getType(ReferenceTree rtree) {
@@ -334,7 +314,7 @@ public class CommentHelper {
             public String visitSee(SeeTree node, Void p) {
                 Utils utils = configuration.utils;
                 return node.getReference().stream()
-                        .filter(utils::isText)
+                        .filter(dt -> dt.getKind() == DocTree.Kind.TEXT)
                         .map(dt -> ((TextTree) dt).getBody())
                         .collect(Collectors.joining());
             }
@@ -347,8 +327,12 @@ public class CommentHelper {
     }
 
     public TypeElement getReferencedClass(DocTree dtree) {
-        Utils utils = configuration.utils;
         Element e = getReferencedElement(dtree);
+        return getReferencedClass(e);
+    }
+
+    public TypeElement getReferencedClass(Element e) {
+        Utils utils = configuration.utils;
         if (e == null) {
             return null;
         } else if (utils.isTypeElement(e)) {
@@ -361,16 +345,24 @@ public class CommentHelper {
 
     public String getReferencedModuleName(DocTree dtree) {
         String s = getReferencedSignature(dtree);
-        if (s == null || s.contains("#") || s.contains("(")) {
+        return getReferencedModuleName(s);
+    }
+
+    public String getReferencedModuleName(String signature) {
+        if (signature == null || signature.contains("#") || signature.contains("(")) {
             return null;
         }
-        int n = s.indexOf("/");
-        return (n == -1) ? s : s.substring(0, n);
+        int n = signature.indexOf("/");
+        return (n == -1) ? signature : signature.substring(0, n);
     }
 
     public Element getReferencedMember(DocTree dtree) {
-        Utils utils = configuration.utils;
         Element e = getReferencedElement(dtree);
+        return getReferencedMember(e);
+    }
+
+    public Element getReferencedMember(Element e) {
+        Utils utils = configuration.utils;
         if (e == null) {
             return null;
         }
@@ -379,15 +371,23 @@ public class CommentHelper {
 
     public String getReferencedMemberName(DocTree dtree) {
         String s = getReferencedSignature(dtree);
-        if (s == null) {
+        return getReferencedMemberName(s);
+    }
+
+    public String getReferencedMemberName(String signature) {
+        if (signature == null) {
             return null;
         }
-        int n = s.indexOf("#");
-        return (n == -1) ? null : s.substring(n + 1);
+        int n = signature.indexOf("#");
+        return (n == -1) ? null : signature.substring(n + 1);
     }
 
     public PackageElement getReferencedPackage(DocTree dtree) {
         Element e = getReferencedElement(dtree);
+        return getReferencedPackage(e);
+    }
+
+    public PackageElement getReferencedPackage(Element e) {
         if (e != null) {
             Utils utils = configuration.utils;
             return utils.containingPackage(e);
@@ -397,12 +397,15 @@ public class CommentHelper {
 
     public ModuleElement getReferencedModule(DocTree dtree) {
         Element e = getReferencedElement(dtree);
+        return getReferencedModule(e);
+    }
+
+    public ModuleElement getReferencedModule(Element e) {
         if (e != null && configuration.utils.isModule(e)) {
             return (ModuleElement) e;
         }
         return null;
     }
-
 
     public List<? extends DocTree> getFirstSentenceTrees(List<? extends DocTree> body) {
         return configuration.docEnv.getDocTrees().getFirstSentence(body);
@@ -544,12 +547,6 @@ public class CommentHelper {
         return dtree.getKind() == SEE ? ((SeeTree)dtree).getReference() : null;
     }
 
-    public ReferenceTree getExceptionName(DocTree dtree) {
-        return (dtree.getKind() == THROWS || dtree.getKind() == EXCEPTION)
-                ? ((ThrowsTree)dtree).getExceptionName()
-                : null;
-    }
-
     public IdentifierTree getName(DocTree dtree) {
         switch (dtree.getKind()) {
             case PARAM:
@@ -563,10 +560,9 @@ public class CommentHelper {
 
     public List<? extends DocTree> getTags(DocTree dtree) {
         return new SimpleDocTreeVisitor<List<? extends DocTree>, Void>() {
-            List<? extends DocTree> asList(String content) {
-                List<DocTree> out = new ArrayList<>();
-                out.add(configuration.cmtUtils.makeTextTree(content));
-                return out;
+
+            private List<DocTree> asList(String content) {
+                return List.of(configuration.cmtUtils.makeTextTree(content));
             }
 
             @Override
@@ -596,7 +592,7 @@ public class CommentHelper {
 
             @Override
             public List<? extends DocTree> visitProvides(ProvidesTree node, Void p) {
-                 return node.getDescription();
+                return node.getDescription();
             }
 
             @Override
@@ -616,7 +612,7 @@ public class CommentHelper {
 
             @Override
             public List<? extends DocTree> visitParam(ParamTree node, Void p) {
-               return node.getDescription();
+                return node.getDescription();
             }
 
             @Override
@@ -646,7 +642,7 @@ public class CommentHelper {
 
             @Override
             public List<? extends DocTree> visitThrows(ThrowsTree node, Void p) {
-                 return node.getDescription();
+                return node.getDescription();
             }
 
             @Override
@@ -656,12 +652,12 @@ public class CommentHelper {
 
             @Override
             public List<? extends DocTree> visitUses(UsesTree node, Void p) {
-                 return node.getDescription();
+                return node.getDescription();
             }
 
             @Override
             protected List<? extends DocTree> defaultAction(DocTree node, Void p) {
-               return Collections.emptyList();
+                return List.of();
             }
         }.visit(dtree, null);
     }
@@ -679,22 +675,28 @@ public class CommentHelper {
     }
 
     public DocTreePath getDocTreePath(DocTree dtree) {
-        if (dcTree == null && overriddenElement != null) {
-            // This is an inherited comment, return path from ancestor.
-            return configuration.utils.getCommentHelper(overriddenElement).getDocTreePath(dtree);
-        } else if (path == null || dcTree == null || dtree == null) {
+        if (dcTree == null && element instanceof ExecutableElement ee) {
+            return getInheritedDocTreePath(dtree, ee);
+        }
+        if (path == null || dcTree == null || dtree == null) {
             return null;
         }
         DocTreePath dtPath = DocTreePath.getPath(path, dcTree, dtree);
-        if (dtPath == null && overriddenElement != null) {
+        if (dtPath == null && element instanceof ExecutableElement ee) {
             // The overriding element has a doc tree, but it doesn't contain what we're looking for.
-            return configuration.utils.getCommentHelper(overriddenElement).getDocTreePath(dtree);
+            return getInheritedDocTreePath(dtree, ee);
         }
         return dtPath;
     }
 
-    public Element getOverriddenElement() {
-        return overriddenElement;
+    private DocTreePath getInheritedDocTreePath(DocTree dtree, ExecutableElement ee) {
+        Utils utils = configuration.utils;
+        DocFinder.Output inheritedDoc =
+                DocFinder.search(configuration,
+                        new DocFinder.Input(utils, ee));
+        return inheritedDoc.holder == ee
+                ? null
+                : utils.getCommentHelper(inheritedDoc.holder).getDocTreePath(dtree);
     }
 
     /**
@@ -708,14 +710,6 @@ public class CommentHelper {
         sb.append(element.getEnclosingElement());
         sb.append("::");
         sb.append(element);
-        sb.append(", overriddenElement=");
-        if (overriddenElement != null) {
-            sb.append(overriddenElement.getEnclosingElement());
-            sb.append("::");
-            sb.append(overriddenElement);
-        } else {
-            sb.append("<none>");
-        }
         sb.append('}');
         return sb.toString();
     }

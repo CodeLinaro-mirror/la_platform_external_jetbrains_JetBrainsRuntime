@@ -38,7 +38,6 @@ import sun.util.logging.PlatformLogger;
 /**
  * A collection of utility methods.
  */
-@SuppressWarnings("removal")
 public final class FontUtilities {
 
     public static boolean isLinux;
@@ -58,7 +57,11 @@ public final class FontUtilities {
 
     // This static initializer block figures out the OS constants.
     static {
+        initStatic();
+    }
 
+    @SuppressWarnings("removal")
+    private static void initStatic() {
         AccessController.doPrivileged(new PrivilegedAction<Object>() {
             @SuppressWarnings("deprecation") // PlatformLogger.setLevel is deprecated.
             @Override
@@ -155,7 +158,7 @@ public final class FontUtilities {
      * where the caller interprets 'layout' to mean any case where
      * one 'char' (ie the java type char) does not map to one glyph
      */
-    public static final int MAX_LAYOUT_CHARCODE = 0x20F0;
+    public static final int MAX_LAYOUT_CHARCODE = CharToGlyphMapper.VSS_END;
 
     /**
      * Calls the private getFont2D() method in java.awt.Font objects.
@@ -166,10 +169,6 @@ public final class FontUtilities {
      */
     public static Font2D getFont2D(Font font) {
         return FontAccess.getFontAccess().getFont2D(font);
-    }
-
-    public static Font2D getFont2DWithSubstitution(Font font) {
-        return FontAccess.getFontAccess().getFont2DWithSubstitution(font);
     }
 
     /**
@@ -326,7 +325,19 @@ public final class FontUtilities {
         else if (code >= 0x206a && code <= 0x206f) { // directional control
             return true;
         }
-        else if (code >= 0x20d0) { // U+20D0 - U+20F0 combining diacritical marks for symbols
+        else if (code >= 0x20d0 && code <= 0x20f0) { // U+20D0 - U+20F0 combining diacritical marks for symbols
+            return true;
+        }
+        else if (code >= 0x1f1e6 && code <= 0x1f1ff) { // U+1F1E6 - U+1F1FF flag letters https://emojipedia.org/emoji-flag-sequence/
+            return true;
+        }
+        else if (code == 0x1f3f4) { // black flag https://emojipedia.org/emoji-tag-sequence/
+            return true;
+        }
+        else if (code >= 0x1f3fb && code <= 0x1f3ff) { // U+1F3FB - U+1F3FF emoji modifiers
+            return true;
+        }
+        else if (CharToGlyphMapper.isVariationSelector(code)) {
             return true;
         }
         return false;
@@ -437,10 +448,9 @@ public final class FontUtilities {
         FontManager fm = FontManagerFactory.getInstance();
         Font2D dialog = fm.findFont2D("dialog", font.getStyle(), FontManager.NO_FALLBACK);
         // Should never be null, but MACOSX fonts are not CompositeFonts
-        if (dialog == null || !(dialog instanceof CompositeFont)) {
+        if (!(dialog instanceof CompositeFont dialog2D)) {
             return fuir;
         }
-        CompositeFont dialog2D = (CompositeFont)dialog;
         PhysicalFont physicalFont = (PhysicalFont)font2D;
         ConcurrentHashMap<PhysicalFont, CompositeFont> compMap = compMapRef.get();
         if (compMap == null) { // Its been collected.

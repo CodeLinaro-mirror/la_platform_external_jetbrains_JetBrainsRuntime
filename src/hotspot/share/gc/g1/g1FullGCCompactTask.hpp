@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,8 +40,6 @@ protected:
 
 private:
   void compact_region(HeapRegion* hr);
-  void compact_region_dcevm(HeapRegion* hr, GrowableArray<HeapWord*>* rescued_oops_values, 
-    GrowableArrayIterator<HeapWord*>* rescue_oops_it);
 
 public:
   G1FullGCCompactTask(G1FullCollector* collector) :
@@ -49,29 +47,12 @@ public:
     _claimer(collector->workers()) { }
   void work(uint worker_id);
   void serial_compaction();
-  void serial_compaction_dcevm();
 
   class G1CompactRegionClosure : public StackObj {
     G1CMBitMap* _bitmap;
-
+    void clear_in_bitmap(oop object);
   public:
     G1CompactRegionClosure(G1CMBitMap* bitmap) : _bitmap(bitmap) { }
-    size_t apply(oop object);
-  };
-
-  class G1CompactRegionClosureDcevm : public StackObj {
-    G1CMBitMap* _bitmap;
-    GrowableArray<HeapWord*>* _rescued_oops_values;
-    GrowableArrayIterator<HeapWord*>* _rescue_oops_it;
-
-  public:
-    G1CompactRegionClosureDcevm(G1CMBitMap* bitmap,
-                           GrowableArray<HeapWord*>* rescued_oops_values,
-                           GrowableArrayIterator<HeapWord*>* rescue_oops_it) :
-      _bitmap(bitmap),
-      _rescued_oops_values(rescued_oops_values),
-      _rescue_oops_it(rescue_oops_it)
-      { }
     size_t apply(oop object);
   };
 };

@@ -1,4 +1,7 @@
-#!/bin/bash -x
+#!/bin/bash
+
+set -euo pipefail
+set -x
 
 # The following parameters must be specified:
 #   build_number - specifies the number of JetBrainsRuntime build
@@ -32,6 +35,7 @@ function do_configure {
     --with-version-opt=b"$build_number" \
     --with-boot-jdk="$BOOT_JDK" \
     --enable-cds=yes \
+    $STATIC_CONF_ARGS \
     $REPRODUCIBLE_BUILD_OPTS \
     $WITH_ZIPPED_NATIVE_DEBUG_SYMBOLS \
     || do_exit $?
@@ -53,40 +57,43 @@ function create_image_bundle {
   __modules=$4
 
   libc_type_suffix=''
+  fastdebug_infix=''
 
   if is_musl; then libc_type_suffix='musl-' ; fi
 
   [ "$bundle_type" == "fd" ] && [ "$__arch_name" == "$JBRSDK_BUNDLE" ] && __bundle_name=$__arch_name && fastdebug_infix="fastdebug-"
   JBR=${__bundle_name}-${JBSDK_VERSION}-linux-${libc_type_suffix}x64-${fastdebug_infix}b${build_number}
+  __root_dir=${__bundle_name}-${JBSDK_VERSION}-x64-${fastdebug_infix:-}b${build_number%%.*}
 
   echo Running jlink....
-  [ -d "$IMAGES_DIR"/"$__arch_name" ] && rm -rf "${IMAGES_DIR:?}"/"$__arch_name"
+  [ -d "$IMAGES_DIR"/"$__root_dir" ] && rm -rf "${IMAGES_DIR:?}"/"$__root_dir"
   $JSDK/bin/jlink \
     --module-path "$__modules_path" --no-man-pages --compress=2 \
-    --add-modules "$__modules" --output "$IMAGES_DIR"/"$__arch_name"
+    --add-modules "$__modules" --output "$IMAGES_DIR"/"$__root_dir"
 
-  grep -v "^JAVA_VERSION" "$JSDK"/release | grep -v "^MODULES" >> "$IMAGES_DIR"/"$__arch_name"/release
+  grep -v "^JAVA_VERSION" "$JSDK"/release | grep -v "^MODULES" >> "$IMAGES_DIR"/"$__root_dir"/release
   if [ "$__arch_name" == "$JBRSDK_BUNDLE" ]; then
-    sed 's/JBR/JBRSDK/g' "$IMAGES_DIR"/"$__arch_name"/release > release
-    mv release "$IMAGES_DIR"/"$__arch_name"/release
-    copy_jmods "$__modules" "$__modules_path" "$IMAGES_DIR"/"$__arch_name"/jmods
+    sed 's/JBR/JBRSDK/g' "$IMAGES_DIR"/"$__root_dir"/release > release
+    mv release "$IMAGES_DIR"/"$__root_dir"/release
+    cp $IMAGES_DIR/jdk/lib/src.zip "$IMAGES_DIR"/"$__root_dir"/lib
+    copy_jmods "$__modules" "$__modules_path" "$IMAGES_DIR"/"$__root_dir"/jmods
     zip_native_debug_symbols $IMAGES_DIR/jdk "${JBR}_diz"
   fi
 
   # jmod does not preserve file permissions (JDK-8173610)
-  [ -f "$IMAGES_DIR"/"$__arch_name"/lib/jcef_helper ] && chmod a+x "$IMAGES_DIR"/"$__arch_name"/lib/jcef_helper
+  [ -f "$IMAGES_DIR"/"$__root_dir"/lib/jcef_helper ] && chmod a+x "$IMAGES_DIR"/"$__root_dir"/lib/jcef_helper
 
   echo Creating "$JBR".tar.gz ...
 
   (cd "$IMAGES_DIR" &&
-    find "$__arch_name" -print0 | LC_ALL=C sort -z | \
+    find "$__root_dir" -print0 | LC_ALL=C sort -z | \
     tar $REPRODUCIBLE_TAR_OPTS \
       --no-recursion --null -T - -cf "$JBR".tar) || do_exit $?
   mv "$IMAGES_DIR"/"$JBR".tar ./"$JBR".tar
   [ -f "$JBR".tar.gz ] && rm "$JBR.tar.gz"
   touch -c -d "@$SOURCE_DATE_EPOCH" "$JBR".tar
   gzip "$JBR".tar || do_exit $?
-  rm -rf "${IMAGES_DIR:?}"/"$__arch_name"
+  rm -rf "${IMAGES_DIR:?}"/"$__root_dir"
 }
 
 WITH_DEBUG_LEVEL="--with-debug-level=release"
@@ -107,7 +114,7 @@ case "$bundle_type" in
     ;;
 esac
 
-if [ -z "$INC_BUILD" ]; then
+if [ -z "${INC_BUILD:-}" ]; then
   do_configure || do_exit $?
   make clean CONF=$RELEASE_NAME || do_exit $?
 fi
@@ -127,6 +134,9 @@ if [ "$bundle_type" == "jcef" ] || [ "$bundle_type" == "fd" ]; then
   cp $JCEF_PATH/jmods/* $JSDK_MODS_DIR # $JSDK/jmods is not changed
 
   jbr_name_postfix="_${bundle_type}"
+  [ "$bundle_type" != "fd" ] && jbrsdk_name_postfix="_${bundle_type}"
+else
+  jbr_name_postfix=""
 fi
 
 # create runtime image bundle

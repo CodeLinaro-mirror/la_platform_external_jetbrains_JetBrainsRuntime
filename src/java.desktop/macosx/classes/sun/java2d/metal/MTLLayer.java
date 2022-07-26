@@ -29,10 +29,13 @@ import sun.java2d.NullSurfaceData;
 import sun.java2d.SurfaceData;
 import sun.lwawt.LWWindowPeer;
 import sun.lwawt.macosx.CFLayer;
+import sun.util.logging.PlatformLogger;
+
 import java.awt.GraphicsConfiguration;
 import java.awt.Insets;
 
 public class MTLLayer extends CFLayer {
+    private static final PlatformLogger logger = PlatformLogger.getLogger(MTLLayer.class.getName());
 
     private native long nativeCreateLayer();
     private static native void nativeSetScale(long layerPtr, double scale);
@@ -41,6 +44,7 @@ public class MTLLayer extends CFLayer {
     private static native void nativeSetInsets(long layerPtr, int top, int left);
     private static native void validate(long layerPtr, MTLSurfaceData mtlsd);
     private static native void blitTexture(long layerPtr);
+    private static native void nativeSetOpaque(long layerPtr, boolean opaque);
 
     private int scale = 1;
 
@@ -49,9 +53,17 @@ public class MTLLayer extends CFLayer {
 
         setPtr(nativeCreateLayer());
         this.peer = peer;
+
+        MTLGraphicsConfig gc = (MTLGraphicsConfig)getGraphicsConfiguration();
+        if (logger.isLoggable(PlatformLogger.Level.FINE)) {
+            logger.fine("device = " + (gc != null ? gc.getDevice() : "null"));
+        }
+        if (gc != null) {
+            setScale(gc.getDevice().getScaleFactor());
+        }
     }
 
-    public SurfaceData replaceSurfaceData() {
+    public SurfaceData replaceSurfaceData(int scale) {
         if (getBounds().isEmpty()) {
             surfaceData = NullSurfaceData.theInstance;
             return surfaceData;
@@ -61,7 +73,10 @@ public class MTLLayer extends CFLayer {
         // and blits the buffer to the layer surface (in display callback)
         MTLGraphicsConfig gc = (MTLGraphicsConfig)getGraphicsConfiguration();
         surfaceData = gc.createSurfaceData(this);
-        setScale(gc.getDevice().getScaleFactor());
+        if (scale <= 0) {
+            scale = gc.getDevice().getScaleFactor();
+        }
+        setScale(scale);
         if (peer != null) {
             Insets insets = peer.getInsets();
             execute(ptr -> nativeSetInsets(ptr, insets.top, insets.left));
@@ -99,12 +114,20 @@ public class MTLLayer extends CFLayer {
 
     private void setScale(final int _scale) {
         if (scale != _scale) {
+            if (logger.isLoggable(PlatformLogger.Level.FINE)) {
+                MTLGraphicsConfig gc = (MTLGraphicsConfig)getGraphicsConfiguration();
+                logger.fine("current scale = " + scale + ", new scale = " + _scale + " (device = " + (gc != null ? gc.getDevice() : "null") + ")");
+            }
             scale = _scale;
             execute(ptr -> nativeSetScale(ptr, scale));
         }
     }
 
-    // ----------------------------------------------------------------------
+    @Override
+    public void setOpaque(boolean opaque) {
+        execute(ptr -> nativeSetOpaque(ptr, opaque));
+    }
+// ----------------------------------------------------------------------
     // NATIVE CALLBACKS
     // ----------------------------------------------------------------------
 

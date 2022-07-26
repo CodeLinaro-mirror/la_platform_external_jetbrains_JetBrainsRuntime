@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,23 +25,23 @@
 
 package sun.font;
 
-import java.lang.ref.WeakReference;
 import java.awt.FontFormatException;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.io.UnsupportedEncodingException;
 import java.lang.ref.WeakReference;
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.BufferUnderflowException;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
+import java.util.HashMap;
+import java.util.HashSet;
+
 import sun.java2d.Disposer;
 import sun.java2d.DisposerRecord;
-import java.util.HashSet;
-import java.util.HashMap;
-import java.awt.Font;
+
+import static java.nio.charset.StandardCharsets.US_ASCII;
 
 /*
  * Adobe Technical Note 5040 details the format of PFB files.
@@ -208,15 +208,13 @@ public class Type1Font extends FileFont {
                 bbuf.position(0);
                 bufferRef = new WeakReference<>(bbuf);
                 fc.close();
-            } catch (NullPointerException e) {
-                throw new FontFormatException(e.toString());
             } catch (ClosedChannelException e) {
                 /* NIO I/O is interruptible, recurse to retry operation.
                  * Clear interrupts before recursing in case NIO didn't.
                  */
                 Thread.interrupted();
                 return getBuffer();
-            } catch (IOException e) {
+            } catch (NullPointerException | IOException e) {
                 throw new FontFormatException(e.toString());
             }
         }
@@ -245,7 +243,6 @@ public class Type1Font extends FileFont {
             });
             fc = raf.getChannel();
             while (buffer.remaining() > 0 && fc.read(buffer) != -1) {}
-        } catch (NullPointerException npe) {
         } catch (ClosedChannelException e) {
             try {
                 if (raf != null) {
@@ -259,7 +256,7 @@ public class Type1Font extends FileFont {
              */
             Thread.interrupted();
             readFile(buffer);
-        } catch (IOException e) {
+        } catch (NullPointerException | IOException e) {
         } finally  {
             if (raf != null) {
                 try {
@@ -345,8 +342,6 @@ public class Type1Font extends FileFont {
                 } else {
                     throw new FontFormatException("bad pfb file");
                 }
-            } catch (BufferUnderflowException bue) {
-                throw new FontFormatException(bue.toString());
             } catch (Exception e) {
                 throw new FontFormatException(e.toString());
             }
@@ -609,11 +604,7 @@ public class Type1Font extends FileFont {
         byte[] nameBytes = new byte[pos2-pos1-1];
         bb.position(pos1);
         bb.get(nameBytes);
-        try {
-            return new String(nameBytes, "US-ASCII");
-        } catch (UnsupportedEncodingException e) {
-            return new String(nameBytes);
-        }
+        return new String(nameBytes, US_ASCII);
     }
 
     private String getString(ByteBuffer bb) {
@@ -623,11 +614,7 @@ public class Type1Font extends FileFont {
         byte[] nameBytes = new byte[pos2-pos1-1];
         bb.position(pos1);
         bb.get(nameBytes);
-        try {
-            return new String(nameBytes, "US-ASCII");
-        } catch (UnsupportedEncodingException e) {
-            return new String(nameBytes);
-        }
+        return new String(nameBytes, US_ASCII);
     }
 
 

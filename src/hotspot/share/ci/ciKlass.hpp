@@ -129,7 +129,6 @@ public:
   void print_name_on(outputStream* st);
 
   const char* external_name() const;
-  Klass* new_version() { return get_Klass()->new_version(); }
 };
 
 #endif // SHARE_CI_CIKLASS_HPP

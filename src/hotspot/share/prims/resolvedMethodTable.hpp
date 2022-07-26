@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,7 @@
 #ifndef SHARE_PRIMS_RESOLVEDMETHODTABLE_HPP
 #define SHARE_PRIMS_RESOLVEDMETHODTABLE_HPP
 
-#include "memory/allocation.hpp"
+#include "memory/allStatic.hpp"
 #include "oops/symbol.hpp"
 #include "oops/weakHandle.hpp"
 
@@ -69,7 +69,6 @@ public:
 
   // JVMTI Support - It is called at safepoint only for RedefineClasses
   JVMTI_ONLY(static void adjust_method_entries(bool * trace_name_printed);)
-  JVMTI_ONLY(static void adjust_method_entries_dcevm(bool * trace_name_printed);)
 
   // Debugging
   static size_t items_count();

@@ -1,4 +1,7 @@
-#!/bin/bash -x
+#!/bin/bash
+
+set -euo pipefail
+set -x
 
 # The following parameters must be specified:
 #   build_number - specifies the number of JetBrainsRuntime build
@@ -16,55 +19,34 @@
 #               By default JDK_BUILD_NUMBER is set zero
 #   JCEF_PATH - specifies the path to the directory with JCEF binaries.
 #               By default JCEF binaries should be located in ./jcef_mac
-#   MACOSX_VERSION_MAX - specifies value for the --with-macosx-version-max parameter. By default it is 10.12.00 for x64
-#               and 11.00.00 for aarch64
 
 source jb/project/tools/common/scripts/common.sh
 
 JCEF_PATH=${JCEF_PATH:=./jcef_mac}
-architecture=${architecture:=x64}
-BOOT_JDK=${BOOT_JDK:=$(/usr/libexec/java_home -v 16)}
+BOOT_JDK=${BOOT_JDK:=$(/usr/libexec/java_home -v 17)}
 
 function do_configure {
   if [[ "${architecture}" == *aarch64* ]]; then
-    sh configure \
-      $WITH_DEBUG_LEVEL \
-      --with-vendor-name="${VENDOR_NAME}" \
-      --with-vendor-version-string="${VENDOR_VERSION_STRING}" \
-      --with-macosx-bundle-name-base=${VENDOR_VERSION_STRING} \
-      --with-macosx-bundle-id-base="com.jetbrains.jbr" \
-      --with-jvm-features=shenandoahgc \
-      --with-version-pre= \
-      --with-version-build="${JDK_BUILD_NUMBER}" \
-      --with-version-opt=b"${build_number}" \
-      --with-boot-jdk="$BOOT_JDK" \
-      --with-macosx-version-max="${MACOSX_VERSION_MAX:="11.00.00"}" \
-      --disable-hotspot-gtest --disable-javac-server --disable-full-docs --disable-manpages \
-      --enable-cds=no \
-      --with-extra-cflags="-F$(pwd)/Frameworks" \
-      --with-extra-cxxflags="-F$(pwd)/Frameworks" \
-      --with-extra-ldflags="-F$(pwd)/Frameworks" \
-      $REPRODUCIBLE_BUILD_OPTS \
-      $WITH_ZIPPED_NATIVE_DEBUG_SYMBOLS \
-      || do_exit $?
+    ENABLE_CDS="--enable-cds=no"
   else
-    sh configure \
-      $WITH_DEBUG_LEVEL \
-      --with-vendor-name="$VENDOR_NAME" \
-      --with-vendor-version-string="$VENDOR_VERSION_STRING" \
-      --with-macosx-bundle-name-base=${VENDOR_VERSION_STRING} \
-      --with-macosx-bundle-id-base="com.jetbrains.jbr" \
-      --with-jvm-features=shenandoahgc \
-      --with-version-pre= \
-      --with-version-build="$JDK_BUILD_NUMBER" \
-      --with-version-opt=b"$build_number" \
-      --with-boot-jdk="$BOOT_JDK" \
-      --with-macosx-version-max="${MACOSX_VERSION_MAX:="10.12.00"}" \
-      --enable-cds=yes \
-      $REPRODUCIBLE_BUILD_OPTS \
-      $WITH_ZIPPED_NATIVE_DEBUG_SYMBOLS \
-      || do_exit $?
+    ENABLE_CDS="--enable-cds=yes"
   fi
+  sh configure \
+    $WITH_DEBUG_LEVEL \
+    --with-vendor-name="$VENDOR_NAME" \
+    --with-vendor-version-string="$VENDOR_VERSION_STRING" \
+    --with-macosx-bundle-name-base=${VENDOR_VERSION_STRING} \
+    --with-macosx-bundle-id-base="com.jetbrains.jbr" \
+    --with-jvm-features=shenandoahgc \
+    --with-version-pre= \
+    --with-version-build="$JDK_BUILD_NUMBER" \
+    --with-version-opt=b"$build_number" \
+    --with-boot-jdk="$BOOT_JDK" \
+    --enable-cds=yes \
+    $STATIC_CONF_ARGS \
+    $REPRODUCIBLE_BUILD_OPTS \
+    $WITH_ZIPPED_NATIVE_DEBUG_SYMBOLS \
+    || do_exit $?
 }
 
 function create_image_bundle {
@@ -73,13 +55,16 @@ function create_image_bundle {
   __modules_path=$3
   __modules=$4
 
+  fastdebug_infix=''
+
   tmp=.bundle.$$.tmp
   mkdir "$tmp" || do_exit $?
 
   [ "$bundle_type" == "fd" ] && [ "$__arch_name" == "$JBRSDK_BUNDLE" ] && __bundle_name=$__arch_name && fastdebug_infix="fastdebug-"
-  JBR=${__bundle_name}-${JBSDK_VERSION}-osx-${architecture}-${fastdebug_infix}b${build_number}
+  JBR=${__bundle_name}-${JBSDK_VERSION}-osx-${architecture}-${fastdebug_infix:-}b${build_number}
+  __root_dir=${__bundle_name}-${JBSDK_VERSION}-${architecture}-${fastdebug_infix:-}b${build_number%%.*}
 
-  JRE_CONTENTS=$tmp/$__arch_name/Contents
+  JRE_CONTENTS=$tmp/$__root_dir/Contents
   mkdir -p "$JRE_CONTENTS" || do_exit $?
 
   echo Running jlink...
@@ -91,6 +76,7 @@ function create_image_bundle {
   if [ "$__arch_name" == "$JBRSDK_BUNDLE" ]; then
     sed 's/JBR/JBRSDK/g' $JRE_CONTENTS/Home/release > release
     mv release $JRE_CONTENTS/Home/release
+    cp $IMAGES_DIR/jdk-bundle/jdk-$JBSDK_VERSION.jdk/Contents/Home/lib/src.zip $JRE_CONTENTS/Home/lib
     copy_jmods "$__modules" "$__modules_path" "$JRE_CONTENTS"/Home/jmods
     zip_native_debug_symbols $IMAGES_DIR/jdk-bundle/jdk-$JBSDK_VERSION.jdk "${JBR}_diz"
   fi
@@ -102,10 +88,10 @@ function create_image_bundle {
 
   echo Creating "$JBR".tar.gz ...
   # Normalize timestamp
-  find "$tmp"/"$__arch_name" -print0 | xargs -0 touch -c -h -t "$TOUCH_TIME"
+  find "$tmp"/"$__root_dir" -print0 | xargs -0 touch -c -h -t "$TOUCH_TIME"
 
   (cd "$tmp" &&
-      find "$__arch_name" -print0 | LC_ALL=C sort -z | \
+      find "$__root_dir" -print0 | LC_ALL=C sort -z | \
       COPYFILE_DISABLE=1 tar $REPRODUCIBLE_TAR_OPTS  --no-recursion --null -T - \
                              -czf "$JBR".tar.gz --exclude='*.dSYM' --exclude='man') || do_exit $?
   mv "$tmp"/"$JBR".tar.gz  "$JBR".tar.gz
@@ -135,7 +121,7 @@ case "$bundle_type" in
     ;;
 esac
 
-if [ -z "$INC_BUILD" ]; then
+if [ -z "${INC_BUILD:-}" ]; then
   do_configure || do_exit $?
   make clean CONF=$RELEASE_NAME || do_exit $?
 fi
@@ -153,6 +139,8 @@ if [ "$bundle_type" == "jcef" ] || [ "$bundle_type" == "fd" ]; then
   cp $JCEF_PATH/jmods/* $JSDK_MODS_DIR # $JSDK/jmods is not changed
 
   jbr_name_postfix="_${bundle_type}"
+else
+  jbr_name_postfix=""
 fi
 
 # create runtime image bundle

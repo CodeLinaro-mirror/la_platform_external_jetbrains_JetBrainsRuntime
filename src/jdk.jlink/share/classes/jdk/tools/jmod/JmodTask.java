@@ -690,7 +690,6 @@ public class JmodTask {
                         .filter(path -> isResource(path.toString()))
                         .map(path -> toPackageName(path))
                         .filter(pkg -> pkg.length() > 0)
-                        .distinct()
                         .collect(Collectors.toSet());
             } catch (IOException ioe) {
                 throw new UncheckedIOException(ioe);
@@ -705,7 +704,6 @@ public class JmodTask {
                      .filter(e -> !e.isDirectory() && isResource(e.getName()))
                      .map(e -> toPackageName(e))
                      .filter(pkg -> pkg.length() > 0)
-                     .distinct()
                      .collect(Collectors.toSet());
         }
 
@@ -911,7 +909,7 @@ public class JmodTask {
             // filter modules resolved from the system module finder
             this.modules = config.modules().stream()
                 .map(ResolvedModule::name)
-                .filter(mn -> roots.contains(mn) && !system.find(mn).isPresent())
+                .filter(mn -> roots.contains(mn) && system.find(mn).isEmpty())
                 .collect(Collectors.toSet());
 
             this.hashesBuilder = new ModuleHashesBuilder(config, modules);
@@ -1066,7 +1064,7 @@ public class JmodTask {
      * Specific subclasses should do whatever validation is required on the
      * individual path elements, if any.
      */
-    static abstract class AbstractPathConverter implements ValueConverter<List<Path>> {
+    abstract static class AbstractPathConverter implements ValueConverter<List<Path>> {
         @Override
         public List<Path> convert(String value) {
             List<Path> paths = new ArrayList<>();
@@ -1603,7 +1601,7 @@ public class JmodTask {
         return System.getProperty("java.version");
     }
 
-    private static String getMessage(String key, Object... args) {
+    static String getMessage(String key, Object... args) {
         try {
             return MessageFormat.format(ResourceBundleHelper.bundle.getString(key), args);
         } catch (MissingResourceException e) {

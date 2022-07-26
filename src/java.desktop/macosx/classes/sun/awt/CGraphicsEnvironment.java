@@ -145,7 +145,7 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
     }
 
     @Override
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("removal")
     protected void finalize() throws Throwable {
         try {
             super.finalize();

@@ -1,7 +1,8 @@
-#!/bin/bash -x
+#!/bin/bash
 
 #immediately exit script with an error if a command fails
 set -euo pipefail
+set -x
 
 export COPY_EXTENDED_ATTRIBUTES_DISABLE=true
 export COPYFILE_DISABLE=true
@@ -44,8 +45,7 @@ fi
 log "$INPUT_FILE extracted and removed"
 
 APP_NAME=$(echo ${INPUT_FILE} | awk -F".tar" '{ print $1 }')
-APPLICATION_PATH=$(sed "s/osx-//" <<< "$EXPLODED/$APP_NAME")
-mv $EXPLODED/$BUILD_NAME $APPLICATION_PATH
+APPLICATION_PATH=$EXPLODED/$(ls $EXPLODED)
 
 find "$APPLICATION_PATH/Contents/Home/bin" \
   -maxdepth 1 -type f -name '*.jnilib' -print0 |

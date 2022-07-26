@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -347,7 +347,8 @@ AwtToolkit::AwtToolkit() {
 
     m_waitEvent = ::CreateEvent(NULL, FALSE, FALSE, NULL);
     m_inputMethodWaitEvent = ::CreateEvent(NULL, FALSE, FALSE, NULL);
-    isInDoDragDropLoop = FALSE;
+    isDnDSourceActive = FALSE;
+    isDnDTargetActive = FALSE;
     eventNumber = 0;
 }
 
@@ -532,7 +533,7 @@ void ToolkitThreadProc(void *param)
     JNIEnv *env;
     JavaVMAttachArgs attachArgs;
     attachArgs.version  = JNI_VERSION_1_2;
-    attachArgs.name     = "AWT-Windows";
+    attachArgs.name     = (char*)"AWT-Windows";
     attachArgs.group    = data->threadGroup;
 
     jint res = jvm->AttachCurrentThreadAsDaemon((void **)&env, &attachArgs);
@@ -3031,7 +3032,7 @@ Java_sun_awt_windows_WToolkit_syncNativeQueue(JNIEnv *env, jobject self, jlong t
     tk.PostMessage(WM_SYNC_WAIT, 0, 0);
     for(long t = 2; t < timeout &&
                WAIT_TIMEOUT == ::WaitForSingleObject(tk.m_waitEvent, 2); t+=2) {
-        if (tk.isInDoDragDropLoop) {
+        if (tk.isDnDSourceActive || tk.isDnDTargetActive) {
             break;
         }
     }
@@ -3235,7 +3236,7 @@ LRESULT AwtToolkit::InvokeInputMethodFunction(UINT msg, WPARAM wParam, LPARAM lP
      * the IME completion.
      */
     CriticalSection::Lock lock(m_inputMethodLock);
-    if (isInDoDragDropLoop) {
+    if (isDnDSourceActive || isDnDTargetActive) {
         SendMessage(msg, wParam, lParam);
         ::ResetEvent(m_inputMethodWaitEvent);
         return m_inputMethodData;

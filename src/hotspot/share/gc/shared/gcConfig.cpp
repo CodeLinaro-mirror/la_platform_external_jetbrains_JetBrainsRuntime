@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -96,10 +96,7 @@ void GCConfig::fail_if_non_included_gc_is_selected() {
 }
 
 void GCConfig::select_gc_ergonomically() {
-  if (AllowEnhancedClassRedefinition && !UseSerialGC) {
-    // (DCEVM) use G1 as default GC in Enhanced class redefinition
-    FLAG_SET_ERGO(UseG1GC, true);
-  } else if (os::is_server_class_machine()) {
+  if (os::is_server_class_machine()) {
 #if INCLUDE_G1GC
     FLAG_SET_ERGO_IF_DEFAULT(UseG1GC, true);
 #elif INCLUDE_PARALLELGC
@@ -212,7 +209,7 @@ bool GCConfig::is_gc_selected_ergonomically() {
 
 const char* GCConfig::hs_err_name() {
   if (is_exactly_one_gc_selected()) {
-    // Exacly one GC selected
+    // Exactly one GC selected
     FOR_EACH_INCLUDED_GC(gc) {
       if (gc->_flag) {
         return gc->_hs_err_name;

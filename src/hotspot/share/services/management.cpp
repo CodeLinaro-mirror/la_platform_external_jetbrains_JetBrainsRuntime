@@ -50,11 +50,13 @@
 #include "runtime/notificationThread.hpp"
 #include "runtime/os.hpp"
 #include "runtime/thread.inline.hpp"
+#include "runtime/threads.hpp"
 #include "runtime/threadSMR.hpp"
 #include "runtime/vmOperations.hpp"
 #include "services/classLoadingService.hpp"
 #include "services/diagnosticCommand.hpp"
 #include "services/diagnosticFramework.hpp"
+#include "services/finalizerService.hpp"
 #include "services/writeableFlags.hpp"
 #include "services/heapDumper.hpp"
 #include "services/lowMemoryDetector.hpp"
@@ -94,6 +96,7 @@ void management_init() {
   ThreadService::init();
   RuntimeService::init();
   ClassLoadingService::init();
+  FinalizerService::init();
 #else
   ThreadService::init();
 #endif // INCLUDE_MANAGEMENT
@@ -206,6 +209,15 @@ InstanceKlass* Management::initialize_klass(Klass* k, TRAPS) {
   return ik;
 }
 
+
+void Management::record_vm_init_completed() {
+  // Initialize the timestamp to get the current time
+  _vm_init_done_time->set_value(os::javaTimeMillis());
+
+  // Update the timestamp to the vm init done time
+  _stamp.update();
+}
+
 void Management::record_vm_startup_time(jlong begin, jlong duration) {
   // if the performance counter is not initialized,
   // then vm initialization failed; simply return.
@@ -214,6 +226,14 @@ void Management::record_vm_startup_time(jlong begin, jlong duration) {
   _begin_vm_creation_time->set_value(begin);
   _end_vm_creation_time->set_value(begin + duration);
   PerfMemory::set_accessible(true);
+}
+
+jlong Management::begin_vm_creation_time() {
+  return _begin_vm_creation_time->get_value();
+}
+
+jlong Management::vm_init_done_time() {
+  return _vm_init_done_time->get_value();
 }
 
 jlong Management::timestamp() {
