@@ -26,7 +26,6 @@
  * @bug 8069469
  * @summary Make sure -Xlog:class+load=info works properly with "modules" jimage,
             --patch-module, and with -Xbootclasspath/a
- * @requires vm.flagless
  * @modules java.base/jdk.internal.misc
  * @library /test/lib
  * @compile PatchModuleMain.java

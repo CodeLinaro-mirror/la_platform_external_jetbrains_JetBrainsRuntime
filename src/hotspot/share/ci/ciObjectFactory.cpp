@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,7 @@
 #include "ci/ciInstance.hpp"
 #include "ci/ciInstanceKlass.hpp"
 #include "ci/ciMemberName.hpp"
+#include "ci/ciNativeEntryPoint.hpp"
 #include "ci/ciMethod.hpp"
 #include "ci/ciMethodData.hpp"
 #include "ci/ciMethodHandle.hpp"
@@ -73,7 +74,10 @@ GrowableArray<ciMetadata*>* ciObjectFactory::_shared_ci_metadata = NULL;
 ciSymbol*                 ciObjectFactory::_shared_ci_symbols[vmSymbols::number_of_symbols()];
 int                       ciObjectFactory::_shared_ident_limit = 0;
 volatile bool             ciObjectFactory::_initialized = false;
+volatile bool             ciObjectFactory::_reinitialize_vm_klasses = false;
 
+// TODO: review...
+Arena* ciObjectFactory::_initial_arena = NULL;
 
 // ------------------------------------------------------------------
 // ciObjectFactory::ciObjectFactory
@@ -109,12 +113,43 @@ void ciObjectFactory::initialize() {
   // compiler thread that initializes the initial ciObjectFactory which
   // creates the shared ciObjects that all later ciObjectFactories use.
   Arena* arena = new (mtCompiler) Arena(mtCompiler);
+  ciObjectFactory::_initial_arena = arena;
   ciEnv initial(arena);
   ciEnv* env = ciEnv::current();
   env->_factory->init_shared_objects();
 
   _initialized = true;
 
+}
+
+// (DCEVM) vm classes could be modified
+void ciObjectFactory::reinitialize_vm_classes() {
+  ASSERT_IN_VM;
+  JavaThread* thread = JavaThread::current();
+  HandleMark  handle_mark(thread);
+
+  // This Arena is long lived and exists in the resource mark of the
+  // compiler thread that initializes the initial ciObjectFactory which
+  // creates the shared ciObjects that all later ciObjectFactories use.
+  // Arena* arena = new (mtCompiler) Arena(mtCompiler);
+  ciEnv initial(ciObjectFactory::_initial_arena);
+  ciEnv* env = ciEnv::current();
+  env->_factory->do_reinitialize_vm_classes();
+  _reinitialize_vm_klasses = false;
+}
+
+// (DCEVM) vm classes could be modified
+void ciObjectFactory::do_reinitialize_vm_classes() {
+#define VM_CLASS_DEFN(name, ignore_s)   \
+  if (ciEnv::_##name != NULL && ciEnv::_##name->new_version() != NULL) { \
+    int old_ident = ciEnv::_##name->ident(); \
+    ciEnv::_##name = get_metadata(vmClasses::name())->as_instance_klass(); \
+    ciEnv::_##name->compute_nonstatic_fields(); \
+    ciEnv::_##name->set_ident(old_ident); \
+  }
+
+  VM_CLASSES_DO(VM_CLASS_DEFN)
+#undef VM_CLASS_DEFN
 }
 
 void ciObjectFactory::init_shared_objects() {
@@ -343,6 +378,8 @@ ciObject* ciObjectFactory::create_new_object(oop o) {
       return new (arena()) ciCallSite(h_i);
     else if (java_lang_invoke_MemberName::is_instance(o))
       return new (arena()) ciMemberName(h_i);
+    else if (jdk_internal_invoke_NativeEntryPoint::is_instance(o))
+      return new (arena()) ciNativeEntryPoint(h_i);
     else if (java_lang_invoke_MethodHandle::is_instance(o))
       return new (arena()) ciMethodHandle(h_i);
     else if (java_lang_invoke_MethodType::is_instance(o))
@@ -375,7 +412,6 @@ ciMetadata* ciObjectFactory::create_new_metadata(Metadata* o) {
   if (o->is_klass()) {
     Klass* k = (Klass*)o;
     if (k->is_instance_klass()) {
-      assert(!ReplayCompiles || ciReplay::no_replay_state() || !ciReplay::is_klass_unresolved((InstanceKlass*)k), "must be whitelisted for replay compilation");
       return new (arena()) ciInstanceKlass(k);
     } else if (k->is_objArray_klass()) {
       return new (arena()) ciObjArrayKlass(k);
@@ -552,7 +588,7 @@ ciInstance* ciObjectFactory::get_unloaded_instance(ciInstanceKlass* instance_kla
 // Get a ciInstance representing an unresolved klass mirror.
 //
 // Currently, this ignores the parameters and returns a unique unloaded instance.
-ciInstance* ciObjectFactory::get_unloaded_klass_mirror(ciKlass* type) {
+ciInstance* ciObjectFactory::get_unloaded_klass_mirror(ciKlass*  type) {
   assert(ciEnv::_Class_klass != NULL, "");
   return get_unloaded_instance(ciEnv::_Class_klass->as_instance_klass());
 }
@@ -567,7 +603,7 @@ ciInstance* ciObjectFactory::get_unloaded_method_handle_constant(ciKlass*  holde
                                                                  ciSymbol* name,
                                                                  ciSymbol* signature,
                                                                  int       ref_kind) {
-  assert(ciEnv::_MethodHandle_klass != NULL, "");
+  if (ciEnv::_MethodHandle_klass == NULL)  return NULL;
   return get_unloaded_instance(ciEnv::_MethodHandle_klass->as_instance_klass());
 }
 
@@ -578,12 +614,12 @@ ciInstance* ciObjectFactory::get_unloaded_method_handle_constant(ciKlass*  holde
 //
 // Currently, this ignores the parameters and returns a unique unloaded instance.
 ciInstance* ciObjectFactory::get_unloaded_method_type_constant(ciSymbol* signature) {
-  assert(ciEnv::_MethodType_klass != NULL, "");
+  if (ciEnv::_MethodType_klass == NULL)  return NULL;
   return get_unloaded_instance(ciEnv::_MethodType_klass->as_instance_klass());
 }
 
 ciInstance* ciObjectFactory::get_unloaded_object_constant() {
-  assert(ciEnv::_Object_klass != NULL, "");
+  if (ciEnv::_Object_klass == NULL)  return NULL;
   return get_unloaded_instance(ciEnv::_Object_klass->as_instance_klass());
 }
 
@@ -714,3 +750,28 @@ void ciObjectFactory::print() {
              _unloaded_instances.length(),
              _unloaded_klasses.length());
 }
+
+
+int ciObjectFactory::compare_cimetadata(ciMetadata** a, ciMetadata** b) {
+  Metadata* am = (*a)->constant_encoding();
+  Metadata* bm = (*b)->constant_encoding();
+  return ((am > bm) ? 1 : ((am == bm) ? 0 : -1));
+}
+
+// FIXME: review... Resoring the ciObject arrays after class redefinition
+void ciObjectFactory::resort_shared_ci_metadata() {
+  if (_shared_ci_metadata == NULL) return;
+  _shared_ci_metadata->sort(ciObjectFactory::compare_cimetadata);
+
+#ifdef ASSERT
+  if (CIObjectFactoryVerify) {
+    Metadata* last = NULL;
+    for (int j = 0; j< _shared_ci_metadata->length(); j++) {
+      Metadata* o = _shared_ci_metadata->at(j)->constant_encoding();
+      assert(last < o, "out of order");
+      last = o;
+    }
+  }
+#endif // ASSERT
+}
+

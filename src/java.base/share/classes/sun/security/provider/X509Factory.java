@@ -98,7 +98,15 @@ public class X509Factory extends CertificateFactorySpi {
         try {
             byte[] encoding = readOneBlock(is);
             if (encoding != null) {
-                return cachedGetX509Cert(encoding);
+                X509CertImpl cert = getFromCache(certCache, encoding);
+                if (cert != null) {
+                    return cert;
+                }
+                cert = new X509CertImpl(encoding);
+                addToCache(certCache, cert.getEncodedInternal(), cert);
+                // record cert details if necessary
+                commitEvent(cert);
+                return cert;
             } else {
                 throw new IOException("Empty input");
             }
@@ -106,19 +114,6 @@ public class X509Factory extends CertificateFactorySpi {
             throw new CertificateException("Could not parse certificate: " +
                     ioe.toString(), ioe);
         }
-    }
-
-    public static X509CertImpl cachedGetX509Cert(byte[] encoding)
-            throws CertificateException {
-        X509CertImpl cert = getFromCache(certCache, encoding);
-        if (cert != null) {
-            return cert;
-        }
-        cert = new X509CertImpl(encoding);
-        addToCache(certCache, cert.getEncodedInternal(), cert);
-        // record cert details if necessary
-        commitEvent(cert);
-        return cert;
     }
 
     /**
@@ -773,7 +768,7 @@ public class X509Factory extends CertificateFactorySpi {
         return tag;
     }
 
-    private static void commitEvent(X509CertImpl info) {
+    private void commitEvent(X509CertImpl info) {
         X509CertificateEvent xce = new X509CertificateEvent();
         if (xce.shouldCommit() || EventHelper.isLoggingSecurity()) {
             PublicKey pKey = info.getPublicKey();

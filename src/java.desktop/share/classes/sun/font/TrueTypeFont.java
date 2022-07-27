@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,7 @@ package sun.font;
 
 import java.awt.Font;
 import java.awt.FontFormatException;
+import java.awt.GraphicsEnvironment;
 import java.awt.geom.Point2D;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -420,6 +421,8 @@ public class TrueTypeFont extends FileFont {
                 disposerRecord.channel.read(buffer);
                 buffer.flip();
             }
+        } catch (FontFormatException e) {
+            return null;
         } catch (ClosedChannelException e) {
             /* NIO I/O is interruptible, recurse to retry operation.
              * Clear interrupts before recursing in case NIO didn't.
@@ -427,7 +430,7 @@ public class TrueTypeFont extends FileFont {
             Thread.interrupted();
             close();
             readBlock(buffer, offset, length);
-        } catch (FontFormatException | IOException e) {
+        } catch (IOException e) {
             return null;
         }
         return buffer;
@@ -830,7 +833,9 @@ public class TrueTypeFont extends FileFont {
                 Thread.interrupted();
                 close();
                 return getTableBuffer(tag);
-            } catch (IOException | FontFormatException e) {
+            } catch (IOException e) {
+                return null;
+            } catch (FontFormatException e) {
                 return null;
             }
 

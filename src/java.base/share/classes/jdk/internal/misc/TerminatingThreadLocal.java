@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -79,8 +79,7 @@ public class TerminatingThreadLocal<T> extends ThreadLocal<T> {
      * @param tl the ThreadLocal to register
      */
     public static void register(TerminatingThreadLocal<?> tl) {
-        if (!Thread.currentThread().isVirtual())
-            REGISTRY.get().add(tl);
+        REGISTRY.get().add(tl);
     }
 
     /**
@@ -89,8 +88,7 @@ public class TerminatingThreadLocal<T> extends ThreadLocal<T> {
      * @param tl the ThreadLocal to unregister
      */
     private static void unregister(TerminatingThreadLocal<?> tl) {
-        if (!Thread.currentThread().isVirtual())
-            REGISTRY.get().remove(tl);
+        REGISTRY.get().remove(tl);
     }
 
     /**

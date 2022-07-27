@@ -37,8 +37,7 @@ class ClassLoaderDataGraph : public AllStatic {
   friend class ClassLoaderDataGraphMetaspaceIterator;
   friend class ClassLoaderDataGraphKlassIteratorAtomic;
   friend class ClassLoaderDataGraphKlassIteratorStatic;
-  template <bool keep_alive>
-  friend class ClassLoaderDataGraphIteratorBase;
+  friend class ClassLoaderDataGraphIterator;
   friend class VMStructs;
  private:
   // All CLDs (except the null CLD) can be reached by walking _head->_next->...
@@ -79,6 +78,7 @@ class ClassLoaderDataGraph : public AllStatic {
   // for redefinition.  These classes are removed during the next class unloading.
   // Walking the ClassLoaderDataGraph also includes hidden classes.
   static void classes_do(KlassClosure* klass_closure);
+
   static void classes_do(void f(Klass* const));
   static void methods_do(void f(Method*));
   static void modules_do(void f(ModuleEntry*));
@@ -96,6 +96,21 @@ class ClassLoaderDataGraph : public AllStatic {
   static void safepoint_and_clean_metaspaces();
   // Called from VMOperation
   static void walk_metadata_and_clean_metaspaces();
+
+  // dictionary do
+  // Iterate over all klasses in dictionary, but
+  // just the classes from defining class loaders.
+  static void dictionary_classes_do(void f(InstanceKlass*));
+  // Added for initialize_itable_for_klass to handle exceptions.
+  static void dictionary_classes_do(void f(InstanceKlass*, TRAPS), TRAPS);
+
+  static void dictionary_classes_do(KlassClosure* klass_closure);
+
+  // (DCEVM) Enhanced class redefinition
+  static void rollback_redefinition();
+
+  // Enhanced class redefinition
+  static bool dictionary_classes_do_update_klass(Symbol* name, InstanceKlass* k, InstanceKlass* old_klass);
 
   // VM_CounterDecay iteration support
   static InstanceKlass* try_get_next_class();

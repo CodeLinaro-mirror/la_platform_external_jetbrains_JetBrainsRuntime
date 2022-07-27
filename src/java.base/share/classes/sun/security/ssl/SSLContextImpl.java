@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -1485,14 +1485,14 @@ final class AbstractTrustManagerWrapper extends X509ExtendedTrustManager
                     String[] peerSupportedSignAlgs =
                             extSession.getLocalSupportedSignatureAlgorithms();
 
-                    constraints = SSLAlgorithmConstraints.forSocket(
+                    constraints = new SSLAlgorithmConstraints(
                                     sslSocket, peerSupportedSignAlgs, true);
                 } else {
                     constraints =
-                            SSLAlgorithmConstraints.forSocket(sslSocket, true);
+                            new SSLAlgorithmConstraints(sslSocket, true);
                 }
             } else {
-                constraints = SSLAlgorithmConstraints.forSocket(sslSocket, true);
+                constraints = new SSLAlgorithmConstraints(sslSocket, true);
             }
 
             checkAlgorithmConstraints(chain, constraints, checkClientTrusted);
@@ -1525,14 +1525,14 @@ final class AbstractTrustManagerWrapper extends X509ExtendedTrustManager
                     String[] peerSupportedSignAlgs =
                             extSession.getLocalSupportedSignatureAlgorithms();
 
-                    constraints = SSLAlgorithmConstraints.forEngine(
+                    constraints = new SSLAlgorithmConstraints(
                                     engine, peerSupportedSignAlgs, true);
                 } else {
                     constraints =
-                            SSLAlgorithmConstraints.forEngine(engine, true);
+                            new SSLAlgorithmConstraints(engine, true);
                 }
             } else {
-                constraints = SSLAlgorithmConstraints.forEngine(engine, true);
+                constraints = new SSLAlgorithmConstraints(engine, true);
             }
 
             checkAlgorithmConstraints(chain, constraints, checkClientTrusted);
@@ -1598,7 +1598,7 @@ final class DummyX509TrustManager extends X509ExtendedTrustManager
     public void checkClientTrusted(X509Certificate[] chain, String authType)
         throws CertificateException {
         throw new CertificateException(
-            "No X509TrustManager implementation available");
+            "No X509TrustManager implementation avaiable");
     }
 
     /*

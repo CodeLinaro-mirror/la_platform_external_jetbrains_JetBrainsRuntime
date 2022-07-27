@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2014, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,7 @@
 #ifndef SHARE_SERVICES_NMTCOMMON_HPP
 #define SHARE_SERVICES_NMTCOMMON_HPP
 
-#include "memory/allocation.hpp" // for MEMFLAGS only
+#include "memory/allocation.hpp"
 #include "utilities/align.hpp"
 #include "utilities/globalDefinitions.hpp"
 
@@ -41,6 +41,10 @@
 //             - nothing is tracked
 //             - no malloc headers are used
 //
+// "minimal": after shutdown - NMT had been on at some point but has been switched off
+//             - nothing is tracked
+//             - malloc headers are allocated but not initialized not used
+//
 // "summary": after initialization with NativeMemoryTracking=summary - NMT in summary mode
 //             - category summaries per tag are tracked
 //             - thread stacks are tracked
@@ -55,16 +59,25 @@
 //             - malloc headers are used
 //             - malloc call site table is allocated and used
 //
+// Valid state transitions:
+//
+// unknown ----> off
+//          |
+//          |--> summary --
+//          |              |
+//          |--> detail  --+--> minimal
+//
 
 
 // Please keep relation of numerical values!
-// unknown < off < summary < detail
+// unknown < off < minimal < summary < detail
 //
 enum NMT_TrackingLevel {
-  NMT_unknown,
-  NMT_off,
-  NMT_summary,
-  NMT_detail
+  NMT_unknown = 0,
+  NMT_off     = 1,
+  NMT_minimal = 2,
+  NMT_summary = 3,
+  NMT_detail  = 4
 };
 
 // Number of stack frames to capture. This is a
@@ -87,7 +100,7 @@ class NMTUtil : AllStatic {
 
   // Map memory type to index
   static inline int flag_to_index(MEMFLAGS flag) {
-    assert(flag_is_valid(flag), "Invalid flag (%u)", (unsigned)flag);
+    assert(flag_is_valid(flag), "Invalid flag");
     return static_cast<int>(flag);
   }
 
@@ -98,7 +111,7 @@ class NMTUtil : AllStatic {
 
   // Map an index to memory type
   static MEMFLAGS index_to_flag(int index) {
-    assert(flag_index_is_valid(index), "Invalid flag index (%d)", index);
+    assert(flag_index_is_valid(index), "Invalid flag");
     return static_cast<MEMFLAGS>(index);
   }
 

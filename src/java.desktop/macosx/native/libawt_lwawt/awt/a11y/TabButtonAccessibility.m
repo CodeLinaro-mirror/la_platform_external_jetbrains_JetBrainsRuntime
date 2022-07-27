@@ -5,9 +5,7 @@
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ * published by the Free Software Foundation.
  *
  * This code is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
@@ -61,10 +59,10 @@
 - (jobject)tabGroup
 {
     if (fTabGroupAxContext == NULL) {
-        CommonComponentAccessibility* parent = [self typeSafeParent];
-        if (parent != nil) {
-            JNIEnv *env = [ThreadUtilities getJNIEnv];
-            jobject tabGroupAxContext = [parent axContextWithEnv:env];
+        id parent = [self parent];
+        if ([parent isKindOfClass:[CommonComponentAccessibility class]]) {
+            JNIEnv* env = [ThreadUtilities getJNIEnv];
+            jobject tabGroupAxContext = [(CommonComponentAccessibility *)[self parent] axContextWithEnv:env];
             fTabGroupAxContext = (*env)->NewWeakGlobalRef(env, tabGroupAxContext);
             CHECK_EXCEPTION();
             (*env)->DeleteLocalRef(env, tabGroupAxContext);

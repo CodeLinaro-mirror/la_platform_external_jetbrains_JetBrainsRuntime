@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,6 +38,7 @@ import com.sun.jmx.mbeanserver.Repository.RegistrationContext;
 import com.sun.jmx.mbeanserver.Util;
 import com.sun.jmx.remote.util.EnvHelp;
 
+import java.io.ObjectInputStream;
 import java.lang.ref.WeakReference;
 import java.security.AccessControlContext;
 import java.security.AccessController;
@@ -79,6 +80,7 @@ import javax.management.NotificationFilter;
 import javax.management.NotificationListener;
 import javax.management.ObjectInstance;
 import javax.management.ObjectName;
+import javax.management.OperationsException;
 import javax.management.QueryEval;
 import javax.management.QueryExp;
 import javax.management.ReflectionException;
@@ -206,7 +208,8 @@ public class DefaultMBeanServerInterceptor implements MBeanServerInterceptor {
         } catch (InstanceNotFoundException e) {
             /* Can only happen if loaderName doesn't exist, but we just
                passed null, so we shouldn't get this exception.  */
-            throw new IllegalArgumentException("Unexpected exception: " + e, e);
+            throw EnvHelp.initCause(
+                new IllegalArgumentException("Unexpected exception: " + e), e);
         }
     }
 
@@ -735,7 +738,9 @@ public class DefaultMBeanServerInterceptor implements MBeanServerInterceptor {
 
         try {
             instance.setAttribute(attribute);
-        } catch (AttributeNotFoundException | InvalidAttributeValueException e) {
+        } catch (AttributeNotFoundException e) {
+            throw e;
+        } catch (InvalidAttributeValueException e) {
             throw e;
         } catch (Throwable t) {
             rethrowMaybeMBeanException(t);
@@ -819,7 +824,11 @@ public class DefaultMBeanServerInterceptor implements MBeanServerInterceptor {
             throws ReflectionException {
         try {
             throw t;
-        } catch (ReflectionException | RuntimeOperationsException | RuntimeErrorException e) {
+        } catch (ReflectionException e) {
+            throw e;
+        } catch (RuntimeOperationsException e) {
+            throw e;
+        } catch (RuntimeErrorException e) {
             throw e;
         } catch (RuntimeException e) {
             throw new RuntimeMBeanException(e, e.toString());
@@ -1040,21 +1049,21 @@ public class DefaultMBeanServerInterceptor implements MBeanServerInterceptor {
         } catch (RuntimeException e) {
             MBEANSERVER_LOGGER.log(Level.DEBUG, "While unregistering MBean ["+mbean+
                     "]: " + "Exception thrown by postDeregister: " +
-                    "rethrowing <"+e+">, although the MBean is successfully " +
+                    "rethrowing <"+e+">, although the MBean is succesfully " +
                     "unregistered");
             throw new RuntimeMBeanException(e,
                       "RuntimeException thrown in postDeregister method: "+
                       "rethrowing <"+e+
-                      ">, although the MBean is successfully unregistered");
+                      ">, although the MBean is sucessfully unregistered");
         } catch (Error er) {
             MBEANSERVER_LOGGER.log(Level.DEBUG, "While unregistering MBean ["+mbean+
                     "]: " + "Error thrown by postDeregister: " +
-                    "rethrowing <"+er+">, although the MBean is successfully " +
+                    "rethrowing <"+er+">, although the MBean is succesfully " +
                     "unregistered");
             throw new RuntimeErrorException(er,
                       "Error thrown in postDeregister method: "+
                       "rethrowing <"+er+
-                      ">, although the MBean is successfully unregistered");
+                      ">, although the MBean is sucessfully unregistered");
         }
     }
 
@@ -1350,7 +1359,9 @@ public class DefaultMBeanServerInterceptor implements MBeanServerInterceptor {
         final MBeanInfo mbi;
         try {
             mbi = moi.getMBeanInfo();
-        } catch (RuntimeMBeanException | RuntimeErrorException e) {
+        } catch (RuntimeMBeanException e) {
+            throw e;
+        } catch (RuntimeErrorException e) {
             throw e;
         } catch (RuntimeException e) {
             throw new RuntimeMBeanException(e,

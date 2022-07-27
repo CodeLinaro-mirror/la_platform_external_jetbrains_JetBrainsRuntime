@@ -86,8 +86,6 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import jdk.internal.vm.annotation.Stable;
-
 /**
  * A time-zone offset from Greenwich/UTC, such as {@code +02:00}.
  * <p>
@@ -170,11 +168,6 @@ public final class ZoneOffset
      * The string form of the time-zone offset.
      */
     private final transient String id;
-    /**
-     * The zone rules for an offset will always return this offset. Cache it for efficiency.
-     */
-    @Stable
-    private transient ZoneRules rules;
 
     //-----------------------------------------------------------------------
     /**
@@ -511,21 +504,7 @@ public final class ZoneOffset
      */
     @Override
     public ZoneRules getRules() {
-        ZoneRules rules = this.rules;
-        if (rules == null) {
-            rules = this.rules = ZoneRules.of(this);
-        }
-        return rules;
-    }
-
-    @Override
-    public ZoneId normalized() {
-        return this;
-    }
-
-    @Override
-    /* package-private */ ZoneOffset getOffset(long epochSecond) {
-        return this;
+        return ZoneRules.of(this);
     }
 
     //-----------------------------------------------------------------------

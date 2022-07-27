@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -47,7 +47,6 @@
 #include "runtime/interfaceSupport.inline.hpp"
 #include "runtime/java.hpp"
 #include "runtime/javaCalls.hpp"
-#include "runtime/javaThread.hpp"
 #include "runtime/mutexLocker.hpp"
 #include "runtime/objectMonitor.hpp"
 #include "runtime/osThread.hpp"
@@ -56,8 +55,8 @@
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/statSampler.hpp"
 #include "runtime/stubRoutines.hpp"
+#include "runtime/thread.inline.hpp"
 #include "runtime/threadCritical.hpp"
-#include "runtime/threads.hpp"
 #include "runtime/timer.hpp"
 #include "services/attachListener.hpp"
 #include "services/memTracker.hpp"
@@ -124,6 +123,10 @@ volatile uint64_t         os::Bsd::_max_abstime   = 0;
 pthread_t os::Bsd::_main_thread;
 int os::Bsd::_page_size = -1;
 
+static jlong initial_time_count=0;
+
+static int clock_tics_per_sec = 100;
+
 #if defined(__APPLE__) && defined(__x86_64__)
 static const int processor_id_unassigned = -1;
 static const int processor_id_assigning = -2;
@@ -175,6 +178,20 @@ void os::Bsd::print_uptime_info(outputStream* st) {
 julong os::physical_memory() {
   return Bsd::physical_memory();
 }
+
+// Return true if user is running as root.
+
+bool os::have_special_privileges() {
+  static bool init = false;
+  static bool privileges = false;
+  if (!init) {
+    privileges = (getuid() != geteuid()) || (getgid() != getegid());
+    init = true;
+  }
+  return privileges;
+}
+
+
 
 // Cpu architecture string
 #if   defined(ZERO)
@@ -362,7 +379,7 @@ void os::init_system_properties_values() {
   // Where to look for native libraries.
   //
   // Note: Due to a legacy implementation, most of the library path
-  // is set in the launcher. This was to accommodate linking restrictions
+  // is set in the launcher. This was to accomodate linking restrictions
   // on legacy Bsd implementations (which are no longer supported).
   // Eventually, all the library path setting will be done here.
   //
@@ -443,7 +460,7 @@ void os::init_system_properties_values() {
   // Where to look for native libraries.
   //
   // Note: Due to a legacy implementation, most of the library path
-  // is set in the launcher. This was to accommodate linking restrictions
+  // is set in the launcher. This was to accomodate linking restrictions
   // on legacy Bsd implementations (which are no longer supported).
   // Eventually, all the library path setting will be done here.
   //
@@ -590,7 +607,7 @@ bool os::create_thread(Thread* thread, ThreadType thr_type,
   assert(thread->osthread() == NULL, "caller responsible");
 
   // Allocate the OSThread object
-  OSThread* osthread = new OSThread();
+  OSThread* osthread = new OSThread(NULL, NULL);
   if (osthread == NULL) {
     return false;
   }
@@ -616,22 +633,16 @@ bool os::create_thread(Thread* thread, ThreadType thr_type,
   ThreadState state;
 
   {
-
-    ResourceMark rm;
     pthread_t tid;
-    int ret = 0;
-    int limit = 3;
-    do {
-      ret = pthread_create(&tid, &attr, (void* (*)(void*)) thread_native_entry, thread);
-    } while (ret == EAGAIN && limit-- > 0);
+    int ret = pthread_create(&tid, &attr, (void* (*)(void*)) thread_native_entry, thread);
 
     char buf[64];
     if (ret == 0) {
-      log_info(os, thread)("Thread \"%s\" started (pthread id: " UINTX_FORMAT ", attributes: %s). ",
-                           thread->name(), (uintx) tid, os::Posix::describe_pthread_attr(buf, sizeof(buf), &attr));
+      log_info(os, thread)("Thread started (pthread id: " UINTX_FORMAT ", attributes: %s). ",
+        (uintx) tid, os::Posix::describe_pthread_attr(buf, sizeof(buf), &attr));
     } else {
-      log_warning(os, thread)("Failed to start thread \"%s\" - pthread_create failed (%s) for attributes: %s.",
-                              thread->name(), os::errno_name(ret), os::Posix::describe_pthread_attr(buf, sizeof(buf), &attr));
+      log_warning(os, thread)("Failed to start thread - pthread_create failed (%s) for attributes: %s.",
+        os::errno_name(ret), os::Posix::describe_pthread_attr(buf, sizeof(buf), &attr));
       // Log some OS information which might explain why creating the thread failed.
       log_info(os, thread)("Number of threads approx. running in the VM: %d", Threads::number_of_threads());
       LogStream st(Log(os, thread)::info());
@@ -683,7 +694,7 @@ bool os::create_attached_thread(JavaThread* thread) {
 #endif
 
   // Allocate the OSThread object
-  OSThread* osthread = new OSThread();
+  OSThread* osthread = new OSThread(NULL, NULL);
 
   if (osthread == NULL) {
     return false;
@@ -743,6 +754,22 @@ void os::free_thread(OSThread* osthread) {
 
 ////////////////////////////////////////////////////////////////////////////////
 // time support
+
+// Time since start-up in seconds to a fine granularity.
+double os::elapsedTime() {
+  return ((double)os::elapsed_counter()) / os::elapsed_frequency();
+}
+
+jlong os::elapsed_counter() {
+  return javaTimeNanos() - initial_time_count;
+}
+
+jlong os::elapsed_frequency() {
+  return NANOSECS_PER_SEC; // nanosecond resolution
+}
+
+bool os::supports_vtime() { return true; }
+
 double os::elapsedVTime() {
   // better than nothing, but not much
   return elapsedTime();
@@ -792,7 +819,44 @@ void os::javaTimeNanos_info(jvmtiTimerInfo *info_ptr) {
   info_ptr->may_skip_forward = false;       // not subject to resetting or drifting
   info_ptr->kind = JVMTI_TIMER_ELAPSED;     // elapsed not CPU time
 }
+
 #endif // __APPLE__
+
+// Return the real, user, and system times in seconds from an
+// arbitrary fixed point in the past.
+bool os::getTimesSecs(double* process_real_time,
+                      double* process_user_time,
+                      double* process_system_time) {
+  struct tms ticks;
+  clock_t real_ticks = times(&ticks);
+
+  if (real_ticks == (clock_t) (-1)) {
+    return false;
+  } else {
+    double ticks_per_second = (double) clock_tics_per_sec;
+    *process_user_time = ((double) ticks.tms_utime) / ticks_per_second;
+    *process_system_time = ((double) ticks.tms_stime) / ticks_per_second;
+    *process_real_time = ((double) real_ticks) / ticks_per_second;
+
+    return true;
+  }
+}
+
+
+char * os::local_time_string(char *buf, size_t buflen) {
+  struct tm t;
+  time_t long_time;
+  time(&long_time);
+  localtime_r(&long_time, &t);
+  jio_snprintf(buf, buflen, "%d-%02d-%02d %02d:%02d:%02d",
+               t.tm_year + 1900, t.tm_mon + 1, t.tm_mday,
+               t.tm_hour, t.tm_min, t.tm_sec);
+  return buf;
+}
+
+struct tm* os::localtime_pd(const time_t* clock, struct tm*  res) {
+  return localtime_r(clock, res);
+}
 
 // Information of current thread in variety of formats
 pid_t os::Bsd::gettid() {
@@ -980,7 +1044,7 @@ void * os::dll_load(const char *filename, char *ebuf, int ebuflen) {
 
   void * result= ::dlopen(filename, RTLD_LAZY);
   if (result != NULL) {
-    Events::log_dll_message(NULL, "Loaded shared library %s", filename);
+    Events::log(NULL, "Loaded shared library %s", filename);
     // Successful loading
     log_info(os)("shared library load of %s was successful", filename);
     return result;
@@ -995,7 +1059,7 @@ void * os::dll_load(const char *filename, char *ebuf, int ebuflen) {
     ::strncpy(ebuf, error_report, ebuflen-1);
     ebuf[ebuflen-1]='\0';
   }
-  Events::log_dll_message(NULL, "Loading shared library %s failed, %s", filename, error_report);
+  Events::log(NULL, "Loading shared library %s failed, %s", filename, error_report);
   log_info(os)("shared library load of %s failed, %s", filename, error_report);
 
   return NULL;
@@ -1009,7 +1073,7 @@ void * os::dll_load(const char *filename, char *ebuf, int ebuflen) {
   log_info(os)("attempting shared library load of %s", filename);
   void * result= ::dlopen(filename, RTLD_LAZY);
   if (result != NULL) {
-    Events::log_dll_message(NULL, "Loaded shared library %s", filename);
+    Events::log(NULL, "Loaded shared library %s", filename);
     // Successful loading
     log_info(os)("shared library load of %s was successful", filename);
     return result;
@@ -1026,7 +1090,7 @@ void * os::dll_load(const char *filename, char *ebuf, int ebuflen) {
     ::strncpy(ebuf, error_report, ebuflen-1);
     ebuf[ebuflen-1]='\0';
   }
-  Events::log_dll_message(NULL, "Loading shared library %s failed, %s", filename, error_report);
+  Events::log(NULL, "Loading shared library %s failed, %s", filename, error_report);
   log_info(os)("shared library load of %s failed, %s", filename, error_report);
 
   int diag_msg_max_length=ebuflen-strlen(ebuf);
@@ -1132,7 +1196,7 @@ void * os::dll_load(const char *filename, char *ebuf, int ebuflen) {
          IA32, AMD64, IA64, __powerpc__, ARM, S390, ALPHA, MIPS, MIPSEL, PARISC, M68K
   #endif
 
-  // Identify compatibility class for VM's architecture and library's architecture
+  // Identify compatability class for VM's architecture and library's architecture
   // Obtain string descriptions for architectures
 
   arch_t lib_arch={elf_head.e_machine,0,elf_head.e_ident[EI_CLASS], elf_head.e_ident[EI_DATA], NULL};
@@ -1188,6 +1252,22 @@ void * os::dll_load(const char *filename, char *ebuf, int ebuflen) {
 
 void * os::dll_load_utf8(const char *filename, char *ebuf, int ebuflen) {
     return os::dll_load(filename, ebuf, ebuflen);
+}
+
+void* os::get_default_process_handle() {
+#ifdef __APPLE__
+  // MacOS X needs to use RTLD_FIRST instead of RTLD_LAZY
+  // to avoid finding unexpected symbols on second (or later)
+  // loads of a library.
+  return (void*)::dlopen(NULL, RTLD_FIRST);
+#else
+  return (void*)::dlopen(NULL, RTLD_LAZY);
+#endif
+}
+
+// XXX: Do we need a lock around this as per Linux?
+void* os::dll_lookup(void* handle, const char* name) {
+  return dlsym(handle, name);
 }
 
 int _print_dll_info_cb(const char * name, address base_address, address top_address, void * param) {
@@ -1792,6 +1872,13 @@ char* os::pd_attempt_reserve_memory_at(char* requested_addr, size_t bytes, bool 
   return NULL;
 }
 
+// Sleep forever; naked call to OS-specific sleep; use with CAUTION
+void os::infinite_sleep() {
+  while (true) {    // sleep forever ...
+    ::sleep(100);   // ... 100 seconds at a time
+  }
+}
+
 // Used to convert frequent JVM_Yield() to nops
 bool os::dont_yield() {
   return DontYieldALot;
@@ -1941,6 +2028,8 @@ extern void report_error(char* file_name, int line_no, char* title,
 void os::init(void) {
   char dummy;   // used to get a guess on initial stack address
 
+  clock_tics_per_sec = CLK_TCK;
+
   Bsd::set_page_size(getpagesize());
   if (Bsd::page_size() == -1) {
     fatal("os_bsd.cpp: os::init: sysconf failed (%s)", os::strerror(errno));
@@ -1953,6 +2042,7 @@ void os::init(void) {
   Bsd::_main_thread = pthread_self();
 
   Bsd::clock_init();
+  initial_time_count = javaTimeNanos();
 
   os::Posix::init();
 }
@@ -1978,7 +2068,7 @@ jint os::init_2(void) {
   }
 
   // Check and sets minimum stack sizes against command line options
-  if (set_minimum_stack_sizes() == JNI_ERR) {
+  if (Posix::set_minimum_stack_sizes() == JNI_ERR) {
     return JNI_ERR;
   }
 
@@ -2107,6 +2197,11 @@ void os::set_native_thread_name(const char *name) {
 #endif
 }
 
+bool os::bind_to_processor(uint processor_id) {
+  // Not yet implemented.
+  return false;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // debug support
 
@@ -2165,6 +2260,25 @@ void os::os_exception_wrapper(java_call_t f, JavaValue* value,
 void os::print_statistics() {
 }
 
+bool os::message_box(const char* title, const char* message) {
+  int i;
+  fdStream err(defaultStream::error_fd());
+  for (i = 0; i < 78; i++) err.print_raw("=");
+  err.cr();
+  err.print_raw_cr(title);
+  for (i = 0; i < 78; i++) err.print_raw("-");
+  err.cr();
+  err.print_raw_cr(message);
+  for (i = 0; i < 78; i++) err.print_raw("=");
+  err.cr();
+
+  char buf[16];
+  // Prevent process from exiting upon "read error" without consuming all CPU
+  while (::read(0, buf, sizeof(buf)) <= 0) { ::sleep(100); }
+
+  return buf[0] == 'y' || buf[0] == 'Y';
+}
+
 static inline struct timespec get_mtime(const char* filename) {
   struct stat st;
   int ret = os::stat(filename, &st);
@@ -2184,6 +2298,25 @@ int os::compare_file_modified_times(const char* file1, const char* file2) {
     return filetime1.tv_nsec - filetime2.tv_nsec;
   }
   return diff;
+}
+
+// Is a (classpath) directory empty?
+bool os::dir_is_empty(const char* path) {
+  DIR *dir = NULL;
+  struct dirent *ptr;
+
+  dir = opendir(path);
+  if (dir == NULL) return true;
+
+  // Scan the directory
+  bool result = true;
+  while (result && (ptr = readdir(dir)) != NULL) {
+    if (strcmp(ptr->d_name, ".") != 0 && strcmp(ptr->d_name, "..") != 0) {
+      result = false;
+    }
+  }
+  closedir(dir);
+  return result;
 }
 
 // This code originates from JDK's sysOpen and open64_w
@@ -2266,6 +2399,35 @@ jlong os::current_file_offset(int fd) {
 // move file pointer to the specified offset
 jlong os::seek_to_file_offset(int fd, jlong offset) {
   return (jlong)::lseek(fd, (off_t)offset, SEEK_SET);
+}
+
+// This code originates from JDK's sysAvailable
+// from src/solaris/hpi/src/native_threads/src/sys_api_td.c
+
+int os::available(int fd, jlong *bytes) {
+  jlong cur, end;
+  int mode;
+  struct stat buf;
+
+  if (::fstat(fd, &buf) >= 0) {
+    mode = buf.st_mode;
+    if (S_ISCHR(mode) || S_ISFIFO(mode) || S_ISSOCK(mode)) {
+      int n;
+      if (::ioctl(fd, FIONREAD, &n) >= 0) {
+        *bytes = n;
+        return 1;
+      }
+    }
+  }
+  if ((cur = ::lseek(fd, 0L, SEEK_CUR)) == -1) {
+    return 0;
+  } else if ((end = ::lseek(fd, 0L, SEEK_END)) == -1) {
+    return 0;
+  } else if (::lseek(fd, cur, SEEK_SET) == -1) {
+    return 0;
+  }
+  *bytes = end - cur;
+  return 1;
 }
 
 // Map a block of memory.
@@ -2404,6 +2566,27 @@ bool os::is_thread_cpu_time_supported() {
 // so just return the system wide load average.
 int os::loadavg(double loadavg[], int nelem) {
   return ::getloadavg(loadavg, nelem);
+}
+
+void os::pause() {
+  char filename[MAX_PATH];
+  if (PauseAtStartupFile && PauseAtStartupFile[0]) {
+    jio_snprintf(filename, MAX_PATH, "%s", PauseAtStartupFile);
+  } else {
+    jio_snprintf(filename, MAX_PATH, "./vm.paused.%d", current_process_id());
+  }
+
+  int fd = ::open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  if (fd != -1) {
+    struct stat buf;
+    ::close(fd);
+    while (::stat(filename, &buf) == 0) {
+      (void)::poll(NULL, 0, 100);
+    }
+  } else {
+    jio_fprintf(stderr,
+                "Could not open pause file '%s', continuing immediately.\n", filename);
+  }
 }
 
 // Get the kern.corefile setting, or otherwise the default path to the core file

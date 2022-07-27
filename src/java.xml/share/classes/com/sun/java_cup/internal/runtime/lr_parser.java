@@ -137,7 +137,7 @@ import java.util.Stack;
  * @see     com.sun.java_cup.internal.runtime.virtual_parse_stack
  * @author  Frank Flannery
  *
- * @LastModified: July 2022
+ * @LastModified: Jan 2022
  */
 
 public abstract class lr_parser {
@@ -149,11 +149,6 @@ public abstract class lr_parser {
     private int grpCount = 0;
     private int opCount = 0;
     private int totalOpCount = 0;
-    private int lastSym;
-    private boolean overLimit = false;
-    public int grpLimit = 0;
-    public int opLimit = 0;
-    public int totalOpLimit = 0;
 
   /*-----------------------------------------------------------*/
   /*--- Constructor(s) ----------------------------------------*/
@@ -368,7 +363,7 @@ public abstract class lr_parser {
    *  Once end of file has been reached, all subsequent calls to scan
    *  should return an EOF Symbol (which is Symbol number 0).  By default
    *  this method returns getScanner().next_token(); this implementation
-   *  can be overridden by the generated parser using the code declared in
+   *  can be overriden by the generated parser using the code declared in
    *  the "scan with" clause.  Do not recycle objects; every call to
    *  scan() should return a fresh object.
    */
@@ -380,30 +375,14 @@ public abstract class lr_parser {
             grpCount++;
           }
           opCount++; // function
-          totalOpCount++;
           isLiteral = false;
       } else if (contains(sym.OPERATORS, s.sym)) {
-          // axis nodetest is counted as one step, so not counted if last=DCOLON
-          if (lastSym != sym.DCOLON) {
-              opCount++;
-              totalOpCount++;
-          }
+          opCount++;
           isLiteral = false;
       }
 
       if (s.sym == sym.Literal || s.sym == sym.QNAME) {
           isLiteral = true;
-      }
-      lastSym = s.sym;
-
-      /*
-       * Sets the overLimit status as soon as the count of operators is over the
-       * limit, which in turn triggers the XPathParser to report an error.
-      */
-      if (grpLimit > 0 && grpCount > grpLimit
-              || opLimit > 0 && opCount > opLimit
-              || totalOpLimit > 0 && totalOpCount > totalOpLimit) {
-          overLimit = true;
       }
 
     return s;
@@ -607,14 +586,11 @@ public abstract class lr_parser {
       /* do user initialization */
       user_init();
       isLiteral = false;
-      overLimit = false;
       grpCount = 0;
       opCount = 0;
-      lastSym = -1;
 
       /* get the first token */
       cur_token = scan();
-      if (overLimit) return null;
 
       /* push dummy Symbol with start state to get us underway */
       stack.removeAllElements();
@@ -689,14 +665,10 @@ public abstract class lr_parser {
                   lhs_sym = stack.peek();
                 }
             }
-            if (overLimit) return null;
         }
 
+      totalOpCount += opCount;
       return lhs_sym;
-    }
-
-    public boolean isOverLimit() {
-        return overLimit;
     }
 
     /**
@@ -938,7 +910,7 @@ public abstract class lr_parser {
    *  the stored Symbols without error, then the recovery is considered a
    *  success.  Once a successful recovery point is determined, we do an
    *  actual parse over the stored input -- modifying the real parse
-   *  configuration and executing all actions.  Finally, we return the
+   *  configuration and executing all actions.  Finally, we return the the
    *  normal parser to continue with the overall parse.
    *
    * @param debug should we produce debugging messages as we parse.

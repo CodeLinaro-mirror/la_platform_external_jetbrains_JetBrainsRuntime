@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,13 +26,17 @@
 #include "ci/ciSymbols.hpp"
 #include "classfile/javaClasses.hpp"
 #include "compiler/compileLog.hpp"
+#include "opto/addnode.hpp"
+#include "opto/callGenerator.hpp"
 #include "opto/callnode.hpp"
+#include "opto/divnode.hpp"
 #include "opto/graphKit.hpp"
 #include "opto/idealKit.hpp"
 #include "opto/rootnode.hpp"
 #include "opto/runtime.hpp"
 #include "opto/stringopts.hpp"
-#include "runtime/atomic.hpp"
+#include "opto/subnode.hpp"
+#include "runtime/sharedRuntime.hpp"
 #include "runtime/stubRoutines.hpp"
 
 #define __ kit.
@@ -40,6 +44,7 @@
 class StringConcat : public ResourceObj {
  private:
   PhaseStringOpts*    _stringopts;
+  Node*               _string_alloc;
   AllocateNode*       _begin;          // The allocation the begins the pattern
   CallStaticJavaNode* _end;            // The final call of the pattern.  Will either be
                                        // SB.toString or or String.<init>(SB.toString)
@@ -66,6 +71,7 @@ class StringConcat : public ResourceObj {
 
   StringConcat(PhaseStringOpts* stringopts, CallStaticJavaNode* end):
     _stringopts(stringopts),
+    _string_alloc(NULL),
     _begin(NULL),
     _end(end),
     _multiple(false) {
@@ -75,6 +81,29 @@ class StringConcat : public ResourceObj {
 
   bool validate_mem_flow();
   bool validate_control_flow();
+
+  void merge_add() {
+#if 0
+    // XXX This is place holder code for reusing an existing String
+    // allocation but the logic for checking the state safety is
+    // probably inadequate at the moment.
+    CallProjections endprojs;
+    sc->end()->extract_projections(&endprojs, false);
+    if (endprojs.resproj != NULL) {
+      for (SimpleDUIterator i(endprojs.resproj); i.has_next(); i.next()) {
+        CallStaticJavaNode *use = i.get()->isa_CallStaticJava();
+        if (use != NULL && use->method() != NULL &&
+            use->method()->intrinsic_id() == vmIntrinsics::_String_String &&
+            use->in(TypeFunc::Parms + 1) == endprojs.resproj) {
+          // Found useless new String(sb.toString()) so reuse the newly allocated String
+          // when creating the result instead of allocating a new one.
+          sc->set_string_alloc(use->in(TypeFunc::Parms));
+          sc->set_end(use);
+        }
+      }
+    }
+#endif
+  }
 
   StringConcat* merge(StringConcat* other, Node* arg);
 
@@ -180,6 +209,7 @@ class StringConcat : public ResourceObj {
   }
   CallStaticJavaNode* end() { return _end; }
   AllocateNode* begin() { return _begin; }
+  Node* string_alloc() { return _string_alloc; }
 
   void eliminate_unneeded_control();
   void eliminate_initialize(InitializeNode* init);
@@ -188,7 +218,10 @@ class StringConcat : public ResourceObj {
   void maybe_log_transform() {
     CompileLog* log = _stringopts->C->log();
     if (log != NULL) {
-      log->head("replace_string_concat arguments='%d' multiple='%d'", num_arguments(), _multiple);
+      log->head("replace_string_concat arguments='%d' string_alloc='%d' multiple='%d'",
+                num_arguments(),
+                _string_alloc != NULL,
+                _multiple);
       JVMState* p = _begin->jvms();
       while (p != NULL) {
         log->elem("jvms bci='%d' method='%d'", p->bci(), log->identify(p->method()));
@@ -381,13 +414,11 @@ Node_List PhaseStringOpts::collect_toString_calls() {
     }
   }
 
-  uint encountered = 0;
   while (worklist.size() > 0) {
     Node* ctrl = worklist.pop();
     if (StringConcat::is_SB_toString(ctrl)) {
       CallStaticJavaNode* csj = ctrl->as_CallStaticJava();
       string_calls.push(csj);
-      encountered++;
     }
     if (ctrl->in(0) != NULL && !_visited.test_set(ctrl->in(0)->_idx)) {
       worklist.push(ctrl->in(0));
@@ -400,34 +431,10 @@ Node_List PhaseStringOpts::collect_toString_calls() {
       }
     }
   }
-#ifndef PRODUCT
-  Atomic::add(&_stropts_total, encountered);
-#endif
   return string_calls;
 }
 
-// Recognize a fluent-chain of StringBuilder/Buffer. They are either explicit usages
-// of them or the legacy bytecodes of string concatenation prior to JEP-280. eg.
-//
-// String result = new StringBuilder()
-//   .append("foo")
-//   .append("bar")
-//   .append(123)
-//   .toString(); // "foobar123"
-//
-// PS: Only a certain subset of constructor and append methods are acceptable.
-// The criterion is that the length of argument is easy to work out in this phrase.
-// It will drop complex cases such as Object.
-//
-// Since it walks along the receivers of fluent-chain, it will give up if the codeshape is
-// not "fluent" enough. eg.
-//   StringBuilder sb = new StringBuilder();
-//   sb.append("foo");
-//   sb.toString();
-//
-// The receiver of toString method is the result of Allocation Node(CheckCastPP).
-// The append method is overlooked. It will fail at validate_control_flow() test.
-//
+
 StringConcat* PhaseStringOpts::build_candidate(CallStaticJavaNode* call) {
   ciMethod* m = call->method();
   ciSymbol* string_sig;
@@ -452,7 +459,9 @@ StringConcat* PhaseStringOpts::build_candidate(CallStaticJavaNode* call) {
 #endif
 
   StringConcat* sc = new StringConcat(this, call);
+
   AllocateNode* alloc = NULL;
+  InitializeNode* init = NULL;
 
   // possible opportunity for StringBuilder fusion
   CallStaticJavaNode* cnode = call;
@@ -629,7 +638,7 @@ StringConcat* PhaseStringOpts::build_candidate(CallStaticJavaNode* call) {
 }
 
 
-PhaseStringOpts::PhaseStringOpts(PhaseGVN* gvn):
+PhaseStringOpts::PhaseStringOpts(PhaseGVN* gvn, Unique_Node_List*):
   Phase(StringOpts),
   _gvn(gvn) {
 
@@ -682,7 +691,6 @@ PhaseStringOpts::PhaseStringOpts(PhaseGVN* gvn):
             StringConcat* merged = sc->merge(other, arg);
             if (merged->validate_control_flow() && merged->validate_mem_flow()) {
 #ifndef PRODUCT
-              Atomic::inc(&_stropts_merged);
               if (PrintOptimizeStringConcat) {
                 tty->print_cr("stacking would succeed");
               }
@@ -748,7 +756,7 @@ void PhaseStringOpts::remove_dead_nodes() {
       }
       case Op_AddP:
       case Op_CreateEx: {
-        // Recursively clean up references to CreateEx so EA doesn't
+        // Recurisvely clean up references to CreateEx so EA doesn't
         // get unhappy about the partially collapsed graph.
         for (SimpleDUIterator i(use); i.has_next(); i.next()) {
           Node* m = i.get();
@@ -1754,7 +1762,7 @@ void PhaseStringOpts::replace_string_concat(StringConcat* sc) {
   SafePointNode* map = new SafePointNode(size, jvms);
 
   // copy the control and memory state from the final call into our
-  // new starting state.  This allows any preceding tests to feed
+  // new starting state.  This allows any preceeding tests to feed
   // into the new section of code.
   for (uint i1 = 0; i1 < TypeFunc::Parms; i1++) {
     map->init_req(i1, sc->end()->in(i1));
@@ -2023,7 +2031,9 @@ void PhaseStringOpts::replace_string_concat(StringConcat* sc) {
       }
     }
 
-    {
+    // If we're not reusing an existing String allocation then allocate one here.
+    result = sc->string_alloc();
+    if (result == NULL) {
       PreserveReexecuteState preexecs(&kit);
       // The original jvms is for an allocation of either a String or
       // StringBuffer so no stack adjustment is necessary for proper
@@ -2050,17 +2060,4 @@ void PhaseStringOpts::replace_string_concat(StringConcat* sc) {
   // Unhook any hook nodes
   string_sizes->disconnect_inputs(C);
   sc->cleanup();
-#ifndef PRODUCT
-  Atomic::inc(&_stropts_replaced);
-#endif
 }
-
-#ifndef PRODUCT
-uint PhaseStringOpts::_stropts_replaced = 0;
-uint PhaseStringOpts::_stropts_merged = 0;
-uint PhaseStringOpts::_stropts_total = 0;
-
-void PhaseStringOpts::print_statistics() {
-  tty->print_cr("StringConcat: %4d/%4d/%4d(replaced/merged/total)", _stropts_replaced, _stropts_merged, _stropts_total);
-}
-#endif

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,7 +32,9 @@ import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
@@ -43,6 +45,7 @@ import javax.security.auth.x500.X500Principal;
 import sun.security.ssl.CipherSuite.KeyExchange;
 import sun.security.ssl.SSLHandshake.HandshakeMessage;
 import sun.security.ssl.X509Authentication.X509Possession;
+import sun.security.ssl.X509Authentication.X509PossessionGenerator;
 
 /**
  * Pack of the CertificateRequest handshake message.
@@ -431,7 +434,7 @@ final class CertificateRequest {
             if (signatureSchemes == null || signatureSchemes.isEmpty()) {
                 throw handshakeContext.conContext.fatal(Alert.ILLEGAL_PARAMETER,
                         "No signature algorithms specified for " +
-                        "CertificateRequest handshake message");
+                        "CertificateRequest hanshake message");
             }
             this.algorithmIds = new int[signatureSchemes.size()];
             int i = 0;
@@ -723,11 +726,10 @@ final class CertificateRequest {
             chc.handshakeSession.setPeerSupportedSignatureAlgorithms(sss);
             chc.peerSupportedAuthorities = crm.getAuthorities();
 
-            // For TLS 1.2, we no longer use the certificate_types field
-            // from the CertificateRequest message to directly determine
-            // the SSLPossession.  Instead, the choosePossession method
-            // will use the accepted signature schemes in the message to
-            // determine the set of acceptable certificate types to select from.
+            // For TLS 1.2, we need to use a combination of the CR message's
+            // allowed key types and the signature algorithms in order to
+            // find a certificate chain that has the right key and all certs
+            // using one or more of the allowed cert signature schemes.
             SSLPossession pos = choosePossession(chc, crm);
             if (pos == null) {
                 return;
@@ -758,34 +760,77 @@ final class CertificateRequest {
                 crKeyTypes.add("RSASSA-PSS");
             }
 
-            String[] supportedKeyTypes = hc.peerRequestedCertSignSchemes
-                    .stream()
-                    .map(ss -> ss.keyAlgorithm)
-                    .distinct()
-                    .filter(ka -> SignatureScheme.getPreferableAlgorithm(   // Don't select a signature scheme unless
-                            hc.algorithmConstraints,                        //  we will be able to produce
-                            hc.peerRequestedSignatureSchemes,               //  a CertificateVerify message later
-                            ka, hc.negotiatedProtocol) != null
-                            || SSLLogger.logWarning("ssl,handshake",
-                                    "Unable to produce CertificateVerify for key algorithm: " + ka))
-                    .filter(ka -> {
-                        var xa = X509Authentication.valueOfKeyAlgorithm(ka);
-                        // Any auth object will have a set of allowed key types.
-                        // This set should share at least one common algorithm with
-                        // the CR's allowed key types.
-                        return xa != null && !Collections.disjoint(crKeyTypes, Arrays.asList(xa.keyTypes))
-                                || SSLLogger.logWarning("ssl,handshake", "Unsupported key algorithm: " + ka);
-                    })
-                    .toArray(String[]::new);
-
-            SSLPossession pos = X509Authentication
-                    .createPossession(hc, supportedKeyTypes);
-            if (pos == null) {
-                if (SSLLogger.isOn && SSLLogger.isOn("ssl,handshake")) {
-                    SSLLogger.warning("No available authentication scheme");
+            Collection<String> checkedKeyTypes = new HashSet<>();
+            for (SignatureScheme ss : hc.peerRequestedCertSignSchemes) {
+                if (checkedKeyTypes.contains(ss.keyAlgorithm)) {
+                    if (SSLLogger.isOn && SSLLogger.isOn("ssl,handshake")) {
+                        SSLLogger.warning(
+                            "Unsupported authentication scheme: " + ss.name);
+                    }
+                    continue;
                 }
+
+                // Don't select a signature scheme unless we will be able to
+                // produce a CertificateVerify message later
+                if (SignatureScheme.getPreferableAlgorithm(
+                        hc.algorithmConstraints,
+                        hc.peerRequestedSignatureSchemes,
+                        ss, hc.negotiatedProtocol) == null) {
+
+                    if (SSLLogger.isOn && SSLLogger.isOn("ssl,handshake")) {
+                        SSLLogger.warning(
+                            "Unable to produce CertificateVerify for " +
+                            "signature scheme: " + ss.name);
+                    }
+                    checkedKeyTypes.add(ss.keyAlgorithm);
+                    continue;
+                }
+
+                X509Authentication ka = X509Authentication.valueOf(ss);
+                if (ka == null) {
+                    if (SSLLogger.isOn && SSLLogger.isOn("ssl,handshake")) {
+                        SSLLogger.warning(
+                            "Unsupported authentication scheme: " + ss.name);
+                    }
+                    checkedKeyTypes.add(ss.keyAlgorithm);
+                    continue;
+                } else {
+                    // Any auth object will have a possession generator and
+                    // we need to make sure the key types for that generator
+                    // share at least one common algorithm with the CR's
+                    // allowed key types.
+                    if (ka.possessionGenerator instanceof
+                            X509PossessionGenerator xpg) {
+                        if (Collections.disjoint(crKeyTypes,
+                                Arrays.asList(xpg.keyTypes))) {
+                            if (SSLLogger.isOn &&
+                                    SSLLogger.isOn("ssl,handshake")) {
+                                SSLLogger.warning(
+                                        "Unsupported authentication scheme: " +
+                                                ss.name);
+                            }
+                            checkedKeyTypes.add(ss.keyAlgorithm);
+                            continue;
+                        }
+                    }
+                }
+
+                SSLPossession pos = ka.createPossession(hc);
+                if (pos == null) {
+                    if (SSLLogger.isOn && SSLLogger.isOn("ssl,handshake")) {
+                        SSLLogger.warning(
+                            "Unavailable authentication scheme: " + ss.name);
+                    }
+                    continue;
+                }
+
+                return pos;
             }
-            return pos;
+
+            if (SSLLogger.isOn && SSLLogger.isOn("ssl,handshake")) {
+                SSLLogger.warning("No available authentication scheme");
+            }
+            return null;
         }
     }
 

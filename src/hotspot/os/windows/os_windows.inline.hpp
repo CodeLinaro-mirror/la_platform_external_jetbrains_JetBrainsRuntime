@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,9 +27,8 @@
 
 // os_windows.hpp included by os.hpp
 
-#include "runtime/javaThread.hpp"
-#include "runtime/mutex.hpp"
 #include "runtime/os.hpp"
+#include "runtime/thread.hpp"
 
 inline bool os::uses_stack_guard_pages() {
   return true;
@@ -58,39 +57,39 @@ inline bool os::numa_has_group_homing()     { return false;  }
 
 // Platform Mutex/Monitor implementation
 
-inline PlatformMutex::PlatformMutex() {
+inline os::PlatformMutex::PlatformMutex() {
   InitializeCriticalSection(&_mutex);
 }
 
-inline PlatformMutex::~PlatformMutex() {
+inline os::PlatformMutex::~PlatformMutex() {
   DeleteCriticalSection(&_mutex);
 }
 
-inline PlatformMonitor::PlatformMonitor() {
+inline os::PlatformMonitor::PlatformMonitor() {
   InitializeConditionVariable(&_cond);
 }
 
-inline PlatformMonitor::~PlatformMonitor() {
+inline os::PlatformMonitor::~PlatformMonitor() {
   // There is no DeleteConditionVariable API
 }
 
-inline void PlatformMutex::lock() {
+inline void os::PlatformMutex::lock() {
   EnterCriticalSection(&_mutex);
 }
 
-inline void PlatformMutex::unlock() {
+inline void os::PlatformMutex::unlock() {
   LeaveCriticalSection(&_mutex);
 }
 
-inline bool PlatformMutex::try_lock() {
+inline bool os::PlatformMutex::try_lock() {
   return TryEnterCriticalSection(&_mutex);
 }
 
-inline void PlatformMonitor::notify() {
+inline void os::PlatformMonitor::notify() {
   WakeConditionVariable(&_cond);
 }
 
-inline void PlatformMonitor::notify_all() {
+inline void os::PlatformMonitor::notify_all() {
   WakeAllConditionVariable(&_cond);
 }
 

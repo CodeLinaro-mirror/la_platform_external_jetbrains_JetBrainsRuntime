@@ -181,16 +181,6 @@ import static javax.swing.ClientPropertyKey.JComponent_TRANSFER_HANDLER;
  * need a specific value for a particular property you should
  * explicitly set it.
  * <p>
- * A <code>JComponent</code> may contain any number of default or initial
- * components as children. This behaviour may change according to look and
- * feel, therefore a <code>JComponent</code> may contain some default or
- * initial components as children for a particular Look and Feel, whereas it
- * may not do so for some other Look and Feel. Within a particular Look and
- * Feel also, this behaviour may change depending upon the configuration
- * properties of the <code>JComponent</code>. In summary, it is not valid
- * to assume a JComponent has no children just because the application
- * did not directly add them.
- * <p>
  * In release 1.4, the focus subsystem was rearchitected.
  * For more information, see
  * <a href="https://docs.oracle.com/javase/tutorial/uiswing/misc/focus.html">
@@ -881,7 +871,8 @@ public abstract class JComponent extends Container implements Serializable,
             }
             // If we are only to paint to a specific child, determine
             // its index.
-            if ((paintingChild instanceof JComponent) &&
+            if (paintingChild != null &&
+                (paintingChild instanceof JComponent) &&
                 paintingChild.isOpaque()) {
                 for (; i >= 0; i--) {
                     if (getComponent(i) == paintingChild){
@@ -2458,7 +2449,7 @@ public abstract class JComponent extends Container implements Serializable,
      *
      * @param condition one of the values listed above
      * @param map  the <code>InputMap</code> to use for the given condition
-     * @throws IllegalArgumentException if <code>condition</code> is
+     * @exception IllegalArgumentException if <code>condition</code> is
      *          <code>WHEN_IN_FOCUSED_WINDOW</code> and <code>map</code>
      *          is not an instance of <code>ComponentInputMap</code>; or
      *          if <code>condition</code> is not one of the legal values
@@ -2557,7 +2548,7 @@ public abstract class JComponent extends Container implements Serializable,
      * @return the <code>InputMap</code> for the given <code>condition</code>;
      *          if <code>create</code> is false and the <code>InputMap</code>
      *          hasn't been created, returns <code>null</code>
-     * @throws IllegalArgumentException if <code>condition</code>
+     * @exception IllegalArgumentException if <code>condition</code>
      *          is not one of the legal values listed above
      */
     final InputMap getInputMap(int condition, boolean create) {
@@ -3450,7 +3441,7 @@ public abstract class JComponent extends Container implements Serializable,
      * <code>ActionListeners</code> that are
      * added via <code>registerKeyboardAction</code>.
      */
-    static final class ActionStandin implements Action {
+    final class ActionStandin implements Action {
         private final ActionListener actionListener;
         private final String command;
         // This will be non-null if actionListener is an Action.
@@ -3638,18 +3629,20 @@ public abstract class JComponent extends Container implements Serializable,
                                               boolean temporary, boolean focusedWindowChangeAllowed,
                                               FocusEvent.Cause cause)
             {
-                if (!(to instanceof JComponent target)) {
+                if ((to == null) || !(to instanceof JComponent)) {
                     return true;
                 }
 
-                if (!(from instanceof JComponent jFocusOwner)) {
+                if ((from == null) || !(from instanceof JComponent)) {
                     return true;
                 }
 
+                JComponent target = (JComponent) to;
                 if (!target.getVerifyInputWhenFocusTarget()) {
                     return true;
                 }
 
+                JComponent jFocusOwner = (JComponent)from;
                 InputVerifier iv = jFocusOwner.getInputVerifier();
 
                 if (iv == null) {
@@ -3752,7 +3745,7 @@ public abstract class JComponent extends Container implements Serializable,
          * to add/remove ContainerListener and FocusListener to track
          * target JComponent's state
          */
-        private transient volatile int propertyListenersCount;
+        private transient volatile int propertyListenersCount = 0;
 
         /**
          * This field duplicates the function of the accessibleAWTFocusHandler field
@@ -3774,7 +3767,7 @@ public abstract class JComponent extends Container implements Serializable,
             protected AccessibleContainerHandler() {}
             public void componentAdded(ContainerEvent e) {
                 Component c = e.getChild();
-                if (c instanceof Accessible) {
+                if (c != null && c instanceof Accessible) {
                     AccessibleJComponent.this.firePropertyChange(
                         AccessibleContext.ACCESSIBLE_CHILD_PROPERTY,
                         null, c.getAccessibleContext());
@@ -3782,7 +3775,7 @@ public abstract class JComponent extends Container implements Serializable,
             }
             public void componentRemoved(ContainerEvent e) {
                 Component c = e.getChild();
-                if (c instanceof Accessible) {
+                if (c != null && c instanceof Accessible) {
                     AccessibleJComponent.this.firePropertyChange(
                         AccessibleContext.ACCESSIBLE_CHILD_PROPERTY,
                         c.getAccessibleContext(), null);
@@ -4206,17 +4199,17 @@ public abstract class JComponent extends Container implements Serializable,
      * @param value Object containing the property value
      */
     void setUIProperty(String propertyName, Object value) {
-        if ("opaque".equals(propertyName)) {
+        if (propertyName == "opaque") {
             if (!getFlag(OPAQUE_SET)) {
                 setOpaque(((Boolean)value).booleanValue());
                 setFlag(OPAQUE_SET, false);
             }
-        } else if ("autoscrolls".equals(propertyName)) {
+        } else if (propertyName == "autoscrolls") {
             if (!getFlag(AUTOSCROLLS_SET)) {
                 setAutoscrolls(((Boolean)value).booleanValue());
                 setFlag(AUTOSCROLLS_SET, false);
             }
-        } else if ("focusTraversalKeysForward".equals(propertyName)) {
+        } else if (propertyName == "focusTraversalKeysForward") {
             @SuppressWarnings("unchecked")
             Set<AWTKeyStroke> strokeSet = (Set<AWTKeyStroke>) value;
             if (!getFlag(FOCUS_TRAVERSAL_KEYS_FORWARD_SET)) {
@@ -4224,7 +4217,7 @@ public abstract class JComponent extends Container implements Serializable,
                                             FORWARD_TRAVERSAL_KEYS,
                                             strokeSet);
             }
-        } else if ("focusTraversalKeysBackward".equals(propertyName)) {
+        } else if (propertyName == "focusTraversalKeysBackward") {
             @SuppressWarnings("unchecked")
             Set<AWTKeyStroke> strokeSet = (Set<AWTKeyStroke>) value;
             if (!getFlag(FOCUS_TRAVERSAL_KEYS_BACKWARD_SET)) {
@@ -4631,7 +4624,7 @@ public abstract class JComponent extends Container implements Serializable,
      * @param propertyName  the name of the property that was listened on
      * @param oldValue  the old value of the property
      * @param newValue  the new value of the property
-     * @throws java.beans.PropertyVetoException when the attempt to set the
+     * @exception java.beans.PropertyVetoException when the attempt to set the
      *          property is vetoed by the component
      */
     protected void fireVetoableChange(String propertyName, Object oldValue, Object newValue)
@@ -4807,7 +4800,7 @@ public abstract class JComponent extends Container implements Serializable,
      *          <code><em>Foo</em>Listener</code>s on this component,
      *          or an empty array if no such
      *          listeners have been added
-     * @throws ClassCastException if <code>listenerType</code>
+     * @exception ClassCastException if <code>listenerType</code>
      *          doesn't specify a class or interface that implements
      *          <code>java.util.EventListener</code>
      *
@@ -5506,7 +5499,8 @@ public abstract class JComponent extends Container implements Serializable,
      * @see java.io.ObjectInputStream#registerValidation
      * @see SwingUtilities#updateComponentTreeUI
      */
-    private static class ReadObjectCallback implements ObjectInputValidation {
+    private class ReadObjectCallback implements ObjectInputValidation
+    {
         private final Vector<JComponent> roots = new Vector<JComponent>(1);
         private final ObjectInputStream inputStream;
 

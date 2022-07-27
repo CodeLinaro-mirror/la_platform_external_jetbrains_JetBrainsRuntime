@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2021, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2014, 2021, Red Hat Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -354,19 +354,19 @@ class GHASHMultiplyGenerator: public KernelGenerator {
 
 public:
   GHASHMultiplyGenerator(Assembler *as, int unrolls,
-                         /* offsetted registers */
                          FloatRegister result_lo, FloatRegister result_hi,
+                         /* offsetted registers */
                          FloatRegister b,
                          /* non-offsetted (shared) registers */
                          FloatRegister a, FloatRegister a1_xor_a0, FloatRegister p, FloatRegister vzr,
-                         /* offsetted (temp) registers */
+                         /* offseted (temp) registers */
                          FloatRegister tmp1, FloatRegister tmp2, FloatRegister tmp3)
     : KernelGenerator(as, unrolls),
       _result_lo(result_lo), _result_hi(result_hi), _b(b),
       _a(a), _vzr(vzr), _a1_xor_a0(a1_xor_a0), _p(p),
       _tmp1(tmp1), _tmp2(tmp2), _tmp3(tmp3) { }
 
-  int register_stride = 7;
+  static const int register_stride = 7;
 
   virtual void generate(int index) {
     // Karatsuba multiplication performs a 128*128 -> 256-bit
@@ -410,7 +410,10 @@ public:
   }
 
   virtual KernelGenerator *next() {
-    GHASHMultiplyGenerator *result = new GHASHMultiplyGenerator(*this);
+    GHASHMultiplyGenerator *result
+      = new GHASHMultiplyGenerator(this, _unrolls, _result_lo, _result_hi,
+                                   _b, _a, _a1_xor_a0, _p, _vzr,
+                                   _tmp1, _tmp2, _tmp3);
     result->_result_lo += register_stride;
     result->_result_hi += register_stride;
     result->_b += register_stride;
@@ -436,13 +439,13 @@ public:
                        FloatRegister result, FloatRegister lo, FloatRegister hi,
                        /* non-offsetted (shared) registers */
                        FloatRegister p, FloatRegister vzr, FloatRegister data,
-                       /* offsetted (temp) registers */
+                       /* offseted (temp) registers */
                        FloatRegister t1)
     : KernelGenerator(as, unrolls),
       _result(result), _lo(lo), _hi(hi),
       _p(p), _vzr(vzr), _data(data), _t1(t1), _once(true) { }
 
-  int register_stride = 7;
+  static const int register_stride = 7;
 
   virtual void generate(int index) {
     const FloatRegister t0 = _result;
@@ -483,7 +486,9 @@ public:
   }
 
   virtual KernelGenerator *next() {
-    GHASHReduceGenerator *result = new GHASHReduceGenerator(*this);
+    GHASHReduceGenerator *result
+      = new GHASHReduceGenerator(this, _unrolls,
+                                 _result, _lo, _hi, _p, _vzr, _data, _t1);
     result->_result += register_stride;
     result->_hi += register_stride;
     result->_lo += register_stride;
@@ -521,7 +526,7 @@ void MacroAssembler::ghash_processBlocks_wide(address field_polynomial, Register
   // everything big-endian or reverse the bits in each byte and do
   // it little-endian.  On AArch64 it's more idiomatic to reverse
   // the bits in each byte (we have an instruction, RBIT, to do
-  // that) and keep the data in little-endian bit order through the
+  // that) and keep the data in little-endian bit order throught the
   // calculation, bit-reversing the inputs and outputs.
 
   assert(unrolls * register_stride < 32, "out of registers");
@@ -629,16 +634,16 @@ void MacroAssembler::ghash_processBlocks_wide(address field_polynomial, Register
 
     // Generate fully-unrolled multiply-reduce in two stages.
 
-    GHASHMultiplyGenerator(this, unrolls,
-                           /*result_lo*/v5, /*result_hi*/v4, /*data*/v2,
-                           Hprime, a1_xor_a0, p, vzr,
-                           /*temps*/v1, v3, /* reuse b*/v2) .unroll();
+    (new GHASHMultiplyGenerator(this, unrolls,
+                                /*result_lo*/v5, /*result_hi*/v4, /*data*/v2,
+                                Hprime, a1_xor_a0, p, vzr,
+                                /*temps*/v1, v3, /* reuse b*/v2))->unroll();
 
     // NB: GHASHReduceGenerator also loads the next #unrolls blocks of
     // data into v0, v0+ofs, the current state.
-    GHASHReduceGenerator (this, unrolls,
-                          /*result*/v0, /*lo*/v5, /*hi*/v4, p, vzr,
-                          /*data*/v2, /*temp*/v3) .unroll();
+    (new GHASHReduceGenerator (this, unrolls,
+                               /*result*/v0, /*lo*/v5, /*hi*/v4, p, vzr,
+                               /*data*/v2, /*temp*/v3))->unroll();
 
     sub(blocks, blocks, unrolls);
     cmp(blocks, (unsigned char)(unrolls * 2));

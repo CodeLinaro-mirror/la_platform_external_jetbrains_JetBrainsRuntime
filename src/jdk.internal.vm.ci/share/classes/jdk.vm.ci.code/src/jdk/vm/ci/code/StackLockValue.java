@@ -49,7 +49,7 @@ public final class StackLockValue implements JavaValue {
         this.owner = newOwner;
     }
 
-    public AllocatableValue getSlot() {
+    public Value getSlot() {
         return slot;
     }
 

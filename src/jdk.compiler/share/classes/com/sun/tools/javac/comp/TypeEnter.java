@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -109,6 +109,7 @@ public class TypeEnter implements Completer {
     private final Annotate annotate;
     private final TypeAnnotations typeAnnotations;
     private final Types types;
+    private final JCDiagnostic.Factory diags;
     private final DeferredLintHandler deferredLintHandler;
     private final Lint lint;
     private final TypeEnvs typeEnvs;
@@ -136,6 +137,7 @@ public class TypeEnter implements Completer {
         annotate = Annotate.instance(context);
         typeAnnotations = TypeAnnotations.instance(context);
         types = Types.instance(context);
+        diags = JCDiagnostic.Factory.instance(context);
         deferredLintHandler = DeferredLintHandler.instance(context);
         lint = Lint.instance(context);
         typeEnvs = TypeEnvs.instance(context);
@@ -354,10 +356,8 @@ public class TypeEnter implements Completer {
 
                 // Import-on-demand java.lang.
                 PackageSymbol javaLang = syms.enterPackage(syms.java_base, names.java_lang);
-                if (javaLang.members().isEmpty() && !javaLang.exists()) {
-                    log.error(Errors.NoJavaLang);
-                    throw new Abort();
-                }
+                if (javaLang.members().isEmpty() && !javaLang.exists())
+                    throw new FatalError(diags.fragment(Fragments.FatalErrNoJavaLang));
                 importAll(make.at(tree.pos()).Import(make.QualIdent(javaLang), false), javaLang, env);
 
                 JCModuleDecl decl = tree.getModuleDecl();
@@ -371,15 +371,10 @@ public class TypeEnter implements Completer {
                 }
 
                 if (decl != null) {
-                    DiagnosticPosition prevCheckDeprecatedLintPos = deferredLintHandler.setPos(decl.pos());
-                    try {
-                        //check @Deprecated:
-                        markDeprecated(decl.sym, decl.mods.annotations, env);
-                    } finally {
-                        deferredLintHandler.setPos(prevCheckDeprecatedLintPos);
-                    }
+                    //check @Deprecated:
+                    markDeprecated(decl.sym, decl.mods.annotations, env);
                     // process module annotations
-                    annotate.annotateLater(decl.mods.annotations, env, env.toplevel.modle, decl.pos());
+                    annotate.annotateLater(decl.mods.annotations, env, env.toplevel.modle, null);
                 }
             } finally {
                 this.env = prevEnv;
@@ -407,7 +402,7 @@ public class TypeEnter implements Completer {
                 }
             }
             // process package annotations
-            annotate.annotateLater(tree.annotations, env, env.toplevel.packge, tree.pos());
+            annotate.annotateLater(tree.annotations, env, env.toplevel.packge, null);
         }
 
         private void doImport(JCImport tree) {
@@ -557,16 +552,6 @@ public class TypeEnter implements Completer {
             return result;
         }
 
-        /** Generate a base clause for a record type.
-         *  @param pos              The position for trees and diagnostics, if any
-         *  @param c                The class symbol of the record
-         */
-        protected  JCExpression recordBase(int pos, ClassSymbol c) {
-            JCExpression result = make.at(pos).
-                QualIdent(syms.recordType.tsym);
-            return result;
-        }
-
         protected Type modelMissingTypes(Env<AttrContext> env, Type t, final JCExpression tree, final boolean interfaceExpected) {
             if (!t.hasTag(ERROR))
                 return t;
@@ -705,14 +690,11 @@ public class TypeEnter implements Completer {
             } else {
                 extending = null;
                 supertype = ((tree.mods.flags & Flags.ENUM) != 0)
-                ? attr.attribBase(extending = enumBase(tree.pos, sym), baseEnv,
+                ? attr.attribBase(enumBase(tree.pos, sym), baseEnv,
                                   true, false, false)
                 : (sym.fullname == names.java_lang_Object)
                 ? Type.noType
-                : sym.isRecord()
-                ? attr.attribBase(extending = recordBase(tree.pos, sym), baseEnv,
-                                  true, false, false)
-                : syms.objectType;
+                : sym.isRecord() ? syms.recordType : syms.objectType;
             }
             ct.supertype_field = modelMissingTypes(baseEnv, supertype, extending, false);
 
@@ -983,7 +965,7 @@ public class TypeEnter implements Completer {
                 List<JCVariableDecl> fields = TreeInfo.recordFields(tree);
                 memberEnter.memberEnter(fields, env);
                 for (JCVariableDecl field : fields) {
-                    sym.createRecordComponent(field,
+                    sym.getRecordComponent(field, true,
                             field.mods.annotations.isEmpty() ?
                                     List.nil() :
                                     new TreeCopier<JCTree>(make.at(field.pos)).copy(field.mods.annotations));
@@ -1229,37 +1211,10 @@ public class TypeEnter implements Completer {
                 memberEnter.memberEnter(equals, env);
             }
 
-            /** Some notes regarding the code below. Annotations applied to elements of a record header are propagated
-             *  to other elements which, when applicable, not explicitly declared by the user: the canonical constructor,
-             *  accessors, fields and record components. Of all these the only ones that can't be explicitly declared are
-             *  the fields and the record components.
-             *
-             *  Now given that annotations are propagated to all possible targets  regardless of applicability,
-             *  annotations not applicable to a given element should be removed. See Check::validateAnnotation. Once
-             *  annotations are removed we could lose the whole picture, that's why original annotations are stored in
-             *  the record component, see RecordComponent::originalAnnos, but there is no real AST representing a record
-             *  component so if there is an annotation processing round it could be that we need to reenter a record for
-             *  which we need to re-attribute its annotations. This is why one of the things the code below is doing is
-             *  copying the original annotations from the record component to the corresponding field, again this applies
-             *  only if APs are present.
-             *
-             *  We need to copy the annotations to the field so that annotations applicable only to the record component
-             *  can be attributed as if declared in the field and then stored in the metadata associated to the record
-             *  component.
-             */
+            // fields can't be varargs, lets remove the flag
             List<JCVariableDecl> recordFields = TreeInfo.recordFields(tree);
             for (JCVariableDecl field: recordFields) {
-                RecordComponent rec = tree.sym.getRecordComponent(field.sym);
-                TreeCopier<JCTree> tc = new TreeCopier<>(make.at(field.pos));
-                List<JCAnnotation> originalAnnos = tc.copy(rec.getOriginalAnnos());
-
                 field.mods.flags &= ~Flags.VARARGS;
-                if (originalAnnos.length() != field.mods.annotations.length()) {
-                    field.mods.annotations = originalAnnos;
-                    annotate.annotateLater(originalAnnos, env, field.sym, field.pos());
-                }
-
-                // also here
                 field.sym.flags_field &= ~Flags.VARARGS;
             }
             // now lets add the accessors

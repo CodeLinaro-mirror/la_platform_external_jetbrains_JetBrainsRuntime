@@ -36,17 +36,12 @@ import sun.awt.SunToolkit;
 import sun.lwawt.LWToolkit;
 import sun.lwawt.macosx.*;
 
-@SuppressWarnings("serial") // JDK implementation class
+@SuppressWarnings({"removal","serial"}) // JDK implementation class
 final class ScreenMenu extends Menu
         implements ContainerListener, ComponentListener,
                    ScreenMenuPropertyHandler {
 
     static {
-        loadAWTLibrary();
-    }
-
-    @SuppressWarnings("removal")
-    private static void loadAWTLibrary() {
         java.security.AccessController.doPrivileged(
             new java.security.PrivilegedAction<Void>() {
                 public Void run() {
@@ -351,8 +346,11 @@ final class ScreenMenu extends Menu
         // Tell our parent to add/remove us
         final MenuContainer parent = getParent();
 
-        if (parent instanceof ScreenMenu sm) {
-            sm.setChildVisible(fInvoker, b);
+        if (parent != null) {
+            if (parent instanceof ScreenMenu) {
+                final ScreenMenu sm = (ScreenMenu)parent;
+                sm.setChildVisible(fInvoker, b);
+            }
         }
     }
 

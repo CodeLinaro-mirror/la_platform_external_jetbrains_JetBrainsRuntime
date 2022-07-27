@@ -478,12 +478,15 @@ public class StyleSheet extends StyleContext {
      * @since 1.3
      */
     public void importStyleSheet(URL url) {
-        try (InputStream is = url.openStream();
-             InputStreamReader isr = new InputStreamReader(is);
-             Reader r = new BufferedReader(isr))
-        {
+        try {
+            InputStream is;
+
+            is = url.openStream();
+            Reader r = new BufferedReader(new InputStreamReader(is));
             CssParser parser = new CssParser();
             parser.parse(url, r, false, true);
+            r.close();
+            is.close();
         } catch (Throwable e) {
             // on error we simply have no styles... the html
             // will look mighty wrong but still function.
@@ -1832,7 +1835,7 @@ public class StyleSheet extends StyleContext {
      * is maintained according to the CSS attributes.
      */
     @SuppressWarnings("serial") // Same-version serialization only
-    public static final class BoxPainter implements Serializable {
+    public static class BoxPainter implements Serializable {
 
         BoxPainter(AttributeSet a, CSS css, StyleSheet ss) {
             this.ss = ss;
@@ -1886,7 +1889,7 @@ public class StyleSheet extends StyleContext {
          *  used to get the AttributeSet, and may be used to
          *  resolve percentage arguments.
          * @return the inset needed for the margin, border and padding.
-         * @throws IllegalArgumentException for an invalid direction
+         * @exception IllegalArgumentException for an invalid direction
          */
         public float getInset(int side, View v) {
             AttributeSet a = v.getAttributes();
@@ -2093,7 +2096,7 @@ public class StyleSheet extends StyleContext {
      * are being cached.
      */
     @SuppressWarnings("serial") // Same-version serialization only
-    public static final class ListPainter implements Serializable {
+    public static class ListPainter implements Serializable {
 
         ListPainter(AttributeSet attr, StyleSheet ss) {
             this.ss = ss;
@@ -2208,9 +2211,10 @@ public class StyleSheet extends StyleContext {
                     retIndex--;
                 } else if (as.isDefined(HTML.Attribute.VALUE)) {
                     Object value = as.getAttribute(HTML.Attribute.VALUE);
-                    if (value instanceof String s) {
+                    if (value != null &&
+                        (value instanceof String)) {
                         try {
-                            int iValue = Integer.parseInt(s);
+                            int iValue = Integer.parseInt((String)value);
                             return retIndex - counter + iValue;
                         }
                         catch (NumberFormatException nfe) {}
@@ -2743,7 +2747,8 @@ public class StyleSheet extends StyleContext {
                                    kind of conditional behaviour in the
                                    stylesheet.
                                  **/
-                                    if (o instanceof AttributeSet attr) {
+                                    if (o != null && o instanceof AttributeSet) {
+                                        AttributeSet attr = (AttributeSet)o;
                                         if (attr.getAttribute(HTML.Attribute.HREF) == null) {
                                             continue;
                                         }

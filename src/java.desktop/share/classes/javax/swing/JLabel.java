@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -551,7 +551,7 @@ public class JLabel extends JComponent implements SwingConstants, Accessible
      *
      * @since 1.4
      * @param index Index into the String to underline
-     * @throws IllegalArgumentException will be thrown if <code>index</code>
+     * @exception IllegalArgumentException will be thrown if <code>index</code>
      *            is &gt;= length of the text, or &lt; -1
      */
     @BeanProperty(visualUpdate = true, description
@@ -593,9 +593,9 @@ public class JLabel extends JComponent implements SwingConstants, Accessible
      *
      * @param key the property value to check
      * @param message the IllegalArgumentException detail message
-     * @return the key value if {@code key} is a legal value for the
+     * @return the key value if {@code key} is a a legal value for the
      *         horizontalAlignment properties
-     * @throws IllegalArgumentException if key isn't LEFT, CENTER, RIGHT,
+     * @exception IllegalArgumentException if key isn't LEFT, CENTER, RIGHT,
      * LEADING or TRAILING.
      * @see #setHorizontalTextPosition
      * @see #setHorizontalAlignment
@@ -622,7 +622,7 @@ public class JLabel extends JComponent implements SwingConstants, Accessible
      * @param message the IllegalArgumentException detail message
      * @return the key value if {@code key} is a legal value for the
      *         verticalAlignment or verticalTextPosition properties
-     * @throws IllegalArgumentException if key isn't TOP, CENTER, or BOTTOM.
+     * @exception IllegalArgumentException if key isn't TOP, CENTER, or BOTTOM.
      * @see #setVerticalAlignment
      * @see #setVerticalTextPosition
      */
@@ -1132,8 +1132,8 @@ public class JLabel extends JComponent implements SwingConstants, Accessible
             if (icon instanceof Accessible) {
                 AccessibleContext ac =
                 ((Accessible)icon).getAccessibleContext();
-                if (ac instanceof AccessibleIcon ai) {
-                    return new AccessibleIcon[] { ai };
+                if (ac != null && ac instanceof AccessibleIcon) {
+                    return new AccessibleIcon[] { (AccessibleIcon)ac };
                 }
             }
             return null;
@@ -1637,7 +1637,7 @@ public class JLabel extends JComponent implements SwingConstants, Accessible
              *
              * @param i zero-based index of the key bindings
              * @return a javax.lang.Object which specifies the key binding
-             * @throws IllegalArgumentException if the index is
+             * @exception IllegalArgumentException if the index is
              * out of bounds
              * @see #getAccessibleKeyBindingCount
              */

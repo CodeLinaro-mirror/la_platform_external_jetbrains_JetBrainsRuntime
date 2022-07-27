@@ -19,34 +19,56 @@ set -x
 #               By default JDK_BUILD_NUMBER is set zero
 #   JCEF_PATH - specifies the path to the directory with JCEF binaries.
 #               By default JCEF binaries should be located in ./jcef_mac
+#   MACOSX_VERSION_MAX - specifies value for the --with-macosx-version-max parameter. By default it is 10.12.00 for x64
+#               and 11.00.00 for aarch64
 
 source jb/project/tools/common/scripts/common.sh
 
 JCEF_PATH=${JCEF_PATH:=./jcef_mac}
-BOOT_JDK=${BOOT_JDK:=$(/usr/libexec/java_home -v 17)}
+BOOT_JDK=${BOOT_JDK:=$(/usr/libexec/java_home -v 16)}
 
 function do_configure {
   if [[ "${architecture}" == *aarch64* ]]; then
-    ENABLE_CDS="--enable-cds=no"
+    sh configure \
+      $WITH_DEBUG_LEVEL \
+      --with-vendor-name="${VENDOR_NAME}" \
+      --with-vendor-version-string="${VENDOR_VERSION_STRING}" \
+      --with-macosx-bundle-name-base=${VENDOR_VERSION_STRING} \
+      --with-macosx-bundle-id-base="com.jetbrains.jbr" \
+      --with-jvm-features=shenandoahgc \
+      --with-version-pre= \
+      --with-version-build="${JDK_BUILD_NUMBER}" \
+      --with-version-opt=b"${build_number}" \
+      --with-boot-jdk="$BOOT_JDK" \
+      --with-macosx-version-max="${MACOSX_VERSION_MAX:="11.00.00"}" \
+      --disable-hotspot-gtest --disable-javac-server --disable-full-docs --disable-manpages \
+      --enable-cds=no \
+      --with-extra-cflags="-F$(pwd)/Frameworks" \
+      --with-extra-cxxflags="-F$(pwd)/Frameworks" \
+      --with-extra-ldflags="-F$(pwd)/Frameworks" \
+      $STATIC_CONF_ARGS \
+      $REPRODUCIBLE_BUILD_OPTS \
+      $WITH_ZIPPED_NATIVE_DEBUG_SYMBOLS \
+      || do_exit $?
   else
-    ENABLE_CDS="--enable-cds=yes"
+    sh configure \
+      $WITH_DEBUG_LEVEL \
+      --with-vendor-name="$VENDOR_NAME" \
+      --with-vendor-version-string="$VENDOR_VERSION_STRING" \
+      --with-macosx-bundle-name-base=${VENDOR_VERSION_STRING} \
+      --with-macosx-bundle-id-base="com.jetbrains.jbr" \
+      --with-jvm-features=shenandoahgc \
+      --with-version-pre= \
+      --with-version-build="$JDK_BUILD_NUMBER" \
+      --with-version-opt=b"$build_number" \
+      --with-boot-jdk="$BOOT_JDK" \
+      --with-macosx-version-max="${MACOSX_VERSION_MAX:="10.12.00"}" \
+      --enable-cds=yes \
+      $STATIC_CONF_ARGS \
+      $REPRODUCIBLE_BUILD_OPTS \
+      $WITH_ZIPPED_NATIVE_DEBUG_SYMBOLS \
+      || do_exit $?
   fi
-  sh configure \
-    $WITH_DEBUG_LEVEL \
-    --with-vendor-name="$VENDOR_NAME" \
-    --with-vendor-version-string="$VENDOR_VERSION_STRING" \
-    --with-macosx-bundle-name-base=${VENDOR_VERSION_STRING} \
-    --with-macosx-bundle-id-base="com.jetbrains.jbr" \
-    --with-jvm-features=shenandoahgc \
-    --with-version-pre= \
-    --with-version-build="$JDK_BUILD_NUMBER" \
-    --with-version-opt=b"$build_number" \
-    --with-boot-jdk="$BOOT_JDK" \
-    --enable-cds=yes \
-    $STATIC_CONF_ARGS \
-    $REPRODUCIBLE_BUILD_OPTS \
-    $WITH_ZIPPED_NATIVE_DEBUG_SYMBOLS \
-    || do_exit $?
 }
 
 function create_image_bundle {

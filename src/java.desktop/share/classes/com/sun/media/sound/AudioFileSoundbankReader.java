@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -48,10 +48,14 @@ public final class AudioFileSoundbankReader extends SoundbankReader {
     @Override
     public Soundbank getSoundbank(URL url)
             throws InvalidMidiDataException, IOException {
-        try (AudioInputStream ais = AudioSystem.getAudioInputStream(url)) {
+        try {
+            AudioInputStream ais = AudioSystem.getAudioInputStream(url);
             Soundbank sbk = getSoundbank(ais);
+            ais.close();
             return sbk;
-        } catch (UnsupportedAudioFileException | IOException e) {
+        } catch (UnsupportedAudioFileException e) {
+            return null;
+        } catch (IOException e) {
             return null;
         }
     }
@@ -65,7 +69,8 @@ public final class AudioFileSoundbankReader extends SoundbankReader {
             Soundbank sbk = getSoundbank(ais);
             if (sbk != null)
                 return sbk;
-        } catch (UnsupportedAudioFileException | IOException e) {
+        } catch (UnsupportedAudioFileException e) {
+        } catch (IOException e) {
         }
         stream.reset();
         return null;
@@ -133,7 +138,9 @@ public final class AudioFileSoundbankReader extends SoundbankReader {
             ins.add(performer);
             sbk.addInstrument(ins);
             return sbk;
-        } catch (UnsupportedAudioFileException | IOException e) {
+        } catch (UnsupportedAudioFileException e1) {
+            return null;
+        } catch (IOException e) {
             return null;
         }
     }

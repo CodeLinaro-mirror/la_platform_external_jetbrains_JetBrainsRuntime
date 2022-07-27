@@ -593,7 +593,16 @@ MTLTR_DrawLCDGlyphNoCache(MTLContext *mtlc, BMTLSDOps *dstOps,
     [mtlc.encoderManager endEncoder];
     [blitTexture release];
 
-    [mtlc commitCommandBuffer:YES display:NO];
+    MTLCommandBufferWrapper* cbwrapper = [mtlc pullCommandBufferWrapper];
+
+    id<MTLCommandBuffer> commandbuf = [cbwrapper getCommandBuffer];
+    [commandbuf addCompletedHandler:^(id <MTLCommandBuffer> commandbuf) {
+        [cbwrapper release];
+    }];
+
+    [commandbuf commit];
+    [commandbuf waitUntilCompleted];
+
     return JNI_TRUE;
 }
 
@@ -722,7 +731,15 @@ MTLTR_DrawGlyphList(JNIEnv *env, MTLContext *mtlc, BMTLSDOps *dstOps,
             flushBeforeLCD = JNI_FALSE;
         } else {
             if (!flushBeforeLCD) {
-                [mtlc commitCommandBuffer:NO display:NO];
+                [mtlc.encoderManager endEncoder];
+                MTLCommandBufferWrapper* cbwrapper = [mtlc pullCommandBufferWrapper];
+
+                id<MTLCommandBuffer> commandbuf = [cbwrapper getCommandBuffer];
+                [commandbuf addCompletedHandler:^(id <MTLCommandBuffer> commandbuf) {
+                    [cbwrapper release];
+                }];
+
+                [commandbuf commit];
                 flushBeforeLCD = JNI_TRUE;
             }
 
@@ -814,7 +831,13 @@ Java_sun_java2d_metal_MTLTextRenderer_drawGlyphList
         }
         if (mtlc != NULL) {
             RESET_PREVIOUS_OP();
-            [mtlc commitCommandBuffer:NO display:NO];
+            [mtlc.encoderManager endEncoder];
+            MTLCommandBufferWrapper * cbwrapper = [mtlc pullCommandBufferWrapper];
+            id<MTLCommandBuffer> commandbuf = [cbwrapper getCommandBuffer];
+            [commandbuf addCompletedHandler:^(id <MTLCommandBuffer> commandbuf) {
+                [cbwrapper release];
+            }];
+            [commandbuf commit];
         }
 
         (*env)->ReleasePrimitiveArrayCritical(env, imgArray,

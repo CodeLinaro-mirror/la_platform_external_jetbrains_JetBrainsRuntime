@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,7 +40,7 @@
 #include "gc/g1/g1SurvivorRegions.hpp"
 #include "gc/g1/g1YoungGenSizer.hpp"
 #include "gc/g1/heapRegion.inline.hpp"
-#include "gc/g1/heapRegionRemSet.inline.hpp"
+#include "gc/g1/heapRegionRemSet.hpp"
 #include "gc/shared/concurrentGCBreakpoints.hpp"
 #include "gc/shared/gcPolicyCounters.hpp"
 #include "logging/log.hpp"
@@ -49,8 +49,6 @@
 #include "utilities/debug.hpp"
 #include "utilities/growableArray.hpp"
 #include "utilities/pair.hpp"
-
-#include "gc/shared/gcTraceTime.inline.hpp"
 
 G1Policy::G1Policy(STWGCTimer* gc_timer) :
   _predictor(G1ConfidencePercent / 100.0),
@@ -113,8 +111,8 @@ void G1Policy::init(G1CollectedHeap* g1h, G1CollectionSet* collection_set) {
   _collection_set->start_incremental_building();
 }
 
-void G1Policy::record_young_gc_pause_start() {
-  phase_times()->record_gc_pause_start();
+void G1Policy::note_gc_start() {
+  phase_times()->note_gc_start();
 }
 
 class G1YoungLengthPredictor {
@@ -448,7 +446,7 @@ void G1Policy::record_full_collection_end() {
   collector_state()->set_initiate_conc_mark_if_possible(need_to_start_conc_mark("end of Full GC"));
   collector_state()->set_in_concurrent_start_gc(false);
   collector_state()->set_mark_or_rebuild_in_progress(false);
-  collector_state()->set_clearing_bitmap(false);
+  collector_state()->set_clearing_next_bitmap(false);
 
   _eden_surv_rate_group->start_adding_regions();
   // also call this on any additional surv rate groups
@@ -517,8 +515,7 @@ void G1Policy::record_concurrent_refinement_stats() {
   }
 }
 
-void G1Policy::record_young_collection_start() {
-  Ticks now = Ticks::now();
+void G1Policy::record_collection_pause_start(double start_time_sec) {
   // We only need to do this here as the policy will only be applied
   // to the GC we're about to start. so, no point is calculating this
   // every time we calculate / recalculate the target young length.
@@ -529,7 +526,7 @@ void G1Policy::record_young_collection_start() {
          max_survivor_regions(), _g1h->num_used_regions(), _g1h->max_regions());
   assert_used_and_recalculate_used_equal(_g1h);
 
-  phase_times()->record_cur_collection_start_sec(now.seconds());
+  phase_times()->record_cur_collection_start_sec(start_time_sec);
 
   record_concurrent_refinement_stats();
 
@@ -629,14 +626,15 @@ double G1Policy::logged_cards_processing_time() const {
 // Anything below that is considered to be zero
 #define MIN_TIMER_GRANULARITY 0.0000001
 
-void G1Policy::record_young_collection_end(bool concurrent_operation_is_full_mark, bool evacuation_failure) {
+void G1Policy::record_collection_pause_end(double pause_time_ms, bool concurrent_operation_is_full_mark) {
   G1GCPhaseTimes* p = phase_times();
 
+  double end_time_sec = os::elapsedTime();
   double start_time_sec = phase_times()->cur_collection_start_sec();
-  double end_time_sec = Ticks::now().seconds();
-  double pause_time_ms = (end_time_sec - start_time_sec) * 1000.0;
 
   G1GCPauseType this_pause = collector_state()->young_gc_pause_type(concurrent_operation_is_full_mark);
+
+  bool update_stats = should_update_gc_stats();
 
   if (G1GCPauseTypeHelper::is_concurrent_start_pause(this_pause)) {
     record_concurrent_mark_init_end();
@@ -652,10 +650,6 @@ void G1Policy::record_young_collection_end(bool concurrent_operation_is_full_mar
     app_time_ms = 1.0;
   }
 
-  // Evacuation failures skew the timing too much to be considered for some statistics updates.
-  // We make the assumption that these are rare.
-  bool update_stats = !evacuation_failure;
-
   if (update_stats) {
     // We maintain the invariant that all objects allocated by mutator
     // threads will be allocated out of eden regions. So, we can use
@@ -670,7 +664,7 @@ void G1Policy::record_young_collection_end(bool concurrent_operation_is_full_mar
     _analytics->report_alloc_rate_ms(alloc_rate_ms);
   }
 
-  record_pause(this_pause, start_time_sec, end_time_sec, evacuation_failure);
+  record_pause(this_pause, start_time_sec, end_time_sec);
 
   if (G1GCPauseTypeHelper::is_last_young_pause(this_pause)) {
     assert(!G1GCPauseTypeHelper::is_concurrent_start_pause(this_pause),
@@ -683,7 +677,8 @@ void G1Policy::record_young_collection_end(bool concurrent_operation_is_full_mar
   } else if (G1GCPauseTypeHelper::is_mixed_pause(this_pause)) {
     // This is a mixed GC. Here we decide whether to continue doing more
     // mixed GCs or not.
-    if (!next_gc_should_be_mixed("do not continue mixed GCs")) {
+    if (!next_gc_should_be_mixed("continue mixed GCs",
+                                 "do not continue mixed GCs")) {
       collector_state()->set_in_young_only_phase(true);
 
       clear_collection_set_candidates();
@@ -892,9 +887,8 @@ void G1Policy::report_ihop_statistics() {
   _ihop_control->print();
 }
 
-void G1Policy::record_young_gc_pause_end(bool evacuation_failed) {
-  phase_times()->record_gc_pause_end();
-  phase_times()->print(evacuation_failed);
+void G1Policy::print_phases() {
+  phase_times()->print();
 }
 
 double G1Policy::predict_base_elapsed_time_ms(size_t pending_cards,
@@ -915,7 +909,7 @@ double G1Policy::predict_base_elapsed_time_ms(size_t pending_cards) const {
 size_t G1Policy::predict_bytes_to_copy(HeapRegion* hr) const {
   size_t bytes_to_copy;
   if (!hr->is_young()) {
-    bytes_to_copy = hr->live_bytes();
+    bytes_to_copy = hr->max_live_bytes();
   } else {
     bytes_to_copy = (size_t) (hr->used() * hr->surv_rate_prediction(_predictor));
   }
@@ -1047,7 +1041,7 @@ void G1Policy::initiate_conc_mark() {
   collector_state()->set_initiate_conc_mark_if_possible(false);
 }
 
-void G1Policy::decide_on_concurrent_start_pause() {
+void G1Policy::decide_on_conc_mark_initiation() {
   // We are about to decide on whether this pause will be a
   // concurrent start pause.
 
@@ -1056,12 +1050,6 @@ void G1Policy::decide_on_concurrent_start_pause() {
   // the end of the pause (it's only set for the duration of a
   // concurrent start pause).
   assert(!collector_state()->in_concurrent_start_gc(), "pre-condition");
-
-  // We should not be starting a concurrent start pause if the concurrent mark
-  // thread is terminating.
-  if (_g1h->concurrent_mark_is_terminating()) {
-    return;
-  }
 
   if (collector_state()->initiate_conc_mark_if_possible()) {
     // We had noticed on a previous pause that the heap occupancy has
@@ -1079,10 +1067,10 @@ void G1Policy::decide_on_concurrent_start_pause() {
       initiate_conc_mark();
       log_debug(gc, ergo)("Initiate concurrent cycle (concurrent cycle initiation requested)");
     } else if (_g1h->is_user_requested_concurrent_full_gc(cause) ||
-               (cause == GCCause::_codecache_GC_threshold) ||
                (cause == GCCause::_wb_breakpoint)) {
-      // Initiate a concurrent start.  A concurrent start must be a young only
-      // GC, so the collector state must be updated to reflect this.
+      // Initiate a user requested concurrent start or run to a breakpoint.
+      // A concurrent start must be young only GC, so the collector state
+      // must be updated to reflect this.
       collector_state()->set_in_young_only_phase(true);
       collector_state()->set_in_young_gc_before_mixed(false);
 
@@ -1111,12 +1099,6 @@ void G1Policy::decide_on_concurrent_start_pause() {
       log_debug(gc, ergo)("Do not initiate concurrent cycle (concurrent cycle already in progress)");
     }
   }
-  // Result consistency checks.
-  // We do not allow concurrent start to be piggy-backed on a mixed GC.
-  assert(!collector_state()->in_concurrent_start_gc() ||
-         collector_state()->in_young_only_phase(), "sanity");
-  // We also do not allow mixed GCs during marking.
-  assert(!collector_state()->mark_or_rebuild_in_progress() || collector_state()->in_young_only_phase(), "sanity");
 }
 
 void G1Policy::record_concurrent_mark_cleanup_end(bool has_rebuilt_remembered_sets) {
@@ -1124,7 +1106,7 @@ void G1Policy::record_concurrent_mark_cleanup_end(bool has_rebuilt_remembered_se
   if (has_rebuilt_remembered_sets) {
     G1CollectionSetCandidates* candidates = G1CollectionSetChooser::build(_g1h->workers(), _g1h->num_regions());
     _collection_set->set_candidates(candidates);
-    mixed_gc_pending = next_gc_should_be_mixed("request young-only gcs");
+    mixed_gc_pending = next_gc_should_be_mixed("request mixed gcs", "request young-only gcs");
   }
 
   if (log_is_enabled(Trace, gc, liveness)) {
@@ -1138,7 +1120,6 @@ void G1Policy::record_concurrent_mark_cleanup_end(bool has_rebuilt_remembered_se
   }
   collector_state()->set_in_young_gc_before_mixed(mixed_gc_pending);
   collector_state()->set_mark_or_rebuild_in_progress(false);
-  collector_state()->set_clearing_bitmap(true);
 
   double end_sec = os::elapsedTime();
   double elapsed_time_ms = (end_sec - _mark_cleanup_start_sec) * 1000.0;
@@ -1178,6 +1159,12 @@ void G1Policy::maybe_start_marking() {
   }
 }
 
+bool G1Policy::should_update_gc_stats() {
+  // Evacuation failures skew the timing too much to be considered for statistics updates.
+  // We make the assumption that these are rare.
+  return !_g1h->evacuation_failed();
+}
+
 void G1Policy::update_gc_pause_time_ratios(G1GCPauseType gc_type, double start_time_sec, double end_time_sec) {
 
   double pause_time_sec = end_time_sec - start_time_sec;
@@ -1195,14 +1182,13 @@ void G1Policy::update_gc_pause_time_ratios(G1GCPauseType gc_type, double start_t
 
 void G1Policy::record_pause(G1GCPauseType gc_type,
                             double start,
-                            double end,
-                            bool evacuation_failure) {
+                            double end) {
   // Manage the MMU tracker. For some reason it ignores Full GCs.
   if (gc_type != G1GCPauseType::FullGC) {
     _mmu_tracker->add_pause(start, end);
   }
 
-  if (!evacuation_failure) {
+  if (should_update_gc_stats()) {
     update_gc_pause_time_ratios(gc_type, start, end);
   }
 
@@ -1248,16 +1234,16 @@ void G1Policy::abort_time_to_mixed_tracking() {
   _concurrent_start_to_mixed.reset();
 }
 
-bool G1Policy::next_gc_should_be_mixed(const char* no_candidates_str) const {
+bool G1Policy::next_gc_should_be_mixed(const char* true_action_str,
+                                       const char* false_action_str) const {
   G1CollectionSetCandidates* candidates = _collection_set->candidates();
 
   if (candidates == NULL || candidates->is_empty()) {
-    log_debug(gc, ergo)("%s (candidate old regions not available)", no_candidates_str);
+    log_debug(gc, ergo)("%s (candidate old regions not available)", false_action_str);
     return false;
   }
-  // Otherwise always continue mixed collection. There is no other reason to stop the
-  // mixed phase than there are no more candidates. All candidates not pruned earlier
-  // during candidate selection are worth collecting.
+  // Go through all regions - we already pruned regions not worth collecting
+  // during candidate selection.
   return true;
 }
 
@@ -1313,6 +1299,7 @@ void G1Policy::calculate_old_collection_set_regions(G1CollectionSetCandidates* c
   num_optional_regions = 0;
   uint num_expensive_regions = 0;
 
+  double predicted_old_time_ms = 0.0;
   double predicted_initial_time_ms = 0.0;
   double predicted_optional_time_ms = 0.0;
 
@@ -1343,7 +1330,7 @@ void G1Policy::calculate_old_collection_set_regions(G1CollectionSetCandidates* c
     time_remaining_ms = MAX2(time_remaining_ms - predicted_time_ms, 0.0);
     // Add regions to old set until we reach the minimum amount
     if (num_initial_regions < min_old_cset_length) {
-      predicted_initial_time_ms += predicted_time_ms;
+      predicted_old_time_ms += predicted_time_ms;
       num_initial_regions++;
       // Record the number of regions added with no time remaining
       if (time_remaining_ms == 0.0) {
@@ -1357,7 +1344,7 @@ void G1Policy::calculate_old_collection_set_regions(G1CollectionSetCandidates* c
     } else {
       // Keep adding regions to old set until we reach the optional threshold
       if (time_remaining_ms > optional_threshold_ms) {
-        predicted_initial_time_ms += predicted_time_ms;
+        predicted_old_time_ms += predicted_time_ms;
         num_initial_regions++;
       } else if (time_remaining_ms > 0) {
         // Keep adding optional regions until time is up.
@@ -1381,7 +1368,7 @@ void G1Policy::calculate_old_collection_set_regions(G1CollectionSetCandidates* c
   }
 
   log_debug(gc, ergo, cset)("Finish choosing collection set old regions. Initial: %u, optional: %u, "
-                            "predicted initial time: %1.2fms, predicted optional time: %1.2fms, time remaining: %1.2f",
+                            "predicted old time: %1.2fms, predicted optional time: %1.2fms, time remaining: %1.2f",
                             num_initial_regions, num_optional_regions,
                             predicted_initial_time_ms, predicted_optional_time_ms, time_remaining_ms);
 }
@@ -1393,13 +1380,13 @@ void G1Policy::calculate_optional_collection_set_regions(G1CollectionSetCandidat
   assert(_g1h->collector_state()->in_mixed_phase(), "Should only be called in mixed phase");
 
   num_optional_regions = 0;
-  double total_prediction_ms = 0.0;
+  double prediction_ms = 0;
   uint candidate_idx = candidates->cur_idx();
 
   HeapRegion* r = candidates->at(candidate_idx);
   while (num_optional_regions < max_optional_regions) {
     assert(r != NULL, "Region must exist");
-    double prediction_ms = predict_region_total_time_ms(r, false);
+    prediction_ms += predict_region_total_time_ms(r, false);
 
     if (prediction_ms > time_remaining_ms) {
       log_debug(gc, ergo, cset)("Prediction %.3fms for region %u does not fit remaining time: %.3fms.",
@@ -1408,14 +1395,13 @@ void G1Policy::calculate_optional_collection_set_regions(G1CollectionSetCandidat
     }
     // This region will be included in the next optional evacuation.
 
-    total_prediction_ms += prediction_ms;
     time_remaining_ms -= prediction_ms;
     num_optional_regions++;
     r = candidates->at(++candidate_idx);
   }
 
-  log_debug(gc, ergo, cset)("Prepared %u regions out of %u for optional evacuation. Total predicted time: %.3fms",
-                            num_optional_regions, max_optional_regions, total_prediction_ms);
+  log_debug(gc, ergo, cset)("Prepared %u regions out of %u for optional evacuation. Predicted time: %.3fms",
+                            num_optional_regions, max_optional_regions, prediction_ms);
 }
 
 // Number of regions required to store the given number of bytes, taking
@@ -1445,19 +1431,17 @@ bool G1Policy::preventive_collection_required(uint alloc_region_count) {
   uint required_regions = (uint)(get_num_regions_adjust_for_plab_waste(total_young_predicted_surviving_bytes) +
                                 get_num_regions_adjust_for_plab_waste(_predicted_surviving_bytes_from_old));
 
-  if (required_regions > _g1h->num_free_or_available_regions() - alloc_region_count) {
-    log_debug(gc, ergo, cset)("Preventive GC, insufficient free or available regions. "
-                              "Predicted need %u. Curr Eden %u (Pred %u). Curr Survivor %u (Pred %u). Curr Old %u (Pred %u) Free or Avail %u (Free %u) Alloc %u",
-                              required_regions,
-                              eden_count,
-                              (uint)get_num_regions_adjust_for_plab_waste(eden_surv_bytes_pred),
-                              _g1h->survivor_regions_count(),
-                              (uint)get_num_regions_adjust_for_plab_waste(_predicted_surviving_bytes_from_survivor),
-                              _g1h->old_regions_count(),
-                              (uint)get_num_regions_adjust_for_plab_waste(_predicted_surviving_bytes_from_old),
-                              _g1h->num_free_or_available_regions(),
-                              _g1h->num_free_regions(),
-                              alloc_region_count);
+  if (required_regions > _g1h->num_free_regions() - alloc_region_count) {
+    log_debug(gc, ergo, cset)("Preventive GC, insufficient free regions. Predicted need %u. Curr Eden %u (Pred %u). Curr Survivor %u (Pred %u). Curr Old %u (Pred %u) Free %u Alloc %u",
+            required_regions,
+            eden_count,
+            (uint)get_num_regions_adjust_for_plab_waste(eden_surv_bytes_pred),
+            _g1h->survivor_regions_count(),
+            (uint)get_num_regions_adjust_for_plab_waste(_predicted_surviving_bytes_from_survivor),
+            _g1h->old_regions_count(),
+            (uint)get_num_regions_adjust_for_plab_waste(_predicted_surviving_bytes_from_old),
+            _g1h->num_free_regions(),
+            alloc_region_count);
 
     return true;
   }
@@ -1501,8 +1485,9 @@ void G1Policy::update_survival_estimates_for_next_collection() {
 }
 
 void G1Policy::transfer_survivors_to_cset(const G1SurvivorRegions* survivors) {
-  start_adding_survivor_regions();
+  note_start_adding_survivor_regions();
 
+  HeapRegion* last = NULL;
   for (GrowableArrayIterator<HeapRegion*> it = survivors->regions()->begin();
        it != survivors->regions()->end();
        ++it) {
@@ -1513,8 +1498,10 @@ void G1Policy::transfer_survivors_to_cset(const G1SurvivorRegions* survivors) {
     // the incremental collection set for the next evacuation
     // pause.
     _collection_set->add_survivor_regions(curr);
+
+    last = curr;
   }
-  stop_adding_survivor_regions();
+  note_stop_adding_survivor_regions();
 
   // Don't clear the survivor list handles until the start of
   // the next evacuation pause - we need it in order to re-tag

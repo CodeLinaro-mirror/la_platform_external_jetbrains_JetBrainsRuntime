@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -98,8 +98,7 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   };
 
   friend class ClassLoaderDataGraph;
-  template <bool keep_alive>
-  friend class ClassLoaderDataGraphIteratorBase;
+  friend class ClassLoaderDataGraphIterator;
   friend class ClassLoaderDataGraphKlassIteratorAtomic;
   friend class ClassLoaderDataGraphKlassIteratorStatic;
   friend class ClassLoaderDataGraphMetaspaceIterator;
@@ -120,7 +119,7 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   bool _has_class_mirror_holder; // If true, CLD is dedicated to one class and that class determines
                                  // the CLDs lifecycle.  For example, a non-strong hidden class.
                                  // Arrays of these classes are also assigned
-                                 // to these class loader data.
+                                 // to these class loader datas.
 
   // Remembered sets support for the oops in the class loader data.
   bool _modified_oops;     // Card Table Equivalent
@@ -175,8 +174,8 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   bool has_modified_oops()               { return _modified_oops; }
 
   oop holder_no_keepalive() const;
-  oop holder() const;
-
+  oop holder_phantom() const;
+  void exchange_holders(ClassLoaderData* cld);
  private:
   void unload();
   bool keep_alive() const       { return _keep_alive > 0; }
@@ -254,7 +253,6 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   ClassLoaderMetaspace* metaspace_non_null();
 
   inline oop class_loader() const;
-  inline oop class_loader_no_keepalive() const;
 
   // Returns true if this class loader data is for a loader going away.
   // Note that this is only safe after the GC has computed if the CLD is
@@ -313,7 +311,7 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   // Also works if unloading.
   Klass* class_loader_klass() const { return _class_loader_klass; }
 
-  // Returns the class loader's explicit name as specified during
+  // Returns the class loader's explict name as specified during
   // construction or the class loader's qualified class name.
   // Works during unloading.
   const char* loader_name() const;
@@ -325,7 +323,7 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   Symbol* name_and_id() const { return _name_and_id; }
 
   unsigned identity_hash() const {
-    return (unsigned)((uintptr_t)this >> LogBytesPerWord);
+    return (unsigned)((uintptr_t)this >> 3);
   }
 
   JFR_ONLY(DEFINE_TRACE_ID_METHODS;)

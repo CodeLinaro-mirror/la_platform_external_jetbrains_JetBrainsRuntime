@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -2865,16 +2865,17 @@ static void transform_detail_string (const gchar *detail,
     }
 }
 
-inline static int scale_down_ceiling(int what, int scale) {
+inline static int scale_down_to_plus_inf(int what, int scale) {
     return (int)ceilf(what / (float)scale);
 }
 
-inline static int scale_down_floor(int what, int scale) {
+inline static int scale_down_to_minus_inf(int what, int scale) {
     return (int)floorf(what / (float)scale);
 }
 
 static gboolean gtk3_get_drawable_data(JNIEnv *env, jintArray pixelArray,
-     int x, jint y, jint width, jint height, jint jwidth, int dx, int dy) {
+     int x, jint y, jint width, jint height, jint jwidth, int dx, int dy,
+                                                                   jint scale) {
     GdkPixbuf *pixbuf;
     jint *ary;
 
@@ -2887,17 +2888,17 @@ static gboolean gtk3_get_drawable_data(JNIEnv *env, jintArray pixelArray,
         // Scale the coordinate and size carefully such that the captured area
         // is at least as large as requested. We trim off excess later by
         // using the skip_* variables.
-        const int x_scaled = scale_down_floor(x, win_scale);
-        const int y_scaled = scale_down_floor(y, win_scale);
+        const int x_scaled = scale_down_to_minus_inf(x, win_scale);
+        const int y_scaled = scale_down_to_minus_inf(y, win_scale);
         skip_left = x - x_scaled*win_scale;
         skip_top  = y - y_scaled*win_scale;
         DASSERT(skip_left >= 0 && skip_top >= 0);
 
-        const int x_right_scaled = scale_down_ceiling(x + width, win_scale);
+        const int x_right_scaled = scale_down_to_plus_inf(x + width, win_scale);
         const int width_scaled = x_right_scaled - x_scaled;
         DASSERT(width_scaled > 0);
 
-        const int y_bottom_scaled = scale_down_ceiling(y + height, win_scale);
+        const int y_bottom_scaled = scale_down_to_plus_inf(y + height, win_scale);
         const int height_scaled = y_bottom_scaled - y_scaled;
         DASSERT(height_scaled > 0);
 
@@ -2905,6 +2906,20 @@ static gboolean gtk3_get_drawable_data(JNIEnv *env, jintArray pixelArray,
             root, x_scaled, y_scaled, width_scaled, height_scaled);
     } else {
         pixbuf = (*fp_gdk_pixbuf_get_from_drawable)(root, x, y, width, height);
+    }
+
+    if (pixbuf && scale != 1) {
+        GdkPixbuf *scaledPixbuf;
+        x /= scale;
+        y /= scale;
+        width /= scale;
+        height /= scale;
+        dx /= scale;
+        dy /= scale;
+        scaledPixbuf = (*fp_gdk_pixbuf_scale_simple)(pixbuf, width, height,
+                                                     GDK_INTERP_BILINEAR);
+        (*fp_g_object_unref)(pixbuf);
+        pixbuf = scaledPixbuf;
     }
 
     if (pixbuf) {

@@ -38,7 +38,7 @@ class LibDispatchRetainedResource {
         }
 
         @Override
-        @SuppressWarnings("removal")
+        @SuppressWarnings("deprecation")
         protected void finalize() throws Throwable {
                 dispose();
         }

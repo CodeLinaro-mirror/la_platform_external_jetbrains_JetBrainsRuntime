@@ -41,8 +41,8 @@ import jdk.test.lib.process.ProcessTools;
  * Run security tools (including jarsigner and keytool) in a new process.
  * The en_US locale is always used so a test can always match output to
  * English text. {@code /dev/urandom} is used as entropy source so tool will
- * not block because of entropy scarcity. An argument can be a normal string,
- * {@code -Jvm-options}, or {@code $sysProp}.
+ * not block because of entropy scarcity. {@code -Jvm-options} is supported
+ * as an argument.
  */
 public class SecurityTools {
 
@@ -67,8 +67,6 @@ public class SecurityTools {
             } else if (Platform.isWindows() && arg.isEmpty()) {
                 // JDK-6518827: special handling for empty argument on Windows
                 launcher.addToolArg("\"\"");
-            } else if (arg.length() > 1 && arg.charAt(0) == '$') {
-                launcher.addToolArg(System.getProperty(arg.substring(1)));
             } else {
                 launcher.addToolArg(arg);
             }
@@ -223,18 +221,6 @@ public class SecurityTools {
      */
     public static OutputAnalyzer klist(String args) throws Exception {
         return execute(getProcessBuilder("klist", makeList(args)));
-    }
-
-    /**
-     * Runs kinit.
-     *
-     * @param args arguments to kinit in a single string. The string is
-     *             converted to be List with makeList.
-     * @return an {@link OutputAnalyzer} object
-     * @throws Exception if there is an error
-     */
-    public static OutputAnalyzer kinit(String args) throws Exception {
-        return execute(getProcessBuilder("kinit", makeList(args)));
     }
 
     /**

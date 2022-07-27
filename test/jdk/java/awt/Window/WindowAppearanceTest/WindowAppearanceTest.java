@@ -40,11 +40,8 @@ import javax.swing.*;
 public class WindowAppearanceTest
 {
     private static final int TD = 10;
-    // Colors for unfocused/focused frames
-    private static final Color [] darkSystemGrays = {
-            new Color(58, 58, 60), new Color(40, 37, 48), new Color(96, 93, 99)};
-    private static final Color [] lightSystemGrays = {
-            new Color(242, 242, 247), new Color(230, 228, 232)};
+    private static final Color darkSystemGray4 = new Color(58, 58, 60);
+    private static final Color lightSystemGray6 = new Color(242, 242, 247);
     static WindowAppearanceTest theTest;
     private Robot robot;
     private JFrame frame;
@@ -78,12 +75,12 @@ public class WindowAppearanceTest
         runSwing(() -> rootPane.putClientProperty("apple.awt.windowAppearance", "NSAppearanceNameVibrantDark"));
         robot.delay(DELAY);
 
-        validateColor(darkSystemGrays);
+        validateColor(darkSystemGray4);
 
         runSwing(() -> rootPane.putClientProperty("apple.awt.windowAppearance", "NSAppearanceNameVibrantLight"));
         robot.delay(DELAY);
 
-        validateColor(lightSystemGrays);
+        validateColor(lightSystemGray6);
 
         runSwing(() -> frame.dispose());
 
@@ -102,22 +99,13 @@ public class WindowAppearanceTest
         return c;
     }
 
-    private void validateColor(Color[] colors) {
+    private void validateColor(Color color) {
         for (int px = 140; px < 160; px++) {
             for (int py = 5; py < 20; py++) {
                 Color c = getTestPixel(px, py);
-                boolean invalid = true;
-                for (Color color : colors) {
-                    if (validateColor(c, color)) {
-                        invalid = false;
-                        break;
-                    } else {
-                        System.out.println(color + " does not pass");
-                    }
-                }
-                if (invalid) {
-                    throw new RuntimeException("Test failed. Incorrect color " +
-                            c + " at (" + px + "," + py + ")");
+                if (!validateColor(c, color)) {
+                    throw new RuntimeException("Test failed. Incorrect color " + c +
+                            "at (" + px + "," + py + ")");
                 }
             }
         }

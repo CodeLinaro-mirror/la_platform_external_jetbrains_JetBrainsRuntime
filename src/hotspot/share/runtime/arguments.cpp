@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,8 +40,6 @@
 #include "logging/logStream.hpp"
 #include "logging/logTag.hpp"
 #include "memory/allocation.inline.hpp"
-#include "metaprogramming/enableIf.hpp"
-#include "oops/instanceKlass.hpp"
 #include "oops/oop.inline.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "runtime/arguments.hpp"
@@ -57,7 +55,6 @@
 #include "services/management.hpp"
 #include "services/nmtCommon.hpp"
 #include "utilities/align.hpp"
-#include "utilities/debug.hpp"
 #include "utilities/defaultStream.hpp"
 #include "utilities/macros.hpp"
 #include "utilities/powerOfTwo.hpp"
@@ -65,7 +62,6 @@
 #if INCLUDE_JFR
 #include "jfr/jfr.hpp"
 #endif
-#include <limits>
 
 #define DEFAULT_JAVA_LAUNCHER  "generic"
 
@@ -76,6 +72,7 @@ char** Arguments::_jvm_args_array               = NULL;
 int    Arguments::_num_jvm_args                 = 0;
 char*  Arguments::_java_command                 = NULL;
 SystemProperty* Arguments::_system_properties   = NULL;
+const char*  Arguments::_gc_log_filename        = NULL;
 size_t Arguments::_conservative_max_heap_alignment = 0;
 Arguments::Mode Arguments::_mode                = _mixed;
 bool   Arguments::_java_compiler                = false;
@@ -96,8 +93,6 @@ bool   Arguments::_enable_preview               = false;
 char*  Arguments::SharedArchivePath             = NULL;
 char*  Arguments::SharedDynamicArchivePath      = NULL;
 
-LegacyGCLogging Arguments::_legacyGCLogging     = { 0, 0 };
-
 AgentLibraryList Arguments::_libraryList;
 AgentLibraryList Arguments::_agentList;
 
@@ -117,29 +112,29 @@ SystemProperty *Arguments::_jdk_boot_class_path_append = NULL;
 SystemProperty *Arguments::_vm_info = NULL;
 
 GrowableArray<ModulePatchPath*> *Arguments::_patch_mod_prefix = NULL;
-PathString *Arguments::_boot_class_path = NULL;
+PathString *Arguments::_system_boot_class_path = NULL;
 bool Arguments::_has_jimage = false;
 
 char* Arguments::_ext_dirs = NULL;
 
-// True if -Xshare:auto option was specified.
-static bool xshare_auto_cmd_line = false;
+GrowableArray<const char *> *Arguments::_unrecognized_vm_options = NULL;
 
-bool PathString::set_value(const char *value, AllocFailType alloc_failmode) {
-  char* new_value = AllocateHeap(strlen(value)+1, mtArguments, alloc_failmode);
-  if (new_value == NULL) {
-    assert(alloc_failmode == AllocFailStrategy::RETURN_NULL, "must be");
-    return false;
-  }
+bool PathString::set_value(const char *value) {
   if (_value != NULL) {
     FreeHeap(_value);
   }
-  _value = new_value;
-  strcpy(_value, value);
+  _value = AllocateHeap(strlen(value)+1, mtArguments);
+  assert(_value != NULL, "Unable to allocate space for new path value");
+  if (_value != NULL) {
+    strcpy(_value, value);
+  } else {
+    // not able to allocate
+    return false;
+  }
   return true;
 }
 
-void PathString::append_value(const char *value) {
+void PathString::append_value(const char *value, const char *separator) {
   char *sp;
   size_t len = 0;
   if (value != NULL) {
@@ -152,7 +147,7 @@ void PathString::append_value(const char *value) {
     if (sp != NULL) {
       if (_value != NULL) {
         strcpy(sp, _value);
-        strcat(sp, os::path_separator());
+        strcat(sp, separator);
         strcat(sp, value);
         FreeHeap(_value);
       } else {
@@ -389,10 +384,10 @@ void Arguments::process_sun_java_launcher_properties(JavaVMInitArgs* args) {
 // Initialize system properties key and value.
 void Arguments::init_system_properties() {
 
-  // Set up _boot_class_path which is not a property but
+  // Set up _system_boot_class_path which is not a property but
   // relies heavily on argument processing and the jdk.boot.class.path.append
-  // property. It is used to store the underlying boot class path.
-  _boot_class_path = new PathString(NULL);
+  // property. It is used to store the underlying system boot class path.
+  _system_boot_class_path = new PathString(NULL);
 
   PropertyList_add(&_system_properties, new SystemProperty("java.vm.specification.name",
                                                            "Java Virtual Machine Specification",  false));
@@ -414,7 +409,7 @@ void Arguments::init_system_properties() {
   // It can only be set by either:
   //    - -Xbootclasspath/a:
   //    - AddToBootstrapClassLoaderSearch during JVMTI OnLoad phase
-  _jdk_boot_class_path_append = new SystemProperty("jdk.boot.class.path.append", NULL, false, true);
+  _jdk_boot_class_path_append = new SystemProperty("jdk.boot.class.path.append", "", false, true);
 
   // Add to System Property list.
   PropertyList_add(&_system_properties, _sun_boot_library_path);
@@ -532,10 +527,18 @@ static SpecialFlag const special_jvm_flags[] = {
   { "InitialRAMFraction",           JDK_Version::jdk(10),  JDK_Version::undefined(), JDK_Version::undefined() },
   { "AllowRedefinitionToAddDeleteMethods", JDK_Version::jdk(13), JDK_Version::undefined(), JDK_Version::undefined() },
   { "FlightRecorder",               JDK_Version::jdk(13), JDK_Version::undefined(), JDK_Version::undefined() },
-  { "DumpSharedSpaces",             JDK_Version::jdk(18), JDK_Version::jdk(19), JDK_Version::undefined() },
-  { "DynamicDumpSharedSpaces",      JDK_Version::jdk(18), JDK_Version::jdk(19), JDK_Version::undefined() },
-  { "RequireSharedSpaces",          JDK_Version::jdk(18), JDK_Version::jdk(19), JDK_Version::undefined() },
-  { "UseSharedSpaces",              JDK_Version::jdk(18), JDK_Version::jdk(19), JDK_Version::undefined() },
+  { "SuspendRetryCount",            JDK_Version::undefined(), JDK_Version::jdk(17), JDK_Version::jdk(18) },
+  { "SuspendRetryDelay",            JDK_Version::undefined(), JDK_Version::jdk(17), JDK_Version::jdk(18) },
+  { "CriticalJNINatives",           JDK_Version::jdk(16), JDK_Version::jdk(18), JDK_Version::jdk(19) },
+  { "AlwaysLockClassLoader",        JDK_Version::jdk(17), JDK_Version::jdk(18), JDK_Version::jdk(19) },
+  { "UseBiasedLocking",             JDK_Version::jdk(15), JDK_Version::jdk(18), JDK_Version::jdk(19) },
+  { "BiasedLockingStartupDelay",    JDK_Version::jdk(15), JDK_Version::jdk(18), JDK_Version::jdk(19) },
+  { "PrintBiasedLockingStatistics", JDK_Version::jdk(15), JDK_Version::jdk(18), JDK_Version::jdk(19) },
+  { "BiasedLockingBulkRebiasThreshold",    JDK_Version::jdk(15), JDK_Version::jdk(18), JDK_Version::jdk(19) },
+  { "BiasedLockingBulkRevokeThreshold",    JDK_Version::jdk(15), JDK_Version::jdk(18), JDK_Version::jdk(19) },
+  { "BiasedLockingDecayTime",              JDK_Version::jdk(15), JDK_Version::jdk(18), JDK_Version::jdk(19) },
+  { "UseOptoBiasInlining",                 JDK_Version::jdk(15), JDK_Version::jdk(18), JDK_Version::jdk(19) },
+  { "PrintPreciseBiasedLockingStatistics", JDK_Version::jdk(15), JDK_Version::jdk(18), JDK_Version::jdk(19) },
 
   // --- Deprecated alias flags (see also aliased_jvm_flags) - sorted by obsolete_in then expired_in:
   { "DefaultMaxRAMFraction",        JDK_Version::jdk(8),  JDK_Version::undefined(), JDK_Version::undefined() },
@@ -543,14 +546,10 @@ static SpecialFlag const special_jvm_flags[] = {
   { "TLABStats",                    JDK_Version::jdk(12), JDK_Version::undefined(), JDK_Version::undefined() },
 
   // -------------- Obsolete Flags - sorted by expired_in --------------
-
-  { "ExtendedDTraceProbes",         JDK_Version::jdk(19), JDK_Version::jdk(20), JDK_Version::jdk(21) },
-  { "UseContainerCpuShares",        JDK_Version::jdk(19), JDK_Version::jdk(20), JDK_Version::jdk(21) },
-  { "PreferContainerQuotaForCPUCount", JDK_Version::jdk(19), JDK_Version::jdk(20), JDK_Version::jdk(21) },
-  { "AliasLevel",                   JDK_Version::jdk(19), JDK_Version::jdk(20), JDK_Version::jdk(21) },
-
+  { "AssertOnSuspendWaitFailure",   JDK_Version::undefined(), JDK_Version::jdk(17), JDK_Version::jdk(18) },
+  { "TraceSuspendWaitFailures",     JDK_Version::undefined(), JDK_Version::jdk(17), JDK_Version::jdk(18) },
 #ifdef ASSERT
-  { "DummyObsoleteTestFlag",        JDK_Version::undefined(), JDK_Version::jdk(18), JDK_Version::undefined() },
+  { "DummyObsoleteTestFlag",        JDK_Version::undefined(), JDK_Version::jdk(17), JDK_Version::undefined() },
 #endif
 
 #ifdef TEST_VERIFY_SPECIAL_JVM_FLAGS
@@ -742,84 +741,20 @@ bool Arguments::verify_special_jvm_flags(bool check_globals) {
 }
 #endif
 
-template <typename T, ENABLE_IF(std::is_signed<T>::value), ENABLE_IF(sizeof(T) == 4)> // signed 32-bit
-static bool parse_integer_impl(const char *s, char **endptr, int base, T* result) {
-  // Don't use strtol -- on 64-bit builds, "long" could be either 32- or 64-bits
-  // so the range tests could be tautological and might cause compiler warnings.
-  STATIC_ASSERT(sizeof(long long) >= 8); // C++ specification
-  errno = 0; // errno is thread safe
-  long long v = strtoll(s, endptr, base);
-  if (errno != 0 || v < min_jint || v > max_jint) {
-    return false;
-  }
-  *result = static_cast<T>(v);
-  return true;
-}
+// Parses a size specification string.
+bool Arguments::atojulong(const char *s, julong* result) {
+  julong n = 0;
 
-template <typename T, ENABLE_IF(!std::is_signed<T>::value), ENABLE_IF(sizeof(T) == 4)> // unsigned 32-bit
-static bool parse_integer_impl(const char *s, char **endptr, int base, T* result) {
-  if (s[0] == '-') {
-    return false;
-  }
-  // Don't use strtoul -- same reason as above.
-  STATIC_ASSERT(sizeof(unsigned long long) >= 8); // C++ specification
-  errno = 0; // errno is thread safe
-  unsigned long long v = strtoull(s, endptr, base);
-  if (errno != 0 || v > max_juint) {
-    return false;
-  }
-  *result = static_cast<T>(v);
-  return true;
-}
-
-template <typename T, ENABLE_IF(std::is_signed<T>::value), ENABLE_IF(sizeof(T) == 8)> // signed 64-bit
-static bool parse_integer_impl(const char *s, char **endptr, int base, T* result) {
-  errno = 0; // errno is thread safe
-  *result = strtoll(s, endptr, base);
-  return errno == 0;
-}
-
-template <typename T, ENABLE_IF(!std::is_signed<T>::value), ENABLE_IF(sizeof(T) == 8)> // unsigned 64-bit
-static bool parse_integer_impl(const char *s, char **endptr, int base, T* result) {
-  if (s[0] == '-') {
-    return false;
-  }
-  errno = 0; // errno is thread safe
-  *result = strtoull(s, endptr, base);
-  return errno == 0;
-}
-
-template<typename T>
-static bool multiply_by_1k(T& n) {
-  if (n >= std::numeric_limits<T>::min() / 1024 &&
-      n <= std::numeric_limits<T>::max() / 1024) {
-    n *= 1024;
-    return true;
-  } else {
-    return false;
-  }
-}
-
-// All of the integral types that can be used for command line options:
-//   int, uint, intx, uintx, uint64_t, size_t
-//
-// In all supported platforms, these types can be mapped to only 4 native types:
-//    {signed, unsigned} x {32-bit, 64-bit}
-//
-// We use SFINAE to pick the correct parse_integer_impl() function
-template<typename T>
-static bool parse_integer(const char *s, T* result) {
-  if (!isdigit(s[0]) && s[0] != '-') {
-    // strtoll/strtoull may allow leading spaces. Forbid it.
+  // First char must be a digit. Don't allow negative numbers or leading spaces.
+  if (!isdigit(*s)) {
     return false;
   }
 
-  T n = 0;
-  bool is_hex = (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) ||
-                (s[0] == '-' && s[1] == '0' && (s[2] == 'x' || s[3] == 'X'));
+  bool is_hex = (s[0] == '0' && (s[1] == 'x' || s[1] == 'X'));
   char* remainder;
-
-  if (!parse_integer_impl(s, &remainder, (is_hex ? 16 : 10), &n)) {
+  errno = 0;
+  n = strtoull(s, &remainder, (is_hex ? 16 : 10));
+  if (errno != 0) {
     return false;
   }
 
@@ -830,29 +765,28 @@ static bool parse_integer(const char *s, T* result) {
 
   switch (*remainder) {
     case 'T': case 't':
-      if (!multiply_by_1k(n)) return false;
-      // fall-through
+      *result = n * G * K;
+      // Check for overflow.
+      if (*result/((julong)G * K) != n) return false;
+      return true;
     case 'G': case 'g':
-      if (!multiply_by_1k(n)) return false;
-      // fall-through
+      *result = n * G;
+      if (*result/G != n) return false;
+      return true;
     case 'M': case 'm':
-      if (!multiply_by_1k(n)) return false;
-      // fall-through
+      *result = n * M;
+      if (*result/M != n) return false;
+      return true;
     case 'K': case 'k':
-      if (!multiply_by_1k(n)) return false;
-      break;
+      *result = n * K;
+      if (*result/K != n) return false;
+      return true;
     case '\0':
-      break;
+      *result = n;
+      return true;
     default:
       return false;
   }
-
-  *result = n;
-  return true;
-}
-
-bool Arguments::atojulong(const char *s, julong* result) {
-  return parse_integer(s, result);
 }
 
 Arguments::ArgsRange Arguments::check_memory_size(julong size, julong min_size, julong max_size) {
@@ -887,19 +821,11 @@ static bool set_bool_flag(JVMFlag* flag, bool value, JVMFlagOrigin origin) {
   }
 }
 
-static bool set_fp_numeric_flag(JVMFlag* flag, const char* value, JVMFlagOrigin origin) {
-  // strtod allows leading whitespace, but our flag format does not.
-  if (*value == '\0' || isspace(*value)) {
-    return false;
-  }
+static bool set_fp_numeric_flag(JVMFlag* flag, char* value, JVMFlagOrigin origin) {
   char* end;
   errno = 0;
   double v = strtod(value, &end);
   if ((errno != 0) || (*end != 0)) {
-    return false;
-  }
-  if (g_isnan(v) || !g_isfinite(v)) {
-    // Currently we cannot handle these special values.
     return false;
   }
 
@@ -909,48 +835,60 @@ static bool set_fp_numeric_flag(JVMFlag* flag, const char* value, JVMFlagOrigin 
   return false;
 }
 
-static bool set_numeric_flag(JVMFlag* flag, const char* value, JVMFlagOrigin origin) {
-  JVMFlag::Error result = JVMFlag::WRONG_FORMAT;
+static bool set_numeric_flag(JVMFlag* flag, char* value, JVMFlagOrigin origin) {
+  julong v;
+  int int_v;
+  intx intx_v;
+  bool is_neg = false;
 
-  if (flag->is_int()) {
-    int v;
-    if (parse_integer(value, &v)) {
-      result = JVMFlagAccess::set_int(flag, &v, origin);
-    }
-  } else if (flag->is_uint()) {
-    uint v;
-    if (parse_integer(value, &v)) {
-      result = JVMFlagAccess::set_uint(flag, &v, origin);
-    }
-  } else if (flag->is_intx()) {
-    intx v;
-    if (parse_integer(value, &v)) {
-      result = JVMFlagAccess::set_intx(flag, &v, origin);
-    }
-  } else if (flag->is_uintx()) {
-    uintx v;
-    if (parse_integer(value, &v)) {
-      result = JVMFlagAccess::set_uintx(flag, &v, origin);
-    }
-  } else if (flag->is_uint64_t()) {
-    uint64_t v;
-    if (parse_integer(value, &v)) {
-      result = JVMFlagAccess::set_uint64_t(flag, &v, origin);
-    }
-  } else if (flag->is_size_t()) {
-    size_t v;
-    if (parse_integer(value, &v)) {
-      result = JVMFlagAccess::set_size_t(flag, &v, origin);
-    }
+  if (flag == NULL) {
+    return false;
   }
 
-  return result == JVMFlag::SUCCESS;
+  // Check the sign first since atojulong() parses only unsigned values.
+  if (*value == '-') {
+    if (!flag->is_intx() && !flag->is_int()) {
+      return false;
+    }
+    value++;
+    is_neg = true;
+  }
+  if (!Arguments::atojulong(value, &v)) {
+    return false;
+  }
+  if (flag->is_int()) {
+    int_v = (int) v;
+    if (is_neg) {
+      int_v = -int_v;
+    }
+    return JVMFlagAccess::set_int(flag, &int_v, origin) == JVMFlag::SUCCESS;
+  } else if (flag->is_uint()) {
+    uint uint_v = (uint) v;
+    return JVMFlagAccess::set_uint(flag, &uint_v, origin) == JVMFlag::SUCCESS;
+  } else if (flag->is_intx()) {
+    intx_v = (intx) v;
+    if (is_neg) {
+      intx_v = -intx_v;
+    }
+    return JVMFlagAccess::set_intx(flag, &intx_v, origin) == JVMFlag::SUCCESS;
+  } else if (flag->is_uintx()) {
+    uintx uintx_v = (uintx) v;
+    return JVMFlagAccess::set_uintx(flag, &uintx_v, origin) == JVMFlag::SUCCESS;
+  } else if (flag->is_uint64_t()) {
+    uint64_t uint64_t_v = (uint64_t) v;
+    return JVMFlagAccess::set_uint64_t(flag, &uint64_t_v, origin) == JVMFlag::SUCCESS;
+  } else if (flag->is_size_t()) {
+    size_t size_t_v = (size_t) v;
+    return JVMFlagAccess::set_size_t(flag, &size_t_v, origin) == JVMFlag::SUCCESS;
+  } else if (flag->is_double()) {
+    double double_v = (double) v;
+    return JVMFlagAccess::set_double(flag, &double_v, origin) == JVMFlag::SUCCESS;
+  } else {
+    return false;
+  }
 }
 
 static bool set_string_flag(JVMFlag* flag, const char* value, JVMFlagOrigin origin) {
-  if (value[0] == '\0') {
-    value = NULL;
-  }
   if (JVMFlagAccess::set_ccstr(flag, &value, origin) != JVMFlag::SUCCESS) return false;
   // Contract:  JVMFlag always returns a pointer that needs freeing.
   FREE_C_HEAP_ARRAY(char, value);
@@ -984,7 +922,7 @@ static bool append_to_string_flag(JVMFlag* flag, const char* new_value, JVMFlagO
   return true;
 }
 
-const char* Arguments::handle_aliases_and_deprecation(const char* arg) {
+const char* Arguments::handle_aliases_and_deprecation(const char* arg, bool warn) {
   const char* real_name = real_flag_name(arg);
   JDK_Version since = JDK_Version();
   switch (is_deprecated_flag(arg, &since)) {
@@ -1002,14 +940,16 @@ const char* Arguments::handle_aliases_and_deprecation(const char* arg) {
     case 0:
       return real_name;
     case 1: {
-      char version[256];
-      since.to_string(version, sizeof(version));
-      if (real_name != arg) {
-        warning("Option %s was deprecated in version %s and will likely be removed in a future release. Use option %s instead.",
-                arg, version, real_name);
-      } else {
-        warning("Option %s was deprecated in version %s and will likely be removed in a future release.",
-                arg, version);
+      if (warn) {
+        char version[256];
+        since.to_string(version, sizeof(version));
+        if (real_name != arg) {
+          warning("Option %s was deprecated in version %s and will likely be removed in a future release. Use option %s instead.",
+                  arg, version, real_name);
+        } else {
+          warning("Option %s was deprecated in version %s and will likely be removed in a future release.",
+                  arg, version);
+        }
       }
       return real_name;
     }
@@ -1018,85 +958,96 @@ const char* Arguments::handle_aliases_and_deprecation(const char* arg) {
   return NULL;
 }
 
-#define BUFLEN 255
-
-JVMFlag* Arguments::find_jvm_flag(const char* name, size_t name_length) {
-  char name_copied[BUFLEN+1];
-  if (name[name_length] != 0) {
-    if (name_length > BUFLEN) {
-      return NULL;
-    } else {
-      strncpy(name_copied, name, name_length);
-      name_copied[name_length] = '\0';
-      name = name_copied;
-    }
-  }
-
-  const char* real_name = Arguments::handle_aliases_and_deprecation(name);
-  if (real_name == NULL) {
-    return NULL;
-  }
-  JVMFlag* flag = JVMFlag::find_flag(real_name);
-  return flag;
-}
-
 bool Arguments::parse_argument(const char* arg, JVMFlagOrigin origin) {
-  bool is_bool = false;
-  bool bool_val = false;
-  char c = *arg;
-  if (c == '+' || c == '-') {
-    is_bool = true;
-    bool_val = (c == '+');
-    arg++;
-  }
 
-  const char* name = arg;
-  while (true) {
-    c = *arg;
-    if (isalnum(c) || (c == '_')) {
-      ++arg;
-    } else {
-      break;
-    }
-  }
+  // range of acceptable characters spelled out for portability reasons
+#define NAME_RANGE  "[abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]"
+#define BUFLEN 255
+  char name[BUFLEN+1];
+  char dummy;
+  const char* real_name;
+  bool warn_if_deprecated = true;
 
-  size_t name_len = size_t(arg - name);
-  if (name_len == 0) {
-    return false;
-  }
-
-  JVMFlag* flag = find_jvm_flag(name, name_len);
-  if (flag == NULL) {
-    return false;
-  }
-
-  if (is_bool) {
-    if (*arg != 0) {
-      // Error -- extra characters such as -XX:+BoolFlag=123
+  if (sscanf(arg, "-%" XSTR(BUFLEN) NAME_RANGE "%c", name, &dummy) == 1) {
+    real_name = handle_aliases_and_deprecation(name, warn_if_deprecated);
+    if (real_name == NULL) {
       return false;
     }
-    return set_bool_flag(flag, bool_val, origin);
+    JVMFlag* flag = JVMFlag::find_flag(real_name);
+    return set_bool_flag(flag, false, origin);
+  }
+  if (sscanf(arg, "+%" XSTR(BUFLEN) NAME_RANGE "%c", name, &dummy) == 1) {
+    real_name = handle_aliases_and_deprecation(name, warn_if_deprecated);
+    if (real_name == NULL) {
+      return false;
+    }
+    JVMFlag* flag = JVMFlag::find_flag(real_name);
+    return set_bool_flag(flag, true, origin);
   }
 
-  if (arg[0] == '=') {
-    const char* value = arg + 1;
-    if (flag->is_ccstr()) {
+  char punct;
+  if (sscanf(arg, "%" XSTR(BUFLEN) NAME_RANGE "%c", name, &punct) == 2 && punct == '=') {
+    const char* value = strchr(arg, '=') + 1;
+
+    // this scanf pattern matches both strings (handled here) and numbers (handled later))
+    real_name = handle_aliases_and_deprecation(name, warn_if_deprecated);
+    if (real_name == NULL) {
+      return false;
+    }
+    JVMFlag* flag = JVMFlag::find_flag(real_name);
+    if (flag != NULL && flag->is_ccstr()) {
       if (flag->ccstr_accumulates()) {
         return append_to_string_flag(flag, value, origin);
       } else {
+        if (value[0] == '\0') {
+          value = NULL;
+        }
         return set_string_flag(flag, value, origin);
       }
-    } else if (flag->is_double()) {
-      return set_fp_numeric_flag(flag, value, origin);
     } else {
-      return set_numeric_flag(flag, value, origin);
+      warn_if_deprecated = false; // if arg is deprecated, we've already done warning...
     }
   }
 
-  if (arg[0] == ':' && arg[1] == '=') {
+  if (sscanf(arg, "%" XSTR(BUFLEN) NAME_RANGE ":%c", name, &punct) == 2 && punct == '=') {
+    const char* value = strchr(arg, '=') + 1;
     // -XX:Foo:=xxx will reset the string flag to the given value.
-    const char* value = arg + 2;
+    if (value[0] == '\0') {
+      value = NULL;
+    }
+    real_name = handle_aliases_and_deprecation(name, warn_if_deprecated);
+    if (real_name == NULL) {
+      return false;
+    }
+    JVMFlag* flag = JVMFlag::find_flag(real_name);
     return set_string_flag(flag, value, origin);
+  }
+
+#define SIGNED_FP_NUMBER_RANGE "[-0123456789.eE+]"
+#define SIGNED_NUMBER_RANGE    "[-0123456789]"
+#define        NUMBER_RANGE    "[0123456789eE+-]"
+  char value[BUFLEN + 1];
+  char value2[BUFLEN + 1];
+  if (sscanf(arg, "%" XSTR(BUFLEN) NAME_RANGE "=" "%" XSTR(BUFLEN) SIGNED_NUMBER_RANGE "." "%" XSTR(BUFLEN) NUMBER_RANGE "%c", name, value, value2, &dummy) == 3) {
+    // Looks like a floating-point number -- try again with more lenient format string
+    if (sscanf(arg, "%" XSTR(BUFLEN) NAME_RANGE "=" "%" XSTR(BUFLEN) SIGNED_FP_NUMBER_RANGE "%c", name, value, &dummy) == 2) {
+      real_name = handle_aliases_and_deprecation(name, warn_if_deprecated);
+      if (real_name == NULL) {
+        return false;
+      }
+      JVMFlag* flag = JVMFlag::find_flag(real_name);
+      return set_fp_numeric_flag(flag, value, origin);
+    }
+  }
+
+#define VALUE_RANGE "[-kmgtxKMGTX0123456789abcdefABCDEF]"
+  if (sscanf(arg, "%" XSTR(BUFLEN) NAME_RANGE "=" "%" XSTR(BUFLEN) VALUE_RANGE "%c", name, value, &dummy) == 2) {
+    real_name = handle_aliases_and_deprecation(name, warn_if_deprecated);
+    if (real_name == NULL) {
+      return false;
+    }
+    JVMFlag* flag = JVMFlag::find_flag(real_name);
+    return set_numeric_flag(flag, value, origin);
   }
 
   return false;
@@ -1163,14 +1114,7 @@ void Arguments::print_on(outputStream* st) {
   st->print_cr("java_command: %s", java_command() ? java_command() : "<unknown>");
   if (_java_class_path != NULL) {
     char* path = _java_class_path->value();
-    size_t len = strlen(path);
-    st->print("java_class_path (initial): ");
-    // Avoid using st->print_cr() because path length maybe longer than O_BUFLEN.
-    if (len == 0) {
-      st->print_raw_cr("<not set>");
-    } else {
-      st->print_raw_cr(path, len);
-    }
+    st->print_cr("java_class_path (initial): %s", strlen(path) == 0 ? "<not set>" : path );
   }
   st->print_cr("Launcher Type: %s", _sun_java_launcher);
 }
@@ -1275,8 +1219,10 @@ bool Arguments::process_argument(const char* arg,
     }
   } else {
     if (ignore_unrecognized) {
+      store_unrecognized_vm_option(arg);
       return true;
     }
+
     jio_fprintf(defaultStream::error_stream(),
                 "Unrecognized VM option '%s'\n", argname);
     JVMFlag* fuzzy_matched = JVMFlag::fuzzy_match((const char*)argname, arg_len, true);
@@ -1287,14 +1233,14 @@ bool Arguments::process_argument(const char* arg,
                   fuzzy_matched->name(),
                   (fuzzy_matched->is_bool()) ? "" : "=<value>");
     }
-  }
+ }
 
   // allow for commandline "commenting out" options like -XX:#+Verbose
   return arg[0] == '#';
 }
 
 bool Arguments::process_settings_file(const char* file_name, bool should_exist, jboolean ignore_unrecognized) {
-  FILE* stream = os::fopen(file_name, "rb");
+  FILE* stream = fopen(file_name, "rb");
   if (stream == NULL) {
     if (should_exist) {
       jio_fprintf(defaultStream::error_stream(),
@@ -1429,8 +1375,6 @@ bool Arguments::add_property(const char* prop, PropertyWriteable writeable, Prop
       if (old_java_vendor_url_bug != NULL) {
         os::free((void *)old_java_vendor_url_bug);
       }
-    } else if (strcmp(key, "jbr.catch.SIGABRT") == 0) {
-      CatchSIGABRT = (strcmp(value, "true") == 0);
     }
 
     // Create new property and add at the end of the list
@@ -1490,8 +1434,6 @@ bool Arguments::check_unsupported_cds_runtime_properties() {
     if (get_property(unsupported_properties[i]) != NULL) {
       if (RequireSharedSpaces) {
         warning("CDS is disabled when the %s option is specified.", unsupported_options[i]);
-      } else {
-        log_info(cds)("CDS is disabled when the %s option is specified.", unsupported_options[i]);
       }
       return true;
     }
@@ -1557,7 +1499,7 @@ static void no_shared_spaces(const char* message) {
     vm_exit_during_initialization("Unable to use shared archive", message);
   } else {
     log_info(cds)("Unable to use shared archive: %s", message);
-    UseSharedSpaces = false;
+    FLAG_SET_DEFAULT(UseSharedSpaces, false);
   }
 }
 
@@ -1758,18 +1700,6 @@ void Arguments::set_heap_size() {
       reasonable_max = MIN2(reasonable_max, (julong)ErgoHeapSizeLimit);
     }
 
-    reasonable_max = limit_heap_by_allocatable_memory(reasonable_max);
-
-    if (!FLAG_IS_DEFAULT(InitialHeapSize)) {
-      // An initial heap size was specified on the command line,
-      // so be sure that the maximum size is consistent.  Done
-      // after call to limit_heap_by_allocatable_memory because that
-      // method might reduce the allocation size.
-      reasonable_max = MAX2(reasonable_max, (julong)InitialHeapSize);
-    } else if (!FLAG_IS_DEFAULT(MinHeapSize)) {
-      reasonable_max = MAX2(reasonable_max, (julong)MinHeapSize);
-    }
-
 #ifdef _LP64
     if (UseCompressedOops || UseCompressedClassPointers) {
       // HeapBaseMinAddress can be greater than default but not less than.
@@ -1815,6 +1745,18 @@ void Arguments::set_heap_size() {
       }
     }
 #endif // _LP64
+
+    reasonable_max = limit_heap_by_allocatable_memory(reasonable_max);
+
+    if (!FLAG_IS_DEFAULT(InitialHeapSize)) {
+      // An initial heap size was specified on the command line,
+      // so be sure that the maximum size is consistent.  Done
+      // after call to limit_heap_by_allocatable_memory because that
+      // method might reduce the allocation size.
+      reasonable_max = MAX2(reasonable_max, (julong)InitialHeapSize);
+    } else if (!FLAG_IS_DEFAULT(MinHeapSize)) {
+      reasonable_max = MAX2(reasonable_max, (julong)MinHeapSize);
+    }
 
     log_trace(gc, heap)("  Maximum heap size " SIZE_FORMAT, (size_t) reasonable_max);
     FLAG_SET_ERGO(MaxHeapSize, (size_t)reasonable_max);
@@ -2031,6 +1973,38 @@ unsigned int addmods_count = 0;
 unsigned int patch_mod_count = 0;
 unsigned int enable_native_access_count = 0;
 
+// Check consistency of GC selection
+bool Arguments::check_gc_consistency() {
+  // Ensure that the user has not selected conflicting sets
+  // of collectors.
+  uint i = 0;
+  if (UseSerialGC)                       i++;
+  if (UseParallelGC)                     i++;
+  if (UseG1GC)                           i++;
+  if (UseEpsilonGC)                      i++;
+  if (UseZGC)                            i++;
+  if (UseShenandoahGC)                   i++;
+  if (AllowEnhancedClassRedefinition) {
+    // Must use serial GC. This limitation applies because the instance size changing GC modifications
+    // are only built into the mark and compact algorithm.
+    if (!UseSerialGC && !UseG1GC && i >= 1) {
+      jio_fprintf(defaultStream::error_stream(),
+                  "Must use the Serial or G1 GC with enhanced class redefinition.\n");
+      return false;
+    }
+  }
+
+  if (i > 1) {
+    jio_fprintf(defaultStream::error_stream(),
+                "Conflicting collector combinations in option list; "
+                "please refer to the release notes for the combinations "
+                "allowed\n");
+    return false;
+  }
+
+  return true;
+}
+
 // Check the consistency of vm_init_args
 bool Arguments::check_vm_args_consistency() {
   // Method for adding checks for flag consistency.
@@ -2046,6 +2020,8 @@ bool Arguments::check_vm_args_consistency() {
                 TLABRefillWasteFraction);
     status = false;
   }
+
+  status = status && check_gc_consistency();
 
   status = CompilerConfig::check_args_consistency(status);
 #if INCLUDE_JVMCI
@@ -2065,33 +2041,41 @@ bool Arguments::check_vm_args_consistency() {
   }
 #endif
 
-#if !defined(X86) && !defined(AARCH64) && !defined(PPC64) && !defined(RISCV64)
-  if (UseHeavyMonitors) {
-    jio_fprintf(defaultStream::error_stream(),
-                "UseHeavyMonitors is not fully implemented on this architecture");
-    return false;
-  }
-#endif
-#if (defined(X86) || defined(PPC64)) && !defined(ZERO)
-  if (UseHeavyMonitors && UseRTMForStackLocks) {
-    jio_fprintf(defaultStream::error_stream(),
-                "-XX:+UseHeavyMonitors and -XX:+UseRTMForStackLocks are mutually exclusive");
-
-    return false;
-  }
-#endif
-  if (VerifyHeavyMonitors && !UseHeavyMonitors) {
-    jio_fprintf(defaultStream::error_stream(),
-                "-XX:+VerifyHeavyMonitors requires -XX:+UseHeavyMonitors");
-    return false;
-  }
-
   return status;
+}
+
+void Arguments::set_unrecognized_vm_options_property() {
+  if (_unrecognized_vm_options != NULL) {
+    int num_of_entries = _unrecognized_vm_options->length();
+    const char* option_string = _unrecognized_vm_options->at(0);
+
+    SystemProperty* prop = new SystemProperty("java.vm.unrecognized.options", "", true, false);
+
+    prop->set_value(option_string);
+
+    for (int i = 1; i < num_of_entries; i++) {
+      option_string = _unrecognized_vm_options->at(i);
+      prop->append_value(option_string, "\n");
+    }
+
+    PropertyList_add(&_system_properties, prop);
+  }
+}
+
+void Arguments::store_unrecognized_vm_option(const char* option) {
+  if (_unrecognized_vm_options == NULL) {
+    // Create GrowableArray lazily, only if unrecognized vm options found
+    _unrecognized_vm_options = new (ResourceObj::C_HEAP, mtArguments) GrowableArray<const char *>(10, mtArguments);
+  }
+  _unrecognized_vm_options->push(option);
 }
 
 bool Arguments::is_bad_option(const JavaVMOption* option, jboolean ignore,
   const char* option_type) {
-  if (ignore) return false;
+  if (ignore) {
+     store_unrecognized_vm_option(option->optionString);
+     return false;
+  }
 
   const char* spacer = " ";
   if (option_type == NULL) {
@@ -2115,16 +2099,24 @@ static const char* system_assertion_options[] = {
 bool Arguments::parse_uintx(const char* value,
                             uintx* uintx_arg,
                             uintx min_size) {
-  uintx n;
-  if (!parse_integer(value, &n)) {
-    return false;
+
+  // Check the sign first since atojulong() parses only unsigned values.
+  bool value_is_positive = !(*value == '-');
+
+  if (value_is_positive) {
+    julong n;
+    bool good_return = atojulong(value, &n);
+    if (good_return) {
+      bool above_minimum = n >= min_size;
+      bool value_is_too_large = n > max_uintx;
+
+      if (above_minimum && !value_is_too_large) {
+        *uintx_arg = n;
+        return true;
+      }
+    }
   }
-  if (n >= min_size) {
-    *uintx_arg = n;
-    return true;
-  } else {
-    return false;
-  }
+  return false;
 }
 
 bool Arguments::create_module_property(const char* prop_name, const char* prop_value, PropertyInternal internal) {
@@ -2175,7 +2167,7 @@ Arguments::ArgsRange Arguments::parse_memory_size(const char* s,
                                                   julong* long_arg,
                                                   julong min_size,
                                                   julong max_size) {
-  if (!parse_integer(s, long_arg)) return arg_unreadable;
+  if (!atojulong(s, long_arg)) return arg_unreadable;
   return check_memory_size(*long_arg, min_size, max_size);
 }
 
@@ -2400,9 +2392,7 @@ jint Arguments::parse_each_vm_init_arg(const JavaVMInitArgs* args, bool* patch_m
         LogConfiguration::configure_stdout(LogLevel::Info, true, LOG_TAGS(module, load));
         LogConfiguration::configure_stdout(LogLevel::Info, true, LOG_TAGS(module, unload));
       } else if (!strcmp(tail, ":gc")) {
-        if (_legacyGCLogging.lastFlag == 0) {
-          _legacyGCLogging.lastFlag = 1;
-        }
+        LogConfiguration::configure_stdout(LogLevel::Info, true, LOG_TAGS(gc));
       } else if (!strcmp(tail, ":jni")) {
         LogConfiguration::configure_stdout(LogLevel::Debug, true, LOG_TAGS(jni, resolve));
       }
@@ -2745,20 +2735,33 @@ jint Arguments::parse_each_vm_init_arg(const JavaVMInitArgs* args, bool* patch_m
           set_mode_flags(_comp);
     // -Xshare:dump
     } else if (match_option(option, "-Xshare:dump")) {
-      DumpSharedSpaces = true;
+      if (FLAG_SET_CMDLINE(DumpSharedSpaces, true) != JVMFlag::SUCCESS) {
+        return JNI_EINVAL;
+      }
     // -Xshare:on
     } else if (match_option(option, "-Xshare:on")) {
-      UseSharedSpaces = true;
-      RequireSharedSpaces = true;
+      if (FLAG_SET_CMDLINE(UseSharedSpaces, true) != JVMFlag::SUCCESS) {
+        return JNI_EINVAL;
+      }
+      if (FLAG_SET_CMDLINE(RequireSharedSpaces, true) != JVMFlag::SUCCESS) {
+        return JNI_EINVAL;
+      }
     // -Xshare:auto || -XX:ArchiveClassesAtExit=<archive file>
     } else if (match_option(option, "-Xshare:auto")) {
-      UseSharedSpaces = true;
-      RequireSharedSpaces = false;
-      xshare_auto_cmd_line = true;
+      if (FLAG_SET_CMDLINE(UseSharedSpaces, true) != JVMFlag::SUCCESS) {
+        return JNI_EINVAL;
+      }
+      if (FLAG_SET_CMDLINE(RequireSharedSpaces, false) != JVMFlag::SUCCESS) {
+        return JNI_EINVAL;
+      }
     // -Xshare:off
     } else if (match_option(option, "-Xshare:off")) {
-      UseSharedSpaces = false;
-      RequireSharedSpaces = false;
+      if (FLAG_SET_CMDLINE(UseSharedSpaces, false) != JVMFlag::SUCCESS) {
+        return JNI_EINVAL;
+      }
+      if (FLAG_SET_CMDLINE(RequireSharedSpaces, false) != JVMFlag::SUCCESS) {
+        return JNI_EINVAL;
+      }
     // -Xverify
     } else if (match_option(option, "-Xverify", &tail)) {
       if (strcmp(tail, ":all") == 0 || strcmp(tail, "") == 0) {
@@ -2796,8 +2799,7 @@ jint Arguments::parse_each_vm_init_arg(const JavaVMInitArgs* args, bool* patch_m
     } else if (match_option(option, "-Xloggc:", &tail)) {
       // Deprecated flag to redirect GC output to a file. -Xloggc:<filename>
       log_warning(gc)("-Xloggc is deprecated. Will use -Xlog:gc:%s instead.", tail);
-      _legacyGCLogging.lastFlag = 2;
-      _legacyGCLogging.file = os::strdup_check_oom(tail);
+      _gc_log_filename = os::strdup_check_oom(tail);
     } else if (match_option(option, "-Xlog", &tail)) {
       bool ret = false;
       if (strcmp(tail, ":help") == 0) {
@@ -2917,21 +2919,8 @@ jint Arguments::parse_each_vm_init_arg(const JavaVMInitArgs* args, bool* patch_m
       if (FLAG_SET_CMDLINE(ErrorFileToStdout, true) != JVMFlag::SUCCESS) {
         return JNI_EINVAL;
       }
-    } else if (match_option(option, "--finalization=", &tail)) {
-      if (strcmp(tail, "enabled") == 0) {
-        InstanceKlass::set_finalization_enabled(true);
-      } else if (strcmp(tail, "disabled") == 0) {
-        InstanceKlass::set_finalization_enabled(false);
-      } else {
-        jio_fprintf(defaultStream::error_stream(),
-                    "Invalid finalization value '%s', must be 'disabled' or 'enabled'.\n",
-                    tail);
-        return JNI_EINVAL;
-      }
     } else if (match_option(option, "-XX:+ExtendedDTraceProbes")) {
 #if defined(DTRACE_ENABLED)
-      warning("Option ExtendedDTraceProbes was deprecated in version 19 and will likely be removed in a future release.");
-      warning("Use the combination of -XX:+DTraceMethodProbes, -XX:+DTraceAllocProbes and -XX:+DTraceMonitorProbes instead.");
       if (FLAG_SET_CMDLINE(ExtendedDTraceProbes, true) != JVMFlag::SUCCESS) {
         return JNI_EINVAL;
       }
@@ -2947,18 +2936,6 @@ jint Arguments::parse_each_vm_init_arg(const JavaVMInitArgs* args, bool* patch_m
 #else // defined(DTRACE_ENABLED)
       jio_fprintf(defaultStream::error_stream(),
                   "ExtendedDTraceProbes flag is not applicable for this configuration\n");
-      return JNI_EINVAL;
-    } else if (match_option(option, "-XX:+DTraceMethodProbes")) {
-      jio_fprintf(defaultStream::error_stream(),
-                  "DTraceMethodProbes flag is not applicable for this configuration\n");
-      return JNI_EINVAL;
-    } else if (match_option(option, "-XX:+DTraceAllocProbes")) {
-      jio_fprintf(defaultStream::error_stream(),
-                  "DTraceAllocProbes flag is not applicable for this configuration\n");
-      return JNI_EINVAL;
-    } else if (match_option(option, "-XX:+DTraceMonitorProbes")) {
-      jio_fprintf(defaultStream::error_stream(),
-                  "DTraceMonitorProbes flag is not applicable for this configuration\n");
       return JNI_EINVAL;
 #endif // defined(DTRACE_ENABLED)
 #ifdef ASSERT
@@ -3026,8 +3003,12 @@ jint Arguments::parse_each_vm_init_arg(const JavaVMInitArgs* args, bool* patch_m
   //   -Xshare:on
   //   -Xlog:class+path=info
   if (PrintSharedArchiveAndExit) {
-    UseSharedSpaces = true;
-    RequireSharedSpaces = true;
+    if (FLAG_SET_CMDLINE(UseSharedSpaces, true) != JVMFlag::SUCCESS) {
+      return JNI_EINVAL;
+    }
+    if (FLAG_SET_CMDLINE(RequireSharedSpaces, true) != JVMFlag::SUCCESS) {
+      return JNI_EINVAL;
+    }
     LogConfiguration::configure_stdout(LogLevel::Info, true, LOG_TAGS(class, path));
   }
 
@@ -3182,53 +3163,44 @@ jint Arguments::finalize_vm_init_args(bool patch_mod_javabase) {
 
 #if INCLUDE_CDS
   if (DumpSharedSpaces) {
+    // Disable biased locking now as it interferes with the clean up of
+    // the archived Klasses and Java string objects (at dump time only).
+    UseBiasedLocking = false;
+
     // Compiler threads may concurrently update the class metadata (such as method entries), so it's
-    // unsafe with -Xshare:dump (which modifies the class metadata in place). Let's disable
+    // unsafe with DumpSharedSpaces (which modifies the class metadata in place). Let's disable
     // compiler just to be safe.
     //
-    // Note: this is not a concern for dynamically dumping shared spaces, which makes a copy of the
-    // class metadata instead of modifying them in place. The copy is inaccessible to the compiler.
+    // Note: this is not a concern for DynamicDumpSharedSpaces, which makes a copy of the class metadata
+    // instead of modifying them in place. The copy is inaccessible to the compiler.
     // TODO: revisit the following for the static archive case.
     set_mode_flags(_int);
+  }
+  if (DumpSharedSpaces || ArchiveClassesAtExit != NULL) {
+    // Always verify non-system classes during CDS dump
+    if (!BytecodeVerificationRemote) {
+      BytecodeVerificationRemote = true;
+      log_info(cds)("All non-system classes will be verified (-Xverify:remote) during CDS dump time.");
+    }
   }
 
   // RecordDynamicDumpInfo is not compatible with ArchiveClassesAtExit
   if (ArchiveClassesAtExit != NULL && RecordDynamicDumpInfo) {
-    jio_fprintf(defaultStream::output_stream(),
-                "-XX:+RecordDynamicDumpInfo cannot be used with -XX:ArchiveClassesAtExit.\n");
+    log_info(cds)("RecordDynamicDumpInfo is for jcmd only, could not set with -XX:ArchiveClassesAtExit.");
     return JNI_ERR;
   }
 
   if (ArchiveClassesAtExit == NULL && !RecordDynamicDumpInfo) {
-    DynamicDumpSharedSpaces = false;
+    FLAG_SET_DEFAULT(DynamicDumpSharedSpaces, false);
   } else {
-    DynamicDumpSharedSpaces = true;
-  }
-
-  if (AutoCreateSharedArchive) {
-    if (SharedArchiveFile == NULL) {
-      log_warning(cds)("-XX:+AutoCreateSharedArchive requires -XX:SharedArchiveFile");
-      return JNI_ERR;
-    }
-    if (ArchiveClassesAtExit != NULL) {
-      log_warning(cds)("-XX:+AutoCreateSharedArchive does not work with ArchiveClassesAtExit");
-      return JNI_ERR;
-    }
+    FLAG_SET_DEFAULT(DynamicDumpSharedSpaces, true);
   }
 
   if (UseSharedSpaces && patch_mod_javabase) {
     no_shared_spaces("CDS is disabled when " JAVA_BASE_NAME " module is patched.");
   }
   if (UseSharedSpaces && !DumpSharedSpaces && check_unsupported_cds_runtime_properties()) {
-    UseSharedSpaces = false;
-  }
-
-  if (DumpSharedSpaces || DynamicDumpSharedSpaces) {
-    // Always verify non-system classes during CDS dump
-    if (!BytecodeVerificationRemote) {
-      BytecodeVerificationRemote = true;
-      log_info(cds)("All non-system classes will be verified (-Xverify:remote) during CDS dump time.");
-    }
+    FLAG_SET_DEFAULT(UseSharedSpaces, false);
   }
 #endif
 
@@ -3388,13 +3360,13 @@ jint Arguments::parse_vm_options_file(const char* file_name, ScopedVMInitArgs* v
     jio_fprintf(defaultStream::error_stream(),
                 "Could not stat options file '%s'\n",
                 file_name);
-    ::close(fd);
+    os::close(fd);
     return JNI_ERR;
   }
 
   if (stbuf.st_size == 0) {
     // tell caller there is no option data and that is ok
-    ::close(fd);
+    os::close(fd);
     return JNI_OK;
   }
 
@@ -3405,15 +3377,15 @@ jint Arguments::parse_vm_options_file(const char* file_name, ScopedVMInitArgs* v
   if (NULL == buf) {
     jio_fprintf(defaultStream::error_stream(),
                 "Could not allocate read buffer for options file parse\n");
-    ::close(fd);
+    os::close(fd);
     return JNI_ENOMEM;
   }
 
   memset(buf, 0, bytes_alloc);
 
   // Fill buffer
-  ssize_t bytes_read = ::read(fd, (void *)buf, (unsigned)bytes_alloc);
-  ::close(fd);
+  ssize_t bytes_read = os::read(fd, (void *)buf, (unsigned)bytes_alloc);
+  os::close(fd);
   if (bytes_read < 0) {
     FREE_C_HEAP_ARRAY(char, buf);
     jio_fprintf(defaultStream::error_stream(),
@@ -3499,7 +3471,7 @@ jint Arguments::parse_options_buffer(const char* name, char* buffer, const size_
   return vm_args->set_args(&options);
 }
 
-void Arguments::set_shared_spaces_flags_and_archive_paths() {
+jint Arguments::set_shared_spaces_flags_and_archive_paths() {
   if (DumpSharedSpaces) {
     if (RequireSharedSpaces) {
       warning("Cannot dump shared archive while using shared archive");
@@ -3509,12 +3481,11 @@ void Arguments::set_shared_spaces_flags_and_archive_paths() {
 #if INCLUDE_CDS
   // Initialize shared archive paths which could include both base and dynamic archive paths
   // This must be after set_ergonomics_flags() called so flag UseCompressedOops is set properly.
-  //
-  // UseSharedSpaces may be disabled if -XX:SharedArchiveFile is invalid.
-  if (DumpSharedSpaces || UseSharedSpaces) {
-    init_shared_archive_paths();
+  if (!init_shared_archive_paths()) {
+    return JNI_ENOMEM;
   }
 #endif  // INCLUDE_CDS
+  return JNI_OK;
 }
 
 #if INCLUDE_CDS
@@ -3563,6 +3534,7 @@ void Arguments::extract_shared_archive_paths(const char* archive_path,
   char* cur_path = NEW_C_HEAP_ARRAY(char, len + 1, mtInternal);
   strncpy(cur_path, begin_ptr, len);
   cur_path[len] = '\0';
+  FileMapInfo::check_archive((const char*)cur_path, true /*is_static*/);
   *base_archive_path = cur_path;
 
   begin_ptr = ++end_ptr;
@@ -3574,108 +3546,68 @@ void Arguments::extract_shared_archive_paths(const char* archive_path,
   len = end_ptr - begin_ptr;
   cur_path = NEW_C_HEAP_ARRAY(char, len + 1, mtInternal);
   strncpy(cur_path, begin_ptr, len + 1);
+  //cur_path[len] = '\0';
+  FileMapInfo::check_archive((const char*)cur_path, false /*is_static*/);
   *top_archive_path = cur_path;
 }
 
-void Arguments::init_shared_archive_paths() {
-  if (ArchiveClassesAtExit != nullptr) {
-    assert(!RecordDynamicDumpInfo, "already checked");
+bool Arguments::init_shared_archive_paths() {
+  if (ArchiveClassesAtExit != NULL) {
     if (DumpSharedSpaces) {
       vm_exit_during_initialization("-XX:ArchiveClassesAtExit cannot be used with -Xshare:dump");
     }
+    if (FLAG_SET_CMDLINE(DynamicDumpSharedSpaces, true) != JVMFlag::SUCCESS) {
+      return false;
+    }
     check_unsupported_dumping_properties();
-
-    if (os::same_files((const char*)get_default_shared_archive_path(), ArchiveClassesAtExit)) {
-      vm_exit_during_initialization(
-        "Cannot specify the default CDS archive for -XX:ArchiveClassesAtExit", get_default_shared_archive_path());
+    SharedDynamicArchivePath = os::strdup_check_oom(ArchiveClassesAtExit, mtArguments);
+  } else {
+    if (SharedDynamicArchivePath != nullptr) {
+      os::free(SharedDynamicArchivePath);
+      SharedDynamicArchivePath = nullptr;
     }
   }
-
-  if (SharedArchiveFile == nullptr) {
+  if (SharedArchiveFile == NULL) {
     SharedArchivePath = get_default_shared_archive_path();
   } else {
     int archives = num_archives(SharedArchiveFile);
-    assert(archives > 0, "must be");
-
-    if (is_dumping_archive() && archives > 1) {
-      vm_exit_during_initialization(
-        "Cannot have more than 1 archive file specified in -XX:SharedArchiveFile during CDS dumping");
+    if (is_dumping_archive()) {
+      if (archives > 1) {
+        vm_exit_during_initialization(
+          "Cannot have more than 1 archive file specified in -XX:SharedArchiveFile during CDS dumping");
+      }
+      if (DynamicDumpSharedSpaces) {
+        if (os::same_files(SharedArchiveFile, ArchiveClassesAtExit)) {
+          vm_exit_during_initialization(
+            "Cannot have the same archive file specified for -XX:SharedArchiveFile and -XX:ArchiveClassesAtExit",
+            SharedArchiveFile);
+        }
+      }
     }
-
-    if (DumpSharedSpaces) {
-      assert(archives == 1, "must be");
-      // Static dump is simple: only one archive is allowed in SharedArchiveFile. This file
-      // will be overwritten no matter regardless of its contents
-      SharedArchivePath = os::strdup_check_oom(SharedArchiveFile, mtArguments);
-    } else {
-      // SharedArchiveFile may specify one or two files. In case (c), the path for base.jsa
-      // is read from top.jsa
-      //    (a) 1 file:  -XX:SharedArchiveFile=base.jsa
-      //    (b) 2 files: -XX:SharedArchiveFile=base.jsa:top.jsa
-      //    (c) 2 files: -XX:SharedArchiveFile=top.jsa
-      //
-      // However, if either RecordDynamicDumpInfo or ArchiveClassesAtExit is used, we do not
-      // allow cases (b) and (c). Case (b) is already checked above.
-
+    if (!is_dumping_archive()){
       if (archives > 2) {
         vm_exit_during_initialization(
           "Cannot have more than 2 archive files specified in the -XX:SharedArchiveFile option");
       }
       if (archives == 1) {
-        char* base_archive_path = NULL;
+        char* temp_archive_path = os::strdup_check_oom(SharedArchiveFile, mtArguments);
+        int name_size;
         bool success =
-          FileMapInfo::get_base_archive_name_from_header(SharedArchiveFile, &base_archive_path);
+          FileMapInfo::get_base_archive_name_from_header(temp_archive_path, &name_size, &SharedArchivePath);
         if (!success) {
-          // If +AutoCreateSharedArchive and the specified shared archive does not exist,
-          // regenerate the dynamic archive base on default archive.
-          if (AutoCreateSharedArchive && !os::file_exists(SharedArchiveFile)) {
-            DynamicDumpSharedSpaces = true;
-            ArchiveClassesAtExit = const_cast<char *>(SharedArchiveFile);
-            SharedArchivePath = get_default_shared_archive_path();
-            SharedArchiveFile = nullptr;
-          } else {
-            if (AutoCreateSharedArchive) {
-              warning("-XX:+AutoCreateSharedArchive is unsupported when base CDS archive is not loaded. Run with -Xlog:cds for more info.");
-              AutoCreateSharedArchive = false;
-            }
-            no_shared_spaces("invalid archive");
-          }
-        } else if (base_archive_path == NULL) {
-          // User has specified a single archive, which is a static archive.
-          SharedArchivePath = const_cast<char *>(SharedArchiveFile);
+          SharedArchivePath = temp_archive_path;
         } else {
-          // User has specified a single archive, which is a dynamic archive.
-          SharedDynamicArchivePath = const_cast<char *>(SharedArchiveFile);
-          SharedArchivePath = base_archive_path; // has been c-heap allocated.
+          SharedDynamicArchivePath = temp_archive_path;
         }
       } else {
         extract_shared_archive_paths((const char*)SharedArchiveFile,
                                       &SharedArchivePath, &SharedDynamicArchivePath);
-        if (SharedArchivePath == NULL) {
-          assert(SharedDynamicArchivePath == NULL, "must be");
-          no_shared_spaces("invalid archive");
-        }
       }
-
-      if (SharedDynamicArchivePath != nullptr) {
-        // Check for case (c)
-        if (RecordDynamicDumpInfo) {
-          vm_exit_during_initialization("-XX:+RecordDynamicDumpInfo is unsupported when a dynamic CDS archive is specified in -XX:SharedArchiveFile",
-                                        SharedArchiveFile);
-        }
-        if (ArchiveClassesAtExit != nullptr) {
-          vm_exit_during_initialization("-XX:ArchiveClassesAtExit is unsupported when a dynamic CDS archive is specified in -XX:SharedArchiveFile",
-                                        SharedArchiveFile);
-        }
-      }
-
-      if (ArchiveClassesAtExit != nullptr && os::same_files(SharedArchiveFile, ArchiveClassesAtExit)) {
-          vm_exit_during_initialization(
-            "Cannot have the same archive file specified for -XX:SharedArchiveFile and -XX:ArchiveClassesAtExit",
-            SharedArchiveFile);
-      }
+    } else { // CDS dumping
+      SharedArchivePath = os::strdup_check_oom(SharedArchiveFile, mtArguments);
     }
   }
+  return (SharedArchivePath != NULL);
 }
 #endif // INCLUDE_CDS
 
@@ -3859,14 +3791,14 @@ bool Arguments::handle_deprecated_print_gc_flags() {
     log_warning(gc)("-XX:+PrintGCDetails is deprecated. Will use -Xlog:gc* instead.");
   }
 
-  if (_legacyGCLogging.lastFlag == 2) {
+  if (_gc_log_filename != NULL) {
     // -Xloggc was used to specify a filename
     const char* gc_conf = PrintGCDetails ? "gc*" : "gc";
 
     LogTarget(Error, logging) target;
     LogStream errstream(target);
-    return LogConfiguration::parse_log_arguments(_legacyGCLogging.file, gc_conf, NULL, NULL, &errstream);
-  } else if (PrintGC || PrintGCDetails || (_legacyGCLogging.lastFlag == 1)) {
+    return LogConfiguration::parse_log_arguments(_gc_log_filename, gc_conf, NULL, NULL, &errstream);
+  } else if (PrintGC || PrintGCDetails) {
     LogConfiguration::configure_stdout(LogLevel::Info, !PrintGCDetails, LOG_TAGS(gc));
   }
   return true;
@@ -4061,6 +3993,21 @@ jint Arguments::parse(const JavaVMInitArgs* initial_cmd_args) {
   // Set object alignment values.
   set_object_alignment();
 
+#if INCLUDE_JFR
+  if (FlightRecorder) {
+    if (AllowEnhancedClassRedefinition || StartFlightRecording != NULL) {
+      warning("EnhancedClassRedefinition was disabled, it is not allowed in FlightRecorder.");
+      AllowEnhancedClassRedefinition = false;
+    }
+  }
+#endif
+
+  setup_hotswap_agent();
+
+  if (AllowEnhancedClassRedefinition) {
+    UseEmptySlotsInSupers = false;
+  }
+
 #if !INCLUDE_CDS
   if (DumpSharedSpaces || RequireSharedSpaces) {
     jio_fprintf(defaultStream::error_stream(),
@@ -4072,15 +4019,16 @@ jint Arguments::parse(const JavaVMInitArgs* initial_cmd_args) {
       "DumpLoadedClassList is not supported in this VM\n");
     return JNI_ERR;
   }
-  if ((UseSharedSpaces && xshare_auto_cmd_line) ||
+  if ((UseSharedSpaces && FLAG_IS_CMDLINE(UseSharedSpaces)) ||
       log_is_enabled(Info, cds)) {
     warning("Shared spaces are not supported in this VM");
-    UseSharedSpaces = false;
+    FLAG_SET_DEFAULT(UseSharedSpaces, false);
     LogConfiguration::configure_stdout(LogLevel::Off, true, LOG_TAGS(cds));
   }
   no_shared_spaces("CDS Disabled");
 #endif // INCLUDE_CDS
 
+#if INCLUDE_NMT
   // Verify NMT arguments
   const NMT_TrackingLevel lvl = NMTUtil::parse_tracking_level(NativeMemoryTracking);
   if (lvl == NMT_unknown) {
@@ -4092,6 +4040,13 @@ jint Arguments::parse(const JavaVMInitArgs* initial_cmd_args) {
     warning("PrintNMTStatistics is disabled, because native memory tracking is not enabled");
     FLAG_SET_DEFAULT(PrintNMTStatistics, false);
   }
+#else
+  if (!FLAG_IS_DEFAULT(NativeMemoryTracking) || PrintNMTStatistics) {
+    warning("Native Memory Tracking is not supported in this VM");
+    FLAG_SET_DEFAULT(NativeMemoryTracking, "off");
+    FLAG_SET_DEFAULT(PrintNMTStatistics, false);
+  }
+#endif // INCLUDE_NMT
 
   if (TraceDependencies && VerifyDependencies) {
     if (!FLAG_IS_DEFAULT(TraceDependencies)) {
@@ -4100,11 +4055,6 @@ jint Arguments::parse(const JavaVMInitArgs* initial_cmd_args) {
   }
 
   apply_debugger_ergo();
-
-  if (log_is_enabled(Info, arguments)) {
-    LogStream st(Log(arguments)::info());
-    Arguments::print_on(&st);
-  }
 
   return JNI_OK;
 }
@@ -4119,7 +4069,8 @@ jint Arguments::apply_ergo() {
 
   GCConfig::arguments()->initialize();
 
-  set_shared_spaces_flags_and_archive_paths();
+  result = set_shared_spaces_flags_and_archive_paths();
+  if (result != JNI_OK) return result;
 
   // Initialize Metaspace flags and alignments
   Metaspace::ergo_initialize();
@@ -4141,9 +4092,30 @@ jint Arguments::apply_ergo() {
     return code;
   }
 
+  // Turn off biased locking for locking debug mode flags,
+  // which are subtly different from each other but neither works with
+  // biased locking
+  if (UseHeavyMonitors
+#ifdef COMPILER1
+      || !UseFastLocking
+#endif // COMPILER1
+#if INCLUDE_JVMCI
+      || !JVMCIUseFastLocking
+#endif
+    ) {
+    if (!FLAG_IS_DEFAULT(UseBiasedLocking) && UseBiasedLocking) {
+      // flag set to true on command line; warn the user that they
+      // can't enable biased locking here
+      warning("Biased Locking is not supported with locking debug flags"
+              "; ignoring UseBiasedLocking flag." );
+    }
+    UseBiasedLocking = false;
+  }
+
 #ifdef ZERO
   // Clear flags not supported on zero.
   FLAG_SET_DEFAULT(ProfileInterpreter, false);
+  FLAG_SET_DEFAULT(UseBiasedLocking, false);
 
   if (LogTouchedMethods) {
     warning("LogTouchedMethods is not supported for Zero");
@@ -4179,7 +4151,18 @@ jint Arguments::apply_ergo() {
     JVMFlag::printSetFlags(tty);
   }
 
+  // Apply CPU specific policy for the BiasedLocking
+  if (UseBiasedLocking) {
+    if (!VM_Version::use_biased_locking() &&
+        !(FLAG_IS_CMDLINE(UseBiasedLocking))) {
+      UseBiasedLocking = false;
+    }
+  }
 #ifdef COMPILER2
+  if (!UseBiasedLocking) {
+    UseOptoBiasInlining = false;
+  }
+
   if (!FLAG_IS_DEFAULT(EnableVectorSupport) && !EnableVectorSupport) {
     if (!FLAG_IS_DEFAULT(EnableVectorReboxing) && EnableVectorReboxing) {
       warning("Disabling EnableVectorReboxing since EnableVectorSupport is turned off.");
@@ -4234,7 +4217,7 @@ int Arguments::PropertyList_count(SystemProperty* pl) {
 int Arguments::PropertyList_readable_count(SystemProperty* pl) {
   int count = 0;
   while(pl != NULL) {
-    if (pl->readable()) {
+    if (pl->is_readable()) {
       count++;
     }
     pl = pl->next();
@@ -4405,4 +4388,79 @@ bool Arguments::copy_expand_pid(const char* src, size_t srclen,
   }
   *b = '\0';
   return (p == src_end); // return false if not all of the source was copied
+}
+
+void Arguments::setup_hotswap_agent() {
+
+  if (DumpSharedSpaces)
+    return;
+
+  if (HotswapAgent == NULL || strcmp(HotswapAgent, "disabled") == 0)
+    return;
+
+  // Force AllowEnhancedClassRedefinition if HA is enabled
+  AllowEnhancedClassRedefinition = true;
+
+  bool ha_fatjar = strcmp(HotswapAgent, "fatjar") == 0;
+  bool ha_core = strcmp(HotswapAgent, "core") == 0;
+
+  // Set HotswapAgent
+  if (ha_fatjar || ha_core) {
+
+    char ext_path_str[JVM_MAXPATHLEN];
+
+    os::jvm_path(ext_path_str, sizeof(ext_path_str));
+    for (int i = 0; i < 3; i++) {
+      char *end = strrchr(ext_path_str, *os::file_separator());
+      if (end != NULL) *end = '\0';
+    }
+    size_t ext_path_length = strlen(ext_path_str);
+    if (ext_path_length >= 3) {
+      if (strcmp(ext_path_str + ext_path_length - 3, "lib") != 0) {
+        if (ext_path_length < JVM_MAXPATHLEN - 4) {
+          jio_snprintf(ext_path_str + ext_path_length, sizeof(ext_path_str) - ext_path_length, "%slib", os::file_separator());
+          ext_path_length += 4;
+        }
+      }
+    }
+    if (ext_path_length < JVM_MAXPATHLEN - 10) {
+      if (ha_fatjar) {
+        jio_snprintf(ext_path_str + ext_path_length, sizeof(ext_path_str) - ext_path_length,
+                     "%shotswap%shotswap-agent.jar", os::file_separator(), os::file_separator());
+      } else {
+        jio_snprintf(ext_path_str + ext_path_length, sizeof(ext_path_str) - ext_path_length,
+                     "%shotswap%shotswap-agent-core.jar", os::file_separator(), os::file_separator());
+      }
+      int fd = ::open(ext_path_str, O_RDONLY);
+      if (fd >= 0) {
+        os::close(fd);
+        size_t length = strlen(ext_path_str) + 1;
+        char *options = NEW_C_HEAP_ARRAY(char,  length, mtArguments);
+        jio_snprintf(options, length, "%s", ext_path_str);
+        add_init_agent("instrument", ext_path_str, false);
+        jio_fprintf(defaultStream::output_stream(), "Starting HotswapAgent '%s'\n", ext_path_str);
+      }
+      else
+      {
+        jio_fprintf(defaultStream::error_stream(), "HotswapAgent not found on path:'%s'!\n", ext_path_str);
+      }
+    }
+  }
+
+  // TODO: open it only for org.hotswap.agent module
+  // Use to access java.lang.reflect.Proxy/proxyCache
+  create_numbered_module_property("jdk.module.addopens", "java.base/java.lang=ALL-UNNAMED", addopens_count++);
+  // Class of  field java.lang.reflect.Proxy/proxyCache
+  create_numbered_module_property("jdk.module.addopens", "java.base/jdk.internal.loader=ALL-UNNAMED", addopens_count++);
+  // Use to access java.io.Reader, java.io.InputStream, java.io.FileInputStream
+  create_numbered_module_property("jdk.module.addopens", "java.base/java.io=ALL-UNNAMED", addopens_count++);
+  // java.beans.Introspector access
+  create_numbered_module_property("jdk.module.addopens", "java.desktop/java.beans=ALL-UNNAMED", addopens_count++);
+  // java.beans.Introspector access
+  create_numbered_module_property("jdk.module.addopens", "java.desktop/com.sun.beans=ALL-UNNAMED", addopens_count++);
+  // com.sun.beans.introspect.ClassInfo access
+  create_numbered_module_property("jdk.module.addopens", "java.desktop/com.sun.beans.introspect=ALL-UNNAMED", addopens_count++);
+  // com.sun.beans.introspect.util.Cache access
+  create_numbered_module_property("jdk.module.addopens", "java.desktop/com.sun.beans.util=ALL-UNNAMED", addopens_count++);
+
 }

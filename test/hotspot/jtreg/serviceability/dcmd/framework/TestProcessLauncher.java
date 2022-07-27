@@ -77,11 +77,7 @@ public class TestProcessLauncher {
 
     public void quit() {
         if (pipe != null) {
-            if (pipe.isConnected()) {
-                pipe.println("quit");
-            } else {
-                System.out.println("WARNING: IOPipe is not connected");
-            }
+            pipe.println("quit");
         }
     }
 

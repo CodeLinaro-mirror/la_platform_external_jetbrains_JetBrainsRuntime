@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -81,7 +81,7 @@ enum Alert {
     // description of the Alert
     final String description;
 
-    // Does the alert happen during handshake only?
+    // Does tha alert happen during handshake only?
     final boolean handshakeOnly;
 
     // Alert message consumer
@@ -122,15 +122,22 @@ enum Alert {
             reason = (cause != null) ? cause.getMessage() : "";
         }
 
+        SSLException ssle;
         if (cause instanceof IOException) {
-            return new SSLException(reason, cause);
+            ssle = new SSLException(reason);
         } else if ((this == UNEXPECTED_MESSAGE)) {
-            return new SSLProtocolException(reason, cause);
+            ssle = new SSLProtocolException(reason);
         } else if (handshakeOnly) {
-            return new SSLHandshakeException(reason, cause);
+            ssle = new SSLHandshakeException(reason);
         } else {
-            return new SSLException(reason, cause);
+            ssle = new SSLException(reason);
         }
+
+        if (cause != null) {
+            ssle.initCause(cause);
+        }
+
+        return ssle;
     }
 
     /**

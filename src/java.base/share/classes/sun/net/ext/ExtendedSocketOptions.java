@@ -108,8 +108,7 @@ public abstract class ExtendedSocketOptions {
     }
 
     private static boolean isStreamOption(SocketOption<?> option, boolean server) {
-        if (option.name().startsWith("UDP_") || isUnixDomainOption(option)
-            || option.name().equals("IP_DONTFRAGMENT")) {
+        if (option.name().startsWith("UDP_") || isUnixDomainOption(option)) {
             return false;
         } else {
             return true;

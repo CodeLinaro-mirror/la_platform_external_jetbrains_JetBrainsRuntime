@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,7 +27,6 @@ package sun.nio.ch;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
-import java.lang.foreign.MemorySegment;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.ByteBuffer;
@@ -38,14 +37,12 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.Set;
 
-import jdk.internal.access.JavaLangAccess;
-import jdk.internal.access.SharedSecrets;
+import jdk.internal.access.foreign.MemorySegmentProxy;
 import jdk.internal.misc.TerminatingThreadLocal;
 import jdk.internal.misc.Unsafe;
 import sun.security.action.GetPropertyAction;
 
 public class Util {
-    private static JavaLangAccess JLA = SharedSecrets.getJavaLangAccess();
 
     // -- Caches --
 
@@ -78,7 +75,8 @@ public class Util {
      * for potential future-proofing.
      */
     private static long getMaxCachedBufferSize() {
-        String s = GetPropertyAction.privilegedGetProperty("jdk.nio.maxCachedBufferSize");
+        String s = GetPropertyAction
+                .privilegedGetProperty("jdk.nio.maxCachedBufferSize");
         if (s != null) {
             try {
                 long m = Long.parseLong(s);
@@ -230,7 +228,7 @@ public class Util {
             return ByteBuffer.allocateDirect(size);
         }
 
-        BufferCache cache = JLA.getCarrierThreadLocal(bufferCache);
+        BufferCache cache = bufferCache.get();
         ByteBuffer buf = cache.get(size);
         if (buf != null) {
             return buf;
@@ -257,7 +255,7 @@ public class Util {
                     .alignedSlice(alignment);
         }
 
-        BufferCache cache = JLA.getCarrierThreadLocal(bufferCache);
+        BufferCache cache = bufferCache.get();
         ByteBuffer buf = cache.get(size);
         if (buf != null) {
             if (buf.alignmentOffset(0, alignment) == 0) {
@@ -294,7 +292,7 @@ public class Util {
         }
 
         assert buf != null;
-        BufferCache cache = JLA.getCarrierThreadLocal(bufferCache);
+        BufferCache cache = bufferCache.get();
         if (!cache.offerFirst(buf)) {
             // cache is full
             free(buf);
@@ -316,7 +314,7 @@ public class Util {
         }
 
         assert buf != null;
-        BufferCache cache = JLA.getCarrierThreadLocal(bufferCache);
+        BufferCache cache = bufferCache.get();
         if (!cache.offerLast(buf)) {
             // cache is full
             free(buf);
@@ -420,7 +418,7 @@ public class Util {
                                              long.class,
                                              FileDescriptor.class,
                                              Runnable.class,
-                                             boolean.class, MemorySegment.class});
+                                             boolean.class, MemorySegmentProxy.class});
                         ctor.setAccessible(true);
                         directByteBufferConstructor = ctor;
                     } catch (ClassNotFoundException   |
@@ -469,7 +467,7 @@ public class Util {
                                              long.class,
                                              FileDescriptor.class,
                                              Runnable.class,
-                                             boolean.class, MemorySegment.class });
+                                             boolean.class, MemorySegmentProxy.class });
                         ctor.setAccessible(true);
                         directByteBufferRConstructor = ctor;
                     } catch (ClassNotFoundException |

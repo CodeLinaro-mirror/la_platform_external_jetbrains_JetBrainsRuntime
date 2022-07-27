@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2019, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2018, 2019 SAP SE. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -26,7 +26,6 @@
 #include "precompiled.hpp"
 #include "code/codeHeapState.hpp"
 #include "compiler/compileBroker.hpp"
-#include "oops/klass.inline.hpp"
 #include "runtime/safepoint.hpp"
 #include "runtime/sweeper.hpp"
 #include "utilities/powerOfTwo.hpp"
@@ -756,17 +755,18 @@ void CodeHeapState::aggregate(outputStream* out, CodeHeap* heap, size_t granular
         CodeBlob* cb  = (CodeBlob*)heap->find_start(h);
         cbType = get_cbType(cb);  // Will check for cb == NULL and other safety things.
         if (cbType != noType) {
-          const char* blob_name  = nullptr;
+          const char* blob_name  = os::strdup(cb->name());
           unsigned int nm_size   = 0;
           int temperature        = 0;
           nmethod*  nm = cb->as_nmethod_or_null();
           if (nm != NULL) { // no is_readable check required, nm = (nmethod*)cb.
             ResourceMark rm;
             Method* method = nm->method();
-            if (nm->is_in_use() || nm->is_not_entrant()) {
+            if (nm->is_in_use()) {
               blob_name = os::strdup(method->name_and_sig_as_C_string());
-            } else {
-              blob_name = os::strdup(cb->name());
+            }
+            if (nm->is_not_entrant()) {
+              blob_name = os::strdup(method->name_and_sig_as_C_string());
             }
 
             nm_size    = nm->total_size();
@@ -814,8 +814,6 @@ void CodeHeapState::aggregate(outputStream* out, CodeHeap* heap, size_t granular
               default:
                 break;
             }
-          } else {
-            blob_name  = os::strdup(cb->name());
           }
 
           //------------------------------------------
@@ -2336,11 +2334,6 @@ void CodeHeapState::print_names(outputStream* out, CodeHeap* heap) {
             Symbol* methSig   = method->signature();
             const char*   methSigS  = (methSig  == NULL) ? NULL : methSig->as_C_string();
             methSigS  = (methSigS  == NULL) ? "<method signature unavailable>" : methSigS;
-            Klass* klass = method->method_holder();
-            assert(klass != nullptr, "No method holder");
-            const char* classNameS = (klass->name() == nullptr) ? "<class name unavailable>" : klass->external_name();
-
-            ast->print("%s.", classNameS);
             ast->print("%s", methNameS);
             ast->print("%s", methSigS);
           } else {

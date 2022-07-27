@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -317,13 +317,15 @@ class XWindow extends XBaseWindow implements X11ComponentPeer {
         Component temp = target.getParent();
         final ComponentAccessor acc = AWTAccessor.getComponentAccessor();
         ComponentPeer peer = acc.getPeer(temp);
-        while (!(peer instanceof XWindow window))
+        while (!(peer instanceof XWindow))
         {
             temp = temp.getParent();
             peer = acc.getPeer(temp);
         }
 
-        return window.getContentWindow();
+        if (peer != null && peer instanceof XWindow)
+            return ((XWindow)peer).getContentWindow();
+        else return 0;
     }
 
 
@@ -339,8 +341,8 @@ class XWindow extends XBaseWindow implements X11ComponentPeer {
             temp = temp.getParent();
             peer = acc.getPeer(temp);
         }
-        if (peer instanceof XWindow xWindow)
-            return xWindow;
+        if (peer != null && peer instanceof XWindow)
+            return (XWindow) peer;
         else return null;
     }
 
@@ -1080,7 +1082,9 @@ class XWindow extends XBaseWindow implements X11ComponentPeer {
         long childWnd = xce.get_subwindow();
         if (childWnd != XConstants.None) {
             XBaseWindow child = XToolkit.windowToXWindow(childWnd);
-            if (child instanceof XWindow && !child.isEventDisabled(xev)) {
+            if (child != null && child instanceof XWindow &&
+                !child.isEventDisabled(xev))
+            {
                 return;
             }
         }
@@ -1619,19 +1623,20 @@ class XWindow extends XBaseWindow implements X11ComponentPeer {
             XToolkit.awtLock();
             try {
                 Object wpeer = XToolkit.targetToPeer(comp);
-                if (!(wpeer instanceof XDecoratedPeer xDecoratedPeer)
-                        || xDecoratedPeer.configure_seen)
+                if (wpeer == null
+                    || !(wpeer instanceof XDecoratedPeer)
+                    || ((XDecoratedPeer)wpeer).configure_seen)
                 {
                     return toGlobal(0, 0);
                 }
 
                 // wpeer is an XDecoratedPeer not yet fully adopted by WM
                 Point pt = toOtherWindow(getContentWindow(),
-                                         xDecoratedPeer.getContentWindow(),
+                                         ((XDecoratedPeer)wpeer).getContentWindow(),
                                          0, 0);
 
                 if (pt == null) {
-                    pt = new Point(xDecoratedPeer.getAbsoluteX(), xDecoratedPeer.getAbsoluteY());
+                    pt = new Point(((XBaseWindow)wpeer).getAbsoluteX(), ((XBaseWindow)wpeer).getAbsoluteY());
                 }
                 pt.x += comp.getX();
                 pt.y += comp.getY();

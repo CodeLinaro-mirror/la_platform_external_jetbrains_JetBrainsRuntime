@@ -136,16 +136,16 @@ public class OverridableResourceTest {
     }
 
     private void testCustomtWithSubstitution(String defaultName) throws IOException {
-        final List<String> resourceData = List.of("A", "[BB]", "C", "Foo", "Foo",
-                "GoodbyeHello", "_B");
+        final List<String> resourceData = List.of("A", "[BB]", "C", "Foo",
+                "GoodbyeHello");
         final Path customFile = createCustomFile("foo", resourceData);
 
         final Map<String, String> substitutionData = new HashMap(Map.of("B",
-                "Bar", "Foo", "B", "_B", "JJ"));
+                "Bar", "Foo", "B"));
         substitutionData.put("Hello", null);
 
         final List<String> expectedResourceData = List.of("A", "[BarBar]", "C",
-                "Bar", "Bar", "Goodbye", "JJ");
+                "B", "Goodbye");
 
         final List<String> actualResourceData = convertToStringList(saveToFile(
                 new OverridableResource(defaultName)

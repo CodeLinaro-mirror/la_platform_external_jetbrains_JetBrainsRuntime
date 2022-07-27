@@ -118,32 +118,12 @@ public final class FontRunIterator {
         }
 
         int ch = nextCodePoint(lim);
-        int nch = nextCodePoint(lim);
-        int vs = CharToGlyphMapper.isVariationSelector(nch) ? nch : 0;
-        int sl = mapper.charToVariationGlyph(ch, vs) & CompositeGlyphMapper.SLOTMASK;
+        int sl = mapper.charToGlyph(ch) & CompositeGlyphMapper.SLOTMASK;
         slot = sl >>> 24;
-        do {
-            if (vs == 0) {
-                ch = nch;
-            } else {
-                ch = nextCodePoint(lim);
-            }
-            nch = nextCodePoint(lim);
-            vs = CharToGlyphMapper.isVariationSelector(nch) ? nch : 0;
-        } while(ch != DONE && isSameRun(ch, vs, sl));
-        pushback(nch);
+        while ((ch = nextCodePoint(lim)) != DONE && (mapper.charToGlyph(ch) & CompositeGlyphMapper.SLOTMASK) == sl);
         pushback(ch);
 
         return true;
-    }
-
-    private boolean isSameRun(int ch, int variationSelector, int currentSlot) {
-        // Every font is meant to be able to render format chars
-        // So we make format chars stick to the current font run
-        if (CMap.getFormatCharGlyph(ch) == CharToGlyphMapper.INVISIBLE_GLYPH_ID) {
-            return true;
-        }
-        return (mapper.charToVariationGlyph(ch, variationSelector) & CompositeGlyphMapper.SLOTMASK) == currentSlot;
     }
 
     public boolean next() {

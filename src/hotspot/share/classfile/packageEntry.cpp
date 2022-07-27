@@ -197,6 +197,8 @@ PackageEntryTable::~PackageEntryTable() {
 typedef ResourceHashtable<
   const PackageEntry*,
   PackageEntry*,
+  primitive_hash<const PackageEntry*>,
+  primitive_equals<const PackageEntry*>,
   557, // prime number
   ResourceObj::C_HEAP> ArchivedPackageEntries;
 static ArchivedPackageEntries* _archived_packages_entries = NULL;

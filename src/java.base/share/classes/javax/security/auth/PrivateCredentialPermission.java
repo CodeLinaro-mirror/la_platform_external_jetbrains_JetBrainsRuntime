@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -145,7 +145,9 @@ public final class PrivateCredentialPermission extends Permission {
             } else {
                 this.credOwners = new CredOwner[principals.size()];
                 int index = 0;
-                for (Principal p : principals) {
+                Iterator<Principal> i = principals.iterator();
+                while (i.hasNext()) {
+                    Principal p = i.next();
                     this.credOwners[index++] = new CredOwner
                                                 (p.getClass().getName(),
                                                 p.getName());
@@ -241,8 +243,11 @@ public final class PrivateCredentialPermission extends Permission {
      * the specified {@code Permission}, false if not.
      */
     public boolean implies(Permission p) {
-        if (!(p instanceof PrivateCredentialPermission that))
+
+        if (p == null || !(p instanceof PrivateCredentialPermission))
             return false;
+
+        PrivateCredentialPermission that = (PrivateCredentialPermission)p;
 
         if (!impliesCredentialClass(credentialClass, that.credentialClass))
             return false;
@@ -521,8 +526,10 @@ public final class PrivateCredentialPermission extends Permission {
         }
 
         public boolean implies(Object obj) {
-            if (!(obj instanceof CredOwner that))
+            if (obj == null || !(obj instanceof CredOwner))
                 return false;
+
+            CredOwner that = (CredOwner)obj;
 
             if (principalClass.equals("*") ||
                 principalClass.equals(that.principalClass)) {

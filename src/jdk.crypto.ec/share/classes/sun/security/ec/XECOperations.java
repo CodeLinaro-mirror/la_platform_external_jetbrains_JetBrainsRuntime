@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -186,10 +186,10 @@ public class XECOperations {
     private static IntegerFieldModuloP getIntegerFieldModulo(BigInteger p) {
 
         if (p.equals(IntegerPolynomial25519.MODULUS)) {
-            return IntegerPolynomial25519.ONE;
+            return new IntegerPolynomial25519();
         }
         else if (p.equals(IntegerPolynomial448.MODULUS)) {
-            return IntegerPolynomial448.ONE;
+            return new IntegerPolynomial448();
         }
 
         throw new ProviderException("Unsupported prime: " + p.toString());

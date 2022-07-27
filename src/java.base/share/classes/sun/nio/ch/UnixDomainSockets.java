@@ -44,8 +44,8 @@ import sun.nio.fs.AbstractFileSystemProvider;
 class UnixDomainSockets {
     private UnixDomainSockets() { }
 
-    private static class UnnamedHolder {
-        static final UnixDomainSocketAddress UNNAMED = UnixDomainSocketAddress.of("");
+    private static class UNNAMEDHolder {
+        static final UnixDomainSocketAddress UNNAMED =  UnixDomainSocketAddress.of("");
     }
 
     private static final boolean supported;
@@ -73,7 +73,7 @@ class UnixDomainSockets {
             // Security check passed
         } catch (SecurityException e) {
             // Return unnamed address only if security check fails
-            addr = unnamed();
+            addr = getUNNAMED();
         }
         return addr;
     }
@@ -135,14 +135,12 @@ class UnixDomainSockets {
             throw new BindException("Could not locate temporary directory for sockets");
         int rnd = random.nextInt(Integer.MAX_VALUE);
         try {
-            final Path path = Path.of(dir, "socket_" + rnd);
-            if (path.getFileSystem().provider() != sun.nio.fs.DefaultFileSystemProvider.instance()) {
-                throw new UnsupportedOperationException(
-                        "Unix Domain Sockets not supported on non-default file system");
-            }
+            Path path = Path.of(dir, "socket_" + rnd);
             return UnixDomainSocketAddress.of(path);
         } catch (InvalidPathException e) {
             throw new BindException("Invalid temporary directory");
+        } catch (IllegalArgumentException e) {
+            throw new UnsupportedOperationException("Unix Domain Sockets not supported on non-default file system");
         }
     }
 
@@ -166,10 +164,6 @@ class UnixDomainSockets {
         return n;
     }
 
-    static UnixDomainSocketAddress unnamed() {
-        return UnnamedHolder.UNNAMED;
-    }
-
     private static native boolean init();
 
     private static native int socket0() throws IOException;
@@ -187,5 +181,9 @@ class UnixDomainSockets {
         // Load all required native libs
         IOUtil.load();
         supported = init();
+    }
+
+    static UnixDomainSocketAddress getUNNAMED() {
+        return UNNAMEDHolder.UNNAMED;
     }
 }

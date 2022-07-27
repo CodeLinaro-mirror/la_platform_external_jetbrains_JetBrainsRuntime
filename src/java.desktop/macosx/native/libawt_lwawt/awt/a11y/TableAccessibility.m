@@ -1,13 +1,11 @@
 /*
- * Copyright (c) 2021, 2022, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2021, 2022, JetBrains s.r.o.. All rights reserved.
+ * Copyright (c) 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2021, JetBrains s.r.o.. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ * published by the Free Software Foundation.
  *
  * This code is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
@@ -130,15 +128,6 @@ static jmethodID sjm_getAccessibleName = NULL;
     if (rowCache == nil) {
         int rowCount = [self accessibilityRowCount];
         rowCache = [[NSMutableDictionary<NSNumber*, id> dictionaryWithCapacity:rowCount] retain];
-        cacheValid = YES;
-    }
-
-    if (!cacheValid) {
-        for (NSNumber *key in [rowCache allKeys]) {
-            [[rowCache objectForKey:key] release];
-            [rowCache removeObjectForKey:key];
-        }
-        cacheValid = YES;
     }
 
     id row = [rowCache objectForKey:[NSNumber numberWithUnsignedInteger:index]];
@@ -232,7 +221,11 @@ static jmethodID sjm_getAccessibleName = NULL;
 }
 
 - (void)clearCache {
-    cacheValid = NO;
+    for (NSNumber *key in [rowCache allKeys]) {
+        [[rowCache objectForKey:key] release];
+    }
+    [rowCache release];
+    rowCache = nil;
 }
 
 @end

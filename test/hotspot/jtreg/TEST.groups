@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2013, 2022, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2013, 2021, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -46,10 +46,6 @@ hotspot_gc = \
 hotspot_runtime = \
   runtime
 
-hotspot_runtime_no_cds = \
-  runtime \
-  -runtime/cds
-
 hotspot_handshake = \
   runtime/handshake
 
@@ -75,13 +71,6 @@ hotspot_native_sanity = \
 hotspot_containers = \
   containers
 
-# Test sets for running inside container environment
-hotspot_containers_extended = \
-  runtime \
-  serviceability \
-  vmTestbase/nsk/jvmti \
-  vmTestbase/nsk/monitoring
-
 hotspot_vector_1 = \
   compiler/c2/cr6340864 \
   compiler/codegen \
@@ -105,25 +94,6 @@ hotspot_vector_2 = \
   compiler/vectorapi/VectorRebracket128Test.java \
   -compiler/intrinsics/string/TestStringLatin1IndexOfChar.java
 
-hotspot_compiler_arraycopy = \
-  compiler/arraycopy/stress
-
-tier1_loom = \
-  :tier1_loom_runtime \
-  :tier1_loom_serviceability
-
-tier1_loom_runtime = \
-  runtime/vthread \
-  runtime/jni/IsVirtualThread
-
-tier1_loom_serviceability = \
-  serviceability/jvmti/vthread \
-  serviceability/jvmti/events \
-  serviceability/dcmd/thread
-
-hotspot_loom = \
-  :tier1_loom
-
 tier1_common = \
   sanity/BasicVMTest.java \
   gtest/GTestWrapper.java \
@@ -145,9 +115,7 @@ hotspot_not_fast_compiler = \
 hotspot_slow_compiler = \
   compiler/codegen/aes \
   compiler/codecache/stress \
-  compiler/gcbarriers/PreserveFPRegistersTest.java \
-  resourcehogs/compiler \
-  :hotspot_compiler_arraycopy
+  compiler/gcbarriers/PreserveFPRegistersTest.java
 
 tier1_compiler_1 = \
   compiler/arraycopy/ \
@@ -164,7 +132,6 @@ tier1_compiler_1 = \
   -compiler/c2/Test6792161.java \
   -compiler/c2/Test6603011.java \
   -compiler/c2/Test6912517.java \
-  -:hotspot_slow_compiler
 
 tier1_compiler_2 = \
   compiler/classUnloading/ \
@@ -288,6 +255,7 @@ tier1_gc_1 = \
 
 tier1_gc_2 = \
   gc/ \
+  -gc/CriticalNativeArgs.java \
   -gc/g1/ \
   -gc/logging/TestUnifiedLoggingSwitchStress.java \
   -gc/stress \
@@ -302,7 +270,9 @@ hotspot_gc_epsilon = \
 tier1_gc_epsilon = \
   gc/epsilon/
 
-tier2_gc_epsilon =
+tier2_gc_epsilon = \
+  gc/CriticalNativeArgs.java \
+  gc/stress/CriticalNativeStress.java
 
 tier1_gc_gcold = \
   gc/stress/gcold/TestGCOldWithG1.java \
@@ -341,6 +311,8 @@ tier2_gc_shenandoah = \
   gc/logging/TestUnifiedLoggingSwitchStress.java \
   runtime/Metaspace/DefineClass.java \
   gc/shenandoah/ \
+  gc/CriticalNativeArgs.java \
+  gc/stress/CriticalNativeStress.java \
   serviceability/sa/TestHeapDumpForInvokeDynamic.java \
   -gc/shenandoah/TestStringDedupStress.java \
   -:tier1_gc_shenandoah
@@ -405,8 +377,6 @@ hotspot_cds = \
   runtime/cds/ \
   runtime/CompressedOops/
 
-hotspot_cds_only = \
-  runtime/cds/
 
 hotspot_appcds_dynamic = \
   runtime/cds/appcds/ \
@@ -428,13 +398,11 @@ hotspot_appcds_dynamic = \
  -runtime/cds/appcds/BadBSM.java \
  -runtime/cds/appcds/DumpClassList.java \
  -runtime/cds/appcds/DumpClassListWithLF.java \
- -runtime/cds/appcds/DumpingWithNoCoops.java \
  -runtime/cds/appcds/ExtraSymbols.java \
  -runtime/cds/appcds/LambdaContainsOldInf.java \
  -runtime/cds/appcds/LambdaEagerInit.java \
  -runtime/cds/appcds/LambdaProxyClasslist.java \
  -runtime/cds/appcds/LambdaVerificationFailedDuringDump.java \
- -runtime/cds/appcds/LambdaWithJavaAgent.java \
  -runtime/cds/appcds/LambdaWithOldClass.java \
  -runtime/cds/appcds/LongClassListPath.java \
  -runtime/cds/appcds/LotsOfClasses.java \
@@ -444,9 +412,6 @@ hotspot_appcds_dynamic = \
  -runtime/cds/appcds/SharedArchiveConsistency.java \
  -runtime/cds/appcds/StaticArchiveWithLambda.java \
  -runtime/cds/appcds/TestCombinedCompressedFlags.java \
- -runtime/cds/appcds/TestEpsilonGCWithCDS.java \
- -runtime/cds/appcds/TestParallelGCWithCDS.java \
- -runtime/cds/appcds/TestSerialGCWithCDS.java \
  -runtime/cds/appcds/TestZGCWithCDS.java \
  -runtime/cds/appcds/UnusedCPDuringDump.java \
  -runtime/cds/appcds/VerifierTest_1B.java
@@ -477,19 +442,6 @@ hotspot_cds_verify_shared_spaces = \
   runtime/cds/appcds/jigsaw/modulepath/ExportModule.java \
   runtime/cds/appcds/jvmti/dumpingWithAgent/DumpingWithJavaAgent.java \
   runtime/cds/appcds/sharedStrings/SharedStringsBasic.java
-
-# No need to run every test with EpsilonGC. A small subset will provide enough
-# coverage. Also avoid some tests that may OOM.
-hotspot_cds_epsilongc = \
-  runtime/cds/appcds/HelloTest.java \
-  runtime/cds/appcds/MultiProcessSharing.java \
-  runtime/cds/appcds/StaticArchiveWithLambda.java \
-  runtime/cds/appcds/cacheObject \
-  runtime/cds/appcds/customLoader/ParallelTestSingleFP.java \
-  runtime/cds/appcds/dynamicArchive/HelloDynamic.java \
-  runtime/cds/appcds/javaldr \
-  runtime/cds/appcds/jigsaw \
-  runtime/cds/appcds/loaderConstraints
 
 # needs -nativepath:<output>/images/test/hotspot/jtreg/native/
 hotspot_metaspace = \

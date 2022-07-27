@@ -255,11 +255,11 @@ public class BMPImageReader extends ImageReader implements BMPConstants {
     /**
      * Process the image header.
      *
-     * @throws IllegalStateException if source stream is not set.
+     * @exception IllegalStateException if source stream is not set.
      *
-     * @throws IOException if image stream is corrupted.
+     * @exception IOException if image stream is corrupted.
      *
-     * @throws IllegalArgumentException if the image stream does not contain
+     * @exception IllegalArgumentException if the image stream does not contain
      *             a BMP image, or if a sample model instance to describe the
      *             image can not be created.
      */

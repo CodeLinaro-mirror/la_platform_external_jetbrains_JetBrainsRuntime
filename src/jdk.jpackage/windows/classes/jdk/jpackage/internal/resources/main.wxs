@@ -12,8 +12,6 @@
   <?define JpInstallerVersion=200 ?>
   <?define JpCompressedMsi=yes ?>
 
-  <?include $(var.JpConfigDir)/overrides.wxi ?>
-
   <?ifdef JpAllowUpgrades ?>
     <?define JpUpgradeVersionOnlyDetectUpgrade="no"?>
   <?else?>
@@ -24,6 +22,8 @@
   <?else?>
     <?define JpUpgradeVersionOnlyDetectDowngrade="yes"?>
   <?endif?>
+
+  <?include $(var.JpConfigDir)/overrides.wxi ?>
 
   <Product
     Id="$(var.JpProductCode)"

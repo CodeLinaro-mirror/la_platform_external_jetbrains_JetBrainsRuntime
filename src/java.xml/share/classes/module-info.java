@@ -407,9 +407,7 @@
  * <tr>
  * <th scope="row" style="font-weight:normal" id="XPATH">XPath</th>
  * <td style="text-align:center">XPath</td>
- * <td>
- * {@code XPathFactory factory = XPathFactory.newInstance();}<br>
- * {@code factory.setProperty(name, value);}
+ * <td>N/A
  * </td>
  * <td>
  * {@code XPathFactory factory = XPathFactory.newInstance();} <br>
@@ -618,7 +616,7 @@
  * <td style="text-align:center">9</td>
  * </tr>
  * <tr>
- * <td id="xpathExprGrpLimit">jdk.xml.xpathExprGrpLimit</td>
+ * <td id="extensionClassLoader">jdk.xml.xpathExprGrpLimit</td>
  * <td>Limits the number of groups an XPath expression can contain.
  * </td>
  * <td style="text-align:center" rowspan="2">
@@ -640,14 +638,14 @@
  * <td style="text-align:center" rowspan="3">19</td>
  * </tr>
  * <tr>
- * <td id="xpathExprGrpLimit">jdk.xml.xpathExprGrpLimit</td>
+ * <td id="extensionClassLoader">jdk.xml.xpathExprOpLimit</td>
  * <td>Limits the number of operators an XPath expression can contain.
  * </td>
  * <td style="text-align:center">100</td>
  * <td style="text-align:center">100</td>
  * </tr>
  * <tr>
- * <td id="xpathTotalOpLimit">jdk.xml.xpathTotalOpLimit</td>
+ * <td id="extensionClassLoader">jdk.xml.xpathTotalOpLimit</td>
  * <td>Limits the total number of XPath operators in an XSL Stylesheet.
  * </td>
  * <td style="text-align:center">yes</td>

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -48,7 +48,7 @@
 #include "utilities/hashtable.inline.hpp"
 
 // Optimization: if any dictionary needs resizing, we set this flag,
-// so that we don't have to walk all dictionaries to check if any actually
+// so that we dont't have to walk all dictionaries to check if any actually
 // needs resizing, which is costly to do at Safepoint.
 bool Dictionary::_some_dictionary_needs_resizing = false;
 
@@ -225,6 +225,21 @@ void Dictionary::classes_do(void f(InstanceKlass*)) {
   }
 }
 
+
+// (DCEVM) iterate over dict entry
+void Dictionary::classes_do(KlassClosure* closure) {
+  for (int index = 0; index < table_size(); index++) {
+    for (DictionaryEntry* probe = bucket(index);
+                          probe != NULL;
+                          probe = probe->next()) {
+      InstanceKlass* k = probe->instance_klass();
+      if (loader_data() == k->class_loader_data()) {
+        closure->do_klass(k);
+      }
+    }
+  }
+}
+
 // Added for initialize_itable_for_klass to handle exceptions
 //   Just the classes from defining class loaders
 void Dictionary::classes_do(void f(InstanceKlass*, TRAPS), TRAPS) {
@@ -306,6 +321,35 @@ DictionaryEntry* Dictionary::get_entry(int index, unsigned int hash,
   return NULL;
 }
 
+// (DCEVM) replace old_class by new class in dictionary
+bool Dictionary::update_klass(Symbol* name, InstanceKlass* k, InstanceKlass* old_klass) {
+  // There are several entries for the same class in the dictionary: One extra entry for each parent classloader of the classloader of the class.
+  bool found = false;
+  for (int index = 0; index < table_size(); index++) {
+    for (DictionaryEntry* entry = bucket(index); entry != NULL; entry = entry->next()) {
+      if (entry->instance_klass() == old_klass) {
+        entry->set_literal(k);
+        found = true;
+      }
+    }
+  }
+  return found;
+}
+
+// (DCEVM) rollback redefinition
+void Dictionary::rollback_redefinition() {
+  for (int index = 0; index < table_size(); index++) {
+    for (DictionaryEntry* entry = bucket(index);
+                          entry != NULL;
+                          entry = entry->next()) {
+      if (entry->instance_klass()->is_redefining()) {
+        entry->set_literal((InstanceKlass*) entry->instance_klass()->old_version());
+      }
+    }
+  }
+}
+
+
 
 
 InstanceKlass* Dictionary::find(unsigned int hash, Symbol* name,
@@ -315,7 +359,7 @@ InstanceKlass* Dictionary::find(unsigned int hash, Symbol* name,
   int index = hash_to_index(hash);
   DictionaryEntry* entry = get_entry(index, hash, name);
   if (entry != NULL && entry->is_valid_protection_domain(protection_domain)) {
-    return entry->instance_klass();
+    return old_if_redefining(entry->instance_klass());
   } else {
     return NULL;
   }
@@ -329,7 +373,7 @@ InstanceKlass* Dictionary::find_class(unsigned int hash,
   assert (index == index_for(name), "incorrect index?");
 
   DictionaryEntry* entry = get_entry(index, hash, name);
-  return (entry != NULL) ? entry->instance_klass() : NULL;
+  return old_if_redefining((entry != NULL) ? entry->instance_klass() : NULL);
 }
 
 void Dictionary::add_protection_domain(int index, unsigned int hash,
@@ -586,17 +630,13 @@ void DictionaryEntry::print_count(outputStream *st) {
 
 // ----------------------------------------------------------------------------
 
-void Dictionary::print_size(outputStream* st) const {
-  st->print_cr("Java dictionary (table_size=%d, classes=%d, resizable=%s)",
-               table_size(), number_of_entries(), BOOL_TO_STR(_resizable));
-}
-
 void Dictionary::print_on(outputStream* st) const {
   ResourceMark rm;
 
   assert(loader_data() != NULL, "loader data should not be null");
   assert(!loader_data()->has_class_mirror_holder(), "cld should have a ClassLoader holder not a Class holder");
-  print_size(st);
+  st->print_cr("Java dictionary (table_size=%d, classes=%d, resizable=%s)",
+               table_size(), number_of_entries(), BOOL_TO_STR(_resizable));
   st->print_cr("^ indicates that initiating loader is different from defining loader");
 
   for (int index = 0; index < table_size(); index++) {
@@ -635,9 +675,9 @@ void Dictionary::verify() {
 
   ClassLoaderData* cld = loader_data();
   // class loader must be present;  a null class loader is the
-  // bootstrap loader
+  // boostrap loader
   guarantee(cld != NULL &&
-            (cld->is_the_null_class_loader_data() || cld->class_loader_no_keepalive()->is_instance()),
+            (cld->the_null_class_loader_data() || cld->class_loader()->is_instance()),
             "checking type of class_loader");
 
   ResourceMark rm;

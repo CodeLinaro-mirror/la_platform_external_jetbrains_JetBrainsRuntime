@@ -110,6 +110,7 @@ public abstract class CommandLineOptionTest {
             Collections.addAll(finalOptions, Utils.getTestJavaOpts());
         }
         Collections.addAll(finalOptions, options);
+        finalOptions.add("-XX:-IgnoreUnrecognizedVMOptions");
         finalOptions.add("-version");
 
         ProcessBuilder processBuilder
@@ -500,8 +501,6 @@ public abstract class CommandLineOptionTest {
             return "-client";
         } else if (Platform.isMinimal()) {
             return "-minimal";
-        } else if (Platform.isZero()) {
-            return "-zero";
         }
         throw new RuntimeException("Unknown VM mode.");
     }

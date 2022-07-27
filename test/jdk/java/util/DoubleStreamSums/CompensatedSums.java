@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,9 +24,6 @@
 /*
  * @test
  * @bug 8214761
- * @key randomness
- * @library /test/lib
- * @build jdk.test.lib.RandomFactory
  * @run testng CompensatedSums
  * @summary
  */
@@ -37,7 +34,6 @@ import java.util.function.ObjDoubleConsumer;
 import java.util.function.Supplier;
 import java.util.stream.DoubleStream;
 
-import jdk.test.lib.RandomFactory;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -45,8 +41,6 @@ public class CompensatedSums {
 
     @Test
     public void testCompensatedSums() {
-        Random r = RandomFactory.getRandom();
-
         double naive = 0;
         double jdkSequentialStreamError = 0;
         double goodSequentialStreamError = 0;
@@ -56,7 +50,7 @@ public class CompensatedSums {
 
         for (int loop = 0; loop < 100; loop++) {
             // sequence of random numbers of varying magnitudes, both positive and negative
-            double[] rand = r.doubles(1_000_000)
+            double[] rand = new Random().doubles(1_000_000)
                     .map(Math::log)
                     .map(x -> (Double.doubleToLongBits(x) % 2 == 0) ? x : -x)
                     .toArray();
@@ -91,7 +85,7 @@ public class CompensatedSums {
         }
 
         Assert.assertTrue(jdkParallelStreamError <= goodParallelStreamError);
-        Assert.assertTrue(badParallelStreamError >= jdkParallelStreamError);
+        Assert.assertTrue(badParallelStreamError > jdkParallelStreamError);
 
         Assert.assertTrue(goodSequentialStreamError >= jdkSequentialStreamError);
         Assert.assertTrue(naive > jdkSequentialStreamError);
@@ -103,7 +97,7 @@ public class CompensatedSums {
         return arg * arg;
     }
 
-    // from OpenJDK 18 Collectors, unmodified
+    // from OpenJDK8 Collectors, unmodified
     static double[] sumWithCompensation(double[] intermediateSum, double value) {
         double tmp = value - intermediateSum[1];
         double sum = intermediateSum[0];
@@ -113,10 +107,9 @@ public class CompensatedSums {
         return intermediateSum;
     }
 
-    // from OpenJDK 18 Collectors, unmodified
+    // from OpenJDK8 Collectors, unmodified
     static double computeFinalSum(double[] summands) {
-        // Final sum with better error bounds subtract second summand as it is negated
-        double tmp = summands[0] - summands[1];
+        double tmp = summands[0] + summands[1];
         double simpleSum = summands[summands.length - 1];
         if (Double.isNaN(tmp) && Double.isInfinite(simpleSum))
             return simpleSum;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,7 +28,6 @@ package java.lang.reflect;
 import java.lang.annotation.*;
 import java.util.Arrays;
 import java.util.Map;
-import java.util.Set;
 import java.util.Objects;
 import java.util.StringJoiner;
 import java.util.stream.Stream;
@@ -205,24 +204,8 @@ public abstract sealed class Executable extends AccessibleObject
     /**
      * {@return the Java language {@linkplain Modifier modifiers} for
      * the executable represented by this object}
-     * @see #accessFlags
      */
     public abstract int getModifiers();
-
-    /**
-     * {@return an unmodifiable set of the {@linkplain AccessFlag
-     * access flags} for the executable represented by this object,
-     * possibly empty}
-     *
-     * @see #getModifiers()
-     * @jvms 4.6 Methods
-     * @since 20
-     */
-    @Override
-    public Set<AccessFlag> accessFlags() {
-        return AccessFlag.maskToAccessFlags(getModifiers(),
-                                            AccessFlag.Location.METHOD);
-    }
 
     /**
      * Returns an array of {@code TypeVariable} objects that represent the
@@ -270,7 +253,9 @@ public abstract sealed class Executable extends AccessibleObject
      * @return The number of formal parameters for the executable this
      * object represents
      */
-    public abstract int getParameterCount();
+    public int getParameterCount() {
+        throw new AbstractMethodError();
+    }
 
     /**
      * Returns an array of {@code Type} objects that represent the

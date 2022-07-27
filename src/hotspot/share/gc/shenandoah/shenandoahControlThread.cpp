@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2013, 2021, Red Hat, Inc. All rights reserved.
- * Copyright (C) 2022 THL A29 Limited, a Tencent company. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -48,8 +47,8 @@
 
 ShenandoahControlThread::ShenandoahControlThread() :
   ConcurrentGCThread(),
-  _alloc_failure_waiters_lock(Mutex::safepoint-1, "ShenandoahAllocFailureGC_lock", true),
-  _gc_waiters_lock(Mutex::safepoint-1, "ShenandoahRequestedGC_lock", true),
+  _alloc_failure_waiters_lock(Mutex::leaf, "ShenandoahAllocFailureGC_lock", true, Monitor::_safepoint_check_always),
+  _gc_waiters_lock(Mutex::leaf, "ShenandoahRequestedGC_lock", true, Monitor::_safepoint_check_always),
   _periodic_task(this),
   _requested_gc_cause(GCCause::_no_cause_specified),
   _degen_point(ShenandoahGC::_degenerated_outside_cycle),
@@ -479,7 +478,6 @@ void ShenandoahControlThread::request_gc(GCCause::Cause cause) {
   assert(GCCause::is_user_requested_gc(cause) ||
          GCCause::is_serviceability_requested_gc(cause) ||
          cause == GCCause::_metadata_GC_clear_soft_refs ||
-         cause == GCCause::_codecache_GC_threshold ||
          cause == GCCause::_full_gc_alot ||
          cause == GCCause::_wb_full_gc ||
          cause == GCCause::_wb_breakpoint ||

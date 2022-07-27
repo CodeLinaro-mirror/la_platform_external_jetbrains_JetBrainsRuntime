@@ -320,17 +320,6 @@ public:
     return min;
   }
 
-  void truncate_to(int idx) {
-    for (int i = 0, j = idx; j < length(); i++, j++) {
-      at_put(i, at(j));
-    }
-    trunc_to(length() - idx);
-  }
-
-  void truncate_from(int idx) {
-    trunc_to(idx);
-  }
-
   size_t data_size_in_bytes() const {
     return _len * sizeof(E);
   }
@@ -458,7 +447,7 @@ public:
 
   // Binary search and insertion utility.  Search array for element
   // matching key according to the static compare function.  Insert
-  // that element if not already in the list.  Assumes the list is
+  // that element is not already in the list.  Assumes the list is
   // already sorted according to compare function.
   template <int compare(const E&, const E&)> E insert_sorted(const E& key) {
     bool found;
@@ -789,6 +778,10 @@ class GrowableArrayIterator : public StackObj {
     assert(_array == rhs._array, "iterator belongs to different array");
     return _position != rhs._position;
   }
+
+  bool at_end() { return _position >= _array->length(); }
+
+  bool has_next() { return _position < _array->length() - 1; }
 };
 
 // Custom STL-style iterator to iterate over elements of a GrowableArray that satisfy a given predicate

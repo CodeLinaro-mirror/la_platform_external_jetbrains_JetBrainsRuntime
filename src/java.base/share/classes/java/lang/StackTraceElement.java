@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -443,7 +443,7 @@ public final class StackTraceElement implements java.io.Serializable {
      */
     private synchronized void computeFormat() {
         try {
-            Class<?> cls = declaringClassObject;
+            Class<?> cls = (Class<?>) declaringClassObject;
             ClassLoader loader = cls.getClassLoader0();
             Module m = cls.getModule();
             byte bits = 0;
@@ -529,17 +529,22 @@ public final class StackTraceElement implements java.io.Serializable {
 
     /*
      * Returns an array of StackTraceElements of the given depth
-     * filled from the given backtrace.
+     * filled from the backtrace of a given Throwable.
      */
-    static StackTraceElement[] of(Object x, int depth) {
+    static StackTraceElement[] of(Throwable x, int depth) {
         StackTraceElement[] stackTrace = new StackTraceElement[depth];
         for (int i = 0; i < depth; i++) {
             stackTrace[i] = new StackTraceElement();
         }
 
         // VM to fill in StackTraceElement
-        initStackTraceElements(stackTrace, x, depth);
-        return of(stackTrace);
+        initStackTraceElements(stackTrace, x);
+
+        // ensure the proper StackTraceElement initialization
+        for (StackTraceElement ste : stackTrace) {
+            ste.computeFormat();
+        }
+        return stackTrace;
     }
 
     /*
@@ -553,20 +558,12 @@ public final class StackTraceElement implements java.io.Serializable {
         return ste;
     }
 
-    static StackTraceElement[] of(StackTraceElement[] stackTrace) {
-        // ensure the proper StackTraceElement initialization
-        for (StackTraceElement ste : stackTrace) {
-            ste.computeFormat();
-        }
-        return stackTrace;
-    }
-
     /*
      * Sets the given stack trace elements with the backtrace
      * of the given Throwable.
      */
     private static native void initStackTraceElements(StackTraceElement[] elements,
-                                                      Object x, int depth);
+                                                      Throwable x);
     /*
      * Sets the given stack trace element with the given StackFrameInfo
      */

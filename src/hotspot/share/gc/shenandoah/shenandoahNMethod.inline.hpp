@@ -100,6 +100,7 @@ ShenandoahReentrantLock* ShenandoahNMethod::lock_for_nmethod(nmethod* nm) {
 }
 
 bool ShenandoahNMethodTable::iteration_in_progress() const {
+  shenandoah_assert_locked_or_safepoint(CodeCache_lock);
   return _itr_cnt > 0;
 }
 

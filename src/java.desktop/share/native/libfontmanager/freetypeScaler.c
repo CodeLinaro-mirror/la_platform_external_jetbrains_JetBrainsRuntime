@@ -195,12 +195,12 @@ void z_error(char *s) {}
 /**************** Error handling utilities *****************/
 
 static jmethodID invalidateScalerMID;
-static jboolean  debugFonts; // Stores the value of FontUtilities.debugFonts()
 static jmethodID getDefaultToolkitMID;
 static jclass tkClass;
 static jmethodID getScreenResolutionMID;
 static jfieldID platNameFID;
 static jfieldID familyNameFID;
+static jboolean  debugFonts; // Stores the value of FontUtilities.debugFonts()
 
 #ifndef DISABLE_FONTCONFIG
 typedef FcBool (*FcPatternAddPtrType) (FcPattern *p, const char *object, FcValue value, FcBool append);

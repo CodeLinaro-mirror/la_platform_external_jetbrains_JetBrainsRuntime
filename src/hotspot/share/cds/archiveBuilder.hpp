@@ -33,7 +33,7 @@
 #include "runtime/os.hpp"
 #include "utilities/bitMap.hpp"
 #include "utilities/growableArray.hpp"
-#include "utilities/resizeableResourceHash.hpp"
+#include "utilities/hashtable.hpp"
 #include "utilities/resourceHash.hpp"
 
 struct ArchiveHeapOopmapInfo;
@@ -179,8 +179,8 @@ private:
 
   class SrcObjTableCleaner {
   public:
-    bool do_entry(address key, const SourceObjInfo& value) {
-      delete value.ref();
+    bool do_entry(address key, const SourceObjInfo* value) {
+      delete value->ref();
       return true;
     }
   };
@@ -199,12 +199,15 @@ private:
 
   SourceObjList _rw_src_objs;                 // objs to put in rw region
   SourceObjList _ro_src_objs;                 // objs to put in ro region
-  ResizeableResourceHashtable<address, SourceObjInfo, ResourceObj::C_HEAP, mtClassShared> _src_obj_table;
+  KVHashtable<address, SourceObjInfo, mtClassShared> _src_obj_table;
   GrowableArray<Klass*>* _klasses;
   GrowableArray<Symbol*>* _symbols;
   GrowableArray<SpecialRefInfo>* _special_refs;
 
   // statistics
+  int _num_instance_klasses;
+  int _num_obj_array_klasses;
+  int _num_type_array_klasses;
   DumpAllocStats _alloc_stats;
   size_t _total_closed_heap_region_size;
   size_t _total_open_heap_region_size;
@@ -213,7 +216,7 @@ private:
                           GrowableArray<MemRegion>* closed_heap_regions,
                           GrowableArray<MemRegion>* open_heap_regions);
   void print_bitmap_region_stats(size_t size, size_t total_size);
-  void print_heap_region_stats(GrowableArray<MemRegion>* regions,
+  void print_heap_region_stats(GrowableArray<MemRegion> *heap_mem,
                                const char *name, size_t total_size);
 
   // For global access.
@@ -312,14 +315,14 @@ public:
   template <typename T>
   u4 buffer_to_offset_u4(T p) const {
     uintx offset = buffer_to_offset((address)p);
-    guarantee(offset <= MAX_SHARED_DELTA, "must be 32-bit offset " INTPTR_FORMAT, offset);
+    guarantee(offset <= MAX_SHARED_DELTA, "must be 32-bit offset");
     return (u4)offset;
   }
 
   template <typename T>
   u4 any_to_offset_u4(T p) const {
     uintx offset = any_to_offset((address)p);
-    guarantee(offset <= MAX_SHARED_DELTA, "must be 32-bit offset " INTPTR_FORMAT, offset);
+    guarantee(offset <= MAX_SHARED_DELTA, "must be 32-bit offset");
     return (u4)offset;
   }
 

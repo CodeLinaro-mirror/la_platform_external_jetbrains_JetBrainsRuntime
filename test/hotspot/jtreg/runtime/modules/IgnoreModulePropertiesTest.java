@@ -25,7 +25,6 @@
  * @test
  * @bug 8136930
  * @summary Test that the VM ignores explicitly specified module internal properties.
- * @requires vm.flagless
  * @modules java.base/jdk.internal.misc
  * @library /test/lib
  * @run driver IgnoreModulePropertiesTest

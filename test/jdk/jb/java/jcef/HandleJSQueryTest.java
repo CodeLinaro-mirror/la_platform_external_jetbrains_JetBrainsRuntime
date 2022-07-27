@@ -42,11 +42,12 @@ public class HandleJSQueryTest {
             }
             System.out.println("Test PASSED");
         } finally {
-            System.out.println("Close all windows");
-            SwingUtilities.invokeAndWait(() -> firstBrowser.dispatchEvent(new WindowEvent(firstBrowser, WindowEvent.WINDOW_CLOSING)));
-            SwingUtilities.invokeAndWait(() -> secondBrowser.dispatchEvent(new WindowEvent(secondBrowser, WindowEvent.WINDOW_CLOSING)));
-            System.out.println("Dispose CefApp");
+            firstBrowser.getBrowser().dispose();
+            secondBrowser.getBrowser().dispose();
             JBCefApp.getInstance().getCefApp().dispose();
+            System.out.println("Close all windows");
+            SwingUtilities.invokeLater(() -> firstBrowser.dispatchEvent(new WindowEvent(firstBrowser, WindowEvent.WINDOW_CLOSING)));
+            SwingUtilities.invokeLater(() -> secondBrowser.dispatchEvent(new WindowEvent(firstBrowser, WindowEvent.WINDOW_CLOSING)));
         }
     }
 }
@@ -55,19 +56,18 @@ public class HandleJSQueryTest {
 class CefBrowserFrame extends JFrame {
 
     static volatile int callbackCounter;
-    static volatile int ourBrowserNumber;
+    static volatile int browserNumber;
 
     private final JBCefBrowser browser = new JBCefBrowser();
 
     private final CountDownLatch latch;
-    private int browserNumber;
 
     public CefBrowserFrame(final CountDownLatch latch) {
         this.latch=latch;
     }
 
     public void initUI() {
-        browserNumber = ourBrowserNumber++;
+        browserNumber++;
         CefMessageRouter.CefMessageRouterConfig config = new org.cef.browser.CefMessageRouter.CefMessageRouterConfig();
         config.jsQueryFunction = "cef_query_" + browserNumber;
         config.jsCancelFunction = "cef_query_cancel_" + browserNumber;

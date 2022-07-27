@@ -39,7 +39,7 @@
 #include "code/vmreg.hpp"
 #include "vmreg_x86.inline.hpp"
 
-jint CodeInstaller::pd_next_offset(NativeInstruction* inst, jint pc_offset, JVMCI_TRAPS) {
+jint CodeInstaller::pd_next_offset(NativeInstruction* inst, jint pc_offset, JVMCIObject method, JVMCI_TRAPS) {
   if (inst->is_call() || inst->is_jump()) {
     assert(NativeCall::instruction_size == (int)NativeJump::instruction_size, "unexpected size");
     return (pc_offset + NativeCall::instruction_size);
@@ -56,6 +56,7 @@ jint CodeInstaller::pd_next_offset(NativeInstruction* inst, jint pc_offset, JVMC
     return (offset);
   } else if (inst->is_call_reg()) {
     // the inlined vtable stub contains a "call register" instruction
+    assert(method.is_non_null(), "only valid for virtual calls");
     return (pc_offset + ((NativeCallReg *) inst)->next_instruction_offset());
   } else if (inst->is_cond_jump()) {
     address pc = (address) (inst);
@@ -65,10 +66,11 @@ jint CodeInstaller::pd_next_offset(NativeInstruction* inst, jint pc_offset, JVMC
   }
 }
 
-void CodeInstaller::pd_patch_OopConstant(int pc_offset, Handle& obj, bool compressed, JVMCI_TRAPS) {
+void CodeInstaller::pd_patch_OopConstant(int pc_offset, JVMCIObject constant, JVMCI_TRAPS) {
   address pc = _instructions->start() + pc_offset;
+  Handle obj = jvmci_env()->asConstant(constant, JVMCI_CHECK);
   jobject value = JNIHandles::make_local(obj());
-  if (compressed) {
+  if (jvmci_env()->get_HotSpotObjectConstantImpl_compressed(constant)) {
 #ifdef _LP64
     address operand = Assembler::locate_operand(pc, Assembler::narrow_oop_operand);
     int oop_index = _oop_recorder->find_index(value);
@@ -85,19 +87,19 @@ void CodeInstaller::pd_patch_OopConstant(int pc_offset, Handle& obj, bool compre
   }
 }
 
-void CodeInstaller::pd_patch_MetaspaceConstant(int pc_offset, HotSpotCompiledCodeStream* stream, u1 tag, JVMCI_TRAPS) {
+void CodeInstaller::pd_patch_MetaspaceConstant(int pc_offset, JVMCIObject constant, JVMCI_TRAPS) {
   address pc = _instructions->start() + pc_offset;
-  if (tag == PATCH_NARROW_KLASS) {
+  if (jvmci_env()->get_HotSpotMetaspaceConstantImpl_compressed(constant)) {
 #ifdef _LP64
     address operand = Assembler::locate_operand(pc, Assembler::narrow_oop_operand);
-    *((narrowKlass*) operand) = record_narrow_metadata_reference(_instructions, operand, stream, tag, JVMCI_CHECK);
+    *((narrowKlass*) operand) = record_narrow_metadata_reference(_instructions, operand, constant, JVMCI_CHECK);
     JVMCI_event_3("relocating (narrow metaspace constant) at " PTR_FORMAT "/" PTR_FORMAT, p2i(pc), p2i(operand));
 #else
     JVMCI_ERROR("compressed Klass* on 32bit");
 #endif
   } else {
     address operand = Assembler::locate_operand(pc, Assembler::imm_operand);
-    *((void**) operand) = record_metadata_reference(_instructions, operand, stream, tag, JVMCI_CHECK);
+    *((void**) operand) = record_metadata_reference(_instructions, operand, constant, JVMCI_CHECK);
     JVMCI_event_3("relocating (metaspace constant) at " PTR_FORMAT "/" PTR_FORMAT, p2i(pc), p2i(operand));
   }
 }
@@ -145,14 +147,21 @@ void CodeInstaller::pd_relocate_ForeignCall(NativeInstruction* inst, jlong forei
   JVMCI_event_3("relocating (foreign call)  at " PTR_FORMAT, p2i(inst));
 }
 
-void CodeInstaller::pd_relocate_JavaMethod(CodeBuffer &, methodHandle& method, jint pc_offset, JVMCI_TRAPS) {
+void CodeInstaller::pd_relocate_JavaMethod(CodeBuffer &, JVMCIObject hotspot_method, jint pc_offset, JVMCI_TRAPS) {
+#ifdef ASSERT
+  Method* method = NULL;
+  // we need to check, this might also be an unresolved method
+  if (JVMCIENV->isa_HotSpotResolvedJavaMethodImpl(hotspot_method)) {
+    method = JVMCIENV->asMethod(hotspot_method);
+  }
+#endif
   NativeCall* call = NULL;
   switch (_next_call_type) {
     case INLINE_INVOKE:
       return;
     case INVOKEVIRTUAL:
     case INVOKEINTERFACE: {
-      assert(!method->is_static(), "cannot call static method with invokeinterface");
+      assert(method == NULL || !method->is_static(), "cannot call static method with invokeinterface");
 
       call = nativeCall_at(_instructions->start() + pc_offset);
       call->set_destination(SharedRuntime::get_resolve_virtual_call_stub());
@@ -162,7 +171,7 @@ void CodeInstaller::pd_relocate_JavaMethod(CodeBuffer &, methodHandle& method, j
       break;
     }
     case INVOKESTATIC: {
-      assert(method->is_static(), "cannot call non-static method with invokestatic");
+      assert(method == NULL || method->is_static(), "cannot call non-static method with invokestatic");
 
       call = nativeCall_at(_instructions->start() + pc_offset);
       call->set_destination(SharedRuntime::get_resolve_static_call_stub());
@@ -171,7 +180,7 @@ void CodeInstaller::pd_relocate_JavaMethod(CodeBuffer &, methodHandle& method, j
       break;
     }
     case INVOKESPECIAL: {
-      assert(!method->is_static(), "cannot call static method with invokespecial");
+      assert(method == NULL || !method->is_static(), "cannot call static method with invokespecial");
       call = nativeCall_at(_instructions->start() + pc_offset);
       call->set_destination(SharedRuntime::get_resolve_opt_virtual_call_stub());
       _instructions->relocate(call->instruction_address(),

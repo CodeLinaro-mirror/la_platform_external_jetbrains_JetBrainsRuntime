@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -427,10 +427,10 @@ public class Main {
             fatalError(e);
             ok = false;
         } catch (Error ee) {
-            ee.printStackTrace(err);
+            ee.printStackTrace();
             ok = false;
         } catch (Throwable t) {
-            t.printStackTrace(err);
+            t.printStackTrace();
             ok = false;
         } finally {
             if (tmpFile != null && tmpFile.exists())
@@ -461,12 +461,7 @@ public class Main {
         try {
             if (ok) {
                 if (fname != null) {
-                    Path target = Paths.get(fname);
-                    Path parent = target.getParent();
-                    if (parent != null) {
-                        Files.createDirectories(parent);
-                    }
-                    Files.move(path, target, StandardCopyOption.REPLACE_EXISTING);
+                    Files.move(path, Paths.get(fname), StandardCopyOption.REPLACE_EXISTING);
                 } else {
                     Files.copy(path, new FileOutputStream(FileDescriptor.out));
                 }
@@ -1658,7 +1653,7 @@ public class Main {
      * A fatal exception has been caught.  No recovery possible
      */
     void fatalError(Exception e) {
-        e.printStackTrace(err);
+        e.printStackTrace();
     }
 
     /**

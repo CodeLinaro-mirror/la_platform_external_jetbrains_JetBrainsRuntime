@@ -113,7 +113,7 @@ public class AlphaTextRender {
         int dg = Math.abs(c1.getGreen() - WHITE.getGreen());
         int db = Math.abs(c1.getBlue() - WHITE.getBlue());
 
-        // Skip background and pick
+        // Skip background and pick color with maximal local brightness
         if (dr + dg + db > 0) {
           if (!spike) {
             lmr = c1.getRed();

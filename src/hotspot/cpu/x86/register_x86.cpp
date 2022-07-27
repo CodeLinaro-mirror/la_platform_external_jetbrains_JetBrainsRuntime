@@ -23,7 +23,6 @@
  */
 
 #include "precompiled.hpp"
-
 #include "register_x86.hpp"
 
 #ifndef AMD64

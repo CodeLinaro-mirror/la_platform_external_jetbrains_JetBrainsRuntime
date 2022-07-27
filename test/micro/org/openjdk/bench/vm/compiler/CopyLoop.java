@@ -30,7 +30,6 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 
-import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -139,7 +138,9 @@ public class CopyLoop {
         }
 
         public char charAt(int index) {
-            Objects.checkIndex(index, count);
+            if ((index < 0) || (index >= count)) {
+                throw new StringIndexOutOfBoundsException(index);
+            }
             return value[index + offset];
         }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -91,7 +91,7 @@ class SmallResourceHashtableTest : public CommonResourceHashtableTest {
 
     static void test(V step) {
       EqualityTestIter et;
-      ResourceHashtable<K, V, SIZE, ALLOC_TYPE, MEM_TYPE, HASH, EQUALS> rh;
+      ResourceHashtable<K, V, HASH, EQUALS, SIZE, ALLOC_TYPE, MEM_TYPE> rh;
 
       ASSERT_FALSE(rh.contains(as_K(step)));
 
@@ -223,7 +223,7 @@ class GenericResourceHashtableTest : public CommonResourceHashtableTest {
 
     static void test(unsigned num_elements = SIZE) {
       EqualityTestIter et;
-      ResourceHashtable<K, V, SIZE, ALLOC_TYPE, MEM_TYPE, HASH, EQUALS> rh;
+      ResourceHashtable<K, V, HASH, EQUALS, SIZE, ALLOC_TYPE, MEM_TYPE> rh;
 
       for (uintptr_t i = 0; i < num_elements; ++i) {
         ASSERT_TRUE(rh.put(as_K(i), i));

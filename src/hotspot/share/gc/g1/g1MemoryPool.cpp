@@ -36,7 +36,7 @@ G1MemoryPoolSuper::G1MemoryPoolSuper(G1CollectedHeap* g1h,
                       init_size,
                       max_size,
                       support_usage_threshold),
-  _g1mm(g1h->monitoring_support()) {
+  _g1mm(g1h->g1mm()) {
   assert(UseG1GC, "sanity");
 }
 

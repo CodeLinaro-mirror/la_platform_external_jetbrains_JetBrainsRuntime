@@ -28,7 +28,7 @@
 #include "classfile/classLoaderDataGraph.hpp"
 #include "code/codeCache.hpp"
 #include "gc/shared/oopStorageParState.hpp"
-#include "gc/shared/workerThread.hpp"
+#include "gc/shared/workgroup.hpp"
 
 class CodeCacheUnloadingTask {
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -164,7 +164,7 @@ classesForSignature(PacketInputStream *in, PacketOutputStream *out)
             }
 
             /* At this point matching prepared classes occupy
-             * indices 0 thru matchCount-1 of theClasses.
+             * indicies 0 thru matchCount-1 of theClasses.
              */
 
             if ( error ==  JVMTI_ERROR_NONE ) {
@@ -277,7 +277,7 @@ allClasses1(PacketInputStream *in, PacketOutputStream *out, int outputGenerics)
             }
 
             /* At this point prepared classes occupy
-             * indices 0 thru prepCount-1 of theClasses.
+             * indicies 0 thru prepCount-1 of theClasses.
              */
 
             (void)outStream_writeInt(out, prepCount);
@@ -477,6 +477,19 @@ redefineClasses(PacketInputStream *in, PacketOutputStream *out)
     if (ok == JNI_TRUE) {
         jvmtiError error;
 
+        jlong* classIds = NULL;
+
+        if (gdata->isEnhancedClassRedefinitionEnabled) {
+            classIds = jvmtiAllocate(classCount*(int)sizeof(jlong));
+            if (classIds == NULL) {
+                outStream_setError(out, JDWP_ERROR(OUT_OF_MEMORY));
+                return JNI_TRUE;
+            }
+            for (i = 0; i < classCount; i++) {
+                classIds[i] = commonRef_refToID(env, classDefs[i].klass);
+            }
+        }
+
         error = JVMTI_FUNC_PTR(gdata->jvmti,RedefineClasses)
                         (gdata->jvmti, classCount, classDefs);
         if (error != JVMTI_ERROR_NONE) {
@@ -486,6 +499,19 @@ redefineClasses(PacketInputStream *in, PacketOutputStream *out)
             for ( i = 0 ; i < classCount; i++ ) {
                 eventHandler_freeClassBreakpoints(classDefs[i].klass);
             }
+
+            if (gdata->isEnhancedClassRedefinitionEnabled && classIds != NULL) {
+                /* Update tags in jvmti to use new classes */
+                for ( i = 0 ; i < classCount; i++ ) {
+                    /* pointer in classIds[i] is updated by advanced redefinition to a new class */
+                    error = commonRef_updateTags(env, classIds[i]);
+                    if (error != JVMTI_ERROR_NONE) {
+                        break;
+                    }
+                }
+                jvmtiDeallocate((void*) classIds);
+            }
+
         }
     }
 
@@ -537,35 +563,22 @@ getAllThreads(PacketInputStream *in, PacketOutputStream *out)
 
         int i;
         jint threadCount;
-        jint vthreadCount;
         jthread *theThreads;
-        jthread *theVThreads;
 
         theThreads = allThreads(&threadCount);
-        if (gdata->includeVThreads) {
-            theVThreads = threadControl_allVThreads(&vthreadCount);
-        } else {
-            theVThreads = NULL;
-            vthreadCount = 0;
-        }
-
-        if (theThreads == NULL || (theVThreads == NULL && vthreadCount != 0)) {
+        if (theThreads == NULL) {
             outStream_setError(out, JDWP_ERROR(OUT_OF_MEMORY));
         } else {
             /* Squish out all of the debugger-spawned threads */
             threadCount = filterDebugThreads(theThreads, threadCount);
 
-            (void)outStream_writeInt(out, threadCount + vthreadCount);
-            for (i = 0; i < vthreadCount; i++) {
-                (void)outStream_writeObjectRef(env, out, theVThreads[i]);
-            }
-            for (i = 0; i < threadCount; i++) {
+            (void)outStream_writeInt(out, threadCount);
+            for (i = 0; i <threadCount; i++) {
                 (void)outStream_writeObjectRef(env, out, theThreads[i]);
             }
-        }
 
-        jvmtiDeallocate(theThreads);
-        jvmtiDeallocate(theVThreads);
+            jvmtiDeallocate(theThreads);
+        }
 
     } END_WITH_LOCAL_REFS(env);
 

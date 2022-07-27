@@ -32,7 +32,6 @@
 #import "GeomUtilities.h"
 #import "ThreadUtilities.h"
 #import "JNIUtilities.h"
-#import "jni_util.h"
 #import "PropertiesUtilities.h"
 
 #import <Carbon/Carbon.h>
@@ -642,13 +641,12 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
 -(BOOL) isCodePointInUnicodeBlockNeedingIMEvent: (unichar) codePoint {
     if ((codePoint == 0x0024) || (codePoint == 0x00A3) ||
         (codePoint == 0x00A5) ||
-        ((codePoint >= 0x900) && (codePoint <= 0x97F)) ||
         ((codePoint >= 0x20A3) && (codePoint <= 0x20BF)) ||
         ((codePoint >= 0x3000) && (codePoint <= 0x303F)) ||
         ((codePoint >= 0xFF00) && (codePoint <= 0xFFEF))) {
         // Code point is in 'CJK Symbols and Punctuation' or
         // 'Halfwidth and Fullwidth Forms' Unicode block or
-        // currency symbols unicode or Devanagari script
+        // currency symbols unicode
         return YES;
     }
     return NO;
@@ -1072,17 +1070,11 @@ static jclass jc_CInputMethod = NULL;
 
 #ifdef IM_DEBUG
     NSLog(@"insertText kbdlayout %@ ",(NSString *)kbdLayout);
-
-    NSLog(@"utf8Length %lu utf16Length %lu", (unsigned long)utf8Length, (unsigned long)utf16Length);
-    NSLog(@"codePoint %x", codePoint);
 #endif // IM_DEBUG
 
     if ((utf16Length > 2) ||
         ((utf8Length > 1) && [self isCodePointInUnicodeBlockNeedingIMEvent:codePoint]) ||
         ((codePoint == 0x5c) && ([(NSString *)kbdLayout containsString:@"Kotoeri"]))) {
-#ifdef IM_DEBUG
-        NSLog(@"string complex ");
-#endif
         aStringIsComplex = YES;
     }
 
@@ -1501,24 +1493,8 @@ static jclass jc_CInputMethod = NULL;
 
 /********************************   END NSTextInputClient Protocol   ********************************/
 
-- (void)viewDidChangeBackingProperties {
-    JNIEnv *env = [ThreadUtilities getJNIEnv];
-    static double debugScale = -2.0;
-    if (debugScale == -2.0) { // default debugScale value in SGE is -1.0
-        debugScale = JNU_CallStaticMethodByName(env, NULL, "sun/java2d/SunGraphicsEnvironment",
-                                                "getDebugScale", "()D").d;
-    }
 
-    if (self.window.backingScaleFactor > 0 && debugScale < 0) {
-        self.layer.contentsScale = self.window.backingScaleFactor;
-        DECLARE_CLASS(jc_CPlatformView, "sun/lwawt/macosx/CPlatformView");
-        DECLARE_METHOD(deliverChangeBackingProperties, jc_CPlatformView, "deliverChangeBackingProperties", "(F)V");
-        jobject jlocal = (*env)->NewLocalRef(env, m_cPlatformView);
-        (*env)->CallVoidMethod(env, jlocal, deliverChangeBackingProperties, self.window.backingScaleFactor);
-        CHECK_EXCEPTION();
-        (*env)->DeleteLocalRef(env, jlocal);
-    }
-}
+
 
 @end // AWTView
 

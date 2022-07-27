@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,8 +29,6 @@ import java.util.Arrays;
 import java.util.Objects;
 
 import static sun.security.provider.ByteArrayAccess.*;
-
-import jdk.internal.util.Preconditions;
 import jdk.internal.vm.annotation.IntrinsicCandidate;
 
 /**
@@ -121,7 +119,7 @@ public final class SHA extends DigestBase {
     private static final int round4_kt = 0xca62c1d6;
 
     /**
-     * Compute the hash for the current block.
+     * Compute a the hash for the current block.
      *
      * This is in the same vein as Peter Gutmann's algorithm listed in
      * the back of Applied Cryptography, Compact implementation of
@@ -138,7 +136,9 @@ public final class SHA extends DigestBase {
         // Checks similar to those performed by the method 'b2iBig64'
         // are sufficient for the case when the method 'implCompress0' is
         // replaced with a compiler intrinsic.
-        Preconditions.checkFromIndexSize(ofs, 64, buf.length, Preconditions.AIOOBE_FORMATTER);
+        if (ofs < 0 || (buf.length - ofs) < 64) {
+            throw new ArrayIndexOutOfBoundsException();
+        }
     }
 
     // The method 'implCompress0 seems not to use its parameters.

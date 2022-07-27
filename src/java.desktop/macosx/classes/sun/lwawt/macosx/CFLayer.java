@@ -43,11 +43,7 @@ public abstract class CFLayer extends CFRetainedResource {
         super(ptr, disposeOnAppKitThread);
     }
 
-    public abstract SurfaceData replaceSurfaceData(int scale);
-
-    public SurfaceData replaceSurfaceData() {
-        return replaceSurfaceData(0);
-    }
+    public abstract SurfaceData replaceSurfaceData();
 
     @Override
     public void dispose() {
@@ -72,10 +68,6 @@ public abstract class CFLayer extends CFRetainedResource {
 
     public boolean isOpaque() {
         return !peer.isTranslucent();
-    }
-
-    public void setOpaque(boolean opaque) {
-        // Default is no op (works well for OGL)
     }
 
     public int getTransparency() {
