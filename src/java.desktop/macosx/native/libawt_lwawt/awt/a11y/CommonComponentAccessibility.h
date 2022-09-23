@@ -83,7 +83,6 @@
 - (NSView* _Nonnull)view;
 - (NSWindow* _Nonnull)window;
 - (id _Nonnull)parent;
-- (CommonComponentAccessibility* _Nullable)typeSafeParent;
 - (NSString* _Nonnull)javaRole;
 
 - (BOOL)isMenu;

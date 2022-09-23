@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -112,22 +112,7 @@ public enum Source {
     /**
       * 17, tbd
       */
-    JDK17("17"),
-
-    /**
-      * 18, tbd
-      */
-    JDK18("18"),
-
-    /**
-      * 19, tbd
-      */
-    JDK19("19"),
-
-    /**
-      * 20, tbd
-      */
-    JDK20("20");
+    JDK17("17");
 
     private static final Context.Key<Source> sourceKey = new Context.Key<>();
 
@@ -179,9 +164,6 @@ public enum Source {
 
     public Target requiredTarget() {
         return switch(this) {
-        case JDK20  -> Target.JDK1_20;
-        case JDK19  -> Target.JDK1_19;
-        case JDK18  -> Target.JDK1_18;
         case JDK17  -> Target.JDK1_17;
         case JDK16  -> Target.JDK1_16;
         case JDK15  -> Target.JDK1_15;
@@ -245,8 +227,6 @@ public enum Source {
         CASE_NULL(JDK17, Fragments.FeatureCaseNull, DiagKind.NORMAL),
         PATTERN_SWITCH(JDK17, Fragments.FeaturePatternSwitch, DiagKind.PLURAL),
         REDUNDANT_STRICTFP(JDK17),
-        UNCONDITIONAL_PATTERN_IN_INSTANCEOF(JDK19, Fragments.FeatureUnconditionalPatternsInInstanceof, DiagKind.PLURAL),
-        RECORD_PATTERNS(JDK19, Fragments.FeatureDeconstructionPatterns, DiagKind.PLURAL),
         ;
 
         enum DiagKind {
@@ -326,9 +306,6 @@ public enum Source {
         case JDK15  -> RELEASE_15;
         case JDK16  -> RELEASE_16;
         case JDK17  -> RELEASE_17;
-        case JDK18  -> RELEASE_18;
-        case JDK19  -> RELEASE_19;
-        case JDK20  -> RELEASE_20;
         default     -> null;
         };
     }

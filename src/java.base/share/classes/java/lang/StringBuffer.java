@@ -712,7 +712,9 @@ import jdk.internal.vm.annotation.IntrinsicCandidate;
     @IntrinsicCandidate
     public synchronized String toString() {
         if (toStringCache == null) {
-            return toStringCache = new String(this, null);
+            return toStringCache =
+                    isLatin1() ? StringLatin1.newString(value, 0, count)
+                               : StringUTF16.newString(value, 0, count);
         }
         return new String(toStringCache);
     }
@@ -782,7 +784,7 @@ import jdk.internal.vm.annotation.IntrinsicCandidate;
         // ignore shared field
     }
 
-    synchronized void getBytes(byte[] dst, int dstBegin, byte coder) {
+    synchronized void getBytes(byte dst[], int dstBegin, byte coder) {
         super.getBytes(dst, dstBegin, coder);
     }
 }

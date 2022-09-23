@@ -401,7 +401,7 @@ public abstract class Component implements ImageObserver, MenuContainer,
      * @see #validate
      * @see #invalidate
      */
-    private volatile boolean valid;
+    private volatile boolean valid = false;
 
     /**
      * The {@code DropTarget} associated with this component.
@@ -1440,7 +1440,7 @@ public abstract class Component implements ImageObserver, MenuContainer,
      * pointer. If the return value of this method is {@code null}, mouse
      * pointer is not directly above the {@code Component}.
      *
-     * @throws HeadlessException if GraphicsEnvironment.isHeadless() returns true
+     * @exception HeadlessException if GraphicsEnvironment.isHeadless() returns true
      * @see       #isShowing
      * @see       Container#getMousePosition
      * @return    mouse coordinates relative to this {@code Component}, or null
@@ -2005,7 +2005,7 @@ public abstract class Component implements ImageObserver, MenuContainer,
      * @return this component's locale; if this component does not
      *          have a locale, the locale of its parent is returned
      * @see #setLocale
-     * @throws IllegalComponentStateException if the {@code Component}
+     * @exception IllegalComponentStateException if the {@code Component}
      *          does not have its own locale and has not yet been added to
      *          a containment hierarchy such that the locale can be determined
      *          from the containing parent
@@ -3198,6 +3198,17 @@ public abstract class Component implements ImageObserver, MenuContainer,
      * @since     1.0
      */
     public FontMetrics getFontMetrics(Font font) {
+        // This is an unsupported hack, but left in for a customer.
+        // Do not remove.
+        FontManager fm = FontManagerFactory.getInstance();
+        if (fm instanceof SunFontManager
+            && ((SunFontManager) fm).usePlatformFontMetrics()) {
+
+            if (peer != null &&
+                !(peer instanceof LightweightPeer)) {
+                return peer.getFontMetrics(font);
+            }
+        }
         return sun.font.FontDesignMetrics.getMetrics(font);
     }
 
@@ -3848,8 +3859,8 @@ public abstract class Component implements ImageObserver, MenuContainer,
      * Each time this method is called,
      * the existing buffer strategy for this component is discarded.
      * @param numBuffers number of buffers to create, including the front buffer
-     * @throws IllegalArgumentException if numBuffers is less than 1.
-     * @throws IllegalStateException if the component is not displayable
+     * @exception IllegalArgumentException if numBuffers is less than 1.
+     * @exception IllegalStateException if the component is not displayable
      * @see #isDisplayable
      * @see Window#getBufferStrategy()
      * @see Canvas#getBufferStrategy()
@@ -3905,11 +3916,11 @@ public abstract class Component implements ImageObserver, MenuContainer,
      * @param numBuffers number of buffers to create
      * @param caps the required capabilities for creating the buffer strategy;
      * cannot be {@code null}
-     * @throws AWTException if the capabilities supplied could not be
+     * @exception AWTException if the capabilities supplied could not be
      * supported or met; this may happen, for example, if there is not enough
      * accelerated memory currently available, or if page flipping is specified
      * but not possible.
-     * @throws IllegalArgumentException if numBuffers is less than 1, or if
+     * @exception IllegalArgumentException if numBuffers is less than 1, or if
      * caps is {@code null}
      * @see Window#getBufferStrategy()
      * @see Canvas#getBufferStrategy()
@@ -3952,7 +3963,7 @@ public abstract class Component implements ImageObserver, MenuContainer,
      *
      * @see sun.java2d.SunGraphicsEnvironment#isFlipStrategyPreferred(ComponentPeer)
      */
-    private static class ProxyCapabilities extends ExtendedBufferCapabilities {
+    private class ProxyCapabilities extends ExtendedBufferCapabilities {
         private BufferCapabilities orig;
         private ProxyCapabilities(BufferCapabilities orig) {
             super(orig.getFrontBufferCapabilities(),
@@ -4053,12 +4064,12 @@ public abstract class Component implements ImageObserver, MenuContainer,
          * @see Applet
          * @param numBuffers the number of buffers
          * @param caps the capabilities of the buffers
-         * @throws AWTException if the capabilities supplied could not be
+         * @exception AWTException if the capabilities supplied could not be
          * supported or met
-         * @throws ClassCastException if the component is not a canvas or
+         * @exception ClassCastException if the component is not a canvas or
          * window.
-         * @throws IllegalStateException if the component has no peer
-         * @throws IllegalArgumentException if {@code numBuffers} is less than two,
+         * @exception IllegalStateException if the component has no peer
+         * @exception IllegalArgumentException if {@code numBuffers} is less than two,
          * or if {@code BufferCapabilities.isPageFlipping} is not
          * {@code true}.
          * @see #createBuffers(int, BufferCapabilities)
@@ -4087,10 +4098,10 @@ public abstract class Component implements ImageObserver, MenuContainer,
          * @param caps the capabilities of the buffers.
          * {@code BufferCapabilities.isPageFlipping} must be
          * {@code true}.
-         * @throws AWTException if the capabilities supplied could not be
+         * @exception AWTException if the capabilities supplied could not be
          * supported or met
-         * @throws IllegalStateException if the component has no peer
-         * @throws IllegalArgumentException if numBuffers is less than two,
+         * @exception IllegalStateException if the component has no peer
+         * @exception IllegalArgumentException if numBuffers is less than two,
          * or if {@code BufferCapabilities.isPageFlipping} is not
          * {@code true}.
          * @see java.awt.BufferCapabilities#isPageFlipping()
@@ -4153,10 +4164,8 @@ public abstract class Component implements ImageObserver, MenuContainer,
         }
 
         /**
-         * Provides direct access to the back buffer as an image.
-         *
-         * @return the back buffer as an image
-         * @throws IllegalStateException if the buffers have not yet
+         * @return direct access to the back buffer, as an image.
+         * @exception IllegalStateException if the buffers have not yet
          * been created
          */
         protected Image getBackBuffer() {
@@ -4175,7 +4184,7 @@ public abstract class Component implements ImageObserver, MenuContainer,
          * for the contents of the back buffer.  This should be one of the
          * values of the {@code BufferCapabilities.FlipContents}
          * property.
-         * @throws IllegalStateException if the buffers have not yet
+         * @exception IllegalStateException if the buffers have not yet
          * been created
          * @see java.awt.BufferCapabilities#getFlipContents()
          */
@@ -4715,11 +4724,8 @@ public abstract class Component implements ImageObserver, MenuContainer,
     }
 
     /**
-     * Returns whether or not paint messages received from the operating system
-     * should be ignored.
-     *
      * @return whether or not paint messages received from the operating system
-     * should be ignored
+     * should be ignored.
      *
      * @since 1.4
      * @see #setIgnoreRepaint
@@ -4970,8 +4976,8 @@ public abstract class Component implements ImageObserver, MenuContainer,
             // the active/passive/peered clients loose focus.
             if (id == FocusEvent.FOCUS_GAINED) {
                 InputContext inputContext = getInputContext();
-                if (inputContext instanceof sun.awt.im.InputContext ctx) {
-                    ctx.disableNativeIM();
+                if (inputContext != null && inputContext instanceof sun.awt.im.InputContext) {
+                    ((sun.awt.im.InputContext)inputContext).disableNativeIM();
                 }
             }
         }
@@ -6082,7 +6088,7 @@ public abstract class Component implements ImageObserver, MenuContainer,
      * @return an array of all objects registered as
      *          <code><em>Foo</em>Listener</code>s on this component,
      *          or an empty array if no such listeners have been added
-     * @throws ClassCastException if {@code listenerType}
+     * @exception ClassCastException if {@code listenerType}
      *          doesn't specify a class or interface that implements
      *          {@code java.util.EventListener}
      * @throws NullPointerException if {@code listenerType} is {@code null}
@@ -8380,7 +8386,7 @@ public abstract class Component implements ImageObserver, MenuContainer,
      * Adds the specified popup menu to the component.
      * @param     popup the popup menu to be added to the component.
      * @see       #remove(MenuComponent)
-     * @throws NullPointerException if {@code popup} is {@code null}
+     * @exception NullPointerException if {@code popup} is {@code null}
      * @since     1.1
      */
     public void add(PopupMenu popup) {
@@ -9220,7 +9226,7 @@ public abstract class Component implements ImageObserver, MenuContainer,
      *
      * @param orientation the new component orientation of this component and
      *        the components contained within it.
-     * @throws NullPointerException if {@code orientation} is null.
+     * @exception NullPointerException if {@code orientation} is null.
      * @see #setComponentOrientation
      * @see #getComponentOrientation
      * @see #invalidate
@@ -9362,7 +9368,7 @@ public abstract class Component implements ImageObserver, MenuContainer,
          * to add/remove ComponentListener and FocusListener to track
          * target Component's state.
          */
-        private transient volatile int propertyListenersCount;
+        private transient volatile int propertyListenersCount = 0;
 
         /**
          * A component listener to track show/hide/resize events

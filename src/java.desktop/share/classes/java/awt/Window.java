@@ -410,8 +410,8 @@ public class Window extends Container implements Accessible {
      * These fields are initialized in the native peer code
      * or via AWTAccessor's WindowAccessor.
      */
-    private transient volatile int securityWarningWidth;
-    private transient volatile int securityWarningHeight;
+    private transient volatile int securityWarningWidth = 0;
+    private transient volatile int securityWarningHeight = 0;
 
     static {
         /* ensure that the necessary native libraries are loaded */
@@ -423,11 +423,11 @@ public class Window extends Container implements Accessible {
         @SuppressWarnings("removal")
         String s = java.security.AccessController.doPrivileged(
             new GetPropertyAction("java.awt.syncLWRequests"));
-        systemSyncLWRequests = "true".equals(s);
+        systemSyncLWRequests = (s != null && s.equals("true"));
         @SuppressWarnings("removal")
         String s2 = java.security.AccessController.doPrivileged(
             new GetPropertyAction("java.awt.Window.locationByPlatform"));
-        locationByPlatformProp = "true".equals(s2);
+        locationByPlatformProp = (s2 != null && s2.equals("true"));
     }
 
     /**
@@ -448,9 +448,9 @@ public class Window extends Container implements Accessible {
      * @param gc the {@code GraphicsConfiguration} of the target screen
      *     device. If {@code gc} is {@code null}, the system default
      *     {@code GraphicsConfiguration} is assumed
-     * @throws IllegalArgumentException if {@code gc}
+     * @exception IllegalArgumentException if {@code gc}
      *    is not from a screen device
-     * @throws HeadlessException when
+     * @exception HeadlessException when
      *     {@code GraphicsEnvironment.isHeadless()} returns {@code true}
      *
      * @see java.awt.GraphicsEnvironment#isHeadless
@@ -550,7 +550,7 @@ public class Window extends Container implements Accessible {
      * If that check fails with a {@code SecurityException} then a warning
      * banner is created.
      *
-     * @throws HeadlessException when
+     * @exception HeadlessException when
      *     {@code GraphicsEnvironment.isHeadless()} returns {@code true}
      *
      * @see java.awt.GraphicsEnvironment#isHeadless
@@ -572,9 +572,9 @@ public class Window extends Container implements Accessible {
      *
      * @param owner the {@code Frame} to act as owner or {@code null}
      *    if this window has no owner
-     * @throws IllegalArgumentException if the {@code owner}'s
+     * @exception IllegalArgumentException if the {@code owner}'s
      *    {@code GraphicsConfiguration} is not from a screen device
-     * @throws HeadlessException when
+     * @exception HeadlessException when
      *    {@code GraphicsEnvironment.isHeadless} returns {@code true}
      *
      * @see java.awt.GraphicsEnvironment#isHeadless
@@ -599,9 +599,9 @@ public class Window extends Container implements Accessible {
      *
      * @param owner the {@code Window} to act as owner or
      *     {@code null} if this window has no owner
-     * @throws IllegalArgumentException if the {@code owner}'s
+     * @exception IllegalArgumentException if the {@code owner}'s
      *     {@code GraphicsConfiguration} is not from a screen device
-     * @throws HeadlessException when
+     * @exception HeadlessException when
      *     {@code GraphicsEnvironment.isHeadless()} returns
      *     {@code true}
      *
@@ -633,9 +633,9 @@ public class Window extends Container implements Accessible {
      * @param gc the {@code GraphicsConfiguration} of the target
      *     screen device; if {@code gc} is {@code null},
      *     the system default {@code GraphicsConfiguration} is assumed
-     * @throws IllegalArgumentException if {@code gc}
+     * @exception IllegalArgumentException if {@code gc}
      *     is not from a screen device
-     * @throws HeadlessException when
+     * @exception HeadlessException when
      *     {@code GraphicsEnvironment.isHeadless()} returns
      *     {@code true}
      *
@@ -1771,7 +1771,7 @@ public class Window extends Container implements Accessible {
     }
 
     void updateChildrenBlocking() {
-        ArrayList<Window> childHierarchy = new ArrayList<>();
+        Vector<Window> childHierarchy = new Vector<Window>();
         Window[] ownedWindows = getOwnedWindows();
         for (int i = 0; i < ownedWindows.length; i++) {
             childHierarchy.add(ownedWindows[i]);
@@ -1986,10 +1986,10 @@ public class Window extends Container implements Accessible {
      *          <code><em>Foo</em>Listener</code>s on this window,
      *          or an empty array if no such
      *          listeners have been added
-     * @throws ClassCastException if {@code listenerType}
+     * @exception ClassCastException if {@code listenerType}
      *          doesn't specify a class or interface that implements
      *          {@code java.util.EventListener}
-     * @throws NullPointerException if {@code listenerType} is {@code null}
+     * @exception NullPointerException if {@code listenerType} is {@code null}
      *
      * @see #getWindowListeners
      * @since 1.3
@@ -3394,8 +3394,8 @@ public class Window extends Container implements Accessible {
      * Each time this method is called,
      * the existing buffer strategy for this component is discarded.
      * @param numBuffers number of buffers to create
-     * @throws IllegalArgumentException if numBuffers is less than 1.
-     * @throws IllegalStateException if the component is not displayable
+     * @exception IllegalArgumentException if numBuffers is less than 1.
+     * @exception IllegalStateException if the component is not displayable
      * @see #isDisplayable
      * @see #getBufferStrategy
      * @since 1.4
@@ -3415,11 +3415,11 @@ public class Window extends Container implements Accessible {
      * @param numBuffers number of buffers to create, including the front buffer
      * @param caps the required capabilities for creating the buffer strategy;
      * cannot be {@code null}
-     * @throws AWTException if the capabilities supplied could not be
+     * @exception AWTException if the capabilities supplied could not be
      * supported or met; this may happen, for example, if there is not enough
      * accelerated memory currently available, or if page flipping is specified
      * but not possible.
-     * @throws IllegalArgumentException if numBuffers is less than 1, or if
+     * @exception IllegalArgumentException if numBuffers is less than 1, or if
      * caps is {@code null}
      * @see #getBufferStrategy
      * @since 1.4
@@ -4011,9 +4011,9 @@ public class Window extends Container implements Accessible {
         }
     }
 
-    private transient volatile boolean hasCustomDecoration;
-    private transient volatile List<Map.Entry<Shape, Integer>> customDecorHitTestSpots;
-    private transient volatile int customDecorTitleBarHeight = -1; // 0 can be a legal value when no title bar is expected
+    private volatile boolean hasCustomDecoration;
+    private volatile List<Map.Entry<Shape, Integer>> customDecorHitTestSpots;
+    private volatile int customDecorTitleBarHeight = -1; // 0 can be a legal value when no title bar is expected
 
     // called from native
     private int hitTestCustomDecoration(int x, int y) {
@@ -4033,8 +4033,7 @@ public class Window extends Container implements Accessible {
                 MINIMIZE_BUTTON = 2,
                 MAXIMIZE_BUTTON = 3,
                 CLOSE_BUTTON = 4,
-                MENU_BAR = 5,
-                DRAGGABLE_AREA = 6;
+                MENU_BAR = 5;
 
         void setCustomDecorationEnabled(Window window, boolean enabled) {
             window.hasCustomDecoration = enabled;
@@ -4119,7 +4118,7 @@ public class Window extends Container implements Accessible {
         hasTabbingMode = true;
     }
 
-    private transient volatile Runnable moveTabToNewWindowCallback;
+    private volatile Runnable moveTabToNewWindowCallback;
 
     void runMoveTabToNewWindowCallback() {
         if (moveTabToNewWindowCallback != null) {

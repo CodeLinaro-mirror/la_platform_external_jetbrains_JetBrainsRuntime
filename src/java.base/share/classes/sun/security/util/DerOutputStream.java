@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,10 +37,7 @@ import java.util.Comparator;
 import java.util.Arrays;
 import java.util.Locale;
 
-import static java.nio.charset.StandardCharsets.ISO_8859_1;
-import static java.nio.charset.StandardCharsets.US_ASCII;
-import static java.nio.charset.StandardCharsets.UTF_16BE;
-import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.nio.charset.StandardCharsets.*;
 
 /**
  * Output stream marshaling DER-encoded data.  This is eventually provided
@@ -59,19 +56,19 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 public class DerOutputStream
 extends ByteArrayOutputStream implements DerEncoder {
     /**
-     * Construct a DER output stream.
+     * Construct an DER output stream.
      *
      * @param size how large a buffer to preallocate.
      */
     public DerOutputStream(int size) { super(size); }
 
     /**
-     * Construct a DER output stream.
+     * Construct an DER output stream.
      */
     public DerOutputStream() { }
 
     /**
-     * Writes tagged, pre-marshaled data.  This calculates and encodes
+     * Writes tagged, pre-marshaled data.  This calcuates and encodes
      * the length, so that the output data is the standard triple of
      * { tag, length, data } used by all DER values.
      *
@@ -175,7 +172,7 @@ extends ByteArrayOutputStream implements DerEncoder {
     /**
      * Marshals a DER integer on the output stream.
      *
-     * @param buf the integer in bytes, equivalent to BigInteger::toByteArray.
+     * @param i the integer in bytes, equivalent to BigInteger::toByteArray.
      */
     public void putInteger(byte[] buf) throws IOException {
         write(DerValue.tag_Integer);
@@ -381,7 +378,7 @@ extends ByteArrayOutputStream implements DerEncoder {
     private static ByteArrayTagOrder tagOrder = new ByteArrayTagOrder();
 
     /**
-     * Marshals the contents of a set on the output stream with the
+     * Marshals a the contents of a set on the output stream with the
      * encodings of its sorted in increasing order.
      *
      * @param order the order to use when sorting encodings of components.
@@ -461,8 +458,8 @@ extends ByteArrayOutputStream implements DerEncoder {
      * @param s the string to write
      * @param stringTag one of the DER string tags that indicate which
      * encoding should be used to write the string out.
-     * @param charset the charset that should be used corresponding to
-     * the above tag.
+     * @param enc the name of the encoder that should be used corresponding
+     * to the above tag.
      */
     private void writeString(String s, byte stringTag, Charset charset)
         throws IOException {

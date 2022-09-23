@@ -29,7 +29,6 @@
 #import "LWCToolkit.h"
 #import "MTLSurfaceData.h"
 #import "JNIUtilities.h"
-#define KEEP_ALIVE_INC 4
 
 @implementation MTLLayer
 
@@ -43,7 +42,6 @@
 @synthesize leftInset;
 @synthesize nextDrawableCount;
 @synthesize displayLink;
-@synthesize displayLinkCount;
 
 - (id) initWithJavaLayer:(jobject)layer
 {
@@ -73,18 +71,15 @@
     self.leftInset = 0;
     self.framebufferOnly = NO;
     self.nextDrawableCount = 0;
-    self.opaque = YES;
+    self.opaque = TRUE;
     CVDisplayLinkCreateWithActiveCGDisplays(&displayLink);
     CVDisplayLinkSetOutputCallback(displayLink, &displayLinkCallback, (__bridge void*)self);
-    self.displayLinkCount = 0;
     return self;
 }
 
 - (void) blitTexture {
     if (self.ctx == NULL || self.javaLayer == NULL || self.buffer == nil || self.ctx.device == nil) {
-        J2dTraceLn4(J2D_TRACE_VERBOSE,
-                    "MTLLayer.blitTexture: uninitialized (mtlc=%p, javaLayer=%p, buffer=%p, devide=%p)", self.ctx,
-                    self.javaLayer, self.buffer, ctx.device);
+        J2dTraceLn4(J2D_TRACE_VERBOSE, "MTLLayer.blitTexture: uninitialized (mtlc=%p, javaLayer=%p, buffer=%p, devide=%p)", self.ctx, self.javaLayer, self.buffer, ctx.device);
         [self stopDisplayLink];
         return;
     }
@@ -105,9 +100,9 @@
         NSUInteger src_h = self.buffer.height - src_y;
 
         if (src_h <= 0 || src_w <= 0) {
-            J2dTraceLn(J2D_TRACE_VERBOSE, "MTLLayer.blitTexture: Invalid src width or height.");
-            [self stopDisplayLink];
-            return;
+           J2dTraceLn(J2D_TRACE_VERBOSE, "MTLLayer.blitTexture: Invalid src width or height.");
+           [self stopDisplayLink];
+           return;
         }
 
         id<MTLCommandBuffer> commandBuf = [self.ctx createBlitCommandBuffer];
@@ -123,7 +118,8 @@
             return;
         }
         self.nextDrawableCount++;
-
+#define MTL_LAYER_USE_BLIT_ENC
+#ifdef MTL_LAYER_USE_BLIT_ENC
         id <MTLBlitCommandEncoder> blitEncoder = [commandBuf blitCommandEncoder];
 
         [blitEncoder
@@ -132,18 +128,47 @@
                 sourceSize:MTLSizeMake(src_w, src_h, 1)
                 toTexture:mtlDrawable.texture destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0, 0, 0)];
         [blitEncoder endEncoding];
+#else
+        id<MTLCommandBuffer> cb = [ctx createCommandBuffer];
+        id<MTLComputeCommandEncoder> computeEncoder = [cb computeCommandEncoder];
+        id<MTLComputePipelineState> computePipelineState = [ctx.pipelineStateStorage
+                                                            getComputePipelineState:@"tex2tex_opaque"];
+        [computeEncoder setComputePipelineState:computePipelineState];
 
+        NSUInteger maxTotalThreadsPerThreadgroup = computePipelineState.maxTotalThreadsPerThreadgroup;
+        NSUInteger w = computePipelineState.threadExecutionWidth;
+
+        // Workaround for some OS/device bug reporting incorrect maxTotalThreadsPerThreadgroup
+        if (maxTotalThreadsPerThreadgroup == 0) {
+            maxTotalThreadsPerThreadgroup = 1;
+            w = 1;
+        }
+
+        NSUInteger h = maxTotalThreadsPerThreadgroup / w;
+        MTLSize threadgroupSize = MTLSizeMake(w, h, 1);
+        MTLSize threadgroupCount;
+
+        threadgroupCount.width  = (buffer.width - src_x + threadgroupSize.width - 1) / threadgroupSize.width;
+        threadgroupCount.height = (buffer.height - src_y + threadgroupSize.height - 1) / threadgroupSize.height;
+        threadgroupCount.depth = 1;
+
+        [computeEncoder setTexture:buffer atIndex:0];
+        [computeEncoder setTexture:mtlDrawable.texture atIndex:1];
+        struct InsetsUniforms uniforms = {src_x, src_y};
+        [computeEncoder setBytes:&uniforms length:sizeof(struct InsetsUniforms) atIndex:2];
+
+        [computeEncoder dispatchThreadgroups:threadgroupCount
+                               threadsPerThreadgroup:threadgroupSize];
+        [computeEncoder endEncoding];
+        [cb commit];
+#endif
         [commandBuf presentDrawable:mtlDrawable];
         [commandBuf addCompletedHandler:^(id <MTLCommandBuffer> commandBuf) {
             self.nextDrawableCount--;
         }];
 
         [commandBuf commit];
-
-        if (--self.displayLinkCount <= 0) {
-            self.displayLinkCount = 0;
-            [self stopDisplayLink];
-        }
+        [self stopDisplayLink];
     }
 }
 
@@ -186,18 +211,13 @@
 }
 
 - (void) startDisplayLink {
-    if (!CVDisplayLinkIsRunning(self.displayLink)) {
+    if (!CVDisplayLinkIsRunning(self.displayLink))
         CVDisplayLinkStart(self.displayLink);
-        J2dTraceLn(J2D_TRACE_VERBOSE, "MTLLayer_startDisplayLink");
-    }
-    displayLinkCount += KEEP_ALIVE_INC; // Keep alive displaylink counter
 }
 
 - (void) stopDisplayLink {
-    if (CVDisplayLinkIsRunning(self.displayLink)) {
+    if (CVDisplayLinkIsRunning(self.displayLink))
         CVDisplayLinkStop(self.displayLink);
-        J2dTraceLn(J2D_TRACE_VERBOSE, "MTLLayer_stopDisplayLink");
-    }
 }
 
 CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeStamp* now, const CVTimeStamp* outputTime, CVOptionFlags flagsIn, CVOptionFlags* flagsOut, void* displayLinkContext)
@@ -301,18 +321,4 @@ Java_sun_java2d_metal_MTLLayer_blitTexture
     }
 
     [layer blitTexture];
-}
-
-JNIEXPORT void JNICALL
-Java_sun_java2d_metal_MTLLayer_nativeSetOpaque
-(JNIEnv *env, jclass cls, jlong layerPtr, jboolean opaque)
-{
-    JNI_COCOA_ENTER(env);
-
-    MTLLayer *mtlLayer = OBJC(layerPtr);
-    [ThreadUtilities performOnMainThreadWaiting:NO block:^(){
-        [mtlLayer setOpaque:(opaque == JNI_TRUE)];
-    }];
-
-    JNI_COCOA_EXIT(env);
 }

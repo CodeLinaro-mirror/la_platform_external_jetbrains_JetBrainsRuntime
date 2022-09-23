@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,7 +34,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import sun.lwawt.macosx.CThreading;
 import static sun.awt.SunHints.*;
 
-
 public final class CStrike extends PhysicalStrike {
 
     // Creates the native strike
@@ -67,12 +66,6 @@ public final class CStrike extends PhysicalStrike {
                                                             int glyphCode,
                                                             double x,
                                                             double y);
-
-    private static native void getNativeGlyphRenderData(long nativeStrikePtr,
-                                                        int glyphCode,
-                                                        double x,
-                                                        double y,
-                                                        GlyphRenderData result);
 
     private static native void getNativeGlyphOutlineBounds(long nativeStrikePtr,
                                                            int glyphCode,
@@ -145,7 +138,7 @@ public final class CStrike extends PhysicalStrike {
         return nativeStrikePtr;
     }
 
-    @SuppressWarnings("removal")
+    @SuppressWarnings("deprecation")
     protected synchronized void finalize() throws Throwable {
         if (nativeStrikePtr != 0) {
             disposeNativeStrikePtr(nativeStrikePtr);
@@ -235,12 +228,6 @@ public final class CStrike extends PhysicalStrike {
     // should implement, however not called though any path that is publicly exposed
     GeneralPath getGlyphVectorOutline(int[] glyphs, float x, float y) {
         throw new Error("not implemented yet");
-    }
-
-    GlyphRenderData getGlyphRenderData(int glyphCode, float x, float y) {
-        GlyphRenderData result = new GlyphRenderData();
-        getNativeGlyphRenderData(getNativeStrikePtr(), glyphCode, x, y, result);
-        return result;
     }
 
     // called from the Sun2D renderer
@@ -464,7 +451,8 @@ public final class CStrike extends PhysicalStrike {
 
                     // clean up everyone else
                     if (generalCache != null) {
-                        for (long longValue : generalCache.values()) {
+                        for (Long aLong : generalCache.values()) {
+                            final long longValue = aLong;
                             if (longValue != -1 && longValue != 0) {
                                 removeGlyphInfoFromCache(longValue);
                                 StrikeCache.freeLongPointer(longValue);

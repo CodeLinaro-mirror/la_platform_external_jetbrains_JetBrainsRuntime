@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -648,7 +648,9 @@ public class X509CertImpl extends X509Certificate implements DerEncoder {
             if (attr.getSuffix() != null) {
                 try {
                     return info.get(attr.getSuffix());
-                } catch (IOException | CertificateException e) {
+                } catch (IOException e) {
+                    throw new CertificateParsingException(e.toString());
+                } catch (CertificateException e) {
                     throw new CertificateParsingException(e.toString());
                 }
             } else {
@@ -739,7 +741,7 @@ public class X509CertImpl extends X509Certificate implements DerEncoder {
         id = attr.getPrefix();
 
         if (id.equalsIgnoreCase(INFO)) {
-            if (attr.getSuffix() == null) {
+            if (attr.getSuffix() != null) {
                 info = null;
             } else {
                 info.delete(attr.getSuffix());
@@ -969,7 +971,7 @@ public class X509CertImpl extends X509Certificate implements DerEncoder {
     }
 
     /**
-     * Gets the DER encoded certificate information, the
+     * Gets the DER encoded certificate informations, the
      * <code>tbsCertificate</code> from this certificate.
      * This can be used to verify the signature independently.
      *
@@ -1437,45 +1439,24 @@ public class X509CertImpl extends X509Certificate implements DerEncoder {
     }
 
     /**
-     * This method is the overridden implementation of the
+     * This method are the overridden implementation of
      * getExtendedKeyUsage method in X509Certificate in the Sun
      * provider. It is better performance-wise since it returns cached
      * values.
      */
-    @Override
     public synchronized List<String> getExtendedKeyUsage()
         throws CertificateParsingException {
         if (readOnly && extKeyUsage != null) {
             return extKeyUsage;
-        }
-        ExtendedKeyUsageExtension ext = (ExtendedKeyUsageExtension)
-            getExtensionIfParseable(PKIXExtensions.ExtendedKeyUsage_Id);
-        if (ext == null) {
-            return null;
-        }
-        extKeyUsage = Collections.unmodifiableList(ext.getExtendedKeyUsage());
-        return extKeyUsage;
-    }
-
-    /**
-     * Returns the extension identified by OID or null if it doesn't exist
-     * and is not unparseable.
-     *
-     * @throws CertificateParsingException if extension is unparseable
-     */
-    private Extension getExtensionIfParseable(ObjectIdentifier oid)
-            throws CertificateParsingException {
-        Extension ext = getExtension(oid);
-        if (ext == null) {
-            // check if unparseable
-            UnparseableExtension unparseableExt =
-                   (UnparseableExtension)getUnparseableExtension(oid);
-            if (unparseableExt != null) {
-                throw new CertificateParsingException(
-                        unparseableExt.exceptionMessage());
+        } else {
+            ExtendedKeyUsageExtension ext = getExtendedKeyUsageExtension();
+            if (ext == null) {
+                return null;
             }
+            extKeyUsage =
+                Collections.unmodifiableList(ext.getExtendedKeyUsage());
+            return extKeyUsage;
         }
-        return ext;
     }
 
     /**
@@ -1582,17 +1563,6 @@ public class X509CertImpl extends X509Certificate implements DerEncoder {
                     throw new RuntimeException("name cannot be encoded", ioe);
                 }
                 nameEntry.add(derOut.toByteArray());
-                if (name.getType() == GeneralNameInterface.NAME_ANY
-                        && name instanceof OtherName oname) {
-                    nameEntry.add(oname.getOID().toString());
-                    byte[] nameValue = oname.getNameValue();
-                    try {
-                        String v = new DerValue(nameValue).getAsString();
-                        nameEntry.add(v == null ? nameValue : v);
-                    } catch (IOException ioe) {
-                        nameEntry.add(nameValue);
-                    }
-                }
                 break;
             }
             newNames.add(Collections.unmodifiableList(nameEntry));
@@ -1632,12 +1602,11 @@ public class X509CertImpl extends X509Certificate implements DerEncoder {
     }
 
     /**
-     * This method is the overridden implementation of the
+     * This method are the overridden implementation of
      * getSubjectAlternativeNames method in X509Certificate in the Sun
      * provider. It is better performance-wise since it returns cached
      * values.
      */
-    @Override
     public synchronized Collection<List<?>> getSubjectAlternativeNames()
         throws CertificateParsingException {
         // return cached value if we can
@@ -1645,8 +1614,7 @@ public class X509CertImpl extends X509Certificate implements DerEncoder {
             return cloneAltNames(subjectAlternativeNames);
         }
         SubjectAlternativeNameExtension subjectAltNameExt =
-            (SubjectAlternativeNameExtension)getExtensionIfParseable(
-                PKIXExtensions.SubjectAlternativeName_Id);
+            getSubjectAlternativeNameExtension();
         if (subjectAltNameExt == null) {
             return null;
         }
@@ -1664,7 +1632,7 @@ public class X509CertImpl extends X509Certificate implements DerEncoder {
 
     /**
      * This static method is the default implementation of the
-     * getSubjectAlternativeNames method in X509Certificate. A
+     * getSubjectAlternaitveNames method in X509Certificate. A
      * X509Certificate provider generally should overwrite this to
      * provide among other things caching for better performance.
      */
@@ -1698,12 +1666,11 @@ public class X509CertImpl extends X509Certificate implements DerEncoder {
     }
 
     /**
-     * This method is the overridden implementation of the
+     * This method are the overridden implementation of
      * getIssuerAlternativeNames method in X509Certificate in the Sun
      * provider. It is better performance-wise since it returns cached
      * values.
      */
-    @Override
     public synchronized Collection<List<?>> getIssuerAlternativeNames()
         throws CertificateParsingException {
         // return cached value if we can
@@ -1711,8 +1678,7 @@ public class X509CertImpl extends X509Certificate implements DerEncoder {
             return cloneAltNames(issuerAlternativeNames);
         }
         IssuerAlternativeNameExtension issuerAltNameExt =
-            (IssuerAlternativeNameExtension)getExtensionIfParseable(
-                PKIXExtensions.IssuerAlternativeName_Id);
+            getIssuerAlternativeNameExtension();
         if (issuerAltNameExt == null) {
             return null;
         }
@@ -1730,7 +1696,7 @@ public class X509CertImpl extends X509Certificate implements DerEncoder {
 
     /**
      * This static method is the default implementation of the
-     * getIssuerAlternativeNames method in X509Certificate. A
+     * getIssuerAlternaitveNames method in X509Certificate. A
      * X509Certificate provider generally should overwrite this to
      * provide among other things caching for better performance.
      */
@@ -1771,7 +1737,7 @@ public class X509CertImpl extends X509Certificate implements DerEncoder {
     /************************************************************/
 
     /*
-     * Cert is a SIGNED ASN.1 macro, a three element sequence:
+     * Cert is a SIGNED ASN.1 macro, a three elment sequence:
      *
      *  - Data to be signed (ToBeSigned) -- the "raw" cert
      *  - Signature algorithm (SigAlgId)

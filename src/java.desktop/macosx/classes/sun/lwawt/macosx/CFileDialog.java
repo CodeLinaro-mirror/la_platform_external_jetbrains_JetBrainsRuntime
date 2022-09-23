@@ -59,13 +59,10 @@ import sun.awt.AWTAccessor;
 import sun.java2d.pipe.Region;
 import sun.lwawt.LWWindowPeer;
 import sun.security.action.GetBooleanAction;
-import sun.util.logging.PlatformLogger;
 
 import static com.jetbrains.desktop.JBRFileDialog.*;
 
 class CFileDialog implements FileDialogPeer {
-
-    private static final PlatformLogger log = PlatformLogger.getLogger("sun.lwawt.macosx.CFileDialog");
 
     private class Task implements Runnable {
 
@@ -179,10 +176,6 @@ class CFileDialog implements FileDialogPeer {
      * If the dialog doesn't have a file filter return true.
      */
     private boolean queryFilenameFilter(final String inFilename) {
-        if (!Boolean.getBoolean("awt.file.dialog.enable.filter")) {
-            return true;
-        }
-
         boolean ret = false;
 
         final FilenameFilter ff = target.getFilenameFilter();
@@ -192,11 +185,7 @@ class CFileDialog implements FileDialogPeer {
         if (!fileObj.isDirectory()) {
             File directoryObj = new File(fileObj.getParent());
             String nameOnly = fileObj.getName();
-            try {
-                ret = ff.accept(directoryObj, nameOnly);
-            } catch (Throwable e) {
-                log.warning("FilenameFilter call exception occurred", e);
-            }
+            ret = ff.accept(directoryObj, nameOnly);
         }
         return ret;
     }

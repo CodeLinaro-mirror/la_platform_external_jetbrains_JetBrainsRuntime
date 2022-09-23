@@ -50,9 +50,7 @@ final class CWrapper {
         static void makeKeyAndOrderFront(long window) {
             AWTThreading.executeWaitToolkit(wait -> nativeMakeKeyAndOrderFront(window, wait));
         }
-        static void makeKeyWindow(long window) {
-            AWTThreading.executeWaitToolkit(wait -> nativeMakeKeyWindow(window, wait));
-        }
+        static native void makeKeyWindow(long window);
         static native void makeMainWindow(long window);
         static native boolean canBecomeMainWindow(long window);
         static native boolean isKeyWindow(long window);
@@ -73,7 +71,6 @@ final class CWrapper {
         }
 
         private static native void nativeOrderOut(long window, boolean wait);
-        private static native void nativeMakeKeyWindow(long window, boolean wait);
         private static native void nativeMakeKeyAndOrderFront(long window, boolean wait);
 
         /**
@@ -108,6 +105,8 @@ final class CWrapper {
         static native void zoom(long window);
 
         static native void makeFirstResponder(long window, long responder);
+        
+        static native boolean isTabbedWindow(long window);
     }
 
     static final class NSView {

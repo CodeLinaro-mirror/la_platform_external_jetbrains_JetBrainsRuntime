@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2022, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2015, 2021, Red Hat, Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -70,7 +70,7 @@ inline oop ShenandoahBarrierSet::load_reference_barrier_mutator(oop obj, T* load
 
   if (load_addr != NULL && fwd != obj) {
     // Since we are here and we know the load address, update the reference.
-    ShenandoahHeap::atomic_update_oop(fwd, load_addr, obj);
+    ShenandoahHeap::cas_oop(fwd, load_addr, obj);
   }
 
   return fwd;
@@ -84,8 +84,13 @@ inline oop ShenandoahBarrierSet::load_reference_barrier(oop obj) {
       _heap->in_collection_set(obj)) { // Subsumes NULL-check
     assert(obj != NULL, "cset check must have subsumed NULL-check");
     oop fwd = resolve_forwarded_not_null(obj);
+    // TODO: It should not be necessary to check evac-in-progress here.
+    // We do it for mark-compact, which may have forwarded objects,
+    // and objects in cset and gets here via runtime barriers.
+    // We can probably fix this as soon as mark-compact has its own
+    // marking phase.
     if (obj == fwd && _heap->is_evacuation_in_progress()) {
-      Thread* t = Thread::current();
+       Thread* t = Thread::current();
       ShenandoahEvacOOMScope oom_evac_scope(t);
       return _heap->evacuate_object(obj, t);
     }
@@ -125,7 +130,7 @@ inline oop ShenandoahBarrierSet::load_reference_barrier(DecoratorSet decorators,
   oop fwd = load_reference_barrier(obj);
   if (ShenandoahSelfFixing && load_addr != NULL && fwd != obj) {
     // Since we are here and we know the load address, update the reference.
-    ShenandoahHeap::atomic_update_oop(fwd, load_addr, obj);
+    ShenandoahHeap::cas_oop(fwd, load_addr, obj);
   }
 
   return fwd;
@@ -200,7 +205,7 @@ inline oop ShenandoahBarrierSet::oop_cmpxchg(DecoratorSet decorators, T* addr, o
 
   // Note: We don't need a keep-alive-barrier here. We already enqueue any loaded reference for SATB anyway,
   // because it must be the previous value.
-  res = load_reference_barrier(decorators, res, static_cast<T*>(nullptr));
+  res = load_reference_barrier(decorators, res, reinterpret_cast<T*>(NULL));
   satb_enqueue(res);
   return res;
 }
@@ -211,7 +216,7 @@ inline oop ShenandoahBarrierSet::oop_xchg(DecoratorSet decorators, T* addr, oop 
   oop previous = RawAccess<>::oop_atomic_xchg(addr, new_value);
   // Note: We don't need a keep-alive-barrier here. We already enqueue any loaded reference for SATB anyway,
   // because it must be the previous value.
-  previous = load_reference_barrier<T>(decorators, previous, static_cast<T*>(nullptr));
+  previous = load_reference_barrier<T>(decorators, previous, reinterpret_cast<T*>(NULL));
   satb_enqueue(previous);
   return previous;
 }
@@ -353,7 +358,7 @@ void ShenandoahBarrierSet::arraycopy_work(T* src, size_t count) {
           fwd = _heap->evacuate_object(obj, thread);
         }
         assert(obj != fwd || _heap->cancelled_gc(), "must be forwarded");
-        ShenandoahHeap::atomic_update_oop(fwd, elem_ptr, o);
+        oop witness = ShenandoahHeap::cas_oop(fwd, elem_ptr, o);
         obj = fwd;
       }
       if (ENQUEUE && !ctx->is_marked_strong(obj)) {

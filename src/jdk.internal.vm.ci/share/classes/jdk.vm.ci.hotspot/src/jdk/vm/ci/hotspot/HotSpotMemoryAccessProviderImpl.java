@@ -78,7 +78,7 @@ class HotSpotMemoryAccessProviderImpl implements HotSpotMemoryAccessProvider {
                 }
             }
             HotSpotObjectConstantImpl baseObject = (HotSpotObjectConstantImpl) baseConstant;
-            JavaConstant result = runtime().compilerToVm.readFieldValue(baseObject, null, initialDisplacement, readKind.getTypeChar());
+            JavaConstant result = runtime().compilerToVm.readFieldValue(baseObject, null, initialDisplacement, readKind);
             if (result != null && kind != readKind) {
                 return JavaConstant.forPrimitive(kind, result.asLong());
             }
@@ -109,8 +109,7 @@ class HotSpotMemoryAccessProviderImpl implements HotSpotMemoryAccessProvider {
     @Override
     public JavaConstant readObjectConstant(Constant base, long displacement) {
         if (base instanceof HotSpotObjectConstantImpl) {
-            HotSpotObjectConstantImpl hsBase = (HotSpotObjectConstantImpl) base;
-            return runtime.getCompilerToVM().readFieldValue(hsBase, null, displacement, JavaKind.Object.getTypeChar());
+            return runtime.getCompilerToVM().readFieldValue((HotSpotObjectConstantImpl) base, null, displacement, JavaKind.Object);
         }
         if (base instanceof HotSpotMetaspaceConstant) {
             MetaspaceObject metaspaceObject = HotSpotMetaspaceConstantImpl.getMetaspaceObject(base);
@@ -132,8 +131,7 @@ class HotSpotMemoryAccessProviderImpl implements HotSpotMemoryAccessProvider {
     public JavaConstant readNarrowOopConstant(Constant base, long displacement) {
         if (base instanceof HotSpotObjectConstantImpl) {
             assert runtime.getConfig().useCompressedOops;
-            HotSpotObjectConstantImpl hsBase = (HotSpotObjectConstantImpl) base;
-            JavaConstant res = runtime.getCompilerToVM().readFieldValue(hsBase, null, displacement, JavaKind.Object.getTypeChar());
+            JavaConstant res = runtime.getCompilerToVM().readFieldValue((HotSpotObjectConstantImpl) base, null, displacement, JavaKind.Object);
             if (res != null) {
                 return JavaConstant.NULL_POINTER.equals(res) ? HotSpotCompressedNullConstant.COMPRESSED_NULL : ((HotSpotObjectConstant) res).compress();
             }

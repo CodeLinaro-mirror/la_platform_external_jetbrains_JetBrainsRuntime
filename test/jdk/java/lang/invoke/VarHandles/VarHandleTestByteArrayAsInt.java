@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -1266,16 +1266,9 @@ public class VarHandleTestByteArrayAsInt extends VarHandleBaseByteArrayTest {
                     for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                         success = vh.weakCompareAndSetPlain(array, i, VALUE_1, VALUE_2);
                     }
-                    assertEquals(success, true, "success weakCompareAndSetPlain int");
+                    assertEquals(success, true, "weakCompareAndSetPlain int");
                     int x = (int) vh.get(array, i);
-                    assertEquals(x, VALUE_2, "success weakCompareAndSetPlain int value");
-                }
-
-                {
-                    boolean success = vh.weakCompareAndSetPlain(array, i, VALUE_1, VALUE_3);
-                    assertEquals(success, false, "failing weakCompareAndSetPlain int");
-                    int x = (int) vh.get(array, i);
-                    assertEquals(x, VALUE_2, "failing weakCompareAndSetPlain int value");
+                    assertEquals(x, VALUE_2, "weakCompareAndSetPlain int value");
                 }
 
                 {
@@ -1283,16 +1276,9 @@ public class VarHandleTestByteArrayAsInt extends VarHandleBaseByteArrayTest {
                     for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                         success = vh.weakCompareAndSetAcquire(array, i, VALUE_2, VALUE_1);
                     }
-                    assertEquals(success, true, "success weakCompareAndSetAcquire int");
+                    assertEquals(success, true, "weakCompareAndSetAcquire int");
                     int x = (int) vh.get(array, i);
-                    assertEquals(x, VALUE_1, "success weakCompareAndSetAcquire int");
-                }
-
-                {
-                    boolean success = vh.weakCompareAndSetAcquire(array, i, VALUE_2, VALUE_3);
-                    assertEquals(success, false, "failing weakCompareAndSetAcquire int");
-                    int x = (int) vh.get(array, i);
-                    assertEquals(x, VALUE_1, "failing weakCompareAndSetAcquire int value");
+                    assertEquals(x, VALUE_1, "weakCompareAndSetAcquire int");
                 }
 
                 {
@@ -1300,16 +1286,9 @@ public class VarHandleTestByteArrayAsInt extends VarHandleBaseByteArrayTest {
                     for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                         success = vh.weakCompareAndSetRelease(array, i, VALUE_1, VALUE_2);
                     }
-                    assertEquals(success, true, "success weakCompareAndSetRelease int");
+                    assertEquals(success, true, "weakCompareAndSetRelease int");
                     int x = (int) vh.get(array, i);
-                    assertEquals(x, VALUE_2, "success weakCompareAndSetRelease int");
-                }
-
-                {
-                    boolean success = vh.weakCompareAndSetRelease(array, i, VALUE_1, VALUE_3);
-                    assertEquals(success, false, "failing weakCompareAndSetRelease int");
-                    int x = (int) vh.get(array, i);
-                    assertEquals(x, VALUE_2, "failing weakCompareAndSetRelease int value");
+                    assertEquals(x, VALUE_2, "weakCompareAndSetRelease int");
                 }
 
                 {
@@ -1317,16 +1296,9 @@ public class VarHandleTestByteArrayAsInt extends VarHandleBaseByteArrayTest {
                     for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                         success = vh.weakCompareAndSet(array, i, VALUE_2, VALUE_1);
                     }
-                    assertEquals(success, true, "success weakCompareAndSet int");
+                    assertEquals(success, true, "weakCompareAndSet int");
                     int x = (int) vh.get(array, i);
-                    assertEquals(x, VALUE_1, "success weakCompareAndSet int");
-                }
-
-                {
-                    boolean success = vh.weakCompareAndSet(array, i, VALUE_2, VALUE_3);
-                    assertEquals(success, false, "failing weakCompareAndSet int");
-                    int x = (int) vh.get(array, i);
-                    assertEquals(x, VALUE_1, "failing weakCompareAndSet int value");
+                    assertEquals(x, VALUE_1, "weakCompareAndSet int");
                 }
 
                 // Compare set and get
@@ -1577,16 +1549,9 @@ public class VarHandleTestByteArrayAsInt extends VarHandleBaseByteArrayTest {
                     for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                         success = vh.weakCompareAndSetPlain(array, i, VALUE_1, VALUE_2);
                     }
-                    assertEquals(success, true, "success weakCompareAndSetPlain int");
+                    assertEquals(success, true, "weakCompareAndSetPlain int");
                     int x = (int) vh.get(array, i);
-                    assertEquals(x, VALUE_2, "success weakCompareAndSetPlain int value");
-                }
-
-                {
-                    boolean success = vh.weakCompareAndSetPlain(array, i, VALUE_1, VALUE_3);
-                    assertEquals(success, false, "failing weakCompareAndSetPlain int");
-                    int x = (int) vh.get(array, i);
-                    assertEquals(x, VALUE_2, "failing weakCompareAndSetPlain int value");
+                    assertEquals(x, VALUE_2, "weakCompareAndSetPlain int value");
                 }
 
                 {
@@ -1594,16 +1559,9 @@ public class VarHandleTestByteArrayAsInt extends VarHandleBaseByteArrayTest {
                     for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                         success = vh.weakCompareAndSetAcquire(array, i, VALUE_2, VALUE_1);
                     }
-                    assertEquals(success, true, "success weakCompareAndSetAcquire int");
+                    assertEquals(success, true, "weakCompareAndSetAcquire int");
                     int x = (int) vh.get(array, i);
-                    assertEquals(x, VALUE_1, "success weakCompareAndSetAcquire int");
-                }
-
-                {
-                    boolean success = vh.weakCompareAndSetAcquire(array, i, VALUE_2, VALUE_3);
-                    assertEquals(success, false, "failing weakCompareAndSetAcquire int");
-                    int x = (int) vh.get(array, i);
-                    assertEquals(x, VALUE_1, "failing weakCompareAndSetAcquire int value");
+                    assertEquals(x, VALUE_1, "weakCompareAndSetAcquire int");
                 }
 
                 {
@@ -1611,16 +1569,9 @@ public class VarHandleTestByteArrayAsInt extends VarHandleBaseByteArrayTest {
                     for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                         success = vh.weakCompareAndSetRelease(array, i, VALUE_1, VALUE_2);
                     }
-                    assertEquals(success, true, "success weakCompareAndSetRelease int");
+                    assertEquals(success, true, "weakCompareAndSetRelease int");
                     int x = (int) vh.get(array, i);
-                    assertEquals(x, VALUE_2, "success weakCompareAndSetRelease int");
-                }
-
-                {
-                    boolean success = vh.weakCompareAndSetRelease(array, i, VALUE_1, VALUE_3);
-                    assertEquals(success, false, "failing weakCompareAndSetRelease int");
-                    int x = (int) vh.get(array, i);
-                    assertEquals(x, VALUE_2, "failing weakCompareAndSetRelease int value");
+                    assertEquals(x, VALUE_2, "weakCompareAndSetRelease int");
                 }
 
                 {
@@ -1628,16 +1579,9 @@ public class VarHandleTestByteArrayAsInt extends VarHandleBaseByteArrayTest {
                     for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                         success = vh.weakCompareAndSet(array, i, VALUE_2, VALUE_1);
                     }
-                    assertEquals(success, true, "success weakCompareAndSet int");
+                    assertEquals(success, true, "weakCompareAndSet int");
                     int x = (int) vh.get(array, i);
-                    assertEquals(x, VALUE_1, "success weakCompareAndSet int");
-                }
-
-                {
-                    boolean success = vh.weakCompareAndSet(array, i, VALUE_2, VALUE_3);
-                    assertEquals(success, false, "failing weakCompareAndSet int");
-                    int x = (int) vh.get(array, i);
-                    assertEquals(x, VALUE_1, "failing weakCompareAndSet int value");
+                    assertEquals(x, VALUE_1, "weakCompareAndSet int");
                 }
 
                 // Compare set and get

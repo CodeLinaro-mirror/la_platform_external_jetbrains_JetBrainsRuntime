@@ -267,8 +267,7 @@ public class SctpServerChannelImpl extends SctpServerChannel
     @Override
     public void implCloseSelectableChannel() throws IOException {
         synchronized (stateLock) {
-            if (state != ChannelState.KILLED)
-                SctpNet.preClose(fdVal);
+            SctpNet.preClose(fdVal);
             if (thread != 0)
                 NativeThread.signal(thread);
             if (!isRegistered())

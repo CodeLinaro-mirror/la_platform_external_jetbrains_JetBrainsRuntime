@@ -50,12 +50,12 @@ JNI_COCOA_EXIT(env);
 
 /*
  * Class:     sun_lwawt_macosx_CWrapper$NSWindow
- * Method:    nativeMakeKeyWindow
- * Signature: (JZ)V
+ * Method:    makeKeyWindow
+ * Signature: (J)V
  */
 JNIEXPORT void JNICALL
-Java_sun_lwawt_macosx_CWrapper_00024NSWindow_nativeMakeKeyWindow
-(JNIEnv *env, jclass cls, jlong windowPtr, jboolean wait)
+Java_sun_lwawt_macosx_CWrapper_00024NSWindow_makeKeyWindow
+(JNIEnv *env, jclass cls, jlong windowPtr)
 {
 JNI_COCOA_ENTER(env);
 
@@ -63,7 +63,7 @@ JNI_COCOA_ENTER(env);
     [ThreadUtilities performOnMainThread:@selector(makeKeyWindow)
                                       on:window
                               withObject:nil
-                           waitUntilDone:(BOOL)wait];
+                           waitUntilDone:NO];
 
 JNI_COCOA_EXIT(env);
 }
@@ -382,6 +382,7 @@ JNI_COCOA_ENTER(env);
     NSWindow *window = (NSWindow *)jlong_to_ptr(windowPtr);
     [ThreadUtilities performOnMainThreadWaiting:NO block:^(){
         [window setOpaque:(BOOL)opaque];
+        [window.contentView.layer setOpaque:(BOOL)opaque];
     }];
 
 JNI_COCOA_EXIT(env);
@@ -514,6 +515,31 @@ JNI_COCOA_ENTER(env);
                            waitUntilDone:NO];
 
 JNI_COCOA_EXIT(env);
+}
+
+/*
+ * Class:     sun_lwawt_macosx_CWrapper$NSWindow
+ * Method:    isTabbedWindow
+ * Signature: (J)Z
+ */
+JNIEXPORT jboolean JNICALL
+Java_sun_lwawt_macosx_CWrapper_00024NSWindow_isTabbedWindow
+(JNIEnv *env, jclass cls, jlong windowPtr)
+{
+    __block jboolean isTabbedWindow = JNI_FALSE;
+
+JNI_COCOA_ENTER(env);
+
+    if (@available(macOS 10.13, *)) {
+        NSWindow *window = (NSWindow *)jlong_to_ptr(windowPtr);
+        [ThreadUtilities performOnMainThreadWaiting:YES block:^(){
+            isTabbedWindow = [[[window tabGroup] windows] count] > 1;
+        }];
+    }
+
+JNI_COCOA_EXIT(env);
+
+    return isTabbedWindow;
 }
 
 /*

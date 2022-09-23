@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -54,7 +54,7 @@ import sun.security.util.KeyStoreDelegator;
  * @since 1.2
  */
 
-public abstract sealed class JavaKeyStore extends KeyStoreSpi {
+public abstract class JavaKeyStore extends KeyStoreSpi {
 
     // regular JKS
     public static final class JKS extends JavaKeyStore {
@@ -146,7 +146,7 @@ public abstract sealed class JavaKeyStore extends KeyStoreSpi {
     {
         Object entry = entries.get(convertAlias(alias));
 
-        if (!(entry instanceof KeyEntry keyEntry)) {
+        if (entry == null || !(entry instanceof KeyEntry)) {
             return null;
         }
         if (password == null) {
@@ -155,7 +155,7 @@ public abstract sealed class JavaKeyStore extends KeyStoreSpi {
 
         byte[] passwordBytes = convertToBytes(password);
         KeyProtector keyProtector = new KeyProtector(passwordBytes);
-        byte[] encrBytes = keyEntry.protectedPrivKey;
+        byte[] encrBytes = ((KeyEntry)entry).protectedPrivKey;
         EncryptedPrivateKeyInfo encrInfo;
         try {
             encrInfo = new EncryptedPrivateKeyInfo(encrBytes);
@@ -183,11 +183,11 @@ public abstract sealed class JavaKeyStore extends KeyStoreSpi {
     public Certificate[] engineGetCertificateChain(String alias) {
         Object entry = entries.get(convertAlias(alias));
 
-        if (entry instanceof KeyEntry keyEntry) {
-            if (keyEntry.chain == null) {
+        if (entry != null && entry instanceof KeyEntry) {
+            if (((KeyEntry)entry).chain == null) {
                 return null;
             } else {
-                return keyEntry.chain.clone();
+                return ((KeyEntry)entry).chain.clone();
             }
         } else {
             return null;
@@ -384,7 +384,7 @@ public abstract sealed class JavaKeyStore extends KeyStoreSpi {
         synchronized(entries) {
 
             Object entry = entries.get(convertAlias(alias));
-            if (entry instanceof KeyEntry) {
+            if ((entry != null) && (entry instanceof KeyEntry)) {
                 throw new KeyStoreException
                     ("Cannot overwrite own certificate");
             }
@@ -449,7 +449,11 @@ public abstract sealed class JavaKeyStore extends KeyStoreSpi {
      */
     public boolean engineIsKeyEntry(String alias) {
         Object entry = entries.get(convertAlias(alias));
-        return entry instanceof KeyEntry;
+        if ((entry != null) && (entry instanceof KeyEntry)) {
+            return true;
+        } else {
+            return false;
+        }
     }
 
     /**
@@ -461,7 +465,11 @@ public abstract sealed class JavaKeyStore extends KeyStoreSpi {
      */
     public boolean engineIsCertificateEntry(String alias) {
         Object entry = entries.get(convertAlias(alias));
-        return entry instanceof TrustedCertEntry;
+        if ((entry != null) && (entry instanceof TrustedCertEntry)) {
+            return true;
+        } else {
+            return false;
+        }
     }
 
     /**
@@ -802,9 +810,9 @@ public abstract sealed class JavaKeyStore extends KeyStoreSpi {
                 if (!MessageDigest.isEqual(computed, actual)) {
                     Throwable t = new UnrecoverableKeyException
                             ("Password verification failed");
-                    throw new IOException
+                    throw (IOException) new IOException
                             ("Keystore was tampered with, or "
-                                    + "password was incorrect", t);
+                                    + "password was incorrect").initCause(t);
                 }
             }
         }

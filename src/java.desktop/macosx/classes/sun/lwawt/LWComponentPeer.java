@@ -964,7 +964,7 @@ public abstract class LWComponentPeer<T extends Component, D extends JComponent>
                     return false;
                 }
 
-                boolean res = !focusedWindowChangeAllowed || parentPeer.requestWindowFocus(cause);
+                boolean res = parentPeer.requestWindowFocus(cause);
                 // If parent window can be made focused and has been made focused (synchronously)
                 // then we can proceed with children, otherwise we retreat
                 if (!res || !parentWindow.isFocused()) {
@@ -1328,7 +1328,7 @@ public abstract class LWComponentPeer<T extends Component, D extends JComponent>
 
     public Point windowToLocal(Point p, LWWindowPeer wp) {
         LWComponentPeer<?, ?> cp = this;
-        while (cp != null && cp != wp) {
+        while (cp != wp) {
             Rectangle cpb = cp.getBounds();
             p.x -= cpb.x;
             p.y -= cpb.y;

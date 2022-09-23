@@ -183,12 +183,12 @@ public final class KeychainStore extends KeyStoreSpi {
 
         Object entry = entries.get(alias.toLowerCase());
 
-        if (!(entry instanceof KeyEntry keyEntry)) {
+        if (entry == null || !(entry instanceof KeyEntry)) {
             return null;
         }
 
         // This call gives us a PKCS12 bag, with the key inside it.
-        byte[] exportedKeyInfo = _getEncodedKeyData(keyEntry.keyRef, password);
+        byte[] exportedKeyInfo = _getEncodedKeyData(((KeyEntry)entry).keyRef, password);
         if (exportedKeyInfo == null) {
             return null;
         }
@@ -273,11 +273,11 @@ public final class KeychainStore extends KeyStoreSpi {
 
         Object entry = entries.get(alias.toLowerCase());
 
-        if (entry instanceof KeyEntry keyEntry) {
-            if (keyEntry.chain == null) {
+        if (entry != null && entry instanceof KeyEntry) {
+            if (((KeyEntry)entry).chain == null) {
                 return null;
             } else {
-                return keyEntry.chain.clone();
+                return ((KeyEntry)entry).chain.clone();
             }
         } else {
             return null;
@@ -569,7 +569,11 @@ public final class KeychainStore extends KeyStoreSpi {
     public boolean engineIsKeyEntry(String alias) {
         permissionCheck();
         Object entry = entries.get(alias.toLowerCase());
-        return entry instanceof KeyEntry;
+        if ((entry != null) && (entry instanceof KeyEntry)) {
+            return true;
+        } else {
+            return false;
+        }
     }
 
     /**
@@ -582,7 +586,11 @@ public final class KeychainStore extends KeyStoreSpi {
     public boolean engineIsCertificateEntry(String alias) {
         permissionCheck();
         Object entry = entries.get(alias.toLowerCase());
-        return entry instanceof TrustedCertEntry;
+        if ((entry != null) && (entry instanceof TrustedCertEntry)) {
+            return true;
+        } else {
+            return false;
+        }
     }
 
     /**
@@ -1021,6 +1029,7 @@ public final class KeychainStore extends KeyStoreSpi {
             byte[] safeContentsData;
             ContentInfo safeContents;
             DerInputStream sci;
+            byte[] eAlgId = null;
 
             sci = new DerInputStream(safeContentsArray[i].toByteArray());
             safeContents = new ContentInfo(sci);
@@ -1059,6 +1068,7 @@ public final class KeychainStore extends KeyStoreSpi {
             ObjectIdentifier bagId;
             DerInputStream sbi;
             DerValue bagValue;
+            Object bagItem = null;
 
             sbi = safeBags[i].toDerInputStream();
             bagId = sbi.getOID();

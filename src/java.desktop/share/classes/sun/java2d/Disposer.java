@@ -142,15 +142,15 @@ public class Disposer implements Runnable {
     public void run() {
         while (true) {
             try {
-                Reference<?> obj = queue.remove();
-                obj.clear();
+                Object obj = queue.remove();
+                ((Reference)obj).clear();
                 DisposerRecord rec = records.remove(obj);
                 safeDispose(rec);
                 obj = null;
                 rec = null;
                 clearDeferredRecords();
             } catch (Exception e) {
-                System.out.println("Exception while removing reference.");
+                e.printStackTrace(System.err);
             }
         }
     }
@@ -170,7 +170,7 @@ public class Disposer implements Runnable {
         try {
             rec.dispose();
         } catch (final Exception e) {
-            System.out.println("Exception while disposing deferred rec.");
+            e.printStackTrace(System.err);
         }
     }
 
@@ -186,7 +186,7 @@ public class Disposer implements Runnable {
     /*
      * Set to indicate the queue is presently being polled.
      */
-    public static volatile boolean pollingQueue;
+    public static volatile boolean pollingQueue = false;
 
     /*
      * The pollRemove() method is called back from a dispose method
@@ -202,7 +202,7 @@ public class Disposer implements Runnable {
         if (pollingQueue) {
             return;
         }
-        Reference<?> obj;
+        Object obj;
         pollingQueue = true;
         int freed = 0;
         int deferred = 0;
@@ -210,7 +210,7 @@ public class Disposer implements Runnable {
             while ( freed < 10000 && deferred < 100 &&
                     (obj = queue.poll()) != null ) {
                 freed++;
-                obj.clear();
+                ((Reference)obj).clear();
                 DisposerRecord rec = records.remove(obj);
                 if (rec instanceof PollDisposable) {
                     safeDispose(rec);
@@ -225,7 +225,7 @@ public class Disposer implements Runnable {
                 }
             }
         } catch (Exception e) {
-            System.out.println("Exception while removing reference.");
+            e.printStackTrace(System.err);
         } finally {
             pollingQueue = false;
         }

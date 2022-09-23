@@ -25,12 +25,11 @@
 #define SHARE_LOGGING_LOGASYNCWRITER_HPP
 #include "logging/log.hpp"
 #include "logging/logDecorations.hpp"
+#include "logging/logFileOutput.hpp"
 #include "logging/logMessageBuffer.hpp"
 #include "memory/resourceArea.hpp"
-#include "runtime/mutex.hpp"
 #include "runtime/nonJavaThread.hpp"
-#include "runtime/semaphore.hpp"
-#include "utilities/resourceHash.hpp"
+#include "utilities/hashtable.hpp"
 #include "utilities/linkedlist.hpp"
 
 template <typename E, MEMFLAGS F>
@@ -91,32 +90,25 @@ class LinkedListDeque : private LinkedListImpl<E, ResourceObj::C_HEAP, F> {
   }
 };
 
-// Forward declaration
-class LogFileStreamOutput;
-
 class AsyncLogMessage {
-  LogFileStreamOutput* _output;
+  LogFileOutput* _output;
   const LogDecorations _decorations;
   char* _message;
 
 public:
-  AsyncLogMessage(LogFileStreamOutput* output, const LogDecorations& decorations, char* msg)
+  AsyncLogMessage(LogFileOutput* output, const LogDecorations& decorations, char* msg)
     : _output(output), _decorations(decorations), _message(msg) {}
 
   // placeholder for LinkedListImpl.
   bool equals(const AsyncLogMessage& o) const { return false; }
 
-  LogFileStreamOutput* output() const { return _output; }
+  LogFileOutput* output() const { return _output; }
   const LogDecorations& decorations() const { return _decorations; }
   char* message() const { return _message; }
 };
 
 typedef LinkedListDeque<AsyncLogMessage, mtLogging> AsyncLogBuffer;
-typedef ResourceHashtable<LogFileStreamOutput*,
-                          uint32_t,
-                          17, /*table_size*/
-                          ResourceObj::C_HEAP,
-                          mtLogging> AsyncLogMap;
+typedef KVHashtable<LogFileOutput*, uint32_t, mtLogging> AsyncLogMap;
 
 //
 // ASYNC LOGGING SUPPORT
@@ -134,7 +126,7 @@ typedef ResourceHashtable<LogFileStreamOutput*,
 //
 // enqueue() is the basic operation of AsyncLogWriter. Two overloading versions of it are provided to match LogOutput::write().
 // They are both MT-safe and non-blocking. Derived classes of LogOutput can invoke the corresponding enqueue() in write() and
-// return 0. AsyncLogWriter is responsible of copying necessary data.
+// return 0. AsyncLogWriter is responsible of copying neccessary data.
 //
 // flush() ensures that all pending messages have been written out before it returns. It is not MT-safe in itself. When users
 // change the logging configuration via jcmd, LogConfiguration::configure_output() calls flush() under the protection of the
@@ -145,7 +137,7 @@ class AsyncLogWriter : public NonJavaThread {
   static AsyncLogWriter* _instance;
   Semaphore _flush_sem;
   // Can't use a Monitor here as we need a low-level API that can be used without Thread::current().
-  PlatformMonitor _lock;
+  os::PlatformMonitor _lock;
   bool _data_available;
   volatile bool _initialized;
   AsyncLogMap _stats; // statistics for dropped messages
@@ -163,8 +155,8 @@ class AsyncLogWriter : public NonJavaThread {
     NonJavaThread::pre_run();
     log_debug(logging, thread)("starting AsyncLog Thread tid = " INTX_FORMAT, os::current_thread_id());
   }
-  const char* name() const override { return "AsyncLog Thread"; }
-  const char* type_name() const override { return "AsyncLogWriter"; }
+  char* name() const override { return (char*)"AsyncLog Thread"; }
+  bool is_Named_thread() const override { return true; }
   void print_on(outputStream* st) const override {
     st->print("\"%s\" ", name());
     Thread::print_on(st);
@@ -172,8 +164,8 @@ class AsyncLogWriter : public NonJavaThread {
   }
 
  public:
-  void enqueue(LogFileStreamOutput& output, const LogDecorations& decorations, const char* msg);
-  void enqueue(LogFileStreamOutput& output, LogMessageBuffer::Iterator msg_iterator);
+  void enqueue(LogFileOutput& output, const LogDecorations& decorations, const char* msg);
+  void enqueue(LogFileOutput& output, LogMessageBuffer::Iterator msg_iterator);
 
   static AsyncLogWriter* instance();
   static void initialize();

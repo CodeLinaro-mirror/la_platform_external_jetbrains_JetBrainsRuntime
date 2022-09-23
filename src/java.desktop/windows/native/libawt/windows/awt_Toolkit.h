@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -194,19 +194,15 @@ class CriticalSection {
     #define TOUCHEVENTF_PEN             0x0040
     #define TOUCHEVENTF_PALM            0x0080
 
+    #define MOUSEEVENTF_FROMTOUCH_MASK  0xFFFFFF00
+    #define MOUSEEVENTF_FROMTOUCH       0xFF515700
+    
     /*
     * Conversion of touch input coordinates to pixels
     */
     #define TOUCH_COORD_TO_PIXEL(l)         ((l) / 100)
 #endif
 
-#ifndef MOUSEEVENTF_FROMTOUCH_MASK
-#define MOUSEEVENTF_FROMTOUCH_MASK  0xFFFFFF00
-#endif
-
-#ifndef MOUSEEVENTF_FROMTOUCH
-#define MOUSEEVENTF_FROMTOUCH       0xFF515700
-#endif
 /************************************************************************
  * AwtToolkit class
  */
@@ -459,8 +455,7 @@ public:
 
     HANDLE m_waitEvent;
     volatile DWORD eventNumber;
-    volatile BOOL isDnDSourceActive;
-    volatile BOOL isDnDTargetActive;
+    volatile BOOL isInDoDragDropLoop;
 private:
     HWND CreateToolkitWnd(LPCTSTR name);
 

@@ -27,7 +27,6 @@ package java.lang.reflect;
 import java.lang.annotation.*;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.Objects;
 import sun.reflect.annotation.AnnotationSupport;
 
@@ -160,20 +159,6 @@ public final class Parameter implements AnnotatedElement {
      */
     public int getModifiers() {
         return modifiers;
-    }
-
-    /**
-     * {@return an unmodifiable set of the {@linkplain AccessFlag
-     * access flags} for the parameter represented by this object,
-     * possibly empty}
-     *
-     * @see #getModifiers()
-     * @jvms 4.7.24 The MethodParameters Attribute
-     * @since 20
-     */
-    public Set<AccessFlag> accessFlags() {
-        return AccessFlag.maskToAccessFlags(getModifiers(),
-                                            AccessFlag.Location.METHOD_PARAMETER);
     }
 
     /**

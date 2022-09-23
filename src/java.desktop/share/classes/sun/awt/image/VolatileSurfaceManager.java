@@ -66,14 +66,14 @@ public abstract class VolatileSurfaceManager
     /**
      * The accelerated SurfaceData object.
      */
-    protected volatile SurfaceData sdAccel;
+    protected SurfaceData sdAccel;
 
     /**
      * The software-based SurfaceData object.  Only create when first asked
      * to (otherwise it is a waste of memory as it will only be used in
      * situations of surface loss).
      */
-    protected volatile SurfaceData sdBackup;
+    protected SurfaceData sdBackup;
 
     /**
      * The current SurfaceData object.
@@ -342,8 +342,7 @@ public abstract class VolatileSurfaceManager
     public void displayChanged() {
         lostSurface = true;
         boolean needBackup = false;
-        SurfaceData oldData = sdAccel;
-        if (oldData != null) {
+        if (sdAccel != null) {
             // First, nullify the software surface.  This guards against
             // using a SurfaceData that was created in a different
             // display mode.
@@ -353,6 +352,7 @@ public abstract class VolatileSurfaceManager
             }
             // Now, invalidate the old hardware-based SurfaceData
             // Note that getBackupSurface may set sdAccel to null so we have to invalidate it before
+            SurfaceData oldData = sdAccel;
             sdAccel = null;
             oldData.invalidate();
         }

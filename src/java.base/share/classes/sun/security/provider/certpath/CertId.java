@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -202,10 +202,11 @@ public class CertId {
         if (this == other) {
             return true;
         }
-        if (!(other instanceof CertId that)) {
+        if (other == null || (!(other instanceof CertId))) {
             return false;
         }
 
+        CertId that = (CertId) other;
         if (hashAlgId.equals(that.getHashAlgorithm()) &&
             Arrays.equals(issuerNameHash, that.getIssuerNameHash()) &&
             Arrays.equals(issuerKeyHash, that.getIssuerKeyHash()) &&

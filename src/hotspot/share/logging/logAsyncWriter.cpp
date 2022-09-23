@@ -25,7 +25,6 @@
 #include "logging/logAsyncWriter.hpp"
 #include "logging/logConfiguration.hpp"
 #include "logging/logFileOutput.hpp"
-#include "logging/logFileStreamOutput.hpp"
 #include "logging/logHandle.hpp"
 #include "runtime/atomic.hpp"
 #include "runtime/os.inline.hpp"
@@ -45,7 +44,7 @@ class AsyncLogWriter::AsyncLogLocker : public StackObj {
 void AsyncLogWriter::enqueue_locked(const AsyncLogMessage& msg) {
   if (_buffer.size() >= _buffer_max_size) {
     bool p_created;
-    uint32_t* counter = _stats.put_if_absent(msg.output(), 0, &p_created);
+    uint32_t* counter = _stats.add_if_absent(msg.output(), 0, &p_created);
     *counter = *counter + 1;
     // drop the enqueueing message.
     os::free(msg.message());
@@ -57,7 +56,7 @@ void AsyncLogWriter::enqueue_locked(const AsyncLogMessage& msg) {
   _lock.notify();
 }
 
-void AsyncLogWriter::enqueue(LogFileStreamOutput& output, const LogDecorations& decorations, const char* msg) {
+void AsyncLogWriter::enqueue(LogFileOutput& output, const LogDecorations& decorations, const char* msg) {
   AsyncLogMessage m(&output, decorations, os::strdup(msg));
 
   { // critical area
@@ -66,9 +65,9 @@ void AsyncLogWriter::enqueue(LogFileStreamOutput& output, const LogDecorations& 
   }
 }
 
-// LogMessageBuffer consists of a multiple-part/multiple-line message.
+// LogMessageBuffer consists of a multiple-part/multiple-line messsage.
 // The lock here guarantees its integrity.
-void AsyncLogWriter::enqueue(LogFileStreamOutput& output, LogMessageBuffer::Iterator msg_iterator) {
+void AsyncLogWriter::enqueue(LogFileOutput& output, LogMessageBuffer::Iterator msg_iterator) {
   AsyncLogLocker locker;
 
   for (; !msg_iterator.is_at_end(); msg_iterator++) {
@@ -80,7 +79,7 @@ void AsyncLogWriter::enqueue(LogFileStreamOutput& output, LogMessageBuffer::Iter
 AsyncLogWriter::AsyncLogWriter()
   : _flush_sem(0), _lock(), _data_available(false),
     _initialized(false),
-    _stats() {
+    _stats(17 /*table_size*/) {
   if (os::create_thread(this, os::asynclog_thread)) {
     _initialized = true;
   } else {
@@ -96,16 +95,16 @@ class AsyncLogMapIterator {
 
  public:
   AsyncLogMapIterator(AsyncLogBuffer& logs) :_logs(logs) {}
-  bool do_entry(LogFileStreamOutput* output, uint32_t& counter) {
+  bool do_entry(LogFileOutput* output, uint32_t* counter) {
     using none = LogTagSetMapping<LogTag::__NO_TAG>;
 
-    if (counter > 0) {
+    if (*counter > 0) {
       LogDecorations decorations(LogLevel::Warning, none::tagset(), LogDecorators::All);
       stringStream ss;
-      ss.print(UINT32_FORMAT_W(6) " messages dropped due to async logging", counter);
+      ss.print(UINT32_FORMAT_W(6) " messages dropped due to async logging", *counter);
       AsyncLogMessage msg(output, decorations, ss.as_string(true /*c_heap*/));
       _logs.push_back(msg);
-      counter = 0;
+      *counter = 0;
     }
 
     return true;

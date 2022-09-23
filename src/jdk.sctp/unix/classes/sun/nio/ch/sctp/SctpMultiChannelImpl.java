@@ -290,8 +290,7 @@ public class SctpMultiChannelImpl extends SctpMultiChannel
     @Override
     public void implCloseSelectableChannel() throws IOException {
         synchronized (stateLock) {
-            if (state != ChannelState.KILLED)
-                SctpNet.preClose(fdVal);
+            SctpNet.preClose(fdVal);
 
             if (receiverThread != 0)
                 NativeThread.signal(receiverThread);

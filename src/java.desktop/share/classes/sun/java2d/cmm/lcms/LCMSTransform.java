@@ -52,7 +52,7 @@ import static sun.java2d.cmm.lcms.LCMSImageLayout.ImageLayoutException;
 
 final class LCMSTransform implements ColorTransform {
 
-    private static final class NativeTransform {
+    private final static class NativeTransform {
         private long ID;
         private int inFormatter;
         private boolean isInIntPacked;
@@ -156,11 +156,7 @@ final class LCMSTransform implements ColorTransform {
                 }
             }
         }
-        LCMS.colorConvert(tfm.ID, in.width, in.height, in.offset,
-                          in.nextRowOffset, out.offset, out.nextRowOffset,
-                          in.imageAtOnce, out.imageAtOnce,
-                          in.dataArray, out.dataArray,
-                          in.dataType, out.dataType);
+        LCMS.colorConvert(tfm.ID, in, out);
         Reference.reachabilityFence(tfm); // prevent deallocation of "tfm.ID"
     }
 

@@ -305,15 +305,7 @@ public class AquaButtonUI extends BasicButtonUI implements Sizeable {
         }
 
         // performs icon and text rect calculations
-        final String text;
-        final View v = (View)c.getClientProperty(BasicHTML.propertyKey);
-        if (v != null) {
-            // use zero insets for view since layout only handles text calculations
-            text = layoutAndGetText(g, b, aquaBorder, new Insets(0,0,0,0),
-                    viewRect, iconRect, textRect);
-        } else {
-            text = layoutAndGetText(g, b, aquaBorder, i, viewRect, iconRect, textRect);
-        }
+        final String text = layoutAndGetText(g, b, aquaBorder, i, viewRect, iconRect, textRect);
 
         // Paint the Icon
         if (b.getIcon() != null) {
@@ -325,6 +317,7 @@ public class AquaButtonUI extends BasicButtonUI implements Sizeable {
         }
 
         if (text != null && !text.isEmpty()) {
+            final View v = (View)c.getClientProperty(BasicHTML.propertyKey);
             if (v != null) {
                 v.paint(g, textRect);
             } else {
@@ -400,23 +393,10 @@ public class AquaButtonUI extends BasicButtonUI implements Sizeable {
 
         if (icon == null) return;
 
-        Icon selectedIcon = null;
-
-        // the fallback icon should be based on the selected state
-        if (model.isSelected()) {
-            selectedIcon = b.getSelectedIcon();
-            if (selectedIcon != null) {
-                icon = selectedIcon;
-            }
-        }
         if (!model.isEnabled()) {
             if (model.isSelected()) {
                 tmpIcon = b.getDisabledSelectedIcon();
-               if (tmpIcon == null) {
-                   tmpIcon = selectedIcon;
-               }
-            }
-            if (tmpIcon == null) {
+            } else {
                 tmpIcon = b.getDisabledIcon();
             }
         } else if (model.isPressed() && model.isArmed()) {
@@ -429,11 +409,7 @@ public class AquaButtonUI extends BasicButtonUI implements Sizeable {
         } else if (b.isRolloverEnabled() && model.isRollover()) {
             if (model.isSelected()) {
                 tmpIcon = b.getRolloverSelectedIcon();
-                if (tmpIcon == null) {
-                    tmpIcon = selectedIcon;
-                }
-            }
-            if (tmpIcon == null) {
+            } else {
                 tmpIcon = b.getRolloverIcon();
             }
         } else if (model.isSelected()) {

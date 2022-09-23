@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,6 +22,11 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+
+/* Access APIs for Windows Vista and above */
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0601
+#endif
 
 #include "jni.h"
 #include "jni_util.h"
@@ -706,15 +711,15 @@ GetJavaProperties(JNIEnv* env)
             hStdOutErr = GetStdHandle(STD_OUTPUT_HANDLE);
             if (hStdOutErr != INVALID_HANDLE_VALUE &&
                 GetFileType(hStdOutErr) == FILE_TYPE_CHAR) {
-                sprops.stdout_encoding = getConsoleEncoding();
+                sprops.sun_stdout_encoding = getConsoleEncoding();
             }
             hStdOutErr = GetStdHandle(STD_ERROR_HANDLE);
             if (hStdOutErr != INVALID_HANDLE_VALUE &&
                 GetFileType(hStdOutErr) == FILE_TYPE_CHAR) {
-                if (sprops.stdout_encoding != NULL)
-                    sprops.stderr_encoding = sprops.stdout_encoding;
+                if (sprops.sun_stdout_encoding != NULL)
+                    sprops.sun_stderr_encoding = sprops.sun_stdout_encoding;
                 else
-                    sprops.stderr_encoding = getConsoleEncoding();
+                    sprops.sun_stderr_encoding = getConsoleEncoding();
             }
         }
     }

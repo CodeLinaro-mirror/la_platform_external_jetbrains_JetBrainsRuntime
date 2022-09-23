@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -154,14 +154,22 @@ class Deoptimization : AllStatic {
   // find all marked nmethods and they are made not_entrant.
   static void deoptimize_all_marked(nmethod* nmethod_only = NULL);
 
+ private:
+  // Revoke biased locks at deopt.
+  static void revoke_from_deopt_handler(JavaThread* thread, frame fr, RegisterMap* map);
+
+  static void revoke_for_object_deoptimization(JavaThread* deoptee_thread, frame fr,
+                                               RegisterMap* map, JavaThread* thread);
+
  public:
   // Deoptimizes a frame lazily. Deopt happens on return to the frame.
   static void deoptimize(JavaThread* thread, frame fr, DeoptReason reason = Reason_constraint);
 
 #if INCLUDE_JVMCI
   static address deoptimize_for_missing_exception_handler(CompiledMethod* cm);
-  static oop get_cached_box(AutoBoxObjectValue* bv, frame* fr, RegisterMap* reg_map, TRAPS);
 #endif
+
+  static oop get_cached_box(AutoBoxObjectValue* bv, frame* fr, RegisterMap* reg_map, TRAPS);
 
   private:
   // Does the actual work for deoptimizing a single frame
@@ -183,6 +191,7 @@ class Deoptimization : AllStatic {
   static bool relock_objects(JavaThread* thread, GrowableArray<MonitorInfo*>* monitors,
                              JavaThread* deoptee_thread, frame& fr, int exec_mode, bool realloc_failures);
   static void pop_frames_failed_reallocs(JavaThread* thread, vframeArray* array);
+  NOT_PRODUCT(static void print_objects(GrowableArray<ScopeValue*>* objects, bool realloc_failures);)
 #endif // COMPILER2_OR_JVMCI
 
   public:
@@ -434,7 +443,6 @@ class Deoptimization : AllStatic {
                                          int trap_request);
 
   static jint total_deoptimization_count();
-  static jint deoptimization_count(const char* reason_str, const char* action_str);
 
   // JVMTI PopFrame support
 

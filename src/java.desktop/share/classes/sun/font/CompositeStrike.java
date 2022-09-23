@@ -214,9 +214,4 @@ public final class CompositeStrike extends FontStrike {
             return path;
         }
     }
-
-    GlyphRenderData getGlyphRenderData(int glyphCode, float x, float y) {
-        PhysicalStrike strike = getStrikeForGlyph(glyphCode);
-        return strike.getGlyphRenderData(glyphCode & SLOTMASK, x, y);
-    }
 }

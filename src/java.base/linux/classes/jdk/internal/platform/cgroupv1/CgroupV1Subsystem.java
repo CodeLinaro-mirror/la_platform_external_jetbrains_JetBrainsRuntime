@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -150,9 +150,8 @@ public class CgroupV1Subsystem implements CgroupSubsystem, CgroupV1Metrics {
     }
 
     private static boolean getSwapEnabled(CgroupV1MemorySubSystemController controller) {
-        long memswBytes = getLongValue(controller, "memory.memsw.limit_in_bytes");
-        long swappiness = getLongValue(controller, "memory.swappiness");
-        return (memswBytes > 0 && swappiness > 0);
+         long retval = getLongValue(controller, "memory.memsw.limit_in_bytes");
+         return retval > 0;
      }
 
 
@@ -186,9 +185,9 @@ public class CgroupV1Subsystem implements CgroupSubsystem, CgroupV1Metrics {
     }
 
     private static long getLongValue(CgroupSubsystemController controller,
-                              String param) {
+                              String parm) {
         return CgroupSubsystemController.getLongValue(controller,
-                                                      param,
+                                                      parm,
                                                       CgroupV1SubsystemController::convertStringToLong,
                                                       CgroupSubsystem.LONG_RETVAL_UNLIMITED);
     }
@@ -333,6 +332,10 @@ public class CgroupV1Subsystem implements CgroupSubsystem, CgroupV1Metrics {
         return getLongValue(memory, "memory.kmem.failcnt");
     }
 
+    public long getKernelMemoryLimit() {
+        return CgroupV1SubsystemController.longValOrUnlimited(getLongValue(memory, "memory.kmem.limit_in_bytes"));
+    }
+
     public long getKernelMemoryMaxUsage() {
         return getLongValue(memory, "memory.kmem.max_usage_in_bytes");
     }
@@ -343,6 +346,10 @@ public class CgroupV1Subsystem implements CgroupSubsystem, CgroupV1Metrics {
 
     public long getTcpMemoryFailCount() {
         return getLongValue(memory, "memory.kmem.tcp.failcnt");
+    }
+
+    public long getTcpMemoryLimit() {
+        return CgroupV1SubsystemController.longValOrUnlimited(getLongValue(memory, "memory.kmem.tcp.limit_in_bytes"));
     }
 
     public long getTcpMemoryMaxUsage() {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -259,16 +259,9 @@ public class JdkInternalMiscUnsafeAccessTestLong {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = UNSAFE.weakCompareAndSetLongPlain(base, offset, 0x0123456789ABCDEFL, 0xCAFEBABECAFEBABEL);
             }
-            assertEquals(success, true, "success weakCompareAndSetPlain long");
+            assertEquals(success, true, "weakCompareAndSetPlain long");
             long x = UNSAFE.getLong(base, offset);
-            assertEquals(x, 0xCAFEBABECAFEBABEL, "success weakCompareAndSetPlain long value");
-        }
-
-        {
-            boolean success = UNSAFE.weakCompareAndSetLongPlain(base, offset, 0x0123456789ABCDEFL, 0xDEADBEEFDEADBEEFL);
-            assertEquals(success, false, "failing weakCompareAndSetPlain long");
-            long x = UNSAFE.getLong(base, offset);
-            assertEquals(x, 0xCAFEBABECAFEBABEL, "failing weakCompareAndSetPlain long value");
+            assertEquals(x, 0xCAFEBABECAFEBABEL, "weakCompareAndSetPlain long value");
         }
 
         {
@@ -276,16 +269,9 @@ public class JdkInternalMiscUnsafeAccessTestLong {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = UNSAFE.weakCompareAndSetLongAcquire(base, offset, 0xCAFEBABECAFEBABEL, 0x0123456789ABCDEFL);
             }
-            assertEquals(success, true, "success weakCompareAndSetAcquire long");
+            assertEquals(success, true, "weakCompareAndSetAcquire long");
             long x = UNSAFE.getLong(base, offset);
-            assertEquals(x, 0x0123456789ABCDEFL, "success weakCompareAndSetAcquire long");
-        }
-
-        {
-            boolean success = UNSAFE.weakCompareAndSetLongAcquire(base, offset, 0xCAFEBABECAFEBABEL, 0xDEADBEEFDEADBEEFL);
-            assertEquals(success, false, "failing weakCompareAndSetAcquire long");
-            long x = UNSAFE.getLong(base, offset);
-            assertEquals(x, 0x0123456789ABCDEFL, "failing weakCompareAndSetAcquire long value");
+            assertEquals(x, 0x0123456789ABCDEFL, "weakCompareAndSetAcquire long");
         }
 
         {
@@ -293,16 +279,9 @@ public class JdkInternalMiscUnsafeAccessTestLong {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = UNSAFE.weakCompareAndSetLongRelease(base, offset, 0x0123456789ABCDEFL, 0xCAFEBABECAFEBABEL);
             }
-            assertEquals(success, true, "success weakCompareAndSetRelease long");
+            assertEquals(success, true, "weakCompareAndSetRelease long");
             long x = UNSAFE.getLong(base, offset);
-            assertEquals(x, 0xCAFEBABECAFEBABEL, "success weakCompareAndSetRelease long");
-        }
-
-        {
-            boolean success = UNSAFE.weakCompareAndSetLongRelease(base, offset, 0x0123456789ABCDEFL, 0xDEADBEEFDEADBEEFL);
-            assertEquals(success, false, "failing weakCompareAndSetRelease long");
-            long x = UNSAFE.getLong(base, offset);
-            assertEquals(x, 0xCAFEBABECAFEBABEL, "failing weakCompareAndSetRelease long value");
+            assertEquals(x, 0xCAFEBABECAFEBABEL, "weakCompareAndSetRelease long");
         }
 
         {
@@ -310,16 +289,9 @@ public class JdkInternalMiscUnsafeAccessTestLong {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = UNSAFE.weakCompareAndSetLong(base, offset, 0xCAFEBABECAFEBABEL, 0x0123456789ABCDEFL);
             }
-            assertEquals(success, true, "success weakCompareAndSet long");
+            assertEquals(success, true, "weakCompareAndSet long");
             long x = UNSAFE.getLong(base, offset);
-            assertEquals(x, 0x0123456789ABCDEFL, "success weakCompareAndSet long");
-        }
-
-        {
-            boolean success = UNSAFE.weakCompareAndSetLong(base, offset, 0xCAFEBABECAFEBABEL, 0xDEADBEEFDEADBEEFL);
-            assertEquals(success, false, "failing weakCompareAndSet long");
-            long x = UNSAFE.getLong(base, offset);
-            assertEquals(x, 0x0123456789ABCDEFL, "failing weakCompareAndSet long value");
+            assertEquals(x, 0x0123456789ABCDEFL, "weakCompareAndSet long");
         }
 
         UNSAFE.putLong(base, offset, 0xCAFEBABECAFEBABEL);

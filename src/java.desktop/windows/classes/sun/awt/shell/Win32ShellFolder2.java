@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,9 +25,8 @@
 
 package sun.awt.shell;
 
-import java.awt.Graphics2D;
 import java.awt.Image;
-import java.awt.RenderingHints;
+import java.awt.Toolkit;
 import java.awt.image.AbstractMultiResolutionImage;
 import java.awt.image.BufferedImage;
 import java.awt.image.ImageObserver;
@@ -37,6 +36,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.Serial;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -87,7 +87,7 @@ final class Win32ShellFolder2 extends ShellFolder {
     static final int LARGE_ICON_SIZE = 32;
     static final int MIN_QUALITY_ICON = 16;
     static final int MAX_QUALITY_ICON = 256;
-    private static final int[] ICON_RESOLUTIONS
+    private final static int[] ICON_RESOLUTIONS
             = {16, 24, 32, 48, 64, 72, 96, 128, 256};
 
     static final int FILE_ICON_ID = 1;
@@ -542,13 +542,14 @@ final class Win32ShellFolder2 extends ShellFolder {
      * Check to see if two ShellFolder objects are the same
      */
     public boolean equals(Object o) {
-        if (!(o instanceof Win32ShellFolder2 rhs)) {
+        if (o == null || !(o instanceof Win32ShellFolder2)) {
             // Short-circuit circuitous delegation path
             if (!(o instanceof File)) {
                 return super.equals(o);
             }
             return pathsEqual(getPath(), ((File) o).getPath());
         }
+        Win32ShellFolder2 rhs = (Win32ShellFolder2) o;
         if ((parent == null && rhs.parent != null) ||
             (parent != null && rhs.parent == null)) {
             return false;
@@ -1332,7 +1333,7 @@ final class Win32ShellFolder2 extends ShellFolder {
         // synchronize the whole code of the sort method once
         invoke(new Callable<Void>() {
             public Void call() {
-                files.sort(new ColumnComparator(Win32ShellFolder2.this, 0));
+                Collections.sort(files, new ColumnComparator(Win32ShellFolder2.this, 0));
 
                 return null;
             }
@@ -1423,7 +1424,7 @@ final class Win32ShellFolder2 extends ShellFolder {
         public Image getResolutionVariant(double width, double height) {
             int dist = 0;
             Image retVal = null;
-            // We only care about width since we don't support non-square icons
+            // We only care about width since we don't support non-rectangular icons
             int w = (int) width;
             int retindex = 0;
             for (Integer i : resolutionVariants.keySet()) {
@@ -1436,15 +1437,6 @@ final class Win32ShellFolder2 extends ShellFolder {
                         break;
                     }
                 }
-            }
-            if (retVal.getWidth(null) != w) {
-                BufferedImage newVariant = new BufferedImage(w, w, BufferedImage.TYPE_INT_ARGB);
-                Graphics2D g2d = newVariant.createGraphics();
-                g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-                g2d.drawImage(retVal, 0,0, w, w, null);
-                g2d.dispose();
-                resolutionVariants.put(w, newVariant);
-                retVal = newVariant;
             }
             return retVal;
         }

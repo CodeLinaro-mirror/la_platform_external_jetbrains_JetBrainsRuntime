@@ -11,14 +11,10 @@ import static helper.ToolkitTestHelper.TestCase.*;
  * @summary tests that CMenu/CMenuItem methods wrapped with {AWTThreading.executeWaitToolkit} are normally callable
  * @requires (os.family == "mac")
  * @modules java.desktop/sun.lwawt.macosx java.desktop/sun.awt
- * @run main AWTThreadingCMenuTest
+ * @run main/othervm -Dapple.laf.useScreenMenuBar=true AWTThreadingCMenuTest
  * @author Anton Tarasov
  */
 public class AWTThreadingCMenuTest {
-    static {
-        System.setProperty("apple.laf.useScreenMenuBar", "true");
-    }
-
     public static void main(String[] args) {
         initTest(AWTThreadingCMenuTest.class);
 

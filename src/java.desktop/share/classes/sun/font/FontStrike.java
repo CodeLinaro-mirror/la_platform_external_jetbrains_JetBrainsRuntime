@@ -76,6 +76,5 @@ public abstract class FontStrike {
     abstract GeneralPath
         getGlyphVectorOutline(int[] glyphs, float x, float y);
 
-    abstract GlyphRenderData getGlyphRenderData(int glyphCode, float x, float y);
 
 }

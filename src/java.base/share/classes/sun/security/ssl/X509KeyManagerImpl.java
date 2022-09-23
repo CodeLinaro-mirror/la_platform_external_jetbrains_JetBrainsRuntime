@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -199,15 +199,15 @@ final class X509KeyManagerImpl extends X509ExtendedKeyManager
                             extSession.getPeerSupportedSignatureAlgorithms();
                     }
 
-                    return SSLAlgorithmConstraints.forSocket(
+                    return new SSLAlgorithmConstraints(
                         sslSocket, peerSupportedSignAlgs, true);
                 }
             }
 
-            return SSLAlgorithmConstraints.forSocket(sslSocket, true);
+            return new SSLAlgorithmConstraints(sslSocket, true);
         }
 
-        return SSLAlgorithmConstraints.DEFAULT;
+        return new SSLAlgorithmConstraints((SSLSocket)null, true);
     }
 
     // Gets algorithm constraints of the engine.
@@ -225,13 +225,13 @@ final class X509KeyManagerImpl extends X509ExtendedKeyManager
                             extSession.getPeerSupportedSignatureAlgorithms();
                     }
 
-                    return SSLAlgorithmConstraints.forEngine(
+                    return new SSLAlgorithmConstraints(
                         engine, peerSupportedSignAlgs, true);
                 }
             }
         }
 
-        return SSLAlgorithmConstraints.forEngine(engine, true);
+        return new SSLAlgorithmConstraints(engine, true);
     }
 
     // we construct the alias we return to JSSE as seen in the code below
@@ -382,13 +382,15 @@ final class X509KeyManagerImpl extends X509ExtendedKeyManager
                             issuerSet, false, checkType, constraints,
                             requestedServerNames, idAlgorithm);
                 if (results != null) {
-                    for (EntryStatus status : results) {
-                        if (status.checkResult == CheckResult.OK) {
-                            if (SSLLogger.isOn && SSLLogger.isOn("keymanager")) {
-                                SSLLogger.fine("KeyMgr: choosing key: " + status);
-                            }
-                            return makeAlias(status);
+                    // the results will either be a single perfect match
+                    // or 1 or more imperfect matches
+                    // if it's a perfect match, return immediately
+                    EntryStatus status = results.get(0);
+                    if (status.checkResult == CheckResult.OK) {
+                        if (SSLLogger.isOn && SSLLogger.isOn("keymanager")) {
+                            SSLLogger.fine("KeyMgr: choosing key: " + status);
                         }
+                        return makeAlias(status);
                     }
                     if (allResults == null) {
                         allResults = new ArrayList<EntryStatus>();

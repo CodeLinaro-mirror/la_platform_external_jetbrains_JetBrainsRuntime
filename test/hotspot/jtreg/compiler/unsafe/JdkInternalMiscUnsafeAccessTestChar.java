@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -259,16 +259,9 @@ public class JdkInternalMiscUnsafeAccessTestChar {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = UNSAFE.weakCompareAndSetCharPlain(base, offset, '\u0123', '\u4567');
             }
-            assertEquals(success, true, "success weakCompareAndSetPlain char");
+            assertEquals(success, true, "weakCompareAndSetPlain char");
             char x = UNSAFE.getChar(base, offset);
-            assertEquals(x, '\u4567', "success weakCompareAndSetPlain char value");
-        }
-
-        {
-            boolean success = UNSAFE.weakCompareAndSetCharPlain(base, offset, '\u0123', '\u89AB');
-            assertEquals(success, false, "failing weakCompareAndSetPlain char");
-            char x = UNSAFE.getChar(base, offset);
-            assertEquals(x, '\u4567', "failing weakCompareAndSetPlain char value");
+            assertEquals(x, '\u4567', "weakCompareAndSetPlain char value");
         }
 
         {
@@ -276,16 +269,9 @@ public class JdkInternalMiscUnsafeAccessTestChar {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = UNSAFE.weakCompareAndSetCharAcquire(base, offset, '\u4567', '\u0123');
             }
-            assertEquals(success, true, "success weakCompareAndSetAcquire char");
+            assertEquals(success, true, "weakCompareAndSetAcquire char");
             char x = UNSAFE.getChar(base, offset);
-            assertEquals(x, '\u0123', "success weakCompareAndSetAcquire char");
-        }
-
-        {
-            boolean success = UNSAFE.weakCompareAndSetCharAcquire(base, offset, '\u4567', '\u89AB');
-            assertEquals(success, false, "failing weakCompareAndSetAcquire char");
-            char x = UNSAFE.getChar(base, offset);
-            assertEquals(x, '\u0123', "failing weakCompareAndSetAcquire char value");
+            assertEquals(x, '\u0123', "weakCompareAndSetAcquire char");
         }
 
         {
@@ -293,16 +279,9 @@ public class JdkInternalMiscUnsafeAccessTestChar {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = UNSAFE.weakCompareAndSetCharRelease(base, offset, '\u0123', '\u4567');
             }
-            assertEquals(success, true, "success weakCompareAndSetRelease char");
+            assertEquals(success, true, "weakCompareAndSetRelease char");
             char x = UNSAFE.getChar(base, offset);
-            assertEquals(x, '\u4567', "success weakCompareAndSetRelease char");
-        }
-
-        {
-            boolean success = UNSAFE.weakCompareAndSetCharRelease(base, offset, '\u0123', '\u89AB');
-            assertEquals(success, false, "failing weakCompareAndSetRelease char");
-            char x = UNSAFE.getChar(base, offset);
-            assertEquals(x, '\u4567', "failing weakCompareAndSetRelease char value");
+            assertEquals(x, '\u4567', "weakCompareAndSetRelease char");
         }
 
         {
@@ -310,16 +289,9 @@ public class JdkInternalMiscUnsafeAccessTestChar {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = UNSAFE.weakCompareAndSetChar(base, offset, '\u4567', '\u0123');
             }
-            assertEquals(success, true, "success weakCompareAndSet char");
+            assertEquals(success, true, "weakCompareAndSet char");
             char x = UNSAFE.getChar(base, offset);
-            assertEquals(x, '\u0123', "success weakCompareAndSet char");
-        }
-
-        {
-            boolean success = UNSAFE.weakCompareAndSetChar(base, offset, '\u4567', '\u89AB');
-            assertEquals(success, false, "failing weakCompareAndSet char");
-            char x = UNSAFE.getChar(base, offset);
-            assertEquals(x, '\u0123', "failing weakCompareAndSet char value");
+            assertEquals(x, '\u0123', "weakCompareAndSet char");
         }
 
         UNSAFE.putChar(base, offset, '\u4567');

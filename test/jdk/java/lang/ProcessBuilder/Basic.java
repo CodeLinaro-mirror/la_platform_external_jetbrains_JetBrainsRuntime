@@ -27,13 +27,10 @@
  *      5026830 5023243 5070673 4052517 4811767 6192449 6397034 6413313
  *      6464154 6523983 6206031 4960438 6631352 6631966 6850957 6850958
  *      4947220 7018606 7034570 4244896 5049299 8003488 8054494 8058464
- *      8067796 8224905 8263729 8265173 8272600 8231297 8282219 8285517
+ *      8067796 8224905 8263729 8265173 8272600 8231297 8282219
  * @key intermittent
  * @summary Basic tests for Process and Environment Variable code
  * @modules java.base/java.lang:open
- *          java.base/java.io:open
- *          java.base/jdk.internal.misc
- * @requires !vm.musl
  * @library /test/lib
  * @run main/othervm/native/timeout=300 -Djava.security.manager=allow Basic
  * @run main/othervm/native/timeout=300 -Djava.security.manager=allow -Djdk.lang.Process.launchMechanism=fork Basic
@@ -43,9 +40,7 @@
 /*
  * @test
  * @modules java.base/java.lang:open
- *          java.base/java.io:open
- *          java.base/jdk.internal.misc
- * @requires (os.family == "linux" & !vm.musl)
+ * @requires (os.family == "linux")
  * @library /test/lib
  * @run main/othervm/timeout=300 -Djava.security.manager=allow -Djdk.lang.Process.launchMechanism=posix_spawn Basic
  */
@@ -55,8 +50,6 @@ import java.lang.ProcessHandle;
 import static java.lang.ProcessBuilder.Redirect.*;
 
 import java.io.*;
-import java.lang.reflect.Field;
-import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -493,15 +486,15 @@ public class Basic {
                             equal(run(pb).exitValue(),
                                   False.exitValue());
                             // Traditional shell scripts without #!
-                            if (!(Platform.isLinux() && Platform.isMusl())) {
-                                setFileContents(prog, "exec /bin/true\n");
-                                prog.setExecutable(true);
-                                equal(run(pb).exitValue(), True.exitValue());
-                                prog.delete();
-                                setFileContents(prog, "exec /bin/false\n");
-                                prog.setExecutable(true);
-                                equal(run(pb).exitValue(), False.exitValue());
-                            }
+                            setFileContents(prog, "exec /bin/true\n");
+                            prog.setExecutable(true);
+                            equal(run(pb).exitValue(),
+                                  True.exitValue());
+                            prog.delete();
+                            setFileContents(prog, "exec /bin/false\n");
+                            prog.setExecutable(true);
+                            equal(run(pb).exitValue(),
+                                  False.exitValue());
                             prog.delete();
                         }
 
@@ -518,16 +511,14 @@ public class Basic {
                         pb.command(cmd);
 
                         // Test traditional shell scripts without #!
-                        if (!(Platform.isLinux() && Platform.isMusl())) {
-                            setFileContents(dir1Prog, "/bin/echo \"$@\"\n");
-                            pb.command(new String[] {"prog", "hello", "world"});
-                            checkPermissionDenied(pb);
-                            dir1Prog.setExecutable(true);
-                            equal(run(pb).out(), "hello world\n");
-                            equal(run(pb).exitValue(), True.exitValue());
-                            dir1Prog.delete();
-                            pb.command(cmd);
-                        }
+                        setFileContents(dir1Prog, "/bin/echo \"$@\"\n");
+                        pb.command(new String[] {"prog", "hello", "world"});
+                        checkPermissionDenied(pb);
+                        dir1Prog.setExecutable(true);
+                        equal(run(pb).out(), "hello world\n");
+                        equal(run(pb).exitValue(), True.exitValue());
+                        dir1Prog.delete();
+                        pb.command(cmd);
 
                         // If prog found on both parent and child's PATH,
                         // parent's is used.
@@ -607,11 +598,7 @@ public class Basic {
         try {
             // If round trip conversion works, should be able to set env vars
             // correctly in child.
-            String jnuEncoding = System.getProperty("sun.jnu.encoding");
-            Charset cs = jnuEncoding != null
-                ? Charset.forName(jnuEncoding, Charset.defaultCharset())
-                : Charset.defaultCharset();
-            if (new String(tested.getBytes(cs), cs).equals(tested)) {
+            if (new String(tested.getBytes()).equals(tested)) {
                 out.println("Testing " + encoding + " environment values");
                 ProcessBuilder pb = new ProcessBuilder();
                 pb.environment().put("ASCIINAME",tested);
@@ -2207,7 +2194,7 @@ public class Basic {
                     // Wait until after the s.read occurs in "thread" by
                     // checking when the input stream monitor is acquired
                     // (BufferedInputStream.read is synchronized)
-                    while (!isLocked((BufferedInputStream) s)) {
+                    while (!isLocked(s, 10)) {
                         Thread.sleep(100);
                     }
                 }
@@ -2861,29 +2848,18 @@ public class Basic {
                 if (k.isAssignableFrom(t.getClass())) pass();
                 else unexpected(t);}}
 
-    static boolean isLocked(BufferedInputStream bis) throws Exception {
-        Field lockField = BufferedInputStream.class.getDeclaredField("lock");
-        lockField.setAccessible(true);
-        var lock = (jdk.internal.misc.InternalLock) lockField.get(bis);
-        if (lock != null) {
-            if (lock.tryLock()) {
-                lock.unlock();
-                return false;
-            } else {
-                return true;
-            }
-        }
+    static boolean isLocked(final Object monitor, final long millis) throws InterruptedException {
         return new Thread() {
             volatile boolean unlocked;
 
             @Override
             public void run() {
-                synchronized (bis) { unlocked = true; }
+                synchronized (monitor) { unlocked = true; }
             }
 
             boolean isLocked() throws InterruptedException {
                 start();
-                join(10);
+                join(millis);
                 return !unlocked;
             }
         }.isLocked();

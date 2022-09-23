@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,6 +38,12 @@
 
 #include "math.h"
 #include <dwmapi.h>
+
+#if defined(_MSC_VER) && _MSC_VER >= 1800
+#  define ROUND_TO_INT(num)    ((int) round(num))
+#else
+#  define ROUND_TO_INT(num)    ((int) floor((num) + 0.5))
+#endif
 
 // WDesktopProperties fields
 jfieldID AwtDesktopProperties::pDataID = 0;
@@ -104,7 +110,7 @@ void getInvScale(float &invScaleX, float &invScaleY) {
 }
 
 int rescale(int value, float invScale){
-    return invScale == 1.0f ? value : (int) round(value * invScale);
+    return invScale == 1.0f ? value : ROUND_TO_INT(value * invScale);
 }
 
 void AwtDesktopProperties::GetSystemProperties() {
@@ -139,7 +145,7 @@ void AwtDesktopProperties::GetSystemProperties() {
 // Note that it uses malloc() and returns the pointer to allocated
 // memory, so remember to use free() when you are done with its
 // result.
-static LPTSTR resolveShellDialogFont(LPCTSTR fontName, HKEY handle) {
+static LPTSTR resolveShellDialogFont(LPTSTR fontName, HKEY handle) {
     DWORD valueType, valueSize;
     if (RegQueryValueEx((HKEY)handle, fontName, NULL,
                         &valueType, NULL, &valueSize) != 0) {
@@ -165,7 +171,7 @@ static LPTSTR resolveShellDialogFont(LPCTSTR fontName, HKEY handle) {
 // memory, so remember to use free() when you are done with its
 // result.
 static LPTSTR resolveShellDialogFont() {
-    LPCTSTR subKey = TEXT("Software\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes");
+    LPTSTR subKey = TEXT("Software\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes");
 
     HKEY handle;
     if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, subKey, 0, KEY_READ, &handle) != 0) {
@@ -184,7 +190,7 @@ static LPTSTR resolveShellDialogFont() {
 // Note that it uses malloc() and returns the pointer to allocated
 // memory, so remember to use free() when you are done with its
 // result.
-static LPTSTR getWindowsPropFromReg(LPCTSTR subKey, LPCTSTR valueName, DWORD *valueType) {
+static LPTSTR getWindowsPropFromReg(LPTSTR subKey, LPTSTR valueName, DWORD *valueType) {
     HKEY handle;
     if (RegOpenKeyEx(HKEY_CURRENT_USER, subKey, 0, KEY_READ, &handle) != 0) {
         return NULL;
@@ -222,7 +228,7 @@ static LPTSTR getWindowsPropFromReg(LPCTSTR subKey, LPCTSTR valueName, DWORD *va
     }
 }
 
-static LPTSTR getXPStylePropFromReg(LPCTSTR valueName) {
+static LPTSTR getXPStylePropFromReg(LPTSTR valueName) {
     DWORD valueType;
     return getWindowsPropFromReg(TEXT("Software\\Microsoft\\Windows\\CurrentVersion\\ThemeManager"),
                                  valueName, &valueType);
@@ -287,7 +293,7 @@ void AwtDesktopProperties::GetNonClientParameters() {
     // when running on XP. However this can't be referenced at compile time
     // with the older SDK, so there use 'lfMessageFont' plus its size.
     if (!IS_WINVISTA) {
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) && (_MSC_VER >= 1600)
         ncmetrics.cbSize = offsetof(NONCLIENTMETRICS, iPaddedBorderWidth);
 #else
         ncmetrics.cbSize = offsetof(NONCLIENTMETRICS,lfMessageFont) + sizeof(LOGFONT);
@@ -716,11 +722,11 @@ void AwtDesktopProperties::GetOtherParameters() {
         throw;
     }
 
-    LPCTSTR valueName = TEXT("PlaceN");
+    LPTSTR valueName = TEXT("PlaceN");
     LPTSTR valueNameBuf = (LPTSTR)SAFE_SIZE_ARRAY_ALLOC(safe_Malloc, (lstrlen(valueName) + 1), sizeof(TCHAR));
     lstrcpy(valueNameBuf, valueName);
 
-    LPCTSTR propKey = TEXT("win.comdlg.placesBarPlaceN");
+    LPTSTR propKey = TEXT("win.comdlg.placesBarPlaceN");
 
     LPTSTR propKeyBuf;
     try {
@@ -737,7 +743,7 @@ void AwtDesktopProperties::GetOtherParameters() {
         valueNameBuf[5] = _T('0' + i++);
         propKeyBuf[25] = valueNameBuf[5];
 
-        LPCTSTR key = TEXT("Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\comdlg32\\PlacesBar");
+        LPTSTR key = TEXT("Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\comdlg32\\PlacesBar");
         try {
             value = NULL;
             if ((value = getWindowsPropFromReg(key, valueNameBuf, &valueType)) != NULL) {

@@ -364,8 +364,7 @@ public class Uri {
                             + (port == -1?"":(":" + port));
                     if (!auth.equals(hostport)) {
                         // throw if we have user info or regname
-                        throw new MalformedURLException("Authority component is not server-based, " +
-                                              "or contains user info. Unsupported authority: " + auth);
+                        throw new MalformedURLException("unsupported authority: " + auth);
                     }
                 } catch (URISyntaxException e) {
                     var mue = new MalformedURLException(e.getMessage());

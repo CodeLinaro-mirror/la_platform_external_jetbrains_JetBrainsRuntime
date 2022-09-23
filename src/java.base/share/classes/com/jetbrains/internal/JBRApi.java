@@ -87,7 +87,6 @@ import static java.lang.invoke.MethodHandles.Lookup;
  * user to directly create proxy object.
  */
 public class JBRApi {
-    static final boolean VERBOSE = Boolean.getBoolean("jetbrains.api.verbose");
 
     private static final Map<String, RegisteredProxyInfo> registeredProxyInfoByInterfaceName = new HashMap<>();
     private static final Map<String, RegisteredProxyInfo> registeredProxyInfoByTargetName = new HashMap<>();
@@ -116,9 +115,6 @@ public class JBRApi {
             knownServices = Set.of();
             knownProxies = Set.of();
         }
-        if (VERBOSE) {
-            System.out.println("JBR API init\nKNOWN_SERVICES = " + knownServices + "\nKNOWN_PROXIES = " + knownProxies);
-        }
     }
 
     /**
@@ -140,12 +136,7 @@ public class JBRApi {
             RegisteredProxyInfo info = registeredProxyInfoByInterfaceName.get(i.getName());
             if (info == null) return null;
             ProxyInfo resolved = ProxyInfo.resolve(info);
-            if (resolved == null) {
-                if (VERBOSE) {
-                    System.err.println("Couldn't resolve proxy info: " + i.getName());
-                }
-                return null;
-            } else return new Proxy<>(resolved);
+            return resolved != null ? new Proxy<>(resolved) : null;
         });
     }
 
@@ -168,10 +159,9 @@ public class JBRApi {
         RegisteredProxyInfo info = registeredProxyInfoByTargetName.get(targetName);
         if (info == null) return null;
         try {
-            return Class.forName(info.interfaceName(), true,
-                    (info.type().isPublicApi() ? outerLookup : info.apiModule()).lookupClass().getClassLoader());
-        } catch (ClassNotFoundException e) {
-            if (VERBOSE) e.printStackTrace();
+            return (info.type().isPublicApi() ? outerLookup : info.apiModule())
+                    .findClass(info.interfaceName());
+        } catch (ClassNotFoundException | IllegalAccessException e) {
             return null;
         }
     }

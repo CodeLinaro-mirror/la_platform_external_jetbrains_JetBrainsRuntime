@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,6 +29,7 @@ import sun.security.action.GetPropertyAction;
 import sun.security.ssl.SSLExtension.ExtensionConsumer;
 import sun.security.ssl.SSLExtension.SSLExtensionSpec;
 import sun.security.ssl.SSLHandshake.HandshakeMessage;
+import sun.security.ssl.SupportedGroupsExtension.SupportedGroups;
 import sun.security.util.HexDumpEncoder;
 
 import javax.crypto.Cipher;
@@ -380,7 +381,7 @@ final class SessionTicketExtension {
     }
 
     private static final class T12CHSessionTicketProducer
-            implements HandshakeProducer {
+            extends SupportedGroups implements HandshakeProducer {
         T12CHSessionTicketProducer() {
         }
 
@@ -402,13 +403,11 @@ final class SessionTicketExtension {
             chc.statelessResumption = true;
 
             // If resumption is not in progress, return an empty value
-            if (!chc.isResumption || chc.resumingSession == null
-                    || chc.resumingSession.getPskIdentity() == null
-                    || chc.resumingSession.getProtocolVersion().useTLS13PlusSpec()) {
+            if (!chc.isResumption || chc.resumingSession == null) {
                 if (SSLLogger.isOn && SSLLogger.isOn("ssl,handshake")) {
                     SSLLogger.fine("Stateless resumption supported");
                 }
-                return new byte[0];
+                return new SessionTicketSpec().getEncoded();
             }
 
             if (chc.localSupportedSignAlgs == null) {
@@ -479,7 +478,7 @@ final class SessionTicketExtension {
 
 
     private static final class T12SHSessionTicketProducer
-            implements HandshakeProducer {
+            extends SupportedGroups implements HandshakeProducer {
         T12SHSessionTicketProducer() {
         }
 

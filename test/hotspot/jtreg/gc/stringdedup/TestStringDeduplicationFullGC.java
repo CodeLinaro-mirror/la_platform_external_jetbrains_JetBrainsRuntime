@@ -24,20 +24,7 @@
 package gc.stringdedup;
 
 /*
- * @test id=Serial
- * @summary Test string deduplication during full GC
- * @bug 8029075
- * @requires vm.gc.Serial
- * @library /test/lib
- * @library /
- * @modules java.base/jdk.internal.misc:open
- * @modules java.base/java.lang:open
- *          java.management
- * @run driver gc.stringdedup.TestStringDeduplicationFullGC Serial
- */
-
-/*
- * @test id=G1
+ * @test TestStringDeduplicationFullGC
  * @summary Test string deduplication during full GC
  * @bug 8029075
  * @requires vm.gc.G1
@@ -50,20 +37,7 @@ package gc.stringdedup;
  */
 
 /*
- * @test id=Parallel
- * @summary Test string deduplication during full GC
- * @bug 8029075
- * @requires vm.gc.Parallel
- * @library /test/lib
- * @library /
- * @modules java.base/jdk.internal.misc:open
- * @modules java.base/java.lang:open
- *          java.management
- * @run driver gc.stringdedup.TestStringDeduplicationFullGC Parallel
- */
-
-/*
- * @test id=Shenandoah
+ * @test TestStringDeduplicationFullGC
  * @summary Test string deduplication during full GC
  * @bug 8029075
  * @requires vm.gc.Shenandoah
@@ -73,19 +47,6 @@ package gc.stringdedup;
  * @modules java.base/java.lang:open
  *          java.management
  * @run driver gc.stringdedup.TestStringDeduplicationFullGC Shenandoah
- */
-
-/*
- * @test id=Z
- * @summary Test string deduplication during full GC
- * @bug 8029075
- * @requires vm.gc.Z
- * @library /test/lib
- * @library /
- * @modules java.base/jdk.internal.misc:open
- * @modules java.base/java.lang:open
- *          java.management
- * @run driver gc.stringdedup.TestStringDeduplicationFullGC Z
  */
 
 public class TestStringDeduplicationFullGC {

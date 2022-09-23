@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -484,16 +484,9 @@ public class VarHandleTestAccessByte extends VarHandleBaseTest {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = vh.weakCompareAndSetPlain(recv, (byte)0x01, (byte)0x23);
             }
-            assertEquals(success, true, "success weakCompareAndSetPlain byte");
+            assertEquals(success, true, "weakCompareAndSetPlain byte");
             byte x = (byte) vh.get(recv);
-            assertEquals(x, (byte)0x23, "success weakCompareAndSetPlain byte value");
-        }
-
-        {
-            boolean success = vh.weakCompareAndSetPlain(recv, (byte)0x01, (byte)0x45);
-            assertEquals(success, false, "failing weakCompareAndSetPlain byte");
-            byte x = (byte) vh.get(recv);
-            assertEquals(x, (byte)0x23, "failing weakCompareAndSetPlain byte value");
+            assertEquals(x, (byte)0x23, "weakCompareAndSetPlain byte value");
         }
 
         {
@@ -501,16 +494,9 @@ public class VarHandleTestAccessByte extends VarHandleBaseTest {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = vh.weakCompareAndSetAcquire(recv, (byte)0x23, (byte)0x01);
             }
-            assertEquals(success, true, "success weakCompareAndSetAcquire byte");
+            assertEquals(success, true, "weakCompareAndSetAcquire byte");
             byte x = (byte) vh.get(recv);
-            assertEquals(x, (byte)0x01, "success weakCompareAndSetAcquire byte");
-        }
-
-        {
-            boolean success = vh.weakCompareAndSetAcquire(recv, (byte)0x23, (byte)0x45);
-            assertEquals(success, false, "failing weakCompareAndSetAcquire byte");
-            byte x = (byte) vh.get(recv);
-            assertEquals(x, (byte)0x01, "failing weakCompareAndSetAcquire byte value");
+            assertEquals(x, (byte)0x01, "weakCompareAndSetAcquire byte");
         }
 
         {
@@ -518,16 +504,9 @@ public class VarHandleTestAccessByte extends VarHandleBaseTest {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = vh.weakCompareAndSetRelease(recv, (byte)0x01, (byte)0x23);
             }
-            assertEquals(success, true, "success weakCompareAndSetRelease byte");
+            assertEquals(success, true, "weakCompareAndSetRelease byte");
             byte x = (byte) vh.get(recv);
-            assertEquals(x, (byte)0x23, "success weakCompareAndSetRelease byte");
-        }
-
-        {
-            boolean success = vh.weakCompareAndSetRelease(recv, (byte)0x01, (byte)0x45);
-            assertEquals(success, false, "failing weakCompareAndSetRelease byte");
-            byte x = (byte) vh.get(recv);
-            assertEquals(x, (byte)0x23, "failing weakCompareAndSetRelease byte value");
+            assertEquals(x, (byte)0x23, "weakCompareAndSetRelease byte");
         }
 
         {
@@ -535,16 +514,9 @@ public class VarHandleTestAccessByte extends VarHandleBaseTest {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = vh.weakCompareAndSet(recv, (byte)0x23, (byte)0x01);
             }
-            assertEquals(success, true, "success weakCompareAndSet byte");
+            assertEquals(success, true, "weakCompareAndSet byte");
             byte x = (byte) vh.get(recv);
-            assertEquals(x, (byte)0x01, "success weakCompareAndSet byte value");
-        }
-
-        {
-            boolean success = vh.weakCompareAndSet(recv, (byte)0x23, (byte)0x45);
-            assertEquals(success, false, "failing weakCompareAndSet byte");
-            byte x = (byte) vh.get(recv);
-            assertEquals(x, (byte)0x01, "failing weakCompareAndSet byte value");
+            assertEquals(x, (byte)0x01, "weakCompareAndSet byte value");
         }
 
         // Compare set and get
@@ -788,16 +760,9 @@ public class VarHandleTestAccessByte extends VarHandleBaseTest {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = vh.weakCompareAndSetPlain((byte)0x01, (byte)0x23);
             }
-            assertEquals(success, true, "success weakCompareAndSetPlain byte");
+            assertEquals(success, true, "weakCompareAndSetPlain byte");
             byte x = (byte) vh.get();
-            assertEquals(x, (byte)0x23, "success weakCompareAndSetPlain byte value");
-        }
-
-        {
-            boolean success = vh.weakCompareAndSetPlain((byte)0x01, (byte)0x45);
-            assertEquals(success, false, "failing weakCompareAndSetPlain byte");
-            byte x = (byte) vh.get();
-            assertEquals(x, (byte)0x23, "failing weakCompareAndSetPlain byte value");
+            assertEquals(x, (byte)0x23, "weakCompareAndSetPlain byte value");
         }
 
         {
@@ -805,16 +770,9 @@ public class VarHandleTestAccessByte extends VarHandleBaseTest {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = vh.weakCompareAndSetAcquire((byte)0x23, (byte)0x01);
             }
-            assertEquals(success, true, "success weakCompareAndSetAcquire byte");
+            assertEquals(success, true, "weakCompareAndSetAcquire byte");
             byte x = (byte) vh.get();
-            assertEquals(x, (byte)0x01, "success weakCompareAndSetAcquire byte");
-        }
-
-        {
-            boolean success = vh.weakCompareAndSetAcquire((byte)0x23, (byte)0x45);
-            assertEquals(success, false, "failing weakCompareAndSetAcquire byte");
-            byte x = (byte) vh.get();
-            assertEquals(x, (byte)0x01, "failing weakCompareAndSetAcquire byte value");
+            assertEquals(x, (byte)0x01, "weakCompareAndSetAcquire byte");
         }
 
         {
@@ -822,16 +780,9 @@ public class VarHandleTestAccessByte extends VarHandleBaseTest {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = vh.weakCompareAndSetRelease((byte)0x01, (byte)0x23);
             }
-            assertEquals(success, true, "success weakCompareAndSetRelease byte");
+            assertEquals(success, true, "weakCompareAndSetRelease byte");
             byte x = (byte) vh.get();
-            assertEquals(x, (byte)0x23, "success weakCompareAndSetRelease byte");
-        }
-
-        {
-            boolean success = vh.weakCompareAndSetRelease((byte)0x01, (byte)0x45);
-            assertEquals(success, false, "failing weakCompareAndSetRelease byte");
-            byte x = (byte) vh.get();
-            assertEquals(x, (byte)0x23, "failing weakCompareAndSetRelease byte value");
+            assertEquals(x, (byte)0x23, "weakCompareAndSetRelease byte");
         }
 
         {
@@ -839,16 +790,9 @@ public class VarHandleTestAccessByte extends VarHandleBaseTest {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = vh.weakCompareAndSet((byte)0x23, (byte)0x01);
             }
-            assertEquals(success, true, "success weakCompareAndSet byte");
+            assertEquals(success, true, "weakCompareAndSet byte");
             byte x = (byte) vh.get();
-            assertEquals(x, (byte)0x01, "success weakCompareAndSet byte");
-        }
-
-        {
-            boolean success = vh.weakCompareAndSet((byte)0x23, (byte)0x45);
-            assertEquals(success, false, "failing weakCompareAndSet byte");
-            byte x = (byte) vh.get();
-            assertEquals(x, (byte)0x01, "failing weakCompareAndSet byte value");
+            assertEquals(x, (byte)0x01, "weakCompareAndSet byte");
         }
 
         // Compare set and get
@@ -1095,16 +1039,9 @@ public class VarHandleTestAccessByte extends VarHandleBaseTest {
                 for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                     success = vh.weakCompareAndSetPlain(array, i, (byte)0x01, (byte)0x23);
                 }
-                assertEquals(success, true, "success weakCompareAndSetPlain byte");
+                assertEquals(success, true, "weakCompareAndSetPlain byte");
                 byte x = (byte) vh.get(array, i);
-                assertEquals(x, (byte)0x23, "success weakCompareAndSetPlain byte value");
-            }
-
-            {
-                boolean success = vh.weakCompareAndSetPlain(array, i, (byte)0x01, (byte)0x45);
-                assertEquals(success, false, "failing weakCompareAndSetPlain byte");
-                byte x = (byte) vh.get(array, i);
-                assertEquals(x, (byte)0x23, "failing weakCompareAndSetPlain byte value");
+                assertEquals(x, (byte)0x23, "weakCompareAndSetPlain byte value");
             }
 
             {
@@ -1112,16 +1049,9 @@ public class VarHandleTestAccessByte extends VarHandleBaseTest {
                 for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                     success = vh.weakCompareAndSetAcquire(array, i, (byte)0x23, (byte)0x01);
                 }
-                assertEquals(success, true, "success weakCompareAndSetAcquire byte");
+                assertEquals(success, true, "weakCompareAndSetAcquire byte");
                 byte x = (byte) vh.get(array, i);
-                assertEquals(x, (byte)0x01, "success weakCompareAndSetAcquire byte");
-            }
-
-            {
-                boolean success = vh.weakCompareAndSetAcquire(array, i, (byte)0x23, (byte)0x45);
-                assertEquals(success, false, "failing weakCompareAndSetAcquire byte");
-                byte x = (byte) vh.get(array, i);
-                assertEquals(x, (byte)0x01, "failing weakCompareAndSetAcquire byte value");
+                assertEquals(x, (byte)0x01, "weakCompareAndSetAcquire byte");
             }
 
             {
@@ -1129,16 +1059,9 @@ public class VarHandleTestAccessByte extends VarHandleBaseTest {
                 for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                     success = vh.weakCompareAndSetRelease(array, i, (byte)0x01, (byte)0x23);
                 }
-                assertEquals(success, true, "success weakCompareAndSetRelease byte");
+                assertEquals(success, true, "weakCompareAndSetRelease byte");
                 byte x = (byte) vh.get(array, i);
-                assertEquals(x, (byte)0x23, "success weakCompareAndSetRelease byte");
-            }
-
-            {
-                boolean success = vh.weakCompareAndSetRelease(array, i, (byte)0x01, (byte)0x45);
-                assertEquals(success, false, "failing weakCompareAndSetRelease byte");
-                byte x = (byte) vh.get(array, i);
-                assertEquals(x, (byte)0x23, "failing weakCompareAndSetRelease byte value");
+                assertEquals(x, (byte)0x23, "weakCompareAndSetRelease byte");
             }
 
             {
@@ -1146,16 +1069,9 @@ public class VarHandleTestAccessByte extends VarHandleBaseTest {
                 for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                     success = vh.weakCompareAndSet(array, i, (byte)0x23, (byte)0x01);
                 }
-                assertEquals(success, true, "success weakCompareAndSet byte");
+                assertEquals(success, true, "weakCompareAndSet byte");
                 byte x = (byte) vh.get(array, i);
-                assertEquals(x, (byte)0x01, "success weakCompareAndSet byte");
-            }
-
-            {
-                boolean success = vh.weakCompareAndSet(array, i, (byte)0x23, (byte)0x45);
-                assertEquals(success, false, "failing weakCompareAndSet byte");
-                byte x = (byte) vh.get(array, i);
-                assertEquals(x, (byte)0x01, "failing weakCompareAndSet byte value");
+                assertEquals(x, (byte)0x01, "weakCompareAndSet byte");
             }
 
             // Compare set and get

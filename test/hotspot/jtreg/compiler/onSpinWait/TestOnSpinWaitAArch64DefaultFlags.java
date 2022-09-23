@@ -1,5 +1,5 @@
 /*
- * Copyright Amazon.com Inc. or its affiliates. All Rights Reserved.
+ * Copyright Amazon.com Inc. or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,8 +29,8 @@
  *
  * @requires os.arch=="aarch64"
  *
- * @build jdk.test.whitebox.WhiteBox
- * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
+ * @build sun.hotspot.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller sun.hotspot.WhiteBox
  * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions
  *                   -XX:+WhiteBoxAPI
  *                   compiler.onSpinWait.TestOnSpinWaitAArch64DefaultFlags
@@ -42,7 +42,7 @@ import java.util.Iterator;
 import java.util.List;
 import jdk.test.lib.process.OutputAnalyzer;
 import jdk.test.lib.process.ProcessTools;
-import jdk.test.whitebox.cpuinfo.CPUInfo;
+import sun.hotspot.cpuinfo.CPUInfo;
 
 public class TestOnSpinWaitAArch64DefaultFlags {
     private static boolean isCPUModelNeoverseN1(String cpuModel) {

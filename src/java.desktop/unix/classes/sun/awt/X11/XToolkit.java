@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -935,7 +935,9 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
             }
         }
         if (dispatchers != null) {
-            for (XEventDispatcher disp : dispatchers) {
+            Iterator<XEventDispatcher> iter = dispatchers.iterator();
+            while (iter.hasNext()) {
+                XEventDispatcher disp = iter.next();
                 disp.dispatchEvent(ev);
             }
         }
@@ -1712,7 +1714,9 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
                         awt_multiclick_time = AWT_MULTICLICK_DEFAULT_TIME;
                     }
                 }
-            } catch (NumberFormatException | NullPointerException e) {
+            } catch (NumberFormatException nf) {
+                awt_multiclick_time = AWT_MULTICLICK_DEFAULT_TIME;
+            } catch (NullPointerException npe) {
                 awt_multiclick_time = AWT_MULTICLICK_DEFAULT_TIME;
             }
         } finally {
@@ -1901,7 +1905,7 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
     @Override
     protected Object lazilyLoadDesktopProperty(String name) {
         if (name.startsWith(prefix)) {
-            String cursorName = name.substring(prefix.length()) + postfix;
+            String cursorName = name.substring(prefix.length(), name.length()) + postfix;
 
             try {
                 return Cursor.getSystemCustomCursor(cursorName);
@@ -1993,7 +1997,9 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
             return;
         }
 
-        for (Map.Entry<String, Object> e : updatedSettings.entrySet()) {
+        Iterator<Map.Entry<String, Object>> i = updatedSettings.entrySet().iterator();
+        while (i.hasNext()) {
+            Map.Entry<String, Object> e = i.next();
             String name = e.getKey();
 
             name = "gnome." + name;
@@ -2322,7 +2328,9 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
         while (time.compareTo(currentTime) <= 0) {
             java.util.List<Runnable> tasks = timeoutTasks.remove(time);
 
-            for (Runnable task : tasks) {
+            for (Iterator<Runnable> iter = tasks.iterator(); iter.hasNext();) {
+                Runnable task = iter.next();
+
                 if (timeoutTaskLog.isLoggable(PlatformLogger.Level.FINER)) {
                     timeoutTaskLog.finer("XToolkit.callTimeoutTasks(): current time={0}" +
                                          ";  about to run task={1}", Long.valueOf(currentTime), task);

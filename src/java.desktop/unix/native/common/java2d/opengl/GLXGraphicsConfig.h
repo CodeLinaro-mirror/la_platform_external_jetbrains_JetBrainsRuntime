@@ -86,7 +86,7 @@ typedef struct _GLXCtxInfo {
     GLXPbuffer  scratchSurface;
 } GLXCtxInfo;
 
-jboolean GLXGC_IsGLXAvailable(jboolean glxRecommended);
+jboolean GLXGC_IsGLXAvailable();
 VisualID GLXGC_FindBestVisual(JNIEnv *env, jint screen);
 
 #endif /* HEADLESS */

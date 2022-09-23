@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -496,7 +496,6 @@ typedef FcResult (*FcPatternGetStringFuncType)(const FcPattern *p,
                                                FcChar8 ** s);
 typedef FcChar8* (*FcStrDirnameFuncType)(const FcChar8 *file);
 typedef void (*FcPatternDestroyFuncType)(FcPattern *p);
-typedef void (*FcObjectSetDestroyFuncType)(FcObjectSet *os);
 typedef void (*FcFontSetDestroyFuncType)(FcFontSet *s);
 typedef FcPattern* (*FcNameParseFuncType)(const FcChar8 *name);
 typedef FcBool (*FcPatternAddStringFuncType)(FcPattern *p,
@@ -544,7 +543,6 @@ static char **getFontConfigLocations() {
     FcPatternGetStringFuncType FcPatternGetString;
     FcStrDirnameFuncType FcStrDirname;
     FcPatternDestroyFuncType FcPatternDestroy;
-    FcObjectSetDestroyFuncType FcObjectSetDestroy;
     FcFontSetDestroyFuncType FcFontSetDestroy;
 
     FcConfig *fontconfig;
@@ -574,8 +572,6 @@ static char **getFontConfigLocations() {
         (FcStrDirnameFuncType)dlsym(libfontconfig, "FcStrDirname");
     FcPatternDestroy   =
         (FcPatternDestroyFuncType)dlsym(libfontconfig, "FcPatternDestroy");
-    FcObjectSetDestroy =
-        (FcObjectSetDestroyFuncType)dlsym(libfontconfig, "FcObjectSetDestroy");
     FcFontSetDestroy   =
         (FcFontSetDestroyFuncType)dlsym(libfontconfig, "FcFontSetDestroy");
 
@@ -585,7 +581,6 @@ static char **getFontConfigLocations() {
         FcFontList         == NULL ||
         FcStrDirname       == NULL ||
         FcPatternDestroy   == NULL ||
-        FcObjectSetDestroy == NULL ||
         FcFontSetDestroy   == NULL) { /* problem with the library: return. */
         closeFontConfig(libfontconfig, JNI_FALSE);
         return NULL;
@@ -642,7 +637,6 @@ static char **getFontConfigLocations() {
 
 cleanup:
     /* Free memory and close the ".so" */
-    (*FcObjectSetDestroy)(objset);
     (*FcPatternDestroy)(pattern);
     closeFontConfig(libfontconfig, JNI_TRUE);
     return fontdirs;
@@ -946,10 +940,8 @@ Java_sun_font_FontConfigManager_getFontConfig
         if (cacheDirs != NULL) {
             while ((cnt < max) && (cacheDir = (*FcStrListNext)(cacheDirs))) {
                 jstr = (*env)->NewStringUTF(env, (const char*)cacheDir);
-                if (IS_NULL(jstr)) {
-                    (*FcStrListDone)(cacheDirs);
-                    return;
-                }
+                JNU_CHECK_EXCEPTION(env);
+
                 (*env)->SetObjectArrayElement(env, cacheDirArray, cnt++, jstr);
                 (*env)->DeleteLocalRef(env, jstr);
             }

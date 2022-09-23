@@ -22,7 +22,7 @@
  */
 
 /*
- * @test id=Z
+ * @test id=z
  * @key randomness
  * @bug 8059022 8271855
  * @modules java.base/jdk.internal.misc:+open
@@ -38,7 +38,7 @@
  */
 
 /*
- * @test id=Shenandoah
+ * @test id=shenandoah
  * @key randomness
  * @bug 8255401 8251944
  * @modules java.base/jdk.internal.misc:+open

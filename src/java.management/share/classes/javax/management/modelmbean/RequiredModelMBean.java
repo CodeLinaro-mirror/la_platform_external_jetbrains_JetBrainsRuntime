@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -144,7 +144,7 @@ public class RequiredModelMBean
 
     private static final JavaSecurityAccess javaSecurityAccess = SharedSecrets.getJavaSecurityAccess();
     @SuppressWarnings("removal")
-    private final AccessControlContext acc = AccessController.getContext();
+    final private AccessControlContext acc = AccessController.getContext();
 
     /*************************************/
     /* constructors                      */
@@ -192,7 +192,7 @@ public class RequiredModelMBean
      *
      * @exception MBeanException Wraps a distributed communication Exception.
      * @exception RuntimeOperationsException Wraps an
-     *    {@link java.lang.IllegalArgumentException}:
+     *    {link java.lang.IllegalArgumentException}:
      *          The MBeanInfo passed in parameter is null.
      *
      **/
@@ -1176,7 +1176,9 @@ public class RequiredModelMBean
                     try {
                         ReflectUtil.checkPackageAccess(method.getDeclaringClass());
                         return MethodUtil.invoke(method, targetObject, opArgs);
-                    } catch (InvocationTargetException | IllegalAccessException e) {
+                    } catch (InvocationTargetException e) {
+                        caughtException[0] = e;
+                    } catch (IllegalAccessException e) {
                         caughtException[0] = e;
                     }
                     return null;
@@ -1190,6 +1192,10 @@ public class RequiredModelMBean
                 }
             }
             return rslt;
+        } catch (RuntimeErrorException ree) {
+            throw new RuntimeOperationsException(ree,
+                      "RuntimeException occurred in RequiredModelMBean "+
+                      "while trying to invoke operation " + opName);
         } catch (RuntimeException re) {
             throw new RuntimeOperationsException(re,
                       "RuntimeException occurred in RequiredModelMBean "+
@@ -1643,8 +1649,10 @@ public class RequiredModelMBean
                     "attribute value through a RequiredModelMBean");
             }
 
-        } catch (MBeanException | AttributeNotFoundException e) {
-            throw e;
+        } catch (MBeanException mbe) {
+            throw mbe;
+        } catch (AttributeNotFoundException t) {
+            throw t;
         } catch (Exception e) {
             if (tracing) {
                 MODELMBEAN_LOGGER.log(Level.TRACE,
@@ -2238,7 +2246,9 @@ public class RequiredModelMBean
         try {
             if (info == null) return false;
             else return (info.getNotification(notifName)!=null);
-        } catch (MBeanException | RuntimeOperationsException x) {
+        } catch (MBeanException x) {
+            return false;
+        } catch (RuntimeOperationsException r) {
             return false;
         }
     }
@@ -2325,7 +2335,7 @@ public class RequiredModelMBean
            (ModelMBeanNotificationInfo[])modelMBeanInfo.getNotifications();
 
         // Length of the returned list of notification infos:
-        //    length of user supplied list + possibly 1 for GENERIC, +
+        //    length of user suplied list + possibly 1 for GENERIC, +
         //    possibly 1 for ATTRIBUTE_CHANGE
         //    (bug 4744667)
         final int len = ((currInfo==null?0:currInfo.length) +

@@ -83,8 +83,4 @@ public class NativeStrike extends PhysicalStrike {
         return null;
     }
 
-    GlyphRenderData getGlyphRenderData(int glyphCode, float x, float y) {
-        return null;
-    }
-
 }

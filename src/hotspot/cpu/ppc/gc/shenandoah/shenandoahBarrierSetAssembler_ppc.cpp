@@ -38,8 +38,8 @@
 #include "gc/shenandoah/shenandoahThreadLocalData.hpp"
 #include "gc/shenandoah/heuristics/shenandoahHeuristics.hpp"
 #include "interpreter/interpreter.hpp"
-#include "runtime/javaThread.hpp"
 #include "runtime/sharedRuntime.hpp"
+#include "runtime/thread.hpp"
 #include "utilities/globalDefinitions.hpp"
 #include "vm_version_ppc.hpp"
 
@@ -781,7 +781,7 @@ void ShenandoahBarrierSetAssembler::gen_pre_barrier_stub(LIR_Assembler *ce, Shen
   // If 'do_load()' returns false, the to-be-stored value is already available in 'stub->pre_val()'
   // ("preloaded mode" of the store barrier).
   if (stub->do_load()) {
-    ce->mem2reg(stub->addr(), stub->pre_val(), T_OBJECT, stub->patch_code(), stub->info(), false);
+    ce->mem2reg(stub->addr(), stub->pre_val(), T_OBJECT, stub->patch_code(), stub->info(), false, false /*unaligned*/);
   }
 
   // Fast path: Reference is null.

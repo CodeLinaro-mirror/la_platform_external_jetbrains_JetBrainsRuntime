@@ -65,9 +65,8 @@ static id<MTLRenderCommandEncoder> encoder = NULL;
         MTLVC_ADD_VERTEX(TX1, TY1, DX1, DY1, 0); \
     } while (0)
 
-// Next define should exactly match to the amount
-// of MTLVC_ADD_VERTEX in MTLVC_ADD_TRIANGLES
-#define VERTS_FOR_A_QUAD 6
+//Next define should exactly match to the amount of MTLVC_ADD_VERTEX in MTLVC_ADD_TRIANGLES
+#define MTL_TRIS_IN_VERTEX 6
 
 jboolean
 MTLVertexCache_InitVertexCache()
@@ -227,11 +226,9 @@ MTLVertexCache_AddMaskQuad(MTLContext *mtlc,
     J2dTraceLn1(J2D_TRACE_INFO, "MTLVertexCache_AddMaskQuad: %d",
                 maskCacheIndex);
 
-    // MTLVC_ADD_TRIANGLES at the end of this function
-    // will place VERTS_FOR_A_QUAD vertexes to the vertex cache
+    // MTLVC_ADD_TRIANGLES at the end of this function will place MTL_TRIS_IN_VERTEX vertexes to the vertex cache
     // check free space and flush if needed.
-    if ((maskCacheIndex >= MTLVC_MASK_CACHE_MAX_INDEX) ||
-         ((vertexCacheIndex + VERTS_FOR_A_QUAD) >= MTLVC_MAX_INDEX))
+    if ((maskCacheIndex >= MTLVC_MASK_CACHE_MAX_INDEX) || ((vertexCacheIndex + MTL_TRIS_IN_VERTEX) >= MTLVC_MAX_INDEX))
     {
         J2dTraceLn2(J2D_TRACE_INFO, "maskCacheIndex = %d, vertexCacheIndex = %d", maskCacheIndex, vertexCacheIndex);
         MTLVertexCache_FlushVertexCache(mtlc);
@@ -317,9 +314,8 @@ MTLVertexCache_AddGlyphQuad(MTLContext *mtlc,
 {
     J2dTraceLn(J2D_TRACE_INFO, "MTLVertexCache_AddGlyphQuad");
 
-    // MTLVC_ADD_TRIANGLES adds VERTS_FOR_A_QUAD vertexes into Cache
-    // so need to check space for VERTS_FOR_A_QUAD elements
-    if ((vertexCacheIndex + VERTS_FOR_A_QUAD) >= MTLVC_MAX_INDEX)
+    // MTLVC_ADD_TRIANGLES adds MTL_TRIS_IN_VERTEX vertexes into Cache, so need to check space for MTL_TRIS_IN_VERTEX elements
+    if ((vertexCacheIndex + MTL_TRIS_IN_VERTEX) >= MTLVC_MAX_INDEX)
     {
         J2dTraceLn2(J2D_TRACE_INFO, "maskCacheIndex = %d, vertexCacheIndex = %d", maskCacheIndex, vertexCacheIndex);
         MTLVertexCache_FlushGlyphVertexCache();

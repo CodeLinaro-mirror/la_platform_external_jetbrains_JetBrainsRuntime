@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -241,16 +241,9 @@ public class JdkInternalMiscUnsafeAccessTestFloat {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = UNSAFE.weakCompareAndSetFloatPlain(base, offset, 1.0f, 2.0f);
             }
-            assertEquals(success, true, "success weakCompareAndSetPlain float");
+            assertEquals(success, true, "weakCompareAndSetPlain float");
             float x = UNSAFE.getFloat(base, offset);
-            assertEquals(x, 2.0f, "success weakCompareAndSetPlain float value");
-        }
-
-        {
-            boolean success = UNSAFE.weakCompareAndSetFloatPlain(base, offset, 1.0f, 3.0f);
-            assertEquals(success, false, "failing weakCompareAndSetPlain float");
-            float x = UNSAFE.getFloat(base, offset);
-            assertEquals(x, 2.0f, "failing weakCompareAndSetPlain float value");
+            assertEquals(x, 2.0f, "weakCompareAndSetPlain float value");
         }
 
         {
@@ -258,16 +251,9 @@ public class JdkInternalMiscUnsafeAccessTestFloat {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = UNSAFE.weakCompareAndSetFloatAcquire(base, offset, 2.0f, 1.0f);
             }
-            assertEquals(success, true, "success weakCompareAndSetAcquire float");
+            assertEquals(success, true, "weakCompareAndSetAcquire float");
             float x = UNSAFE.getFloat(base, offset);
-            assertEquals(x, 1.0f, "success weakCompareAndSetAcquire float");
-        }
-
-        {
-            boolean success = UNSAFE.weakCompareAndSetFloatAcquire(base, offset, 2.0f, 3.0f);
-            assertEquals(success, false, "failing weakCompareAndSetAcquire float");
-            float x = UNSAFE.getFloat(base, offset);
-            assertEquals(x, 1.0f, "failing weakCompareAndSetAcquire float value");
+            assertEquals(x, 1.0f, "weakCompareAndSetAcquire float");
         }
 
         {
@@ -275,16 +261,9 @@ public class JdkInternalMiscUnsafeAccessTestFloat {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = UNSAFE.weakCompareAndSetFloatRelease(base, offset, 1.0f, 2.0f);
             }
-            assertEquals(success, true, "success weakCompareAndSetRelease float");
+            assertEquals(success, true, "weakCompareAndSetRelease float");
             float x = UNSAFE.getFloat(base, offset);
-            assertEquals(x, 2.0f, "success weakCompareAndSetRelease float");
-        }
-
-        {
-            boolean success = UNSAFE.weakCompareAndSetFloatRelease(base, offset, 1.0f, 3.0f);
-            assertEquals(success, false, "failing weakCompareAndSetRelease float");
-            float x = UNSAFE.getFloat(base, offset);
-            assertEquals(x, 2.0f, "failing weakCompareAndSetRelease float value");
+            assertEquals(x, 2.0f, "weakCompareAndSetRelease float");
         }
 
         {
@@ -292,16 +271,9 @@ public class JdkInternalMiscUnsafeAccessTestFloat {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = UNSAFE.weakCompareAndSetFloat(base, offset, 2.0f, 1.0f);
             }
-            assertEquals(success, true, "success weakCompareAndSet float");
+            assertEquals(success, true, "weakCompareAndSet float");
             float x = UNSAFE.getFloat(base, offset);
-            assertEquals(x, 1.0f, "success weakCompareAndSet float");
-        }
-
-        {
-            boolean success = UNSAFE.weakCompareAndSetFloat(base, offset, 2.0f, 3.0f);
-            assertEquals(success, false, "failing weakCompareAndSet float");
-            float x = UNSAFE.getFloat(base, offset);
-            assertEquals(x, 1.0f, "failing weakCompareAndSet float value");
+            assertEquals(x, 1.0f, "weakCompareAndSet float");
         }
 
         UNSAFE.putFloat(base, offset, 2.0f);

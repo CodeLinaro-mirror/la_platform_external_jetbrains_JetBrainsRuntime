@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -212,16 +212,9 @@ public class VarHandleTestMethodHandleAccessChar extends VarHandleBaseTest {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_PLAIN).invokeExact(recv, '\u0123', '\u4567');
             }
-            assertEquals(success, true, "success weakCompareAndSetPlain char");
+            assertEquals(success, true, "weakCompareAndSetPlain char");
             char x = (char) hs.get(TestAccessMode.GET).invokeExact(recv);
-            assertEquals(x, '\u4567', "success weakCompareAndSetPlain char value");
-        }
-
-        {
-            boolean success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_PLAIN).invokeExact(recv, '\u0123', '\u89AB');
-            assertEquals(success, false, "failing weakCompareAndSetPlain char");
-            char x = (char) hs.get(TestAccessMode.GET).invokeExact(recv);
-            assertEquals(x, '\u4567', "failing weakCompareAndSetPlain char value");
+            assertEquals(x, '\u4567', "weakCompareAndSetPlain char value");
         }
 
         {
@@ -229,16 +222,9 @@ public class VarHandleTestMethodHandleAccessChar extends VarHandleBaseTest {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_ACQUIRE).invokeExact(recv, '\u4567', '\u0123');
             }
-            assertEquals(success, true, "success weakCompareAndSetAcquire char");
+            assertEquals(success, true, "weakCompareAndSetAcquire char");
             char x = (char) hs.get(TestAccessMode.GET).invokeExact(recv);
-            assertEquals(x, '\u0123', "success weakCompareAndSetAcquire char");
-        }
-
-        {
-            boolean success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_ACQUIRE).invokeExact(recv, '\u4567', '\u89AB');
-            assertEquals(success, false, "failing weakCompareAndSetAcquire char");
-            char x = (char) hs.get(TestAccessMode.GET).invokeExact(recv);
-            assertEquals(x, '\u0123', "failing weakCompareAndSetAcquire char value");
+            assertEquals(x, '\u0123', "weakCompareAndSetAcquire char");
         }
 
         {
@@ -246,16 +232,9 @@ public class VarHandleTestMethodHandleAccessChar extends VarHandleBaseTest {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_RELEASE).invokeExact(recv, '\u0123', '\u4567');
             }
-            assertEquals(success, true, "success weakCompareAndSetRelease char");
+            assertEquals(success, true, "weakCompareAndSetRelease char");
             char x = (char) hs.get(TestAccessMode.GET).invokeExact(recv);
-            assertEquals(x, '\u4567', "success weakCompareAndSetRelease char");
-        }
-
-        {
-            boolean success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_RELEASE).invokeExact(recv, '\u0123', '\u89AB');
-            assertEquals(success, false, "failing weakCompareAndSetRelease char");
-            char x = (char) hs.get(TestAccessMode.GET).invokeExact(recv);
-            assertEquals(x, '\u4567', "failing weakCompareAndSetRelease char value");
+            assertEquals(x, '\u4567', "weakCompareAndSetRelease char");
         }
 
         {
@@ -263,16 +242,9 @@ public class VarHandleTestMethodHandleAccessChar extends VarHandleBaseTest {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET).invokeExact(recv, '\u4567', '\u0123');
             }
-            assertEquals(success, true, "success weakCompareAndSet char");
+            assertEquals(success, true, "weakCompareAndSet char");
             char x = (char) hs.get(TestAccessMode.GET).invokeExact(recv);
-            assertEquals(x, '\u0123', "success weakCompareAndSet char");
-        }
-
-        {
-            boolean success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET).invokeExact(recv, '\u4567', '\u89AB');
-            assertEquals(success, false, "failing weakCompareAndSet char");
-            char x = (char) hs.get(TestAccessMode.GET).invokeExact(recv);
-            assertEquals(x, '\u0123', "failing weakCompareAndSet char value");
+            assertEquals(x, '\u0123', "weakCompareAndSet char");
         }
 
         // Compare set and get
@@ -496,16 +468,9 @@ public class VarHandleTestMethodHandleAccessChar extends VarHandleBaseTest {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_PLAIN).invokeExact('\u0123', '\u4567');
             }
-            assertEquals(success, true, "success weakCompareAndSetPlain char");
+            assertEquals(success, true, "weakCompareAndSetPlain char");
             char x = (char) hs.get(TestAccessMode.GET).invokeExact();
-            assertEquals(x, '\u4567', "success weakCompareAndSetPlain char value");
-        }
-
-        {
-            boolean success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_PLAIN).invokeExact('\u0123', '\u89AB');
-            assertEquals(success, false, "failing weakCompareAndSetPlain char");
-            char x = (char) hs.get(TestAccessMode.GET).invokeExact();
-            assertEquals(x, '\u4567', "failing weakCompareAndSetPlain char value");
+            assertEquals(x, '\u4567', "weakCompareAndSetPlain char value");
         }
 
         {
@@ -513,16 +478,9 @@ public class VarHandleTestMethodHandleAccessChar extends VarHandleBaseTest {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_ACQUIRE).invokeExact('\u4567', '\u0123');
             }
-            assertEquals(success, true, "success weakCompareAndSetAcquire char");
+            assertEquals(success, true, "weakCompareAndSetAcquire char");
             char x = (char) hs.get(TestAccessMode.GET).invokeExact();
-            assertEquals(x, '\u0123', "success weakCompareAndSetAcquire char");
-        }
-
-        {
-            boolean success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_ACQUIRE).invokeExact('\u4567', '\u89AB');
-            assertEquals(success, false, "failing weakCompareAndSetAcquire char");
-            char x = (char) hs.get(TestAccessMode.GET).invokeExact();
-            assertEquals(x, '\u0123', "failing weakCompareAndSetAcquire char value");
+            assertEquals(x, '\u0123', "weakCompareAndSetAcquire char");
         }
 
         {
@@ -530,16 +488,9 @@ public class VarHandleTestMethodHandleAccessChar extends VarHandleBaseTest {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_RELEASE).invokeExact('\u0123', '\u4567');
             }
-            assertEquals(success, true, "success weakCompareAndSetRelease char");
+            assertEquals(success, true, "weakCompareAndSetRelease char");
             char x = (char) hs.get(TestAccessMode.GET).invokeExact();
-            assertEquals(x, '\u4567', "success weakCompareAndSetRelease char");
-        }
-
-        {
-            boolean success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_RELEASE).invokeExact('\u0123', '\u89AB');
-            assertEquals(success, false, "failing weakCompareAndSetRelease char");
-            char x = (char) hs.get(TestAccessMode.GET).invokeExact();
-            assertEquals(x, '\u4567', "failing weakCompareAndSetRelease char value");
+            assertEquals(x, '\u4567', "weakCompareAndSetRelease char");
         }
 
         {
@@ -547,16 +498,9 @@ public class VarHandleTestMethodHandleAccessChar extends VarHandleBaseTest {
             for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                 success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET).invokeExact('\u4567', '\u0123');
             }
-            assertEquals(success, true, "success weakCompareAndSet char");
+            assertEquals(success, true, "weakCompareAndSet char");
             char x = (char) hs.get(TestAccessMode.GET).invokeExact();
-            assertEquals(x, '\u0123', "success weakCompareAndSet char");
-        }
-
-        {
-            boolean success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET).invokeExact('\u4567', '\u89AB');
-            assertEquals(success, false, "failing weakCompareAndSet char");
-            char x = (char) hs.get(TestAccessMode.GET).invokeExact();
-            assertEquals(x, '\u0123', "failing weakCompareAndSetRe char value");
+            assertEquals(x, '\u0123', "weakCompareAndSet char");
         }
 
         // Compare set and get
@@ -805,16 +749,9 @@ public class VarHandleTestMethodHandleAccessChar extends VarHandleBaseTest {
                 for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                     success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_PLAIN).invokeExact(array, i, '\u0123', '\u4567');
                 }
-                assertEquals(success, true, "success weakCompareAndSetPlain char");
+                assertEquals(success, true, "weakCompareAndSetPlain char");
                 char x = (char) hs.get(TestAccessMode.GET).invokeExact(array, i);
-                assertEquals(x, '\u4567', "success weakCompareAndSetPlain char value");
-            }
-
-            {
-                boolean success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_PLAIN).invokeExact(array, i, '\u0123', '\u89AB');
-                assertEquals(success, false, "failing weakCompareAndSetPlain char");
-                char x = (char) hs.get(TestAccessMode.GET).invokeExact(array, i);
-                assertEquals(x, '\u4567', "failing weakCompareAndSetPlain char value");
+                assertEquals(x, '\u4567', "weakCompareAndSetPlain char value");
             }
 
             {
@@ -822,16 +759,9 @@ public class VarHandleTestMethodHandleAccessChar extends VarHandleBaseTest {
                 for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                     success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_ACQUIRE).invokeExact(array, i, '\u4567', '\u0123');
                 }
-                assertEquals(success, true, "success weakCompareAndSetAcquire char");
+                assertEquals(success, true, "weakCompareAndSetAcquire char");
                 char x = (char) hs.get(TestAccessMode.GET).invokeExact(array, i);
-                assertEquals(x, '\u0123', "success weakCompareAndSetAcquire char");
-            }
-
-            {
-                boolean success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_ACQUIRE).invokeExact(array, i, '\u4567', '\u89AB');
-                assertEquals(success, false, "failing weakCompareAndSetAcquire char");
-                char x = (char) hs.get(TestAccessMode.GET).invokeExact(array, i);
-                assertEquals(x, '\u0123', "failing weakCompareAndSetAcquire char value");
+                assertEquals(x, '\u0123', "weakCompareAndSetAcquire char");
             }
 
             {
@@ -839,16 +769,9 @@ public class VarHandleTestMethodHandleAccessChar extends VarHandleBaseTest {
                 for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                     success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_RELEASE).invokeExact(array, i, '\u0123', '\u4567');
                 }
-                assertEquals(success, true, "success weakCompareAndSetRelease char");
+                assertEquals(success, true, "weakCompareAndSetRelease char");
                 char x = (char) hs.get(TestAccessMode.GET).invokeExact(array, i);
-                assertEquals(x, '\u4567', "success weakCompareAndSetRelease char");
-            }
-
-            {
-                boolean success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET_ACQUIRE).invokeExact(array, i, '\u0123', '\u89AB');
-                assertEquals(success, false, "failing weakCompareAndSetAcquire char");
-                char x = (char) hs.get(TestAccessMode.GET).invokeExact(array, i);
-                assertEquals(x, '\u4567', "failing weakCompareAndSetAcquire char value");
+                assertEquals(x, '\u4567', "weakCompareAndSetRelease char");
             }
 
             {
@@ -856,16 +779,9 @@ public class VarHandleTestMethodHandleAccessChar extends VarHandleBaseTest {
                 for (int c = 0; c < WEAK_ATTEMPTS && !success; c++) {
                     success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET).invokeExact(array, i, '\u4567', '\u0123');
                 }
-                assertEquals(success, true, "success weakCompareAndSet char");
+                assertEquals(success, true, "weakCompareAndSet char");
                 char x = (char) hs.get(TestAccessMode.GET).invokeExact(array, i);
-                assertEquals(x, '\u0123', "success weakCompareAndSet char");
-            }
-
-            {
-                boolean success = (boolean) hs.get(TestAccessMode.WEAK_COMPARE_AND_SET).invokeExact(array, i, '\u4567', '\u89AB');
-                assertEquals(success, false, "failing weakCompareAndSet char");
-                char x = (char) hs.get(TestAccessMode.GET).invokeExact(array, i);
-                assertEquals(x, '\u0123', "failing weakCompareAndSet char value");
+                assertEquals(x, '\u0123', "weakCompareAndSet char");
             }
 
             // Compare set and get
