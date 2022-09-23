@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -43,7 +43,6 @@ BackendGlobalData *gdata = NULL;
 static jboolean isInterface(jclass clazz);
 static jboolean isArrayClass(jclass clazz);
 static char * getPropertyUTF8(JNIEnv *env, char *propertyName);
-static jboolean isEnhancedClassRedefinitionEnabled(JNIEnv *env);
 
 /* Save an object reference for use later (create a NewGlobalRef) */
 void
@@ -285,8 +284,6 @@ util_initialize(JNIEnv *env)
                     "Exception occurred calling VMSupport.getAgentProperties");
             }
         }
-
-        gdata->isEnhancedClassRedefinitionEnabled = isEnhancedClassRedefinitionEnabled(env);
 
     } END_WITH_LOCAL_REFS(env);
 
@@ -1043,7 +1040,7 @@ debugMonitorWait(jrawMonitorID monitor)
      * According to the JLS (17.8), here we have
      * either :
      * a- been notified
-     * b- gotten a suprious wakeup
+     * b- gotten a spurious wakeup
      * c- been interrupted
      * If both a and c have happened, the VM must choose
      * which way to return - a or c.  If it chooses c
@@ -1552,6 +1549,13 @@ isClass(jobject object)
 }
 
 jboolean
+isVThread(jobject object)
+{
+    JNIEnv *env = getEnv();
+    return JNI_FUNC_PTR(env,IsVirtualThread)(env, object);
+}
+
+jboolean
 isThread(jobject object)
 {
     JNIEnv *env = getEnv();
@@ -1703,36 +1707,6 @@ getPropertyUTF8(JNIEnv *env, char *propertyName)
     }
     return value;
 }
-
-static jboolean
-isEnhancedClassRedefinitionEnabled(JNIEnv *env)
-{
-    jvmtiError error;
-    jint count, i;
-    jvmtiExtensionFunctionInfo* ext_funcs;
-
-    error = JVMTI_FUNC_PTR(gdata->jvmti,GetExtensionFunctions)
-                (gdata->jvmti, &count, &ext_funcs);
-    if (error != JVMTI_ERROR_NONE) {
-        return JNI_FALSE;
-    }
-
-    for (i=0; i<count; i++) {
-        if (strcmp(ext_funcs[i].id, (char*)"com.sun.hotspot.functions.IsEnhancedClassRedefinitionEnabled") == 0) {
-            jboolean enabled;
-            error = (*ext_funcs[i].func)(gdata->jvmti, &enabled);
-
-            if (error != JVMTI_ERROR_NONE) {
-                return JNI_FALSE;
-            } else {
-                return enabled;
-            }
-        }
-    }
-
-    return JNI_FALSE;
-}
-
 
 jboolean
 isMethodObsolete(jmethodID method)
@@ -1974,6 +1948,8 @@ eventIndexInit(void)
     index2jvmti[EI_MONITOR_WAITED     -EI_min] = JVMTI_EVENT_MONITOR_WAITED;
     index2jvmti[EI_VM_INIT            -EI_min] = JVMTI_EVENT_VM_INIT;
     index2jvmti[EI_VM_DEATH           -EI_min] = JVMTI_EVENT_VM_DEATH;
+    index2jvmti[EI_VIRTUAL_THREAD_START -EI_min] = JVMTI_EVENT_VIRTUAL_THREAD_START;
+    index2jvmti[EI_VIRTUAL_THREAD_END   -EI_min] = JVMTI_EVENT_VIRTUAL_THREAD_END;
 
     index2jdwp[EI_SINGLE_STEP         -EI_min] = JDWP_EVENT(SINGLE_STEP);
     index2jdwp[EI_BREAKPOINT          -EI_min] = JDWP_EVENT(BREAKPOINT);
@@ -1995,6 +1971,9 @@ eventIndexInit(void)
     index2jdwp[EI_MONITOR_WAITED      -EI_min] = JDWP_EVENT(MONITOR_WAITED);
     index2jdwp[EI_VM_INIT             -EI_min] = JDWP_EVENT(VM_INIT);
     index2jdwp[EI_VM_DEATH            -EI_min] = JDWP_EVENT(VM_DEATH);
+    /* Just map VIRTUAL_THREAD_START/END to THREAD_START/END. */
+    index2jdwp[EI_VIRTUAL_THREAD_START -EI_min] = JDWP_EVENT(THREAD_START);
+    index2jdwp[EI_VIRTUAL_THREAD_END   -EI_min] = JDWP_EVENT(THREAD_END);
 }
 
 jdwpEvent
@@ -2061,6 +2040,10 @@ eventIndex2EventName(EventIndex ei)
             return "EI_VM_INIT";
         case EI_VM_DEATH:
             return "EI_VM_DEATH";
+        case EI_VIRTUAL_THREAD_START:
+            return "EI_VIRTUAL_THREAD_START";
+        case EI_VIRTUAL_THREAD_END:
+            return "EI_VIRTUAL_THREAD_END";
         default:
             JDI_ASSERT(JNI_FALSE);
             return "Bad EI";
@@ -2174,6 +2157,12 @@ jvmti2EventIndex(jvmtiEvent kind)
             return EI_VM_INIT;
         case JVMTI_EVENT_VM_DEATH:
             return EI_VM_DEATH;
+        /* vthread events */
+        case JVMTI_EVENT_VIRTUAL_THREAD_START:
+            return EI_VIRTUAL_THREAD_START;
+        case JVMTI_EVENT_VIRTUAL_THREAD_END:
+            return EI_VIRTUAL_THREAD_END;
+
         default:
             EXIT_ERROR(AGENT_ERROR_INVALID_INDEX,"JVMTI to EventIndex mapping");
             break;
@@ -2287,6 +2276,8 @@ map2jdwpError(jvmtiError error)
             return JDWP_ERROR(METHOD_MODIFIERS_CHANGE_NOT_IMPLEMENTED);
         case JVMTI_ERROR_UNSUPPORTED_REDEFINITION_CLASS_ATTRIBUTE_CHANGED:
             return JDWP_ERROR(CLASS_ATTRIBUTE_CHANGE_NOT_IMPLEMENTED);
+        case JVMTI_ERROR_UNSUPPORTED_OPERATION:
+            return JDWP_ERROR(NOT_IMPLEMENTED);
         case AGENT_ERROR_NOT_CURRENT_FRAME:
             return JDWP_ERROR(NOT_CURRENT_FRAME);
         case AGENT_ERROR_INVALID_TAG:
@@ -2442,7 +2433,7 @@ log_debugee_location(const char *func,
         }
 
         /* Issue log message */
-        LOG_LOC(("%s: debugee: thread=%p(%s:0x%x),method=%p(%s@%d;%s)",
+        LOG_LOC(("%s: debuggee: thread=%p(%s:0x%x),method=%p(%s@%d;%s)",
                 func,
                 thread, info.name==NULL ? "?" : info.name, state,
                 method, method_name==NULL ? "?" : method_name,

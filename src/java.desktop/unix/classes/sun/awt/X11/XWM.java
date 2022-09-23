@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -111,7 +111,8 @@ final class XWM
         UNITY_COMPIZ_WM = 16,
         XMONAD_WM = 17,
         AWESOME_WM = 18,
-        I3_WM = 19;
+        I3_WM = 19,
+        WESTON_WM = 20;
 
     public String toString() {
         switch  (WMID) {
@@ -149,8 +150,8 @@ final class XWM
               return "XMonad";
           case AWESOME_WM:
               return "Awesome";
-          case XWM.I3_WM:
-              return "I3WM";
+          case WESTON_WM:
+              return "Weston";
           case UNDETERMINED_WM:
           default:
               return "Undetermined WM";
@@ -266,7 +267,7 @@ final class XWM
          * Quick checks for specific servers.
          */
         String vendor_string = XlibWrapper.ServerVendor(XToolkit.getDisplay());
-        if (vendor_string.indexOf("eXcursion") != -1) {
+        if (vendor_string.contains("eXcursion")) {
             /*
              * Use NO_WM since in all other aspects eXcursion is like not
              * having a window manager running. I.e. it does not reparent
@@ -628,6 +629,10 @@ final class XWM
         return isNetWMName("i3");
     }
 
+    static boolean isWeston() {
+        return isNetWMName("Weston");
+    }
+
     static int awtWMNonReparenting = -1;
     static boolean isNonReparentingWM() {
         if (awtWMNonReparenting == -1) {
@@ -833,6 +838,8 @@ final class XWM
                 awt_wmgr = XWM.AWESOME_WM;
             } else if (isI3()) {
                 awt_wmgr = XWM.I3_WM;
+            } else if (isWeston()) {
+                awt_wmgr = XWM.WESTON_WM;
             }
             /*
              * We don't check for legacy WM when we already know that WM
@@ -1467,8 +1474,6 @@ final class XWM
               return true;
           case XWM.ENLIGHTEN_WM:
               /* At least E16 is buggy. */
-              return true;
-          case XWM.I3_WM:
               return true;
           default:
               return false;

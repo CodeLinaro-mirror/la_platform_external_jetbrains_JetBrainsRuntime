@@ -80,7 +80,6 @@ class MethodHandles: AllStatic {
 
   // CallSite support
   static void add_dependent_nmethod(oop call_site, nmethod* nm);
-  static void remove_dependent_nmethod(oop call_site, nmethod* nm);
   static void clean_dependency_context(oop call_site);
 
   static void flush_dependent_nmethods(Handle call_site, Handle target);
@@ -182,9 +181,6 @@ public:
   static bool ref_kind_has_receiver(int ref_kind) {
     assert(ref_kind_is_valid(ref_kind), "");
     return (ref_kind & 1) != 0;
-  }
-  static bool ref_kind_is_static(int ref_kind) {
-    return !ref_kind_has_receiver(ref_kind) && (ref_kind != JVM_REF_newInvokeSpecial);
   }
 
   static int ref_kind_to_flags(int ref_kind);

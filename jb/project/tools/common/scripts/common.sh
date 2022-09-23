@@ -36,8 +36,8 @@ architecture=${3:-x64} # aarch64 or x64
 
 check_bundle_type_maketest
 
-tag_prefix="jbr-"
-OPENJDK_TAG=$(git log --simplify-by-decoration --decorate=short --pretty=short | grep "$tag_prefix" | cut -d "(" -f2 | cut -d ")" -f1 | awk '{print $2}' | sort -t "-" -k 2 -g | tail -n 1 | tr -d ",")
+tag_prefix="jdk-"
+OPENJDK_TAG=$(git log --simplify-by-decoration --decorate=short --pretty=short | grep "$tag_prefix" | cut -d "(" -f2 | cut -d ")" -f1 | awk '{print $2}' | sort -t "-" -k 2 -g | tail -n 1)
 VERSION_FEATURE=$(getVersionProp "DEFAULT_VERSION_FEATURE")
 VERSION_INTERIM=$(getVersionProp "DEFAULT_VERSION_INTERIM")
 VERSION_UPDATE=$(getVersionProp "DEFAULT_VERSION_UPDATE")
@@ -66,9 +66,11 @@ TZ=UTC
 export TZ
 SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
 export SOURCE_DATE_EPOCH
-USER=builduser
-export USER
 
+COPYRIGHT_YEAR=""
+BUILD_TIME=""
+TOUCH_TIME=""
+REPRODUCIBLE_TAR_OPTS=""
 case "$OS_NAME" in
     Linux)
         COPYRIGHT_YEAR="$(date --utc --date=@$SOURCE_DATE_EPOCH +%Y)"
@@ -94,15 +96,23 @@ REPRODUCIBLE_BUILD_OPTS="--enable-reproducible-build
   --with-source-date=$SOURCE_DATE_EPOCH
   --with-hotspot-build-time=$BUILD_TIME
   --with-copyright-year=$COPYRIGHT_YEAR
-  --disable-absolute-paths-in-output"
+  --disable-absolute-paths-in-output
+  --with-build-user=builduser"
 
 function zip_native_debug_symbols() {
   image_bundle_path=$(echo $1 | cut -d"/" -f-4)
+  jdk_name=$(echo $1 | cut -d"/" -f5)
   jbr_diz_name=$2
 
-  (cd $image_bundle_path && find . -name '*.diz' -exec rsync -R {} ../../../../dizfiles \; )
+  [ -d "dizfiles" ] && rm -rf dizfiles
+  mkdir dizfiles
 
-  (cd dizfiles && find . -print0 | COPYFILE_DISABLE=1 \
+  rsync_target="../../../../dizfiles"
+  [ -z "$jdk_name" ] && rsync_target=$rsync_target"/"$jbr_diz_name
+  (cd $image_bundle_path && find . -name '*.diz' -exec rsync -R {} $rsync_target \;)
+  [ ! -z "$jdk_name" ] && mv dizfiles/$jdk_name dizfiles/$jbr_diz_name
+
+  (cd dizfiles && find $jbr_diz_name -print0 | COPYFILE_DISABLE=1 \
     tar --no-recursion --null -T - -czf ../"$jbr_diz_name".tar.gz) || do_exit $?
 }
 
@@ -137,7 +147,7 @@ function update_jsdk_mods() {
   # re-create java.base.jmod with updated hashes
   tmp=.java.base.$$.tmp
   mkdir "$tmp" || exit $?
-  hash_modules=$("$JSDK"/bin/jmod describe "$__orig_jsdk_mods"/java.base.jmod | grep hashes | awk '{print $2}' | tr '\n' '|' | sed s/\|$//) || exit $?
+  hash_modules=$("$__jsdk"/bin/jmod describe "$__orig_jsdk_mods"/java.base.jmod | grep hashes | awk '{print $2}' | tr '\n' '|' | sed s/\|$//) || exit $?
   "$__jsdk"/bin/jmod extract --dir "$tmp" "$__orig_jsdk_mods"/java.base.jmod || exit $?
   rm "$__updated_jsdk_mods"/java.base.jmod || exit $? # temp exclude from path
   "$__jsdk"/bin/jmod \

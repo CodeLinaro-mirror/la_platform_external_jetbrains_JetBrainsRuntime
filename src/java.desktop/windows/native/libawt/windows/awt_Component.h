@@ -766,7 +766,6 @@ public:
     int ScaleDownAbsX(int x);
     int ScaleDownY(int y);
     int ScaleDownAbsY(int y);
-    void ScaleDownRect(RECT& r);
 
 private:
     /* A bitmask keeps the button's numbers as MK_LBUTTON, MK_MBUTTON, MK_RBUTTON

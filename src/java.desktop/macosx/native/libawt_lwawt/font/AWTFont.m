@@ -1720,7 +1720,7 @@ static NSDictionary* prebuiltFamilyNames() {
              @"Inter-Bold": @"Inter",
              @"Inter-BoldItalic": @"Inter",
              @"Inter-Italic": @"Inter",
-             @"Inter-Regular": @"Inter",
+             @"Inter-Regular": @"Inter"
              };
 }
 
@@ -3039,6 +3039,10 @@ static NSDictionary* prebuiltFaceNames() {
              @"SourceCodePro-BoldIt" : @"Bold Italic",
              @"SourceCodePro-It" : @"Italic",
              @"SourceCodePro-Regular" : @"Regular",
+             @"Inter-Bold": @"Bold",
+             @"Inter-BoldItalic": @"Bold Italoc",
+             @"Inter-Italic": @"Italic",
+             @"Inter-Regular": @"Regular"
             };
 }
 

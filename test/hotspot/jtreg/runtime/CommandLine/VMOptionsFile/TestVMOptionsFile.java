@@ -242,7 +242,6 @@ public class TestVMOptionsFile {
     private static ProcessBuilder createProcessBuilder() throws Exception {
         ProcessBuilder pb;
         List<String> runJava = new ArrayList<>();
-        runJava.add("-XX:-IgnoreUnrecognizedVMOptions");
 
         runJava.addAll(VMParams);
         runJava.add(PrintPropertyAndOptions.class.getName());

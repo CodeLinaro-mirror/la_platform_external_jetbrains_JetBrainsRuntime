@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -197,18 +197,11 @@ void* Klass::operator new(size_t size, ClassLoaderData* loader_data, size_t word
   return Metaspace::allocate(loader_data, word_size, MetaspaceObj::ClassType, THREAD);
 }
 
-// "Normal" instantiation is preceeded by a MetaspaceObj allocation
+// "Normal" instantiation is preceded by a MetaspaceObj allocation
 // which zeros out memory - calloc equivalent.
 // The constructor is also used from CppVtableCloner,
 // which doesn't zero out the memory before calling the constructor.
-Klass::Klass(KlassID id) : _id(id),
-                           _prototype_header(markWord::prototype()),
-                           _old_version(NULL),
-                           _new_version(NULL),
-                           _redefinition_flags(Klass::NoRedefinition),
-                           _is_redefining(false),
-                           _update_information(NULL),
-                           _is_copying_backwards(false),
+Klass::Klass(KlassKind kind) : _kind(kind),
                            _shared_class_path_index(-1) {
   CDS_ONLY(_shared_class_flags = 0;)
   CDS_JAVA_HEAP_ONLY(_archived_mirror_index = -1;)
@@ -474,27 +467,6 @@ void Klass::clean_subklass() {
   }
 }
 
-void Klass::remove_from_sibling_list() {
-  debug_only(verify();)
-
-  // remove ourselves to superklass' subklass list
-  InstanceKlass* super = superklass();
-  if (super == NULL) return;        // special case: class Object
-  if (super->subklass() == this) {
-    // this klass is the first subklass
-    super->set_subklass(next_sibling());
-  } else {
-    Klass* sib = super->subklass();
-    assert(sib != NULL, "cannot find this class in sibling list!");
-    while (sib->next_sibling() != this) {
-      sib = sib->next_sibling();
-      assert(sib != NULL, "cannot find this class in sibling list!");
-    }
-    sib->set_next_sibling(next_sibling());
-  }
-  debug_only(verify();)
-}
-
 void Klass::clean_weak_klass_links(bool unloading_occurred, bool clean_alive_klasses) {
   if (!ClassUnloading || !unloading_occurred) {
     return;
@@ -550,9 +522,14 @@ void Klass::metaspace_pointers_do(MetaspaceClosure* it) {
     it->push(&_primary_supers[i]);
   }
   it->push(&_super);
-  it->push((Klass**)&_subklass);
-  it->push((Klass**)&_next_sibling);
-  it->push(&_next_link);
+  if (!Arguments::is_dumping_archive()) {
+    // If dumping archive, these may point to excluded classes. There's no need
+    // to follow these pointers anyway, as they will be set to NULL in
+    // remove_unshareable_info().
+    it->push((Klass**)&_subklass);
+    it->push((Klass**)&_next_sibling);
+    it->push(&_next_link);
+  }
 
   vtableEntry* vt = start_of_vtable();
   for (int i=0; i<vtable_length(); i++) {
@@ -560,6 +537,7 @@ void Klass::metaspace_pointers_do(MetaspaceClosure* it) {
   }
 }
 
+#if INCLUDE_CDS
 void Klass::remove_unshareable_info() {
   assert (Arguments::is_dumping_archive(),
           "only called during CDS dump time");
@@ -627,7 +605,7 @@ void Klass::restore_unshareable_info(ClassLoaderData* loader_data, Handle protec
   if (this->has_archived_mirror_index()) {
     ResourceMark rm(THREAD);
     log_debug(cds, mirror)("%s has raw archived mirror", external_name());
-    if (HeapShared::open_archive_heap_region_mapped()) {
+    if (HeapShared::are_archived_mirrors_available()) {
       bool present = java_lang_Class::restore_archived_mirror(this, loader, module_handle,
                                                               protection_domain,
                                                               CHECK);
@@ -650,6 +628,7 @@ void Klass::restore_unshareable_info(ClassLoaderData* loader_data, Handle protec
     java_lang_Class::create_mirror(this, loader, module_handle, protection_domain, Handle(), CHECK);
   }
 }
+#endif // INCLUDE_CDS
 
 #if INCLUDE_CDS_JAVA_HEAP
 oop Klass::archived_java_mirror() {
@@ -739,10 +718,6 @@ const char* Klass::external_kind() const {
   return "class";
 }
 
-int Klass::atomic_incr_biased_lock_revocation_count() {
-  return (int) Atomic::add(&_biased_lock_revocation_count, 1);
-}
-
 // Unless overridden, jvmti_class_status has no flags set.
 jint Klass::jvmti_class_status() const {
   return 0;
@@ -770,8 +745,6 @@ void Klass::oop_print_on(oop obj, outputStream* st) {
   if (WizardMode) {
      // print header
      obj->mark().print_on(st);
-     st->cr();
-     st->print(BULLET"prototype_header: " INTPTR_FORMAT, _prototype_header.value());
      st->cr();
   }
 

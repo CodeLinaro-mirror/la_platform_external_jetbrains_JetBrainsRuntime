@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -55,23 +55,28 @@ import sun.java2d.xr.XRSurfaceData;
  * @see GraphicsDevice
  * @see java.awt.GraphicsConfiguration
  */
-@SuppressWarnings("removal")
 public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
 
     static {
+        initStatic();
+    }
+
+    @SuppressWarnings("removal")
+    private static void initStatic() {
         java.security.AccessController.doPrivileged(
                           new java.security.PrivilegedAction<Object>() {
             public Object run() {
                 System.loadLibrary("awt");
 
                 /*
-                 * Note: The MToolkit object depends on the static initializer
+                 * Note: The XToolkit object depends on the static initializer
                  * of X11GraphicsEnvironment to initialize the connection to
                  * the X11 server.
                  */
                 if (!isHeadless()) {
                     // first check the OGL system property
                     boolean glxRequested = false;
+                    boolean glxRecommended = false;
                     String prop = System.getProperty("sun.java2d.opengl");
                     if (prop != null) {
                         if (prop.equals("true") || prop.equals("t")) {
@@ -80,6 +85,9 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
                             glxRequested = true;
                             glxVerbose = true;
                         }
+                    } else if (openGLRecommended()) {
+                        glxRequested = true;
+                        glxRecommended = true;
                     }
 
                     // Now check for XRender system property
@@ -104,7 +112,7 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
 
                     // only attempt to initialize GLX if it was requested
                     if (glxRequested) {
-                        glxAvailable = initGLX();
+                        glxAvailable = initGLX(glxRecommended);
                         if (glxVerbose && !glxAvailable) {
                             System.out.println(
                                 "Could not enable OpenGL " +
@@ -135,11 +143,21 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
 
     }
 
+    private static boolean isVMWare() {
+        final String virtName = System.getProperty("jbr.virtualization.information");
+        return virtName != null && virtName.equals("VMWare virtualization");
+    }
+
+    private static boolean openGLRecommended() {
+        final String sessionType = System.getenv("XDG_SESSION_TYPE");
+        return (sessionType != null && sessionType.equals("wayland") && isVMWare());
+    }
+
 
     private static boolean glxAvailable;
     private static boolean glxVerbose;
 
-    private static native boolean initGLX();
+    private static native boolean initGLX(boolean glxRecommended);
 
     public static boolean isGLXAvailable() {
         return glxAvailable;
@@ -234,7 +252,7 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
             throw new AWTError("no screen devices");
         }
         int index = getDefaultScreenNum();
-        mainScreen = 0 < index && index < screens.length ? index : 0;
+        mainScreen = 0 < index && index < numScreens ? index : 0;
 
         for (int id = 0; id < numScreens; ++id) {
             devices.put(id, old.containsKey(id) ? old.remove(id) :
@@ -303,6 +321,7 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
             return true;
         }
 
+        @SuppressWarnings("removal")
         String isRemote = java.security.AccessController.doPrivileged(
             new sun.security.action.GetPropertyAction("sun.java2d.remote"));
         if (isRemote != null) {
@@ -325,6 +344,7 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
             return true;
         }
 
+        @SuppressWarnings("removal")
         Boolean result = java.security.AccessController.doPrivileged(
             new java.security.PrivilegedAction<Boolean>() {
             public Boolean run() {

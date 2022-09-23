@@ -28,10 +28,10 @@ package sun.lwawt.macosx;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.IllegalComponentStateException;
 import java.awt.KeyboardFocusManager;
 import java.awt.Point;
 import java.awt.Window;
-import java.awt.EventQueue;
 import java.awt.event.KeyEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
@@ -43,9 +43,9 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.Arrays;
 import java.util.function.Function;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.accessibility.Accessible;
 import javax.accessibility.AccessibleAction;
@@ -72,7 +72,6 @@ import javax.swing.tree.TreePath;
 import sun.awt.AWTAccessor;
 import sun.lwawt.LWWindowPeer;
 
-@SuppressWarnings("removal")
 class CAccessibility implements PropertyChangeListener {
     private static Set<String> ignoredRoles;
     private static final int INVOKE_TIMEOUT_SECONDS;
@@ -128,12 +127,7 @@ class CAccessibility implements PropertyChangeListener {
     private native void focusChanged();
 
     static <T> T invokeAndWait(final Callable<T> callable, final Component c) {
-        if (c != null) {
-            try {
-                return EventQueue.isDispatchThread() ? callable.call() : invokeAndWait(callable, c, (T)null);
-            } catch (final Exception e) { e.printStackTrace(); }
-        }
-        return null;
+        return invokeAndWait(callable, c, (T)null);
     }
 
     static <T> T invokeAndWait(final Callable<T> callable, final Component c, final T defValue) {
@@ -477,7 +471,16 @@ class CAccessibility implements PropertyChangeListener {
     public static Accessible accessibilityHitTest(final Container parent, final float hitPointX, final float hitPointY) {
         return invokeAndWait(new Callable<Accessible>() {
             public Accessible call() throws Exception {
-                final Point p = parent.getLocationOnScreen();
+                if (parent == null) {
+                    return null;
+                }
+
+                final Point p;
+                try {
+                    p = parent.getLocationOnScreen();
+                } catch (IllegalComponentStateException ice) {
+                    return null;
+                }
 
                 // Make it into local coords
                 final Point localPoint = new Point((int)(hitPointX - p.getX()), (int)(hitPointY - p.getY()));
@@ -635,8 +638,8 @@ class CAccessibility implements PropertyChangeListener {
         return invokeAndWait(new Callable<Accessible>() {
             public Accessible call() throws Exception {
                 Component c = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-                if (c == null || !(c instanceof Accessible)) return null;
-                return CAccessible.getCAccessible((Accessible)c);
+                if (!(c instanceof Accessible accessible)) return null;
+                return CAccessible.getCAccessible(accessible);
             }
         }, c);
     }

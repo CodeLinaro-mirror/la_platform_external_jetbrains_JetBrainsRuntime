@@ -41,9 +41,11 @@ import sun.lwawt.LWWindowPeer;
 
 import sun.java2d.SurfaceData;
 import sun.java2d.opengl.CGLLayer;
-import sun.lwawt.macosx.CFLayer;
+import sun.util.logging.PlatformLogger;
 
 public class CPlatformView extends CFRetainedResource {
+    private static final PlatformLogger logger =
+            PlatformLogger.getLogger(CPlatformView.class.getName());
     private native long nativeCreateView(int x, int y, int width, int height, long windowLayerPtr);
     private static native void nativeSetAutoResizable(long awtView, boolean toResize);
     private static native int nativeGetNSViewDisplayID(long awtView);
@@ -63,6 +65,7 @@ public class CPlatformView extends CFRetainedResource {
         initializeBase(peer, responder);
 
         this.windowLayer = CGraphicsDevice.usingMetalPipeline()? createMTLLayer() : createCGLayer();
+
         setPtr(nativeCreateView(0, 0, 0, 0, getWindowLayerPtr()));
     }
 
@@ -133,6 +136,10 @@ public class CPlatformView extends CFRetainedResource {
             ref.set(nativeIsViewUnderMouse(ptr));
         });
         return ref.get();
+    }
+
+    public void setWindowLayerOpaque(boolean opaque) {
+        windowLayer.setOpaque(opaque);
     }
 
     public GraphicsDevice getGraphicsDevice() {
@@ -206,5 +213,14 @@ public class CPlatformView extends CFRetainedResource {
      */
     private void deliverWindowDidExposeEvent() {
         peer.notifyExpose(peer.getSize());
+    }
+
+    private void deliverChangeBackingProperties(float scale) {
+        if (logger.isLoggable(PlatformLogger.Level.FINE)) {
+            logger.fine("Changed backing properties, scale = " + scale);
+        }
+        if (scale > 0) {
+            windowLayer.replaceSurfaceData(Math.round(scale));
+        }
     }
 }

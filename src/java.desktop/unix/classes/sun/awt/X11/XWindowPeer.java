@@ -31,7 +31,6 @@ import java.awt.event.FocusEvent;
 import java.awt.event.WindowEvent;
 import java.awt.peer.ComponentPeer;
 import java.awt.peer.WindowPeer;
-import java.io.UnsupportedEncodingException;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -49,6 +48,8 @@ import sun.security.action.GetPropertyAction;
 
 import javax.swing.JPopupMenu;
 import javax.swing.JWindow;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 class XWindowPeer extends XPanelPeer implements WindowPeer,
                                                 DisplayChangedListener {
@@ -299,8 +300,7 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
         if (iconImages.size() != 0) {
             //read icon images from target
             winAttr.iconsInherited = false;
-            for (Iterator<Image> i = iconImages.iterator(); i.hasNext(); ) {
-                Image image = i.next();
+            for (Image image : iconImages) {
                 if (image == null) {
                     if (log.isLoggable(PlatformLogger.Level.FINEST)) {
                         log.finest("XWindowPeer.updateIconImages: Skipping the image passed into Java because it's null.");
@@ -396,8 +396,8 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
     static void dumpIcons(java.util.List<IconInfo> icons) {
         if (iconLog.isLoggable(PlatformLogger.Level.FINEST)) {
             iconLog.finest(">>> Sizes of icon images:");
-            for (Iterator<IconInfo> i = icons.iterator(); i.hasNext(); ) {
-                iconLog.finest("    {0}", i.next());
+            for (IconInfo icon : icons) {
+                iconLog.finest("    {0}", icon);
             }
         }
     }
@@ -411,10 +411,10 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
         final ComponentAccessor acc = AWTAccessor.getComponentAccessor();
         for (int i = 0; i < cnt; i++) {
             final ComponentPeer childPeer = acc.getPeer(children[i]);
-            if (childPeer != null && childPeer instanceof XWindowPeer) {
-                if (((XWindowPeer)childPeer).winAttr.iconsInherited) {
-                    ((XWindowPeer)childPeer).winAttr.icons = icons;
-                    ((XWindowPeer)childPeer).recursivelySetIcon(icons);
+            if (childPeer instanceof XWindowPeer xWindowPeer) {
+                if (xWindowPeer.winAttr.iconsInherited) {
+                    xWindowPeer.winAttr.icons = icons;
+                    xWindowPeer.recursivelySetIcon(icons);
                 }
             }
         }
@@ -647,9 +647,9 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
      * called to check if we've been moved onto a different screen
      * Based on checkNewXineramaScreen() in awt_GraphicsEnv.c
      */
-    public boolean checkIfOnNewScreen(Rectangle newBounds) {
+    public void checkIfOnNewScreen(Rectangle newBounds) {
         if (!XToolkit.localEnv.runningXinerama()) {
-            return false;
+            return;
         }
 
         if (log.isLoggable(PlatformLogger.Level.FINEST)) {
@@ -698,9 +698,7 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
                 log.finest("XWindowPeer: Moved to a new screen");
             }
             executeDisplayChangedOnEDT(newGC);
-            return true;
         }
-        return false;
     }
 
     /**
@@ -723,16 +721,7 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
      * X11GraphicsDevice when the display mode has been changed.
      */
     public void displayChanged() {
-        boolean onNewScreen = false;
-        XToolkit.awtLock();
-        try {
-            onNewScreen = checkIfOnNewScreen(getBounds());
-        } finally {
-            XToolkit.awtUnlock();
-        }
-        if (!onNewScreen) {
-            executeDisplayChangedOnEDT(getGraphicsConfiguration());
-        }
+        executeDisplayChangedOnEDT(getGraphicsConfiguration());
     }
 
     /**
@@ -1417,12 +1406,7 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
         }
         messageBuilder.append('"');
         messageBuilder.append('\0');
-        final byte[] message;
-        try {
-            message = messageBuilder.toString().getBytes("UTF-8");
-        } catch (UnsupportedEncodingException cannotHappen) {
-            return;
-        }
+        final byte[] message = messageBuilder.toString().getBytes(UTF_8);
 
         XClientMessageEvent req = null;
 
@@ -1497,7 +1481,11 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
         }
         if (shouldFocusOnMapNotify()) {
             focusLog.fine("Automatically request focus on window");
-            requestInitialFocus();
+            if (XWM.isWeston()) {
+                requestInitialFocusInternally();
+            } else {
+                requestInitialFocus();
+            }
         } else {
             dequeueKeyEvents();
         }
@@ -1549,6 +1537,18 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
 
     protected void requestInitialFocus() {
         requestXFocus();
+    }
+
+    // This will request focus without sending any requests to X server or window manager.
+    // It can only work for 'simple' windows, as their focusing is managed internally
+    // (natively, simple window's owner is seen as focused window).
+    private void requestInitialFocusInternally() {
+        if (isSimpleWindow() &&
+                XKeyboardFocusManagerPeer.getInstance().getCurrentFocusOwner() == getDecoratedOwner((Window)target)) {
+            handleWindowFocusInSync(-1, this::dequeueKeyEvents);
+        } else {
+            dequeueKeyEvents();
+        }
     }
 
     public void addToplevelStateListener(ToplevelStateListener l){
@@ -1618,7 +1618,7 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
      */
     static Vector<XWindowPeer> collectJavaToplevels() {
         Vector<XWindowPeer> javaToplevels = new Vector<XWindowPeer>();
-        Vector<Long> v = new Vector<Long>();
+        ArrayList<Long> v = new ArrayList<Long>();
         X11GraphicsEnvironment ge =
             (X11GraphicsEnvironment)GraphicsEnvironment.getLocalGraphicsEnvironment();
         GraphicsDevice[] gds = ge.getScreenDevices();

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,6 +23,7 @@
 
 #include "precompiled.hpp"
 #include "runtime/mutex.hpp"
+#include "runtime/os.hpp" // malloc
 #include "runtime/semaphore.hpp"
 #include "runtime/thread.hpp"
 #include "runtime/vmThread.hpp"
@@ -42,10 +43,10 @@ struct Pointer : public AllStatic {
     return (uintx)value;
   }
   static void* allocate_node(void* context, size_t size, const Value& value) {
-    return ::malloc(size);
+    return os::malloc(size, mtTest);
   }
   static void free_node(void* context, void* memory, const Value& value) {
-    ::free(memory);
+    os::free(memory);
   }
 };
 
@@ -60,7 +61,7 @@ struct Allocator {
   uint cur_index;
 
   Allocator() : cur_index(0) {
-    elements = (TableElement*)::malloc(nelements * sizeof(TableElement));
+    elements = (TableElement*)os::malloc(nelements * sizeof(TableElement), mtTest);
   }
 
   void* allocate_node() {
@@ -74,7 +75,7 @@ struct Allocator {
   }
 
   ~Allocator() {
-    ::free(elements);
+    os::free(elements);
   }
 };
 
@@ -1065,13 +1066,21 @@ TEST_VM(ConcurrentHashTable, concurrent_get_insert_bulk_delete) {
 
 class MT_BD_Thread : public JavaTestThread {
   TestTable::BulkDeleteTask* _bd;
+  Semaphore run;
+
   public:
-  MT_BD_Thread(Semaphore* post, TestTable::BulkDeleteTask* bd)
-    : JavaTestThread(post), _bd(bd){}
+  MT_BD_Thread(Semaphore* post)
+    : JavaTestThread(post) {}
   virtual ~MT_BD_Thread() {}
   void main_run() {
+    run.wait();
     MyDel del;
     while(_bd->do_task(this, *this, del));
+  }
+
+  void set_bd_task(TestTable::BulkDeleteTask* bd) {
+    _bd = bd;
+    run.signal();
   }
 
   bool operator()(uintptr_t* val) {
@@ -1098,13 +1107,19 @@ public:
       TestLookup tl(v);
       EXPECT_TRUE(cht->insert(this, tl, v)) << "Inserting an unique value should work.";
     }
+
+    // Must create and start threads before acquiring mutex inside BulkDeleteTask.
+    MT_BD_Thread* tt[4];
+    for (int i = 0; i < 4; i++) {
+      tt[i] = new MT_BD_Thread(&done);
+      tt[i]->doit();
+    }
+
     TestTable::BulkDeleteTask bdt(cht, true /* mt */ );
     EXPECT_TRUE(bdt.prepare(this)) << "Uncontended prepare must work.";
 
-    MT_BD_Thread* tt[4];
     for (int i = 0; i < 4; i++) {
-      tt[i] = new MT_BD_Thread(&done, &bdt);
-      tt[i]->doit();
+      tt[i]->set_bd_task(&bdt);
     }
 
     for (uintptr_t v = 1; v < 99999; v++ ) {
