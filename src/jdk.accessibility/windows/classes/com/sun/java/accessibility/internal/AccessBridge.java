@@ -479,19 +479,9 @@ final public class AccessBridge {
         if (parent == null) {
             return null;
         }
-        Point location = new Point(x, y);
-        InvocationUtils.invokeAndWait(new Callable<Void>() {
-            @Override
-            public Void call() throws Exception {
-                AffineTransform at = getTransformFromContext(parent);
-                if (at != null) {
-                    location.setLocation((int) (location.x / at.getScaleX()), (int) (location.y / at.getScaleY()));
-                }
-                return null;
-            }
-        }, parent);
-        x = location.x;
-        y = location.y;
+        Point userSpaceXY = AccessibilityGraphicsEnvironment.toUserSpace(x, y);
+        x = userSpaceXY.x;
+        y = userSpaceXY.y;
         if (windowHandleToContextMap != null &&
             windowHandleToContextMap.containsValue(getRootAccessibleContext(parent))) {
             // Path for applications that register their top-level
@@ -1608,13 +1598,7 @@ final public class AccessBridge {
                                 r.x = p.x;
                                 r.y = p.y;
 
-                                AffineTransform at = getTransformFromContext(ac);
-                                if (at != null) {
-                                    r.x = (int) Math.floor(r.x * at.getScaleX());
-                                    r.y = (int) Math.floor(r.y * at.getScaleY());
-                                    r.width = (int) Math.ceil(r.width * at.getScaleX());
-                                    r.height = (int) Math.ceil(r.height * at.getScaleY());
-                                }
+                                r = AccessibilityGraphicsEnvironment.toDeviceSpaceAbs(r);
                                 return r;
                             }
                         } catch (Exception e) {
@@ -1755,21 +1739,6 @@ final public class AccessBridge {
                 return ac.getAccessibleValue();
             }
         }, ac);
-    }
-
-    /**
-     * return the screen coordinates transform from an AccessibleContext
-     */
-    private AffineTransform getTransformFromContext(final AccessibleContext ac) {
-        AccessibleComponent acomp = ac.getAccessibleComponent();
-        if (acomp != null) {
-            FontMetrics fm = acomp.getFontMetrics(acomp.getFont());
-            if (fm != null) {
-                return fm.getFontRenderContext().getTransform();
-            }
-        }
-
-        return null;
     }
 
     /* ===== AccessibleText methods ===== */
@@ -2290,18 +2259,11 @@ final public class AccessBridge {
                     if (at != null) {
                         Rectangle rect = at.getCharacterBounds(index);
                         if (rect != null) {
-                            AffineTransform transform = getTransformFromContext(ac);
-                            if (transform != null) {
-                                rect.x = (int) Math.floor(rect.x * transform.getScaleX());
-                                rect.y = (int) Math.floor(rect.y * transform.getScaleY());
-                                rect.width = (int) Math.ceil(rect.width * transform.getScaleX());
-                                rect.height = (int) Math.ceil(rect.height * transform.getScaleY());
-                            }
-
                             String s = at.getAtIndex(AccessibleText.CHARACTER, index);
                             if (s != null && s.equals("\n")) {
                                 rect.width = 0;
                             }
+                            rect = AccessibilityGraphicsEnvironment.toDeviceSpaceAbs(rect);
                             return rect;
                         }
                     }
@@ -7381,6 +7343,184 @@ final public class AccessBridge {
                     throw e;
                 return object;
             }
+        }
+    }
+
+    /**
+     * A helper class to handle coordinate conversion between screen and user spaces.
+     * See {@link sun.java2d.SunGraphicsEnvironment}
+     */
+    private static abstract class AccessibilityGraphicsEnvironment extends GraphicsEnvironment {
+        /**
+         * Returns the graphics configuration which bounds contain the given point in the user's space.
+         *
+         * See {@link sun.java2d.SunGraphicsEnvironment#getGraphicsConfigurationAtPoint(GraphicsConfiguration, double, double)}
+         *
+         * @param  x the x coordinate of the given point in the user's space
+         * @param  y the y coordinate of the given point in the user's space
+         * @return the graphics configuration
+         */
+        public static GraphicsConfiguration getGraphicsConfigurationAtPoint(double x, double y) {
+            GraphicsConfiguration gc = GraphicsEnvironment.getLocalGraphicsEnvironment()
+                    .getDefaultScreenDevice().getDefaultConfiguration();
+            return getGraphicsConfigurationAtPoint(gc, x, y);
+        }
+
+        /**
+         * Returns the graphics configuration which bounds contain the given point in the user's space.
+         *
+         * See {@link sun.java2d.SunGraphicsEnvironment#getGraphicsConfigurationAtPoint(GraphicsConfiguration, double, double)}
+         *
+         * @param  current the default configuration which is checked in the first
+         *         place
+         * @param  x the x coordinate of the given point in the user's space
+         * @param  y the y coordinate of the given point in the user's space
+         * @return the graphics configuration
+         */
+        public static GraphicsConfiguration getGraphicsConfigurationAtPoint(
+                GraphicsConfiguration current, double x, double y) {
+            if (containsUserSpacePoint(current, x, y)) {
+                return current;
+            }
+            GraphicsEnvironment env = getLocalGraphicsEnvironment();
+            for (GraphicsDevice device : env.getScreenDevices()) {
+                GraphicsConfiguration config = device.getDefaultConfiguration();
+                if (containsUserSpacePoint(config, x, y)) {
+                    return config;
+                }
+            }
+            return current;
+        }
+
+        /**
+         * Returns the graphics configuration which bounds contain the given point in the device space.
+         *
+         * @param  x the x coordinate of the given point in the device space
+         * @param  y the y coordinate of the given point in the device space
+         * @return the graphics configuration
+         */
+        public static GraphicsConfiguration getGraphicsConfigurationAtDevicePoint(double x, double y) {
+            GraphicsConfiguration gc = GraphicsEnvironment.getLocalGraphicsEnvironment()
+                    .getDefaultScreenDevice().getDefaultConfiguration();
+            return getGraphicsConfigurationAtDevicePoint(gc, x, y);
+        }
+
+        /**
+         * Returns the graphics configuration which bounds contain the given point in the device space.
+         *
+         * @param  current the default configuration which is checked in the first
+         *         place
+         * @param  x the x coordinate of the given point in the device space
+         * @param  y the y coordinate of the given point in the device space
+         * @return the graphics configuration
+         */
+        public static GraphicsConfiguration getGraphicsConfigurationAtDevicePoint(
+                GraphicsConfiguration current, double x, double y) {
+            if (containsDeviceSpacePoint(current, x, y)) {
+                return current;
+            }
+            GraphicsEnvironment env = getLocalGraphicsEnvironment();
+            for (GraphicsDevice device : env.getScreenDevices()) {
+                GraphicsConfiguration config = device.getDefaultConfiguration();
+                if (containsDeviceSpacePoint(config, x, y)) {
+                    return config;
+                }
+            }
+            return current;
+        }
+
+        private static boolean containsDeviceSpacePoint(GraphicsConfiguration config, double x, double y) {
+            Rectangle bounds = config.getBounds();
+            bounds = toDeviceSpaceAbs(config, bounds.x, bounds.y, bounds.width, bounds.height);
+            return bounds.contains(x, y);
+        }
+
+        private static boolean containsUserSpacePoint(GraphicsConfiguration config, double x, double y) {
+            Rectangle bounds = config.getBounds();
+            return bounds.contains(x, y);
+        }
+
+        /**
+         * Converts absolute coordinates from the device
+         * space to the user's space space using appropriate device transformation.
+         *
+         * @param  x absolute x coordinate in the device's space
+         * @param  y absolute y coordinate in the device's space
+         * @return the corresponding coordinates in user's space
+         */
+        public static Point toUserSpace(int x, int y) {
+            GraphicsConfiguration gc = getGraphicsConfigurationAtDevicePoint(x, y);
+            return toUserSpace(gc, x, y);
+        }
+
+        /**
+         * Converts absolute coordinates from the device
+         * space to the user's space using passed graphics configuration.
+         *
+         * @param  gc the graphics configuration to be used for transformation
+         * @param  x absolute x coordinate in the device's space
+         * @param  y absolute y coordinate in the device's space
+         * @return the corresponding coordinates in user's space
+         */
+        public static Point toUserSpace(GraphicsConfiguration gc, int x, int y) {
+            AffineTransform tx = gc.getDefaultTransform();
+            Rectangle screen = gc.getBounds();
+            int userX = screen.x + clipRound((x - screen.x) / tx.getScaleX());
+            int userY = screen.y + clipRound((y - screen.y) / tx.getScaleY());
+            return new Point(userX, userY);
+        }
+
+        /**
+         * Converts the rectangle from the user's space to the device space using
+         * appropriate device transformation.
+         *
+         * See {@link sun.java2d.SunGraphicsEnvironment#toDeviceSpaceAbs(Rectangle)}
+         *
+         * @param  rect the rectangle in the user's space
+         * @return the rectangle which uses device space (pixels)
+         */
+        public static Rectangle toDeviceSpaceAbs(Rectangle rect) {
+            GraphicsConfiguration gc = getGraphicsConfigurationAtPoint(rect.x, rect.y);
+            return toDeviceSpaceAbs(gc, rect.x, rect.y, rect.width, rect.height);
+        }
+
+        /**
+         * Converts absolute coordinates (x, y) and the size (w, h) from the user's
+         * space to the device space using passed graphics configuration.
+         *
+         * See {@link sun.java2d.SunGraphicsEnvironment#toDeviceSpaceAbs(GraphicsConfiguration, int, int, int, int)}
+         *
+         * @param  gc the graphics configuration to be used for transformation
+         * @param  x absolute coordinate in the user's space
+         * @param  y absolute coordinate in the user's space
+         * @param  w the width in the user's space
+         * @param  h the height in the user's space
+         * @return the rectangle which uses device space (pixels)
+         */
+        public static Rectangle toDeviceSpaceAbs(GraphicsConfiguration gc,
+                                                 int x, int y, int w, int h) {
+            AffineTransform tx = gc.getDefaultTransform();
+            Rectangle screen = gc.getBounds();
+            return new Rectangle(
+                    screen.x + clipRound((x - screen.x) * tx.getScaleX()),
+                    screen.y + clipRound((y - screen.y) * tx.getScaleY()),
+                    clipRound(w * tx.getScaleX()),
+                    clipRound(h * tx.getScaleY())
+            );
+        }
+
+        /**
+         * See {@link sun.java2d.pipe.Region#clipRound}
+         */
+        private static int clipRound(final double coordinate) {
+            final double newv = coordinate - 0.5;
+            if (newv < Integer.MIN_VALUE) {
+                return Integer.MIN_VALUE;
+            }
+            if (newv > Integer.MAX_VALUE) {
+                return Integer.MAX_VALUE;
+            }
+            return (int) Math.ceil(newv);
         }
     }
 }
