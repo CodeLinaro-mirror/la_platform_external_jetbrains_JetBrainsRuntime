@@ -1,10 +1,13 @@
 /*
- * Copyright (c) 2022, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, JetBrains s.r.o.. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
  *
  * This code is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
@@ -21,33 +24,13 @@
  * questions.
  */
 
-/**
- * @test
- * @bug 8279062
- * @summary C2: assert(t->meet(t0) == t) failed: Not monotonic after JDK-8278413
- *
- * @run main/othervm -XX:-BackgroundCompilation TestCCPAllocateArray
- *
- */
+package sun.awt;
 
-public class TestCCPAllocateArray {
-    public static void main(String[] args) {
-        for (int i = 0; i < 20_000; i++) {
-            try {
-                test();
-            } catch (OutOfMemoryError e) {
-            }
-            length(42);
-        }
-    }
+import java.util.EventListener;
 
-    private static int[] test() {
-        int i = 2;
-        for (; i < 4; i *= 2);
-        return new int[length(i)];
-    }
-
-    private static int length(int i) {
-        return i == 4 ? Integer.MAX_VALUE : 0;
-    }
+public interface DisplayParametersChangedListener extends EventListener {
+    /**
+     * Invoked when the display parameters changed.
+     */
+    public void displayParametersChanged();
 }
