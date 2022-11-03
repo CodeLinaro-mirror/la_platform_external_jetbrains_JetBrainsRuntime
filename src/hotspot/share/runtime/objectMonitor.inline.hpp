@@ -25,8 +25,6 @@
 #ifndef SHARE_VM_RUNTIME_OBJECTMONITOR_INLINE_HPP
 #define SHARE_VM_RUNTIME_OBJECTMONITOR_INLINE_HPP
 
-#include "runtime/atomic.hpp"
-
 inline intptr_t ObjectMonitor::is_entered(TRAPS) const {
   if (THREAD == _owner || THREAD->is_lock_owned((address) _owner)) {
     return 1;
@@ -35,7 +33,7 @@ inline intptr_t ObjectMonitor::is_entered(TRAPS) const {
 }
 
 inline markOop ObjectMonitor::header() const {
-  return Atomic::load(&_header);
+  return _header;
 }
 
 inline volatile markOop* ObjectMonitor::header_addr() {
@@ -44,7 +42,7 @@ inline volatile markOop* ObjectMonitor::header_addr() {
 }
 
 inline void ObjectMonitor::set_header(markOop hdr) {
-  Atomic::store(hdr, &_header);
+  _header = hdr;
 }
 
 inline jint ObjectMonitor::count() const {
@@ -60,14 +58,14 @@ inline void* ObjectMonitor::owner() const {
 }
 
 inline void ObjectMonitor::clear() {
-  assert(Atomic::load(&_header).value() != 0, "Fatal logic error in ObjectMonitor header!");
+  assert(_header, "Fatal logic error in ObjectMonitor header!");
   assert(_count == 0, "Fatal logic error in ObjectMonitor count!");
   assert(_waiters == 0, "Fatal logic error in ObjectMonitor waiters!");
   assert(_recursions == 0, "Fatal logic error in ObjectMonitor recursions!");
   assert(_object != NULL, "Fatal logic error in ObjectMonitor object!");
   assert(_owner == 0, "Fatal logic error in ObjectMonitor owner!");
 
-  Atomic::store(markOop::zero(), &_header);
+  _header = NULL;
   _object = NULL;
 }
 

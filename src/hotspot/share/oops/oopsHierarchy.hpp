@@ -40,6 +40,7 @@ typedef juint narrowOop; // Offset instead of address for an oop within a java o
 typedef juint  narrowKlass;
 
 typedef void* OopOrNarrowOopStar;
+typedef class   markOopDesc*                markOop;
 
 #ifndef CHECK_UNHANDLED_OOPS
 
@@ -119,6 +120,7 @@ public:
   operator oopDesc* () const volatile { return obj(); }
   operator intptr_t* () const         { return (intptr_t*)obj(); }
   operator PromotedObject* () const   { return (PromotedObject*)obj(); }
+  operator markOop () const volatile  { return markOop(obj()); }
   operator address   () const         { return (address)obj(); }
 
   // from javaCalls.cpp

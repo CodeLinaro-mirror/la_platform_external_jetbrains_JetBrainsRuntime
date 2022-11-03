@@ -51,21 +51,21 @@ public class ClhsdbLongConstant {
 
             List<String> cmds = List.of(
                     "longConstant",
-                    "longConstant markOop::locked_value",
-                    "longConstant markOop::lock_bits",
+                    "longConstant markOopDesc::locked_value",
+                    "longConstant markOopDesc::lock_bits",
                     "longConstant jtreg::test 6",
                     "longConstant jtreg::test");
 
             Map<String, List<String>> expStrMap = new HashMap<>();
             expStrMap.put("longConstant", List.of(
-                    "longConstant markOop::locked_value",
-                    "longConstant markOop::lock_bits",
+                    "longConstant markOopDesc::locked_value",
+                    "longConstant markOopDesc::lock_bits",
                     "InvocationCounter::count_increment",
-                    "markOop::epoch_mask_in_place"));
-            expStrMap.put("longConstant markOop::locked_value", List.of(
-                    "longConstant markOop::locked_value"));
-            expStrMap.put("longConstant markOop::lock_bits", List.of(
-                    "longConstant markOop::lock_bits"));
+                    "markOopDesc::epoch_mask_in_place"));
+            expStrMap.put("longConstant markOopDesc::locked_value", List.of(
+                    "longConstant markOopDesc::locked_value"));
+            expStrMap.put("longConstant markOopDesc::lock_bits", List.of(
+                    "longConstant markOopDesc::lock_bits"));
             expStrMap.put("longConstant jtreg::test", List.of(
                     "longConstant jtreg::test 6"));
 
@@ -96,12 +96,12 @@ public class ClhsdbLongConstant {
         // Expected output snippet is of the form (on x64-64):
         // ...
         // longConstant VM_Version::CPU_SHA 17179869184
-        // longConstant markOop::biased_lock_bits 1
-        // longConstant markOop::age_shift 3
-        // longConstant markOop::hash_mask_in_place 549755813632
+        // longConstant markOopDesc::biased_lock_bits 1
+        // longConstant markOopDesc::age_shift 3
+        // longConstant markOopDesc::hash_mask_in_place 549755813632
         // ...
 
-        checkLongValue("markOop::hash_mask_in_place",
+        checkLongValue("markOopDesc::hash_mask_in_place",
                        longConstantOutput,
                        Platform.is64bit() ? 549755813632L: 4294967168L);
 
