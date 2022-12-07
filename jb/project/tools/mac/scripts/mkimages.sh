@@ -29,6 +29,7 @@ BOOT_JDK=${BOOT_JDK:=$(/usr/libexec/java_home -v 16)}
 
 function do_configure {
   if [[ "${architecture}" == *aarch64* ]]; then
+
     sh configure \
       $WITH_DEBUG_LEVEL \
       --with-vendor-name="${VENDOR_NAME}" \
@@ -43,9 +44,6 @@ function do_configure {
       --with-macosx-version-max="${MACOSX_VERSION_MAX:="11.00.00"}" \
       --disable-hotspot-gtest --disable-javac-server --disable-full-docs --disable-manpages \
       --enable-cds=no \
-      --with-extra-cflags="-F$(pwd)/Frameworks" \
-      --with-extra-cxxflags="-F$(pwd)/Frameworks" \
-      --with-extra-ldflags="-F$(pwd)/Frameworks" \
       $STATIC_CONF_ARGS \
       $REPRODUCIBLE_BUILD_OPTS \
       $WITH_ZIPPED_NATIVE_DEBUG_SYMBOLS \
@@ -84,7 +82,7 @@ function create_image_bundle {
 
   [ "$bundle_type" == "fd" ] && [ "$__arch_name" == "$JBRSDK_BUNDLE" ] && __bundle_name=$__arch_name && fastdebug_infix="fastdebug-"
   JBR=${__bundle_name}-${JBSDK_VERSION}-osx-${architecture}-${fastdebug_infix:-}b${build_number}
-  __root_dir=${__bundle_name}-${JBSDK_VERSION}-${architecture}-${fastdebug_infix:-}b${build_number%%.*}
+  __root_dir=${__bundle_name}-${JBSDK_VERSION}-osx-${architecture}-${fastdebug_infix:-}b${build_number}
 
   JRE_CONTENTS=$tmp/$__root_dir/Contents
   mkdir -p "$JRE_CONTENTS" || do_exit $?

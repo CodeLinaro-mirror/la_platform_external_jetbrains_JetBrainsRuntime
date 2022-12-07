@@ -98,6 +98,7 @@ static jboolean lastRGBOrder = JNI_TRUE;
 
 static struct TxtVertex txtVertices[6];
 static jint vertexCacheIndex = 0;
+static id<MTLRenderCommandEncoder> aaCacheEncoder = nil;
 static id<MTLRenderCommandEncoder> lcdCacheEncoder = nil;
 
 #define LCD_ADD_VERTEX(TX, TY, DX, DY, DZ) \
@@ -126,7 +127,7 @@ static id<MTLRenderCommandEncoder> lcdCacheEncoder = nil;
  * as intensity values.
  */
 static jboolean
-MTLTR_InitGlyphCache(MTLContext *mtlc, jboolean lcdCache)
+MTLTR_InitGlyphCache(MTLContext *mtlc, BMTLSDOps *dstOps, jboolean lcdCache)
 {
     J2dTraceLn(J2D_TRACE_INFO, "MTLTR_InitGlyphCache");
     // TODO : Need to verify RGB order in case of LCD
@@ -135,7 +136,7 @@ MTLTR_InitGlyphCache(MTLContext *mtlc, jboolean lcdCache)
 
     MTLGlyphCacheInfo *gcinfo;
     // init glyph cache data structure
-    gcinfo = MTLGlyphCache_Init(MTLTR_CACHE_WIDTH,
+    gcinfo = MTLGlyphCache_Init(mtlc, MTLTR_CACHE_WIDTH,
                                 MTLTR_CACHE_HEIGHT,
                                 MTLTR_CACHE_CELL_WIDTH,
                                 MTLTR_CACHE_CELL_HEIGHT,
@@ -164,6 +165,40 @@ MTLTR_InitGlyphCache(MTLContext *mtlc, jboolean lcdCache)
     return JNI_TRUE;
 }
 
+static jboolean
+MTLTR_ValidateGlyphCache(MTLContext *mtlc, BMTLSDOps *dstOps, jboolean lcdCache)
+{
+    J2dTraceLn(J2D_TRACE_INFO, "MTLTR_ValidateGlyphCache");
+    if (lcdCache) {
+        if (glyphCacheLCD == NULL && !MTLTR_InitGlyphCache(mtlc, dstOps, JNI_TRUE)) {
+            return JNI_FALSE;
+        }
+        lcdCacheEncoder = [mtlc.encoderManager getLCDEncoder:dstOps->pTexture
+                                                 isSrcOpaque:YES
+                                                 isDstOpaque:YES];
+    } else {
+        if (glyphCacheAA == NULL && !MTLTR_InitGlyphCache(mtlc, dstOps, JNI_FALSE)) {
+            return JNI_FALSE;
+        }
+
+        aaCacheEncoder = [mtlc.encoderManager getTextEncoder:dstOps
+                                                 isSrcOpaque:NO
+                                             gammaCorrection:YES];
+    }
+
+    return JNI_TRUE;
+}
+
+id<MTLRenderCommandEncoder>
+MTLTR_GetGlyphCacheEncoder()
+{
+    J2dTraceLn(J2D_TRACE_INFO, "MTLTR_GetGlyphCacheEncoder");
+    if (glyphCacheAA != NULL) {
+        return aaCacheEncoder;
+    }
+    return NULL;
+}
+
 id<MTLTexture>
 MTLTR_GetGlyphCacheTexture()
 {
@@ -180,7 +215,7 @@ MTLTR_GetGlyphCacheTexture()
  */
 static void
 MTLTR_AddToGlyphCache(GlyphInfo *glyph, MTLContext *mtlc,
-                      jboolean lcdCache)
+                      BMTLSDOps *dstOps, jboolean lcdCache)
 {
     MTLCacheCellInfo *ccinfo;
     MTLGlyphCacheInfo *gcinfo;
@@ -200,14 +235,13 @@ MTLTR_AddToGlyphCache(GlyphInfo *glyph, MTLContext *mtlc,
 
     bool isCacheFull = MTLGlyphCache_IsCacheFull(gcinfo, glyph);
     if (isCacheFull) {
-        MTLGlyphCache_Free(gcinfo);
-        if (!lcdCache) {
-            MTLTR_InitGlyphCache(mtlc, JNI_FALSE);
-            gcinfo = glyphCacheAA;
+        if (lcdCache) {
+            MTLTR_FreeGlyphCacheLCD();
         } else {
-            MTLTR_InitGlyphCache(mtlc, JNI_TRUE);
-            gcinfo = glyphCacheLCD;
+            MTLTR_FreeGlyphCacheAA();
         }
+        MTLTR_ValidateGlyphCache(mtlc, dstOps, lcdCache);
+        gcinfo = lcdCache ? glyphCacheLCD : glyphCacheAA;
     }
     MTLGlyphCache_AddGlyph(gcinfo, glyph);
     ccinfo = (MTLCacheCellInfo *) glyph->cellInfo;
@@ -292,13 +326,9 @@ J2dTraceLn(J2D_TRACE_INFO, "MTLTR_EnableGlyphVertexCache");
         return;
     }
 
-    if (glyphCacheAA == NULL) {
-        if (!MTLTR_InitGlyphCache(mtlc, JNI_FALSE)) {
-            return;
-        }
+    if (!MTLTR_ValidateGlyphCache(mtlc, dstOps, JNI_FALSE)) {
+        return;
     }
-
-  MTLVertexCache_CreateSamplingEncoder(mtlc, dstOps, YES);
 }
 
 void
@@ -309,18 +339,20 @@ MTLTR_DisableGlyphVertexCache(MTLContext *mtlc)
     MTLVertexCache_FreeVertexCache();
 }
 
-void MTLTR_FreeGlyphCaches() {
-    J2dTraceLn(J2D_TRACE_INFO, "MTLTR_FreeGlyphCaches : freeing glyph caches.");
-
+void MTLTR_FreeGlyphCacheAA() {
     if (glyphCacheAA != NULL) {
-        [glyphCacheAA->texture release];
+        id<MTLTexture> txt = glyphCacheAA->texture;
         MTLGlyphCache_Free(glyphCacheAA);
+        [txt release];
         glyphCacheAA = NULL;
     }
+}
 
+void MTLTR_FreeGlyphCacheLCD() {
     if (glyphCacheLCD != NULL) {
-        [glyphCacheLCD->texture release];
+        id<MTLTexture> txt = glyphCacheLCD->texture;
         MTLGlyphCache_Free(glyphCacheLCD);
+        [txt release];
         glyphCacheLCD = NULL;
     }
 }
@@ -342,7 +374,6 @@ static jboolean
 MTLTR_DrawGrayscaleGlyphViaCache(MTLContext *mtlc,
                                  GlyphInfo *ginfo, jint x, jint y, BMTLSDOps *dstOps)
 {
-    MTLCacheCellInfo *cell;
     jfloat x1, y1, x2, y2;
 
     if (glyphMode != MODE_USE_CACHE_GRAY) {
@@ -350,7 +381,6 @@ MTLTR_DrawGrayscaleGlyphViaCache(MTLContext *mtlc,
             MTLVertexCache_DisableMaskCache(mtlc);
         } else if (glyphMode == MODE_USE_CACHE_LCD) {
             [mtlc.encoderManager endEncoder];
-            lcdCacheEncoder = nil;
         } else if (glyphMode == MODE_NO_CACHE_COLOR) {
             DisableColorGlyphPainting(mtlc);
         }
@@ -358,17 +388,20 @@ MTLTR_DrawGrayscaleGlyphViaCache(MTLContext *mtlc,
         glyphMode = MODE_USE_CACHE_GRAY;
     }
 
-    if (ginfo->cellInfo == NULL) {
+    MTLCacheCellInfo *cell = (MTLCacheCellInfo *) (ginfo->cellInfo);
+    if (cell == NULL || cell->cacheInfo->mtlc != mtlc) {
+        if (cell != NULL) {
+            MTLGlyphCache_RemoveCellInfo(cell->glyphInfo, cell);
+        }
         // attempt to add glyph to accelerated glyph cache
-        MTLTR_AddToGlyphCache(ginfo, mtlc, JNI_FALSE);
+        MTLTR_AddToGlyphCache(ginfo, mtlc, dstOps, JNI_FALSE);
 
         if (ginfo->cellInfo == NULL) {
             // we'll just no-op in the rare case that the cell is NULL
             return JNI_TRUE;
         }
+        cell = (MTLCacheCellInfo *) (ginfo->cellInfo);
     }
-
-    cell = (MTLCacheCellInfo *) (ginfo->cellInfo);
     cell->timesRendered++;
 
     x1 = (jfloat)x;
@@ -403,14 +436,10 @@ MTLTR_DrawLCDGlyphViaCache(MTLContext *mtlc, BMTLSDOps *dstOps,
             DisableColorGlyphPainting(mtlc);
         }
 
-        if (glyphCacheLCD == NULL) {
-            if (!MTLTR_InitGlyphCache(mtlc, JNI_TRUE)) {
-                return JNI_FALSE;
-            }
+        if (!MTLTR_ValidateGlyphCache(mtlc, dstOps, JNI_TRUE)) {
+            return JNI_FALSE;
         }
-        if (lcdCacheEncoder == nil) {
-            lcdCacheEncoder = [mtlc.encoderManager getLCDEncoder:dstOps->pTexture isSrcOpaque:YES isDstOpaque:YES];
-        }
+
         if (rgbOrder != lastRGBOrder) {
             // need to invalidate the cache in this case; see comments
             // for lastRGBOrder above
@@ -424,7 +453,7 @@ MTLTR_DrawLCDGlyphViaCache(MTLContext *mtlc, BMTLSDOps *dstOps,
     if (ginfo->cellInfo == NULL) {
         // attempt to add glyph to accelerated glyph cache
         // TODO : Handle RGB order
-        MTLTR_AddToGlyphCache(ginfo, mtlc, JNI_TRUE);
+        MTLTR_AddToGlyphCache(ginfo, mtlc, dstOps, JNI_TRUE);
 
         if (ginfo->cellInfo == NULL) {
             // we'll just no-op in the rare case that the cell is NULL
@@ -472,7 +501,6 @@ MTLTR_DrawGrayscaleGlyphNoCache(MTLContext *mtlc,
             MTLTR_DisableGlyphVertexCache(mtlc);
         } else if (glyphMode == MODE_USE_CACHE_LCD) {
             [mtlc.encoderManager endEncoder];
-            lcdCacheEncoder = nil;
         } else if (glyphMode == MODE_NO_CACHE_COLOR) {
             DisableColorGlyphPainting(mtlc);
         }
@@ -536,7 +564,6 @@ MTLTR_DrawLCDGlyphNoCache(MTLContext *mtlc, BMTLSDOps *dstOps,
             MTLTR_DisableGlyphVertexCache(mtlc);
         } else if (glyphMode == MODE_USE_CACHE_LCD) {
             [mtlc.encoderManager endEncoder];
-            lcdCacheEncoder = nil;
         } else if (glyphMode == MODE_NO_CACHE_COLOR) {
             DisableColorGlyphPainting(mtlc);
         }
@@ -626,7 +653,6 @@ MTLTR_DrawColorGlyphNoCache(MTLContext *mtlc,
             MTLTR_DisableGlyphVertexCache(mtlc);
         } else if (glyphMode == MODE_USE_CACHE_LCD) {
             [mtlc.encoderManager endEncoder];
-            lcdCacheEncoder = nil;
         }
         glyphMode = MODE_NO_CACHE_COLOR;
         EnableColorGlyphPainting(mtlc);
@@ -786,7 +812,6 @@ MTLTR_DrawGlyphList(JNIEnv *env, MTLContext *mtlc, BMTLSDOps *dstOps,
         MTLTR_DisableGlyphVertexCache(mtlc);
     } else if (glyphMode == MODE_USE_CACHE_LCD) {
         [mtlc.encoderManager endEncoder];
-        lcdCacheEncoder = nil;
     } else if (glyphMode == MODE_NO_CACHE_COLOR) {
         DisableColorGlyphPainting(mtlc);
     }

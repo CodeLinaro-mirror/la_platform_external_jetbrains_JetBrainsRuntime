@@ -415,6 +415,10 @@ abstract class XDecoratedPeer extends XWindowPeer {
             insets_corrected = true;
             reshape(dimensions, SET_SIZE, false);
         } else if (xe.get_parent() == root) {
+            if (!isReparented()) {
+                // X server on Windows (e.g. Cygwin/X) does perform a no-op reparenting to the root window
+                return;
+            }
             configure_seen = false;
             insets_corrected = false;
 
@@ -1254,7 +1258,7 @@ abstract class XDecoratedPeer extends XWindowPeer {
             if (target == activeWindow && target != focusedWindow) {
                 // Happens when an owned window is currently focused
                 focusLog.fine("Focus is on child window - transferring it back to the owner");
-                handleWindowFocusInSync(-1, () -> {});
+                handleWindowFocusInSync(-1);
                 return true;
             }
             Window realNativeFocusedWindow = XWindowPeer.getNativeFocusedWindow();

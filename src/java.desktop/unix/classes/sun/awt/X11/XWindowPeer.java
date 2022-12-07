@@ -618,15 +618,16 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
             target.dispatchEvent(we);
         }
     }
-    public void handleWindowFocusInSync(long serial, Runnable lightweigtRequest) {
+
+    public void handleWindowFocusInSync(long serial) {
         WindowEvent we = new WindowEvent((Window)target, WindowEvent.WINDOW_GAINED_FOCUS);
         XKeyboardFocusManagerPeer.getInstance().setCurrentFocusedWindow((Window) target);
-        sendEvent(we, lightweigtRequest);
+        sendEvent(we);
     }
     // NOTE: This method may be called by privileged threads.
     //       DO NOT INVOKE CLIENT CODE ON THIS THREAD!
     public void handleWindowFocusIn(long serial) {
-        handleWindowFocusInSync(serial, () -> {});
+        handleWindowFocusInSync(serial);
     }
 
     // NOTE: This method may be called by privileged threads.
@@ -847,16 +848,7 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
         if (focusLog.isLoggable(PlatformLogger.Level.FINE)) {
             focusLog.fine("Requesting window focus");
         }
-        Runnable finishRunnable = this::dequeueKeyEvents;
-        requestWindowFocus(time, timeProvided, finishRunnable, finishRunnable);
-    }
-
-    private void dequeueKeyEvents() {
-        AWTAccessor.getKeyboardFocusManagerAccessor().dequeueKeyEvents(target);
-    }
-
-    private void enqueueKeyEvents() {
-        AWTAccessor.getKeyboardFocusManagerAccessor().enqueueKeyEvents(target);
+        requestWindowFocus(time, timeProvided);
     }
 
     public final boolean focusAllowedFor() {
@@ -1144,17 +1136,14 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
             warningWindow.setSecurityWarningVisible(false, false);
         }
         boolean refreshChildsTransientFor = isVisible() != vis;
+        // To enable type-ahead for 'simple' windows, we initiate internal focus transfer to such a window even before
+        // it's mapped by a window manager. 'Simple' windows aren't natively focusable, so for this to work as expected
+        // we only need to be sure that the window will be mapped soon after we request it. There are known cases when
+        // window manager delays mapping the window for a long time (e.g. i3wm does this when another window is in
+        // full-screen mode), but no known cases when it does it for popup windows, so we hope that we're safe here with
+        // 'simple' windows.
         if (vis && isSimpleWindow() && shouldFocusOnMapNotify()) {
-            // We enable type-ahead mechanism only for showing of simple windows. That's because, when enabling it,
-            // we need to be sure that the final state (focusing) of the target window will definitely be available
-            // very soon, not to block key events for a long period of time. As simple windows are not focused natively,
-            // the only event we should wait for before focusing them internally is MapNotify, and that event usually
-            // comes quite fast after map request. There are known cases when window manager delays mapping the window
-            // for a long time (e.g. i3wm does this when another window is in full-screen mode), but no known cases
-            // when it does it for popup windows, so we hope that we're safe here with simple windows. For decorated
-            // windows we also wait for the native focus to be transferred to the target window (FocusIn event),
-            // which adds to the uncertainty - the focus might or might not be transferred.
-            enqueueKeyEvents();
+            requestInitialFocus();
         }
         super.setVisible(vis);
         if (refreshChildsTransientFor) {
@@ -1223,7 +1212,7 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
             if (targetOwner != null) {
                 XWindowPeer xwndpeer = AWTAccessor.getComponentAccessor().getPeer(targetOwner);
                 if (xwndpeer != null) {
-                    xwndpeer.requestWindowFocus(() -> {}, () -> {});
+                    xwndpeer.requestWindowFocus();
                 }
             }
         }
@@ -1495,11 +1484,9 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
                 }
             }
         }
-        if (shouldFocusOnMapNotify()) {
+        if (!isSimpleWindow() && shouldFocusOnMapNotify() && !XWM.isWeston()) {
             focusLog.fine("Automatically request focus on window");
             requestInitialFocus();
-        } else {
-            dequeueKeyEvents();
         }
         isUnhiding = false;
         isBeforeFirstMapNotify = false;
@@ -2051,25 +2038,16 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
         return window;
     }
 
-    public boolean requestWindowFocus(XWindowPeer actualFocusedWindow, Runnable lightweigtRequest, Runnable rejectFocusRequest) {
+    public boolean requestWindowFocus(XWindowPeer actualFocusedWindow) {
         setActualFocusedWindow(actualFocusedWindow);
-        return requestWindowFocus(lightweigtRequest, rejectFocusRequest);
+        return requestWindowFocus();
     }
 
     public boolean requestWindowFocus() {
-        return requestWindowFocus(() -> {}, () -> {});
-    }
-
-    public boolean requestWindowFocus(Runnable lightweigtRequest, Runnable rejectFocusRequest) {
-        return requestWindowFocus(0, false, lightweigtRequest, rejectFocusRequest);
+        return requestWindowFocus(0, false);
     }
 
     public boolean requestWindowFocus(long time, boolean timeProvided) {
-        return requestWindowFocus(time, timeProvided, () -> {}, () -> {});
-    }
-
-    public boolean requestWindowFocus(long time, boolean timeProvided,
-                                      Runnable lightweigtRequest, Runnable rejectFocusRequest) {
         focusLog.fine("Request for window focus");
         // If this is Frame or Dialog we can't assure focus request success - but we still can try
         // If this is Window and its owner Frame is active we can be sure request succedded.
@@ -2079,12 +2057,11 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
 
         if (isWMStateNetHidden()) {
             focusLog.fine("The window is unmapped, so rejecting the request");
-            rejectFocusRequest.run();
             return false;
         }
         if (activeWindow == ownerWindow) {
             focusLog.fine("Parent window is active - generating focus for this window");
-            handleWindowFocusInSync(-1, lightweigtRequest);
+            handleWindowFocusInSync(-1);
             return true;
         }
         focusLog.fine("Parent window is not active");
@@ -2092,11 +2069,9 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
         XDecoratedPeer wpeer = AWTAccessor.getComponentAccessor().getPeer(ownerWindow);
         if (wpeer != null && wpeer.requestWindowFocus(this, time, timeProvided)) {
             focusLog.fine("Parent window accepted focus request - generating focus for this window");
-            handleWindowFocusInSync(-1, lightweigtRequest);
             return true;
         }
         focusLog.fine("Denied - parent window is not active and didn't accept focus request");
-        rejectFocusRequest.run();
         return false;
     }
 
