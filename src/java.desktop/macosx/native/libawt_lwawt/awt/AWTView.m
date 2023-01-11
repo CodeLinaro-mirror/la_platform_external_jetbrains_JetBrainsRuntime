@@ -354,18 +354,27 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
 }
 
 - (BOOL) performKeyEquivalent: (NSEvent *) event {
+    // if IM is active key events should be ignored
+    if (![self hasMarkedText] && !fInPressAndHold) {
+        [self deliverJavaKeyEventHelper: event];
+    }
+
     const NSUInteger modFlags =
         [event modifierFlags] & (NSCommandKeyMask | NSAlternateKeyMask | NSShiftKeyMask | NSControlKeyMask);
 
     // Workaround for JBR-3544
-    // When tabbing mode is on, macOS sends "Ctrl N" and "Cmd N" when "Ctrl Opt N" and "Cmd Opt N" are pressed
-    if ([event keyCode] == 45 && ((modFlags == NSControlKeyMask) || (modFlags == NSCommandKeyMask))) {
-        return NO;
-    }
+    // When tabbing mode is on (jdk.allowMacOSTabbedWindows=true) and "Ctrl Opt N" / "Cmd Opt N" is pressed,
+    //   macOS first sends it, and immediately then sends "Ctrl N" / "Cmd N".
+    // The workaround is to "eat" (by returning TRUE) the "Ctrl Opt N" / "Cmd Opt N",
+    //   so macOS won't send its "fallback" version ("Ctrl N" / "Cmd N").
+    if ([event keyCode] == kVK_ANSI_N) {
+        const NSUInteger ctrlOpt = (NSControlKeyMask | NSAlternateKeyMask);
+        const NSUInteger cmdOpt = (NSCommandKeyMask | NSAlternateKeyMask);
 
-    // if IM is active key events should be ignored
-    if (![self hasMarkedText] && !fInPressAndHold) {
-        [self deliverJavaKeyEventHelper: event];
+        if ((modFlags == ctrlOpt) || (modFlags == cmdOpt)) {
+            [[NSApp mainMenu] performKeyEquivalent: event]; // just in case (as in the workaround for 8020209 below)
+            return YES;
+        }
     }
 
     // Workaround for 8020209: special case for "Cmd =" and "Cmd ."
@@ -1529,13 +1538,15 @@ static jclass jc_CInputMethod = NULL;
     }
 
     if (self.window.backingScaleFactor > 0 && debugScale < 0) {
-        self.layer.contentsScale = self.window.backingScaleFactor;
-        DECLARE_CLASS(jc_CPlatformView, "sun/lwawt/macosx/CPlatformView");
-        DECLARE_METHOD(deliverChangeBackingProperties, jc_CPlatformView, "deliverChangeBackingProperties", "(F)V");
-        jobject jlocal = (*env)->NewLocalRef(env, m_cPlatformView);
-        (*env)->CallVoidMethod(env, jlocal, deliverChangeBackingProperties, self.window.backingScaleFactor);
-        CHECK_EXCEPTION();
-        (*env)->DeleteLocalRef(env, jlocal);
+        if (self.layer.contentsScale != self.window.backingScaleFactor) {
+            self.layer.contentsScale = self.window.backingScaleFactor;
+            DECLARE_CLASS(jc_CPlatformView, "sun/lwawt/macosx/CPlatformView");
+            DECLARE_METHOD(deliverChangeBackingProperties, jc_CPlatformView, "deliverChangeBackingProperties", "(F)V");
+            jobject jlocal = (*env)->NewLocalRef(env, m_cPlatformView);
+            (*env)->CallVoidMethod(env, jlocal, deliverChangeBackingProperties, self.window.backingScaleFactor);
+            CHECK_EXCEPTION();
+            (*env)->DeleteLocalRef(env, jlocal);
+        }
     }
 }
 
