@@ -26,6 +26,7 @@
 package sun.lwawt.macosx;
 
 import java.awt.AWTError;
+import java.awt.AWTEvent;
 import java.awt.AWTException;
 import java.awt.CheckboxMenuItem;
 import java.awt.Color;
@@ -50,6 +51,7 @@ import java.awt.MenuItem;
 import java.awt.Point;
 import java.awt.PopupMenu;
 import java.awt.RenderingHints;
+import java.awt.SecondaryLoop;
 import java.awt.SystemTray;
 import java.awt.Taskbar;
 import java.awt.Toolkit;
@@ -90,10 +92,8 @@ import java.security.*;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.net.MalformedURLException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.swing.UIManager;
 
 import com.apple.laf.AquaMenuBarUI;
@@ -196,6 +196,9 @@ public final class LWCToolkit extends LWToolkit {
     private static final boolean inAWT;
 
     private static final PlatformLogger log = PlatformLogger.getLogger(LWCToolkit.class.getName());
+
+    private static final FwDispatcher MAIN_THREAD_DISPATCHER =
+            GetBooleanAction.privilegedGetProperty("main.thread.as.edt") ? new MainThreadDispatcher() : null;
 
     public LWCToolkit() {
         final String extraButtons = "sun.awt.enableExtraMouseButtons";
@@ -592,14 +595,20 @@ public final class LWCToolkit extends LWToolkit {
     }
 
     private static final String APPKIT_THREAD_NAME = "AppKit Thread";
+    private static Thread APPKIT_THREAD;
 
     // Intended to be called from the LWCToolkit.m only.
     private static void installToolkitThreadInJava() {
+        APPKIT_THREAD = Thread.currentThread();
         Thread.currentThread().setName(APPKIT_THREAD_NAME);
         AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
             Thread.currentThread().setContextClassLoader(null);
             return null;
         });
+    }
+
+    public static boolean isAppKitThread() {
+        return Thread.currentThread() == APPKIT_THREAD;
     }
 
     @Override
@@ -747,6 +756,13 @@ public final class LWCToolkit extends LWToolkit {
     public static void invokeAndWait(Runnable runnable, Component component, boolean processEvents, int timeoutSeconds)
             throws InvocationTargetException
     {
+        if (EventQueue.isDispatchThread()) {
+            if (log.isLoggable(PlatformLogger.Level.FINEST)) {
+                log.finest("invokeAndWait: executing directly on dispatch thread: " + runnable);
+            }
+            runnable.run();
+            return;
+        }
         if (log.isLoggable(PlatformLogger.Level.FINE)) {
             log.fine("invokeAndWait started: " + runnable);
         }
@@ -854,6 +870,23 @@ public final class LWCToolkit extends LWToolkit {
      * Schedules a {@code Runnable} execution on the Appkit thread and waits for completion.
      */
     public static native void performOnMainThreadAndWait(Runnable r);
+
+    /**
+     * Schedules event execution on the AppKit thread by wrapping it in native NSEvent object and posting to the
+     * application's native event queue.
+     */
+    static native void scheduleEvent(AWTEvent event);
+
+    /**
+     * Retrieves event from the native application's event queue (and unwrapping it from NSEvent, see
+     * {@link #scheduleEvent(AWTEvent)})
+     */
+    static native AWTEvent getNextEvent(boolean removeFromQueue);
+
+    // invoked from native code
+    private static void dispatch(AWTEvent event) {
+        AWTAccessor.getEventQueueAccessor().dispatchEvent(Toolkit.getDefaultToolkit().getSystemEventQueue(), event);
+    }
 
 // DnD support
 
@@ -999,18 +1032,15 @@ public final class LWCToolkit extends LWToolkit {
 
     static native long createAWTRunLoopMediator();
     /**
-     * Method to run a nested run-loop. The nested loop is spinned in the javaRunLoop mode, so selectors sent
-     * by [JNFRunLoop performOnMainThreadWaiting] are processed.
+     * Method to run a nested run-loop.
      * @param mediator a native pointer to the mediator object created by createAWTRunLoopMediator
-     * @param processEvents if true - dispatches event while in the nested loop. Used in DnD.
-     *                      Additional attention is needed when using this feature as we short-circuit normal event
-     *                      processing which could break Appkit.
-     *                      (One known example is when the window is resized with the mouse)
-     *
-     *                      if false - all events come after exit form the nested loop
      */
-    static void doAWTRunLoop(long mediator, boolean processEvents) {
-        doAWTRunLoop(mediator, processEvents, -1);
+    static void doAWTRunLoop(long mediator) {
+        if (EventQueue.isDispatchThread()) {
+            doSimpleRunLoop(mediator);
+        } else {
+            doAWTRunLoop(mediator, true, -1);
+        }
     }
 
     /**
@@ -1020,6 +1050,7 @@ public final class LWCToolkit extends LWToolkit {
         return doAWTRunLoopImpl(mediator, processEvents, inAWT, timeoutSeconds);
     }
     private static native boolean doAWTRunLoopImpl(long mediator, boolean processEvents, boolean inAWT, int timeoutSeconds);
+    static native void doSimpleRunLoop(long mediator);
     static native void stopAWTRunLoop(long mediator);
 
     private native boolean nativeSyncQueue(long timeout);
@@ -1136,5 +1167,84 @@ public final class LWCToolkit extends LWToolkit {
         } else {
             UIManager.put("MenuBarUI", null);
         }
+    }
+
+    private static native void setMainThreadImmediateDispatch();
+
+    @Override
+    public void installMainThreadDispatcher(EventQueue eventQueue) {
+        if (MAIN_THREAD_DISPATCHER != null && APPKIT_THREAD != null) {
+            APPKIT_THREAD.setContextClassLoader(Thread.currentThread().getContextClassLoader());
+            setMainThreadImmediateDispatch();
+            AWTAccessor.getEventQueueAccessor().setFwDispatcher(eventQueue, MAIN_THREAD_DISPATCHER);
+        }
+    }
+
+    @Override
+    public Thread getMainThread() {
+        return APPKIT_THREAD;
+    }
+}
+
+class MainThreadDispatcher implements FwDispatcher {
+    @Override
+    public boolean isDispatchThread() {
+        return LWCToolkit.isAppKitThread();
+    }
+
+    @Override
+    public void scheduleDispatch(Runnable r) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public SecondaryLoop createSecondaryLoop() {
+        return new MainThreadSecondaryLoop();
+    }
+
+    @Override
+    public boolean scheduleEvent(AWTEvent event) {
+        LWCToolkit.scheduleEvent(event);
+        return true;
+    }
+
+    @Override
+    public boolean canGetEventsFromNativeQueue() {
+        return isDispatchThread();
+    }
+
+    @Override
+    public AWTEvent getNextEventFromNativeQueue(boolean removeFromQueue) {
+        return LWCToolkit.getNextEvent(removeFromQueue);
+    }
+}
+
+class MainThreadSecondaryLoop implements SecondaryLoop {
+    private long mediatorHandle;
+
+    @Override
+    public boolean enter() {
+        AtomicBoolean result = new AtomicBoolean();
+        LWCToolkit.performOnMainThreadAndWait(() -> {
+            if (mediatorHandle == 0) {
+                mediatorHandle = LWCToolkit.createAWTRunLoopMediator();
+                LWCToolkit.doSimpleRunLoop(mediatorHandle);
+                result.set(true);
+            }
+        });
+        return result.get();
+    }
+
+    @Override
+    public boolean exit() {
+        AtomicBoolean result = new AtomicBoolean();
+        LWCToolkit.performOnMainThreadAndWait(() -> {
+            if (mediatorHandle != 0) {
+                LWCToolkit.stopAWTRunLoop(mediatorHandle);
+                mediatorHandle = 0;
+                result.set(true);
+            }
+        });
+        return result.get();
     }
 }

@@ -63,8 +63,8 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
             = "true".equals(GetPropertyAction.privilegedGetProperty("reparenting.check"));
     private static final boolean ENABLE_DESKTOP_CHECK
             = "true".equals(GetPropertyAction.privilegedGetProperty("transients.desktop.check", "true"));
-    static final boolean ENABLE_MODAL_TRANSIENTS_CHAIN
-            = "true".equals(GetPropertyAction.privilegedGetProperty("modal.transients.chain"));
+    static final boolean FULL_MODAL_TRANSIENTS_CHAIN
+            = "true".equals(GetPropertyAction.privilegedGetProperty("full.modal.transients.chain"));
 
     // should be synchronized on awtLock
     private static Set<XWindowPeer> windows = new HashSet<XWindowPeer>();
@@ -621,8 +621,10 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
 
     public void handleWindowFocusInSync(long serial) {
         WindowEvent we = new WindowEvent((Window)target, WindowEvent.WINDOW_GAINED_FOCUS);
-        XKeyboardFocusManagerPeer.getInstance().setCurrentFocusedWindow((Window) target);
-        sendEvent(we);
+        synchronized (focusRequestLock) {
+            XKeyboardFocusManagerPeer.getInstance().setCurrentFocusedWindow((Window) target);
+            sendEvent(we);
+        }
     }
     // NOTE: This method may be called by privileged threads.
     //       DO NOT INVOKE CLIENT CODE ON THIS THREAD!
@@ -637,9 +639,11 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
     }
     public void handleWindowFocusOutSync(Window oppositeWindow, long serial) {
         WindowEvent we = new WindowEvent((Window)target, WindowEvent.WINDOW_LOST_FOCUS, oppositeWindow);
-        XKeyboardFocusManagerPeer.getInstance().setCurrentFocusedWindow(null);
-        XKeyboardFocusManagerPeer.getInstance().setCurrentFocusOwner(null);
-        sendEvent(we);
+        synchronized (focusRequestLock) {
+            XKeyboardFocusManagerPeer.getInstance().setCurrentFocusedWindow(null);
+            XKeyboardFocusManagerPeer.getInstance().setCurrentFocusOwner(null);
+            sendEvent(we);
+        }
     }
 
 /* --- DisplayChangedListener Stuff --- */
@@ -1694,7 +1698,9 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
                     modalBlocker = null;
 
                     if (isReparented() || ENABLE_REPARENTING_CHECK && XWM.isNonReparentingWM()) {
-                        removeFromTransientFors();
+                        if (FULL_MODAL_TRANSIENTS_CHAIN || haveCommonAncestor(target, d)) {
+                            removeFromTransientFors();
+                        }
                     } else {
                         delayedModalBlocking = false;
                     }
@@ -1736,7 +1742,7 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
         if (!allStates && (window.getWMState() != transientForWindow.getWMState())) {
             return;
         }
-        if (ENABLE_MODAL_TRANSIENTS_CHAIN && screenOrDesktopDiffers(window, transientForWindow)) {
+        if (screenOrDesktopDiffers(window, transientForWindow)) {
             return;
         }
         long bpw = window.getWindow();
@@ -1891,7 +1897,7 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
 
     private void addToTransientFors(XDialogPeer blockerPeer, Vector<XWindowPeer> javaToplevels)
     {
-        if (!ENABLE_MODAL_TRANSIENTS_CHAIN) return;
+        if (!FULL_MODAL_TRANSIENTS_CHAIN && !haveCommonAncestor(target, blockerPeer.target)) return;
         // blockerPeer chain iterator
         XWindowPeer blockerChain = blockerPeer;
         while (blockerChain.prevTransientFor != null) {
@@ -1952,7 +1958,6 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
     }
 
     static void restoreTransientFor(XWindowPeer window) {
-        if (!ENABLE_MODAL_TRANSIENTS_CHAIN) return;
         XWindowPeer ownerPeer = window.getOwnerPeer();
         if (ownerPeer != null) {
             setToplevelTransientFor(window, ownerPeer, false, true);
@@ -1992,7 +1997,6 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
      * @see #setModalBlocked
      */
     private void removeFromTransientFors() {
-        if (!ENABLE_MODAL_TRANSIENTS_CHAIN) return;
         // the head of the chain of this window
         XWindowPeer thisChain = this;
         // the head of the current chain
@@ -2560,5 +2564,16 @@ class XWindowPeer extends XPanelPeer implements WindowPeer,
             }
         }
         return false;
+    }
+
+    static boolean haveCommonAncestor(Component c1, Component c2) {
+        return getRootOwner(c1) == getRootOwner(c2);
+    }
+
+    static Component getRootOwner(Component c) {
+        while (c.getParent() != null) {
+            c = c.getParent();
+        }
+        return c;
     }
 }
