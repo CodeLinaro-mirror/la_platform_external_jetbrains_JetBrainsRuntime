@@ -40,6 +40,13 @@ public class JBRApiModule {
                 .clientProxy("java.awt.Desktop$DesktopActionsHandler", "com.jetbrains.DesktopActions$Handler")
                 .service("com.jetbrains.ProjectorUtils")
                     .withStatic("overrideGraphicsEnvironment", "overrideLocalGraphicsEnvironment", "java.awt.GraphicsEnvironment")
-                    .withStatic("setLocalGraphicsEnvironmentProvider", "setLocalGraphicsEnvironmentProvider", "java.awt.GraphicsEnvironment");
+                    .withStatic("setLocalGraphicsEnvironmentProvider", "setLocalGraphicsEnvironmentProvider", "java.awt.GraphicsEnvironment")
+                .service("com.jetbrains.AccessibleAnnouncer")
+                    .withStatic("announce", "announce", "sun.swing.AccessibleAnnouncer")
+                .service("com.jetbrains.GraphicsUtils")
+                    .withStatic("createConstrainableGraphics", "create", "com.jetbrains.desktop.JBRGraphicsDelegate")
+                .clientProxy("com.jetbrains.desktop.ConstrainableGraphics2D", "com.jetbrains.GraphicsUtils$ConstrainableGraphics2D")
+                .service("com.jetbrains.WindowDecorations", "java.awt.Window$WindowDecorations")
+                .proxy("com.jetbrains.WindowDecorations$CustomTitleBar", "java.awt.Window$CustomTitleBar");
     }
 }

@@ -123,11 +123,14 @@ static jclass sjc_CAccessibility = NULL;
             if ([accessibilityName isEqualToString:@""]) {
                 accessibilityName = [cell accessibilityLabel];
             } else {
-                if ([cell accessibilityLabel] == nil) {
-                    accessibilityName = [accessibilityName stringByAppendingFormat:@", %@", [cell accessibilityValue]];
-                } else {
-                    accessibilityName = [accessibilityName stringByAppendingFormat:@", %@", [cell accessibilityLabel]];
+                NSString *label = [cell accessibilityLabel];
+                if (label == nil) {
+                    id val = [cell accessibilityValue];
+                    if (val != nil) {
+                        label = [NSString stringWithFormat:@"%@", val];
+                    }
                 }
+                accessibilityName = [accessibilityName stringByAppendingFormat:@", %@", label];
             }
         }
         return accessibilityName;

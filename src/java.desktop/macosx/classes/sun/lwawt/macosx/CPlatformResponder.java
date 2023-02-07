@@ -35,7 +35,6 @@ import java.awt.event.MouseEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.event.KeyEvent;
-import java.util.Arrays;
 import java.util.Locale;
 
 /**
@@ -165,34 +164,14 @@ final class CPlatformResponder {
                                             -roundDelta, -delta, null);
     }
 
-    private static final String [] cyrillicKeyboardLayouts = new String [] {
-            "com.apple.keylayout.Russian",
-            "com.apple.keylayout.RussianWin",
-            "com.apple.keylayout.Russian-Phonetic",
-            "com.apple.keylayout.Byelorussian",
-            "com.apple.keylayout.Ukrainian",
-            "com.apple.keylayout.UkrainianWin",
-            "com.apple.keylayout.Bulgarian",
-            "com.apple.keylayout.Serbian"
-    };
-
-    private static boolean isCyrillicKeyboardLayout() {
-        final var currentLayout = LWCToolkit.getKeyboardLayoutId();
-        if ( (currentLayout == null) || currentLayout.isEmpty() ) {
-            return false;
-        }
-        return Arrays.asList(cyrillicKeyboardLayouts).contains(currentLayout);
-    }
-
     /**
      * Handles key events.
      */
-    void handleKeyEvent(int eventType, int modifierFlags, String chars,
-                        String charsIgnoringModifiers, String charsIgnoringModifiersAndShift,
+    void handleKeyEvent(int eventType, int modifierFlags, String chars, String charsIgnoringModifiers,
                         short keyCode, boolean needsKeyTyped, boolean needsKeyReleased) {
         boolean isFlagsChangedEvent =
-                isNpapiCallback ? (eventType == CocoaConstants.NPCocoaEventFlagsChanged) :
-                        (eventType == CocoaConstants.NSFlagsChanged);
+            isNpapiCallback ? (eventType == CocoaConstants.NPCocoaEventFlagsChanged) :
+                              (eventType == CocoaConstants.NSFlagsChanged);
 
         int jeventType = KeyEvent.KEY_PRESSED;
         int jkeyCode = KeyEvent.VK_UNDEFINED;
@@ -200,10 +179,8 @@ final class CPlatformResponder {
         boolean postsTyped = false;
         boolean spaceKeyTyped = false;
 
-        int jmodifiers = NSEvent.nsToJavaModifiers(modifierFlags);
-
         char testChar = KeyEvent.CHAR_UNDEFINED;
-        boolean isDeadChar = (chars!= null && chars.length() == 0);
+        boolean isDeadChar = (chars != null && chars.length() == 0);
 
         if (isFlagsChangedEvent) {
             int[] in = new int[] {modifierFlags, keyCode};
@@ -216,7 +193,11 @@ final class CPlatformResponder {
             jeventType = out[2];
         } else {
             if (chars != null && chars.length() > 0) {
-                testChar = chars.charAt(0);
+                // Find a suitable character to report as a keypress.
+                // `chars` might contain more than one character
+                // e.g. when Dead Grave + S were pressed, `chars` will contain "`s"
+                // Since we only really care about the last character, let's use it
+                testChar = chars.charAt(chars.length() - 1);
 
                 //Check if String chars contains SPACE character.
                 if (chars.trim().isEmpty()) {
@@ -224,19 +205,10 @@ final class CPlatformResponder {
                 }
             }
 
-            // Workaround for JBR-2981
-            int metaAltCtrlMods = KeyEvent.META_DOWN_MASK | KeyEvent.ALT_DOWN_MASK | KeyEvent.CTRL_DOWN_MASK;
-            boolean metaAltCtrlAreNotPressed = (jmodifiers & metaAltCtrlMods) == 0;
-            boolean useShiftedCharacter = ((jmodifiers & KeyEvent.SHIFT_DOWN_MASK) == KeyEvent.SHIFT_DOWN_MASK) && metaAltCtrlAreNotPressed;
-
             char testCharIgnoringModifiers = charsIgnoringModifiers != null && charsIgnoringModifiers.length() > 0 ?
                     charsIgnoringModifiers.charAt(0) : KeyEvent.CHAR_UNDEFINED;
-            if (!useShiftedCharacter && charsIgnoringModifiersAndShift != null && charsIgnoringModifiersAndShift.length() > 0) {
-                testCharIgnoringModifiers = charsIgnoringModifiersAndShift.charAt(0);
-            }
 
-            int useNationalLayouts = (KeyEventProcessing.useNationalLayouts && !isCyrillicKeyboardLayout()) ? 1 : 0;
-            int[] in = new int[] {testCharIgnoringModifiers, isDeadChar ? 1 : 0, modifierFlags, keyCode, useNationalLayouts};
+            int[] in = new int[] {testCharIgnoringModifiers, isDeadChar ? 1 : 0, modifierFlags, keyCode, KeyEventProcessing.useNationalLayouts ? 1 : 0};
             int[] out = new int[3]; // [jkeyCode, jkeyLocation, deadChar]
 
             postsTyped = NSEvent.nsToJavaKeyInfo(in, out);
@@ -244,11 +216,14 @@ final class CPlatformResponder {
                 testChar = KeyEvent.CHAR_UNDEFINED;
             }
 
-            if(isDeadChar){
+            if (isDeadChar) {
                 testChar = (char) out[2];
-                jkeyCode = out[0];
-                if(testChar == 0 && jkeyCode == KeyEvent.VK_UNDEFINED){
-                    return;
+                if (testChar == 0) {
+                    // Not abandoning the input event here, since we want to catch dead key presses.
+                    // Consider Option+E on the standard ABC layout. This key combination produces a dead accent.
+                    // The key 'E' by itself is not dead, thus out[2] will be 0, even though isDeadChar is true.
+                    // If we abandon the event there, this key press will never get delivered to the application.
+                    testChar = KeyEvent.CHAR_UNDEFINED;
                 }
             }
 
@@ -257,11 +232,12 @@ final class CPlatformResponder {
             // It is necessary to use testCharIgnoringModifiers instead of testChar for event
             // generation in such case to avoid uppercase letters in text components.
             LWCToolkit lwcToolkit = (LWCToolkit)Toolkit.getDefaultToolkit();
-            if ((lwcToolkit.getLockingKeyState(KeyEvent.VK_CAPS_LOCK) &&
+            if (testChar != KeyEvent.CHAR_UNDEFINED &&
+                ((lwcToolkit.getLockingKeyState(KeyEvent.VK_CAPS_LOCK) &&
                     Locale.SIMPLIFIED_CHINESE.equals(lwcToolkit.getDefaultKeyboardLocale())) ||
                 (LWCToolkit.isLocaleUSInternationalPC(lwcToolkit.getDefaultKeyboardLocale()) &&
                     LWCToolkit.isCharModifierKeyInUSInternationalPC(testChar) &&
-                    (testChar != testCharIgnoringModifiers))) {
+                    (testChar != testCharIgnoringModifiers)))) {
                 testChar = testCharIgnoringModifiers;
             }
 
@@ -271,14 +247,21 @@ final class CPlatformResponder {
                                            NSEvent.nsToJavaEventType(eventType);
         }
 
-        char javaChar = NSEvent.nsToJavaChar(testChar, modifierFlags, spaceKeyTyped);
-        // Some keys may generate a KEY_TYPED, but we can't determine
-        // what that character is. That's likely a bug, but for now we
-        // just check for CHAR_UNDEFINED.
+        char javaChar = (testChar == KeyEvent.CHAR_UNDEFINED) ? KeyEvent.CHAR_UNDEFINED :
+                NSEvent.nsToJavaChar(testChar, modifierFlags, spaceKeyTyped);
+        // Some keys may generate a KEY_TYPED, but we can't determine what that character is.
+        // This may happen during the key combinations that produce dead keys (like Option+E described before),
+        // since we don't care about the dead key for the purposes of keyPressed event, nor do the dead keys
+        // produce input by themselves. In this case we set postsTyped to false, so that the application
+        // doesn't receive unnecessary KEY_TYPED events.
+        //
+        // In cases not involving dead keys combos, having javaChar == CHAR_UNDEFINED is most likely a bug.
+        // Since we can't determine which character is supposed to be typed let's just ignore it.
         if (javaChar == KeyEvent.CHAR_UNDEFINED) {
             postsTyped = false;
         }
 
+        int jmodifiers = NSEvent.nsToJavaModifiers(modifierFlags);
         long when = System.currentTimeMillis();
 
         if (jeventType == KeyEvent.KEY_PRESSED) {

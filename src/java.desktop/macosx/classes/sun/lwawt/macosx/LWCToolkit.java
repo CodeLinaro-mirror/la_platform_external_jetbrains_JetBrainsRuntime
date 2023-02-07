@@ -136,11 +136,22 @@ public final class LWCToolkit extends LWToolkit {
 
     private static native void initIDs();
     private static native void initAppkit(ThreadGroup appKitThreadGroup, boolean headless);
+    private static CInputMethodDescriptor sInputMethodDescriptor;
+
     private static native void switchKeyboardLayoutNative(String layoutName);
 
-    static native String getKeyboardLayoutNativeId();
+    static private native String getKeyboardLayoutNativeId();
 
-    private static CInputMethodDescriptor sInputMethodDescriptor;
+    public static void switchKeyboardLayout (String layoutName) {
+        if (layoutName == null || layoutName.isEmpty()) {
+            throw new RuntimeException("A valid layout ID is expected. Found:  " + layoutName);
+        }
+        switchKeyboardLayoutNative(layoutName);
+    }
+
+    public static String getKeyboardLayoutId () {
+        return getKeyboardLayoutNativeId();
+    }
 
     // Listens to EDT state in invokeAndWait() and disposes the invocation event
     // when EDT becomes free but the invocation event is not yet dispatched (considered lost).
@@ -609,6 +620,10 @@ public final class LWCToolkit extends LWToolkit {
 
     public static boolean isAppKitThread() {
         return Thread.currentThread() == APPKIT_THREAD;
+    }
+
+    public static boolean isDispatchingOnMainThread() {
+        return MAIN_THREAD_DISPATCHER != null && APPKIT_THREAD != null;
     }
 
     @Override
@@ -1144,17 +1159,6 @@ public final class LWCToolkit extends LWToolkit {
                 !path.endsWith(".");
     }
 
-    public static void switchKeyboardLayout (String layoutName) {
-        if (layoutName == null || layoutName.isEmpty()) {
-            throw new RuntimeException("A valid layout ID is expected. Found:  " + layoutName);
-        }
-        switchKeyboardLayoutNative(layoutName);
-    }
-
-    public static String getKeyboardLayoutId () {
-        return getKeyboardLayoutNativeId();
-    }
-
     @Override
     protected PlatformWindow getPlatformWindowUnderMouse() {
         return CPlatformWindow.nativeGetTopmostPlatformWindowUnderMouse();
@@ -1173,8 +1177,11 @@ public final class LWCToolkit extends LWToolkit {
 
     @Override
     public void installMainThreadDispatcher(EventQueue eventQueue) {
-        if (MAIN_THREAD_DISPATCHER != null && APPKIT_THREAD != null) {
-            APPKIT_THREAD.setContextClassLoader(Thread.currentThread().getContextClassLoader());
+        if (isDispatchingOnMainThread()) {
+            AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
+                APPKIT_THREAD.setContextClassLoader(Thread.currentThread().getContextClassLoader());
+                return null;
+            });
             setMainThreadImmediateDispatch();
             AWTAccessor.getEventQueueAccessor().setFwDispatcher(eventQueue, MAIN_THREAD_DISPATCHER);
         }

@@ -383,6 +383,7 @@ public class NationalLayoutTest {
 
         // Go over all keys defined for the layout
         for(LayoutKey layoutKey : layout.getLayoutKeys()) {
+            System.err.printf("KEYPRESS: key=%s, modifier=%s\n", layoutKey.getKey(), modifier.toPlaintextString());
 
             // Clean up synchronized lists which store pressed key codes and typed chars
             keysPressed = new CopyOnWriteArrayList();

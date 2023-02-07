@@ -1,1 +1,1 @@
-jbr-release-17.0.5b762.1
+jbr-release-17.0.6b802.1

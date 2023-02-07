@@ -11,6 +11,7 @@ can be found on the [releases page](https://github.com/JetBrains/JetBrainsRuntim
 
 | IDE Version | Latest JBR                                                                                             | Date Released |
 |  ---        |--------------------------------------------------------------------------------------------------------|---------------|
+| 2023.1      | [17.0.6-b785.1](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.6b785.1)   | 31-Jan-2023   |
 | 2022.3      | [17.0.5-b653.25](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.5b653.25) | 10-Jan-2023   |
 | 2022.2      | [17.0.5-b469.71](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.5b469.71) | 14-Nov-2022   |
 
@@ -88,7 +89,7 @@ $ docker run -v `pwd`../../../../:/JetBrainsRuntime -it 942ea9900054
 Install the necessary tools, libraries, and headers with:
 ```
 $ sudo apt-get install autoconf make build-essential libx11-dev libxext-dev libxrender-dev libxtst-dev \
-       libxt-dev libxrandr-dev libcups2-dev libfontconfig1-dev libasound2-dev \
+       libxt-dev libxrandr-dev libcups2-dev libfontconfig1-dev libasound2-dev libspeechd-dev \
        java-16-amazon-corretto-jdk
 ```
 Then run the following:
@@ -127,6 +128,18 @@ $ bash configure --with-toolchain-version=2019
 $ make images
 ```
 This will build the release configuration under `./build/windows-x86_64-server-release/`.
+
+#### Enable optional NVDA screen reader support
+If you want to add support of a11y announcing via [NVDA screen reader](https://www.nvaccess.org/about-nvda/),
+you will need to bundle the NVDA Controller Client library.
+You can do it with the following steps:
+1. Download the NVDA Controller Client library. You can find the link in its official README [here](https://github.com/nvaccess/nvda/blob/master/extras/controllerClient/readme.md)
+2. Pass the path to the unpacked package to `configure` via an additional flag `--with-nvdacontrollerclient=<path>`.
+   The build system will search the required library files under `<path>/<target-arch>`.
+
+#### Disable optional JAWS screen reader support
+JBR is built with built-in support of JAWS screen reader.
+If you want to disable it, run `configure` with the additional flag `--disable-jaws-client`.
 
 ### macOS
 Install the following:
