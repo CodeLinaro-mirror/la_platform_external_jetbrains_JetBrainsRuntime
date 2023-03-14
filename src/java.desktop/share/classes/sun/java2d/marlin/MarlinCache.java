@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -101,7 +101,7 @@ public final class MarlinCache implements MarlinConst {
     final RendererStats rdrStats;
 
     // touchedTile ref (clean)
-    private final ArrayCacheIntClean.Reference touchedTile_ref;
+    private final IntArrayCache.Reference touchedTile_ref;
 
     int tileMin, tileMax;
 
@@ -166,9 +166,7 @@ public final class MarlinCache implements MarlinConst {
         }
 
         // Return arrays:
-        if (touchedTile_ref.doSetRef(touchedTile)) {
-            touchedTile = touchedTile_ref.putArrayClean(touchedTile); // already zero filled
-        }
+        touchedTile = touchedTile_ref.putArray(touchedTile, 0, 0); // already zero filled
 
         // At last: resize back off-heap rowAA to initial size
         if (rowAAChunk.length != INITIAL_CHUNK_ARRAY) {
@@ -200,7 +198,7 @@ public final class MarlinCache implements MarlinConst {
             if (tileMax == 1) {
                 touchedTile[0] = 0;
             } else {
-                ArrayCacheInt.fill(touchedTile, tileMin, tileMax, 0);
+                IntArrayCache.fill(touchedTile, tileMin, tileMax, 0);
             }
             // reset tile used marks:
             tileMin = Integer.MAX_VALUE;
@@ -331,7 +329,7 @@ public final class MarlinCache implements MarlinConst {
         }
 
         // Clear alpha row for reuse:
-        ArrayCacheInt.fill(alphaRow, from, px1 + 1 - bboxX0, 0);
+        IntArrayCache.fill(alphaRow, from, px1 + 1 - bboxX0, 0);
     }
 
     void copyAARowRLE_WithBlockFlags(final int[] blkFlags, final int[] alphaRow,
@@ -545,8 +543,8 @@ public final class MarlinCache implements MarlinConst {
         // Clear alpha row for reuse:
         alphaRow[to] = 0;
         if (DO_CHECKS) {
-            ArrayCacheInt.check(blkFlags, blkW, blkE, 0);
-            ArrayCacheInt.check(alphaRow, from, px1 + 1 - bboxX0, 0);
+            IntArrayCache.check(blkFlags, blkW, blkE, 0);
+            IntArrayCache.check(alphaRow, from, px1 + 1 - bboxX0, 0);
         }
     }
 

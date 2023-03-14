@@ -931,7 +931,7 @@ Java_sun_java2d_xr_XRBackendNative_addBGRAGlyphImagesNative
         bgraGlyphInfo->pixmap = pixmap;
         bgraGlyphInfo->picture = picture;
 
-        glyphInfoPointers[i] = ptr_to_jlong(bgraGlyphInfo);
+        glyphInfoPointers[i] = (jlong) bgraGlyphInfo;
     }
 
     (*env)->ReleasePrimitiveArrayCritical(env, javaGlyphInfoPointersArray,

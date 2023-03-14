@@ -23,5 +23,5 @@ public class TouchEvent {
 
     @Native
     public final static boolean defaultTouchHandling = "true".equalsIgnoreCase(
-            System.getProperty(defaultTouchHandlingOption, "false"));
+            Util.getProperty(defaultTouchHandlingOption, "false"));
 }

@@ -40,7 +40,6 @@ import java.util.Map;
 import sun.java2d.MacosxSurfaceManagerFactory;
 import sun.java2d.SunGraphicsEnvironment;
 import sun.java2d.SurfaceManagerFactory;
-import sun.lwawt.macosx.LWCToolkit;
 import sun.util.logging.PlatformLogger;
 
 /**
@@ -93,9 +92,6 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
      */
     private native void deregisterDisplayReconfiguration(long context);
 
-    private native long registerScreenParametersChangedListener();
-    private native void deregisterScreenParametersChangedListener(long listenerPtr);
-
     /** Available CoreGraphics displays. */
     private final Map<Integer, CGraphicsDevice> devices = new HashMap<>(5);
     /**
@@ -122,8 +118,7 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
         rebuildDevices();
 
         /* Register our display reconfiguration listener */
-        displayReconfigContext = LWCToolkit.isDispatchingOnMainThread() ? registerScreenParametersChangedListener()
-                : registerDisplayReconfiguration();
+        displayReconfigContext = registerDisplayReconfiguration();
         if (displayReconfigContext == 0L) {
             throw new RuntimeException("Could not register CoreGraphics display reconfiguration callback");
         }
@@ -158,11 +153,7 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
         try {
             super.finalize();
         } finally {
-            if (LWCToolkit.isDispatchingOnMainThread()) {
-                deregisterScreenParametersChangedListener(displayReconfigContext);
-            } else {
-                deregisterDisplayReconfiguration(displayReconfigContext);
-            }
+            deregisterDisplayReconfiguration(displayReconfigContext);
         }
     }
 

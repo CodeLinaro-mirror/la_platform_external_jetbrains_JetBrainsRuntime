@@ -268,9 +268,7 @@ public class CInputMethod extends InputMethodAdapter {
      */
     public void removeNotify() {
         if (fAwtFocussedComponentPeer != null) {
-            long modelPtr = getNativeViewPtr(fAwtFocussedComponentPeer);
-            nativeEndComposition(modelPtr);
-            nativeNotifyPeer(modelPtr, null);
+            nativeEndComposition(getNativeViewPtr(fAwtFocussedComponentPeer));
         }
 
         fAwtFocussedComponent = null;

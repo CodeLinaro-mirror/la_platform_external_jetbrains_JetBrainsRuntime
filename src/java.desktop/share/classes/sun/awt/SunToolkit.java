@@ -2113,11 +2113,6 @@ public abstract class SunToolkit extends Toolkit
         return AWTAccessor.getAWTEventAccessor().isSystemGenerated(e);
     }
 
-    public void installMainThreadDispatcher(EventQueue eventQueue) {}
-
-    public Thread getMainThread() {
-        return null;
-    }
 } // class SunToolkit
 
 

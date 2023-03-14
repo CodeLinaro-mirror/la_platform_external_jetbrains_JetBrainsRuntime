@@ -606,18 +606,20 @@ class XDnDDropTargetProtocol extends XDropTargetProtocol {
         y = (int)(xclient.get_data(2) & 0xFFFF);
 
         if (xwindow != null) {
-            x = xwindow.scaleDownX(x);
-            y = xwindow.scaleDownY(y);
+            x = xwindow.scaleDown(x);
+            y = xwindow.scaleDown(y);
         } else {
             GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
             for (GraphicsDevice gd : ge.getScreenDevices()) {
                 X11GraphicsConfig gc = (X11GraphicsConfig)gd.getDefaultConfiguration();
                 Rectangle rt = gc.getBounds();
+                rt.x      = gc.scaleUp(rt.x);
+                rt.y      = gc.scaleUp(rt.y);
                 rt.width  = gc.scaleUp(rt.width);
                 rt.height = gc.scaleUp(rt.height);
                 if (rt.contains(x, y)) {
-                    x = gc.scaleDownX(x);
-                    y = gc.scaleDownY(y);
+                    x = gc.scaleDown(x);
+                    y = gc.scaleDown(y);
                     break;
                 }
             }

@@ -49,10 +49,10 @@
     BOOL isJustCreated;
     NSWindowTabbingMode javaWindowTabbingMode;
     BOOL isEnterFullScreen;
-    BOOL hideTabController;
-    NSView *_fullScreenButtons;
-    NSView *_fullScreenOriginalButtons;
-    CGFloat _customTitleBarHeight;
+    CGFloat _transparentTitleBarHeight;
+    NSMutableArray* _transparentTitleBarConstraints;
+    NSLayoutConstraint *_transparentTitleBarHeightConstraint;
+    NSMutableArray *_transparentTitleBarButtonCenterXConstraints;
 }
 
 // An instance of either AWTWindow_Normal or AWTWindow_Panel
@@ -72,12 +72,6 @@
 @property (nonatomic) NSWindowTabbingMode javaWindowTabbingMode;
 @property (nonatomic) BOOL isEnterFullScreen;
 @property (nonatomic, retain) NSNumber *currentDisplayID;
-@property (nonatomic) BOOL hideTabController;
-@property (nonatomic, readonly) CGFloat customTitleBarHeight;
-@property (nonatomic) BOOL customTitleBarControlsVisible;
-@property (nonatomic, retain) NSMutableArray *customTitleBarConstraints;
-@property (nonatomic, retain) NSLayoutConstraint *customTitleBarHeightConstraint;
-@property (nonatomic, retain) NSMutableArray *customTitleBarButtonCenterXConstraints;
 
 - (id) initWithPlatformWindow:(jobject)javaPlatformWindow
                   ownerWindow:owner
@@ -118,10 +112,6 @@
 @interface AWTWindowDragView : NSView
 @property (nonatomic) jobject javaPlatformWindow;
 - (id) initWithPlatformWindow:(jobject)javaPlatformWindow;
-@end
-
-@interface AWTButtonsView : NSView
-- (CGFloat)getThemeAlphaValue:(NSWindow *)window;
 @end
 
 #endif _AWTWINDOW_H

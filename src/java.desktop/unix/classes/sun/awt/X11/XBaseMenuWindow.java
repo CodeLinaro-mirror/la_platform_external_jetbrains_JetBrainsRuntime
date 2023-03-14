@@ -654,12 +654,13 @@ public abstract class XBaseMenuWindow extends XWindow {
      *
      ************************************************/
 
-    void updateCurrentGraphicsConfiguration() {
+    GraphicsConfiguration getCurrentGraphicsConfiguration() {
         Component hw = SunToolkit.getHeavyweightComponent(target);
         XWindow peer = AWTAccessor.getComponentAccessor().getPeer(hw);
         if (peer != null && peer.graphicsConfig != null) {
-            graphicsConfig = peer.graphicsConfig;
+            return peer.graphicsConfig;
         }
+        return graphicsConfig;
     }
 
     /**

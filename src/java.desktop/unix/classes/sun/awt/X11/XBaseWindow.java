@@ -310,21 +310,9 @@ public class XBaseWindow {
     protected int scaleUp(int x) {
         return x;
     }
-    protected int scaleUpX(int x) {
-        return x;
-    }
-    protected int scaleUpY(int y) {
-        return y;
-    }
 
     protected int scaleDown(int x) {
         return x;
-    }
-    protected int scaleDownX(int x) {
-        return x;
-    }
-    protected int scaleDownY(int y) {
-        return y;
     }
 
     /**
@@ -395,8 +383,8 @@ public class XBaseWindow {
                 }
                 window = XlibWrapper.XCreateWindow(XToolkit.getDisplay(),
                                                    parentWindow.longValue(),
-                                                   scaleUpX(bounds.x),
-                                                   scaleUpY(bounds.y),
+                                                   scaleUp(bounds.x),
+                                                   scaleUp(bounds.y),
                                                    scaleUp(bounds.width),
                                                    scaleUp(bounds.height),
                                                    0, // border
@@ -535,8 +523,8 @@ public class XBaseWindow {
             // we want to reset PPosition in hints.  This is necessary
             // for locationByPlatform functionality
             if ((flags & XUtilConstants.PPosition) != 0) {
-                hints.set_x(scaleUpX(x));
-                hints.set_y(scaleUpY(y));
+                hints.set_x(scaleUp(x));
+                hints.set_y(scaleUp(y));
             }
             if ((flags & XUtilConstants.PSize) != 0) {
                 hints.set_width(scaleUp(width));
@@ -769,8 +757,7 @@ public class XBaseWindow {
         XToolkit.awtLock();
         try {
             XlibWrapper.XMoveResizeWindow(XToolkit.getDisplay(), getWindow(),
-                                          parentWindow == null ? scaleUpX(x) : scaleUp(x),
-                                          parentWindow == null ? scaleUpY(y) : scaleUp(y),
+                                          scaleUp(x), scaleUp(y),
                                           scaleUp(width), scaleUp(height));
         } finally {
             XToolkit.awtUnlock();
@@ -793,8 +780,8 @@ public class XBaseWindow {
 
         if (srcPeer != null && dstPeer != null) {
             // (x, y) is relative to src
-            rpt.x = dstPeer.scaleDownX(srcPeer.scaleUpX(x + srcPeer.getAbsoluteX()) - dstPeer.scaleUpX(dstPeer.getAbsoluteX()));
-            rpt.y = dstPeer.scaleDownY(srcPeer.scaleUpY(y + srcPeer.getAbsoluteY()) - dstPeer.scaleUpY(dstPeer.getAbsoluteY()));
+            rpt.x = x + srcPeer.getAbsoluteX() - dstPeer.getAbsoluteX();
+            rpt.y = y + srcPeer.getAbsoluteY() - dstPeer.getAbsoluteY();
         } else if (dstPeer != null && XlibUtil.isRoot(src, dstPeer.getScreenNumber())) {
             // from root into peer
             rpt.x = x - dstPeer.getAbsoluteX();
@@ -804,15 +791,8 @@ public class XBaseWindow {
             rpt.x = x + srcPeer.getAbsoluteX();
             rpt.y = y + srcPeer.getAbsoluteY();
         } else {
-            if (srcPeer != null) {
-                x = srcPeer.scaleUp(x);
-                y = srcPeer.scaleUp(y);
-            }
-            rpt = XlibUtil.translateCoordinates(src, dst, x, y);
-            if (dstPeer != null) {
-                rpt.x = dstPeer.scaleDown(rpt.x);
-                rpt.y = dstPeer.scaleDown(rpt.y);
-            }
+            int scale = srcPeer == null ? 1 : srcPeer.getScale();
+            rpt = XlibUtil.translateCoordinates(src, dst, new Point(x, y), scale);
         }
         return rpt;
     }
@@ -1111,8 +1091,8 @@ public class XBaseWindow {
             insLog.finer("Configure, {0}", xe);
         }
 
-        x = scaleDownX(xe.get_x());
-        y = scaleDownY(xe.get_y());
+        x = scaleDown(xe.get_x());
+        y = scaleDown(xe.get_y());
         width = scaleDown(xe.get_width());
         height = scaleDown(xe.get_height());
     }

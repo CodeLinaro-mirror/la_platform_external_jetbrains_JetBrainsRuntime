@@ -129,7 +129,7 @@ MTLTransform* tempTransform = nil;
 
 @synthesize textureFunction,
             vertexCacheEnabled, aaEnabled, device, pipelineStateStorage,
-            commandQueue, vertexBuffer,
+            commandQueue, blitCommandQueue, vertexBuffer,
             texturePool, paint=_paint, encoderManager=_encoderManager,
             samplerManager=_samplerManager, stencilManager=_stencilManager;
 
@@ -172,6 +172,7 @@ extern void initSamplers(id<MTLDevice> device);
 
         // Create command queue
         commandQueue = [device newCommandQueue];
+        blitCommandQueue = [device newCommandQueue];
 
         _tempTransform = [[MTLTransform alloc] init];
         if (isDisplaySyncEnabled()) {
@@ -193,6 +194,7 @@ extern void initSamplers(id<MTLDevice> device);
     //self.texturePool = nil;
     self.vertexBuffer = nil;
     self.commandQueue = nil;
+    self.blitCommandQueue = nil;
     self.pipelineStateStorage = nil;
 
     if (_encoderManager != nil) {
@@ -508,6 +510,14 @@ extern void initSamplers(id<MTLDevice> device);
     return [self.commandQueue commandBuffer];
 }
 
+/*
+ * This should be exclusively used only for final blit
+ * and present of CAMetalDrawable in MTLLayer
+ */
+- (id<MTLCommandBuffer>)createBlitCommandBuffer {
+    return [self.blitCommandQueue commandBuffer];
+}
+
 -(void)setBufImgOp:(NSObject*)bufImgOp {
     if (_bufImgOp != nil) {
         [_bufImgOp release]; // context owns bufImgOp object
@@ -580,6 +590,7 @@ CVReturn mtlDisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeStamp*
 
 - (void)startRedraw:(MTLLayer*)layer {
     [_dlLock lock];
+    layer.redrawCount++;
     J2dTraceLn2(J2D_TRACE_VERBOSE, "MTLContext_startRedraw: ctx=%p layer=%p", self, layer);
     @try {
         _displayLinkCount = KEEP_ALIVE_COUNT;
@@ -598,7 +609,10 @@ CVReturn mtlDisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeStamp*
     [_dlLock lock];
     @try {
         if (_displayLink != nil) {
-            [_layers removeObject:layer];
+            if (--layer.redrawCount <= 0) {
+                [_layers removeObject:layer];
+                layer.redrawCount = 0;
+            }
             if (_layers.count == 0 && _displayLinkCount == 0) {
                 if (CVDisplayLinkIsRunning(_displayLink)) {
                     CVDisplayLinkStop(_displayLink);
