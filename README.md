@@ -3,20 +3,21 @@
 # Welcome to JetBrains Runtime!
 
 JetBrains Runtime is a fork of [OpenJDK](https://github.com/openjdk/jdk) available for Windows, Mac OS X, and Linux.
-It includes a number enhancements in font rendering, HiDPI support, ligatures, performance improvements, and bugfixes.
+It includes a number of enhancements in font rendering, ligatures, HiDPI support, windowing/focus subsystems, performance improvements, and bugfixes.
 
 ## Releases
 Download the latest releases of JetBrains Runtime to use with JetBrains IDEs. The full list
 can be found on the [releases page](https://github.com/JetBrains/JetBrainsRuntime/releases).
 
 | IDE Version | Latest JBR                                                                                             | Date Released |
-|  ---        |--------------------------------------------------------------------------------------------------------| ---           |
+|  ---        |--------------------------------------------------------------------------------------------------------|---------------|
+| 2023.1      | [17.0.6-b802.4](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.6b802.4)   | 09-Feb-2023   |
 | 2022.3      | [17.0.5-b653.25](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.5b653.25) | 10-Jan-2023   |
-| 2022.2      | [17.0.5-b469.67](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.5b469.67) | 31-Oct-2022   |
+| 2022.2      | [17.0.5-b469.71](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.5b469.71) | 14-Nov-2022   |
 
 
 ## Contents
-- [Welcome to JetBrains Runtime](#jetbrains-runtime)
+- [Welcome to JetBrains Runtime](#welcome-to-jetbrains-runtime)
   - [Products Built on JetBrains Runtime](#products-built-on-jetbrains-runtime)
   - [Getting Sources](#getting-sources)
     - [macOS, Linux](#macos-linux)
@@ -41,6 +42,7 @@ can be found on the [releases page](https://github.com/JetBrains/JetBrainsRuntim
 * [PyCharm](https://www.jetbrains.com/pycharm/). The Python IDE from JetBrains.
 * [Rider](https://www.jetbrains.com/rider/). The cross-platform .NET IDE from JetBrains.
 * [RubyMine](https://www.jetbrains.com/ruby/). The Ruby and Rails IDE from JetBrains.
+* [Toolbox App](https://www.jetbrains.com/toolbox-app/). JetBrains IDE manager.
 * [WebStorm](https://www.jetbrains.com/webstorm/). The JavaScript IDE from JetBrains.
 * [YourKit](https://www.yourkit.com/). Java and .NET profilers.
 
@@ -78,7 +80,7 @@ Run these commands in the new container:
 ```
 $ docker run -v `pwd`../../../../:/JetBrainsRuntime -it 942ea9900054
 # cd /JetBrainsRuntime
-# git checkout master17
+# git checkout jbr17
 # sh ./configure
 # make images CONF=linux-x86_64-normal-server-release
 ```
@@ -87,13 +89,13 @@ $ docker run -v `pwd`../../../../:/JetBrainsRuntime -it 942ea9900054
 Install the necessary tools, libraries, and headers with:
 ```
 $ sudo apt-get install autoconf make build-essential libx11-dev libxext-dev libxrender-dev libxtst-dev \
-       libxt-dev libxrandr-dev libcups2-dev libfontconfig1-dev libasound2-dev \
+       libxt-dev libxrandr-dev libcups2-dev libfontconfig1-dev libasound2-dev libspeechd-dev \
        java-16-amazon-corretto-jdk
 ```
 Then run the following:
 ```
 $ cd JetBrainsRuntime
-$ git checkout master17
+$ git checkout jbr17
 $ sh ./configure
 $ make images
 ```
@@ -121,21 +123,33 @@ The first command sets up environment variables, the second starts a Cygwin shel
 In the Cygwin shell: 
 ```
 $ cd JetBrainsRuntime
-$ git checkout master17
+$ git checkout jbr17
 $ bash configure --with-toolchain-version=2019
 $ make images
 ```
 This will build the release configuration under `./build/windows-x86_64-server-release/`.
 
+#### Enable optional NVDA screen reader support
+If you want to add support of a11y announcing via [NVDA screen reader](https://www.nvaccess.org/about-nvda/),
+you will need to bundle the NVDA Controller Client library.
+You can do it with the following steps:
+1. Download the NVDA Controller Client library. You can find the link in its official README [here](https://github.com/nvaccess/nvda/blob/master/extras/controllerClient/readme.md)
+2. Pass the path to the unpacked package to `configure` via an additional flag `--with-nvdacontrollerclient=<path>`.
+   The build system will search the required library files under `<path>/<target-arch>`.
+
+#### Disable optional JAWS screen reader support
+JBR is built with built-in support of JAWS screen reader.
+If you want to disable it, run `configure` with the additional flag `--disable-jaws-client`.
+
 ### macOS
 Install the following:
-* Xcode command line developer tools and `autoconf` via [Homebrew](getDpiInfo).
+* Xcode command line developer tools and `autoconf` via [Homebrew](https://brew.sh/).
 * Java 16 (for instance, from [AdoptOpenJDK](https://adoptopenjdk.net/installation.html?variant=openjdk16&jvmVariant=hotspot#)).
 
 From the command line:
 ```
 $ cd JetBrainsRuntime
-$ git checkout master17
+$ git checkout jbr17
 $ sh ./configure
 $ make images
 ```
@@ -171,7 +185,7 @@ We are happy to receive your pull requests!
 Before you submit one, please sign our [Contributor License Agreement (CLA)](https://www.jetbrains.com/agreements/cla/).
 
 ## Resources
-* [JetBrains Runtime on github](https://github.com/JetBrains/JetBrainsRuntime).
+* [JetBrains Runtime on GitHub](https://github.com/JetBrains/JetBrainsRuntime).
 * [OpenJDK build instructions](https://openjdk.java.net/groups/build/doc/building.html).
 * [OpenJDK test instructions](https://htmlpreview.github.io/?https://raw.githubusercontent.com/openjdk/jdk/master/doc/building.html#running-tests).
 * [How to develop OpenJDK with CLion](https://blog.jetbrains.com/clion/2020/03/openjdk-with-clion/).

@@ -26,6 +26,7 @@
 package sun.lwawt.macosx;
 
 import java.awt.AWTError;
+import java.awt.AWTEvent;
 import java.awt.AWTException;
 import java.awt.CheckboxMenuItem;
 import java.awt.Color;
@@ -50,6 +51,7 @@ import java.awt.MenuItem;
 import java.awt.Point;
 import java.awt.PopupMenu;
 import java.awt.RenderingHints;
+import java.awt.SecondaryLoop;
 import java.awt.SystemTray;
 import java.awt.Taskbar;
 import java.awt.Toolkit;
@@ -90,10 +92,8 @@ import java.security.*;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.net.MalformedURLException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.swing.UIManager;
 
 import com.apple.laf.AquaMenuBarUI;
@@ -136,11 +136,60 @@ public final class LWCToolkit extends LWToolkit {
 
     private static native void initIDs();
     private static native void initAppkit(ThreadGroup appKitThreadGroup, boolean headless);
-    private static native void switchKeyboardLayoutNative(String layoutName);
-
-    static native String getKeyboardLayoutNativeId();
-
     private static CInputMethodDescriptor sInputMethodDescriptor;
+
+    private static native boolean switchKeyboardLayoutNative(String layoutName);
+
+    private static native String getKeyboardLayoutNativeId();
+
+    private static native String[] getKeyboardLayoutListNative(boolean includeAll);
+
+    private static native boolean enableKeyboardLayoutNative(String layoutName);
+
+    private static native boolean disableKeyboardLayoutNative(String layoutName);
+
+    public static void switchKeyboardLayout (String layoutName) {
+        if (layoutName == null || layoutName.isEmpty()) {
+            throw new RuntimeException("A valid layout ID is expected. Found:  " + layoutName);
+        }
+        if (!switchKeyboardLayoutNative(layoutName)) {
+            throw new RuntimeException("Couldn't switch layout to " + layoutName);
+        }
+    }
+
+    public static String getKeyboardLayoutId () {
+        return getKeyboardLayoutNativeId();
+    }
+
+    public static List<String> getKeyboardLayoutList(boolean includeAll) {
+        String[] result = getKeyboardLayoutListNative(includeAll);
+        if (result == null) {
+            return new ArrayList<>();
+        }
+        return Arrays.asList(result);
+    }
+
+    public static void enableKeyboardLayout(String layoutName) {
+        if (layoutName == null || layoutName.isEmpty()) {
+            throw new RuntimeException("A valid layout ID is expected. Found:  " + layoutName);
+        }
+        if (!enableKeyboardLayoutNative(layoutName)) {
+            throw new RuntimeException("Couldn't enable layout " + layoutName);
+        }
+    }
+
+    public static void disableKeyboardLayout(String layoutName) {
+        if (layoutName == null || layoutName.isEmpty()) {
+            throw new RuntimeException("A valid layout ID is expected. Found:  " + layoutName);
+        }
+        if (!disableKeyboardLayoutNative(layoutName)) {
+            throw new RuntimeException("Couldn't disable layout " + layoutName);
+        }
+    }
+
+    public static boolean isKeyboardLayoutEnabled(String layoutName) {
+        return getKeyboardLayoutList(false).contains(layoutName);
+    }
 
     // Listens to EDT state in invokeAndWait() and disposes the invocation event
     // when EDT becomes free but the invocation event is not yet dispatched (considered lost).
@@ -196,6 +245,9 @@ public final class LWCToolkit extends LWToolkit {
     private static final boolean inAWT;
 
     private static final PlatformLogger log = PlatformLogger.getLogger(LWCToolkit.class.getName());
+
+    private static final FwDispatcher MAIN_THREAD_DISPATCHER =
+            GetBooleanAction.privilegedGetProperty("main.thread.as.edt") ? new MainThreadDispatcher() : null;
 
     public LWCToolkit() {
         final String extraButtons = "sun.awt.enableExtraMouseButtons";
@@ -531,6 +583,8 @@ public final class LWCToolkit extends LWToolkit {
 
     private native boolean isCapsLockOn();
 
+    private static native boolean setCapsLockState(boolean on);
+
     /*
      * NOTE: Among the keys this method is supposed to check,
      * only Caps Lock works as a true locking key with OS X.
@@ -554,6 +608,25 @@ public final class LWCToolkit extends LWToolkit {
 
             default:
                 throw new IllegalArgumentException("invalid key for Toolkit.getLockingKeyState");
+        }
+    }
+
+    @Override
+    public void setLockingKeyState(int keyCode, boolean on) throws UnsupportedOperationException {
+        switch (keyCode) {
+            case KeyEvent.VK_NUM_LOCK:
+            case KeyEvent.VK_SCROLL_LOCK:
+            case KeyEvent.VK_KANA_LOCK:
+                throw new UnsupportedOperationException("Toolkit.setLockingKeyState");
+
+            case KeyEvent.VK_CAPS_LOCK:
+                if (!setCapsLockState(on)) {
+                    throw new RuntimeException("failed to set caps lock state");
+                }
+                break;
+
+            default:
+                throw new IllegalArgumentException("invalid key for Toolkit.setLockingKeyState");
         }
     }
 
@@ -592,14 +665,24 @@ public final class LWCToolkit extends LWToolkit {
     }
 
     private static final String APPKIT_THREAD_NAME = "AppKit Thread";
+    private static Thread APPKIT_THREAD;
 
     // Intended to be called from the LWCToolkit.m only.
     private static void installToolkitThreadInJava() {
+        APPKIT_THREAD = Thread.currentThread();
         Thread.currentThread().setName(APPKIT_THREAD_NAME);
         AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
             Thread.currentThread().setContextClassLoader(null);
             return null;
         });
+    }
+
+    public static boolean isAppKitThread() {
+        return Thread.currentThread() == APPKIT_THREAD;
+    }
+
+    public static boolean isDispatchingOnMainThread() {
+        return MAIN_THREAD_DISPATCHER != null && APPKIT_THREAD != null;
     }
 
     @Override
@@ -747,6 +830,13 @@ public final class LWCToolkit extends LWToolkit {
     public static void invokeAndWait(Runnable runnable, Component component, boolean processEvents, int timeoutSeconds)
             throws InvocationTargetException
     {
+        if (EventQueue.isDispatchThread()) {
+            if (log.isLoggable(PlatformLogger.Level.FINEST)) {
+                log.finest("invokeAndWait: executing directly on dispatch thread: " + runnable);
+            }
+            runnable.run();
+            return;
+        }
         if (log.isLoggable(PlatformLogger.Level.FINE)) {
             log.fine("invokeAndWait started: " + runnable);
         }
@@ -855,6 +945,27 @@ public final class LWCToolkit extends LWToolkit {
      */
     public static native void performOnMainThreadAndWait(Runnable r);
 
+    /**
+     * Schedules event execution on the AppKit thread by wrapping it in native NSEvent object and posting to the
+     * application's native event queue.
+     */
+    static native void scheduleEvent(AWTEvent event);
+
+    /**
+     * Retrieves event from the native application's event queue (and unwrapping it from NSEvent, see
+     * {@link #scheduleEvent(AWTEvent)})
+     */
+    static native AWTEvent getNextEvent(boolean removeFromQueue);
+
+    // invoked from native code
+    private static void dispatch(AWTEvent event) {
+        try {
+            AWTAccessor.getEventQueueAccessor().dispatchEvent(Toolkit.getDefaultToolkit().getSystemEventQueue(), event);
+        } catch (Throwable t) {
+            APPKIT_THREAD.getUncaughtExceptionHandler().uncaughtException(APPKIT_THREAD, t);
+        }
+    }
+
 // DnD support
 
     @Override
@@ -907,23 +1018,6 @@ public final class LWCToolkit extends LWToolkit {
         }
 
         return locale;
-    }
-
-    public static boolean isLocaleUSInternationalPC(Locale locale) {
-        return (locale != null ?
-            locale.toString().equals("_US_UserDefined_15000") : false);
-    }
-
-    public static boolean isCharModifierKeyInUSInternationalPC(char ch) {
-        // 5 characters: APOSTROPHE, QUOTATION MARK, ACCENT GRAVE, SMALL TILDE,
-        // CIRCUMFLEX ACCENT
-        final char[] modifierKeys = {'\'', '"', '`', '\u02DC', '\u02C6'};
-        for (char modKey : modifierKeys) {
-            if (modKey == ch) {
-                return true;
-            }
-        }
-        return false;
     }
 
     @Override
@@ -999,18 +1093,15 @@ public final class LWCToolkit extends LWToolkit {
 
     static native long createAWTRunLoopMediator();
     /**
-     * Method to run a nested run-loop. The nested loop is spinned in the javaRunLoop mode, so selectors sent
-     * by [JNFRunLoop performOnMainThreadWaiting] are processed.
+     * Method to run a nested run-loop.
      * @param mediator a native pointer to the mediator object created by createAWTRunLoopMediator
-     * @param processEvents if true - dispatches event while in the nested loop. Used in DnD.
-     *                      Additional attention is needed when using this feature as we short-circuit normal event
-     *                      processing which could break Appkit.
-     *                      (One known example is when the window is resized with the mouse)
-     *
-     *                      if false - all events come after exit form the nested loop
      */
-    static void doAWTRunLoop(long mediator, boolean processEvents) {
-        doAWTRunLoop(mediator, processEvents, -1);
+    static void doAWTRunLoop(long mediator) {
+        if (EventQueue.isDispatchThread()) {
+            doSimpleRunLoop(mediator);
+        } else {
+            doAWTRunLoop(mediator, true, -1);
+        }
     }
 
     /**
@@ -1020,6 +1111,7 @@ public final class LWCToolkit extends LWToolkit {
         return doAWTRunLoopImpl(mediator, processEvents, inAWT, timeoutSeconds);
     }
     private static native boolean doAWTRunLoopImpl(long mediator, boolean processEvents, boolean inAWT, int timeoutSeconds);
+    static native void doSimpleRunLoop(long mediator);
     static native void stopAWTRunLoop(long mediator);
 
     private native boolean nativeSyncQueue(long timeout);
@@ -1113,17 +1205,6 @@ public final class LWCToolkit extends LWToolkit {
                 !path.endsWith(".");
     }
 
-    public static void switchKeyboardLayout (String layoutName) {
-        if (layoutName == null || layoutName.isEmpty()) {
-            throw new RuntimeException("A valid layout ID is expected. Found:  " + layoutName);
-        }
-        switchKeyboardLayoutNative(layoutName);
-    }
-
-    public static String getKeyboardLayoutId () {
-        return getKeyboardLayoutNativeId();
-    }
-
     @Override
     protected PlatformWindow getPlatformWindowUnderMouse() {
         return CPlatformWindow.nativeGetTopmostPlatformWindowUnderMouse();
@@ -1136,5 +1217,87 @@ public final class LWCToolkit extends LWToolkit {
         } else {
             UIManager.put("MenuBarUI", null);
         }
+    }
+
+    private static native void setJavaEventsDispatchingOnMainThread();
+
+    @Override
+    public void installMainThreadDispatcher(EventQueue eventQueue) {
+        if (isDispatchingOnMainThread()) {
+            AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
+                APPKIT_THREAD.setContextClassLoader(Thread.currentThread().getContextClassLoader());
+                return null;
+            });
+            setJavaEventsDispatchingOnMainThread();
+            AWTAccessor.getEventQueueAccessor().setFwDispatcher(eventQueue, MAIN_THREAD_DISPATCHER);
+        }
+    }
+
+    @Override
+    public Thread getMainThread() {
+        return APPKIT_THREAD;
+    }
+}
+
+class MainThreadDispatcher implements FwDispatcher {
+    @Override
+    public boolean isDispatchThread() {
+        return LWCToolkit.isAppKitThread();
+    }
+
+    @Override
+    public void scheduleDispatch(Runnable r) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public SecondaryLoop createSecondaryLoop() {
+        return new MainThreadSecondaryLoop();
+    }
+
+    @Override
+    public boolean scheduleEvent(AWTEvent event) {
+        LWCToolkit.scheduleEvent(event);
+        return true;
+    }
+
+    @Override
+    public boolean canGetEventsFromNativeQueue() {
+        return isDispatchThread();
+    }
+
+    @Override
+    public AWTEvent getNextEventFromNativeQueue(boolean removeFromQueue) {
+        return LWCToolkit.getNextEvent(removeFromQueue);
+    }
+}
+
+class MainThreadSecondaryLoop implements SecondaryLoop {
+    private long mediatorHandle;
+
+    @Override
+    public boolean enter() {
+        AtomicBoolean result = new AtomicBoolean();
+        LWCToolkit.performOnMainThreadAndWait(() -> {
+            if (mediatorHandle == 0) {
+                mediatorHandle = LWCToolkit.createAWTRunLoopMediator();
+                LWCToolkit.doSimpleRunLoop(mediatorHandle);
+                result.set(true);
+            }
+        });
+        return result.get();
+    }
+
+    @Override
+    public boolean exit() {
+        AtomicBoolean result = new AtomicBoolean();
+        LWCToolkit.performOnMainThreadAndWait(() -> {
+            if (mediatorHandle != 0) {
+                LWCToolkit.stopAWTRunLoop(mediatorHandle);
+                mediatorHandle = 0;
+                result.set(true);
+            }
+        });
+        return result.get();
     }
 }

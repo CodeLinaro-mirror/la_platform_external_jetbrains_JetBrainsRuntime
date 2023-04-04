@@ -54,6 +54,7 @@ typedef __int32 LONG_PTR;
 
 #define DWM_WINDOW_CORNER_PREFERENCE int
 #define DWMWA_WINDOW_CORNER_PREFERENCE 33
+#define DWMWA_BORDER_COLOR 34
 
 #if defined(_MSC_VER) && _MSC_VER >= 1800
 #  define ROUND_TO_INT(num)    ((int) round(num))
@@ -139,6 +140,8 @@ struct OpaqueStruct {
 struct RoundedCornersStruct {
     jobject window;
     DWM_WINDOW_CORNER_PREFERENCE type;
+    jboolean isBorderColor;
+    jint borderColor;
 };
 // struct for _UpdateWindow() method
 struct UpdateWindowStruct {
@@ -176,6 +179,8 @@ jfieldID AwtWindow::locationByPlatformID;
 jfieldID AwtWindow::autoRequestFocusID;
 jfieldID AwtWindow::securityWarningWidthID;
 jfieldID AwtWindow::securityWarningHeightID;
+jfieldID AwtWindow::customTitleBarHitTestID;
+jfieldID AwtWindow::customTitleBarHitTestQueryID;
 
 jfieldID AwtWindow::windowTypeID;
 jmethodID AwtWindow::notifyWindowStateChangedMID;
@@ -184,6 +189,7 @@ jfieldID AwtWindow::sysInsetsID;
 jmethodID AwtWindow::getWarningStringMID;
 jmethodID AwtWindow::calculateSecurityWarningPositionMID;
 jmethodID AwtWindow::windowTypeNameMID;
+jmethodID AwtWindow::internalCustomTitleBarHeightMID;
 
 int AwtWindow::ms_instanceCounter = 0;
 HHOOK AwtWindow::ms_hCBTFilter;
@@ -1530,11 +1536,23 @@ BOOL AwtWindow::UpdateInsets(jobject insets)
     jobject peerSysInsets = (env)->GetObjectField(peer, AwtWindow::sysInsetsID);
     DASSERT(!safe_ExceptionOccurred(env));
 
+    // Floor resulting insets
+    int screen = GetScreenImOn();
+    Devices::InstanceAccess devices;
+    AwtWin32GraphicsDevice* device = devices->GetDevice(screen);
+    float scaleX = device == NULL ? 1.0f : device->GetScaleX();
+    float scaleY = device == NULL ? 1.0f : device->GetScaleY();
+    RECT result;
+    result.top = (LONG) floor(m_insets.top / scaleY);
+    result.bottom = (LONG) floor(m_insets.bottom / scaleY);
+    result.left = (LONG) floor(m_insets.left / scaleX);
+    result.right = (LONG) floor(m_insets.right / scaleX);
+
     if (peerInsets != NULL) { // may have been called during creation
-        (env)->SetIntField(peerInsets, AwtInsets::topID, ScaleDownY(m_insets.top));
-        (env)->SetIntField(peerInsets, AwtInsets::bottomID, ScaleDownY(m_insets.bottom));
-        (env)->SetIntField(peerInsets, AwtInsets::leftID, ScaleDownX(m_insets.left));
-        (env)->SetIntField(peerInsets, AwtInsets::rightID, ScaleDownX(m_insets.right));
+        (env)->SetIntField(peerInsets, AwtInsets::topID, result.top);
+        (env)->SetIntField(peerInsets, AwtInsets::bottomID, result.bottom);
+        (env)->SetIntField(peerInsets, AwtInsets::leftID, result.left);
+        (env)->SetIntField(peerInsets, AwtInsets::rightID, result.right);
     }
     if (peerSysInsets != NULL) {
         (env)->SetIntField(peerSysInsets, AwtInsets::topID, m_insets.top);
@@ -1544,10 +1562,10 @@ BOOL AwtWindow::UpdateInsets(jobject insets)
     }
     /* Get insets into the Inset object (if any) that was passed */
     if (insets != NULL) {
-        (env)->SetIntField(insets, AwtInsets::topID, ScaleDownY(m_insets.top));
-        (env)->SetIntField(insets, AwtInsets::bottomID, ScaleDownY(m_insets.bottom));
-        (env)->SetIntField(insets, AwtInsets::leftID, ScaleDownX(m_insets.left));
-        (env)->SetIntField(insets, AwtInsets::rightID, ScaleDownX(m_insets.right));
+        (env)->SetIntField(insets, AwtInsets::topID, result.top);
+        (env)->SetIntField(insets, AwtInsets::bottomID, result.bottom);
+        (env)->SetIntField(insets, AwtInsets::leftID, result.left);
+        (env)->SetIntField(insets, AwtInsets::rightID, result.right);
     }
     env->DeleteLocalRef(peerInsets);
 
@@ -2243,13 +2261,6 @@ void AwtWindow::SetResizable(BOOL isResizable)
     RedrawNonClient();
 }
 
-// SetWindowPos flags to cause frame edge to be recalculated
-static const UINT SwpFrameChangeFlags =
-    SWP_FRAMECHANGED | /* causes WM_NCCALCSIZE to be called */
-    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
-    SWP_NOACTIVATE | SWP_NOCOPYBITS |
-    SWP_NOREPOSITION | SWP_NOSENDCHANGING;
-
 //
 // Forces WM_NCCALCSIZE to be called to recalculate
 // window border (updates insets) without redrawing it
@@ -2265,16 +2276,7 @@ void AwtWindow::RecalcNonClient()
 //
 void AwtWindow::RedrawNonClient()
 {
-    UINT flags = SwpFrameChangeFlags;
-    if (!HasCustomDecoration()) {
-        // With custom decorations enabled, SetWindowPos call below can cause WM_SIZE message being sent.
-        // If we're coming here from WFramePeer.initialize (as part of 'setResizable' call),
-        // WM_SIZE message processing can happen concurrently with window flags update done as part of
-        // 'setState' call), and lead to inconsistent state.
-        // So, we disable asynchronous processing in case we have custom decorations to avoid the race condition.
-        flags |= SWP_ASYNCWINDOWPOS;
-    }
-    ::SetWindowPos(GetHWnd(), (HWND) NULL, 0, 0, 0, 0, flags);
+    ::SetWindowPos(GetHWnd(), (HWND) NULL, 0, 0, 0, 0, SwpFrameChangeFlags|SWP_ASYNCWINDOWPOS);
 }
 
 int AwtWindow::GetScreenImOn() {
@@ -2343,7 +2345,7 @@ void AwtWindow::CheckWindowDPIChange() {
     if (prevScaleRec.screen != -1 && prevScaleRec.screen != m_screenNum) {
         Devices::InstanceAccess devices;
         AwtWin32GraphicsDevice *device = devices->GetDevice(m_screenNum);
-        if (device) {
+        if (device && !::IsZoomed(GetHWnd())) {
             if (prevScaleRec.scaleX != device->GetScaleX()
                     || prevScaleRec.scaleY != device->GetScaleY()) {
                 RECT rect;
@@ -3374,7 +3376,15 @@ void AwtWindow::_SetRoundedCorners(void *param) {
     AwtWindow *window = (AwtWindow *)pData;
 
     DwmSetWindowAttribute(window->GetHWnd(), DWMWA_WINDOW_CORNER_PREFERENCE, &rcs->type, sizeof(DWM_WINDOW_CORNER_PREFERENCE));
-
+    
+    if (rcs->isBorderColor) {
+        jint red = (rcs->borderColor >> 16) & 0xff;
+        jint green = (rcs->borderColor >> 8) & 0xff;
+        jint blue  = (rcs->borderColor >> 0) & 0xff;
+        COLORREF borderColor = RGB(red, green, blue);
+        DwmSetWindowAttribute(window->GetHWnd(), DWMWA_BORDER_COLOR, &borderColor, sizeof(COLORREF));
+    }
+    
   ret:
     env->DeleteGlobalRef(self);
     delete rcs;
@@ -3464,12 +3474,18 @@ Java_java_awt_Window_initIDs(JNIEnv *env, jclass cls)
         env->GetFieldID(cls, "securityWarningWidth", "I"));
     CHECK_NULL(AwtWindow::securityWarningHeightID =
         env->GetFieldID(cls, "securityWarningHeight", "I"));
+    CHECK_NULL(AwtWindow::customTitleBarHitTestID =
+        env->GetFieldID(cls, "customTitleBarHitTest", "I"));
+    CHECK_NULL(AwtWindow::customTitleBarHitTestQueryID =
+        env->GetFieldID(cls, "customTitleBarHitTestQuery", "I"));
     CHECK_NULL(AwtWindow::getWarningStringMID =
         env->GetMethodID(cls, "getWarningString", "()Ljava/lang/String;"));
     CHECK_NULL(AwtWindow::autoRequestFocusID =
         env->GetFieldID(cls, "autoRequestFocus", "Z"));
     CHECK_NULL(AwtWindow::calculateSecurityWarningPositionMID =
         env->GetMethodID(cls, "calculateSecurityWarningPosition", "(DDDD)Ljava/awt/geom/Point2D;"));
+    CHECK_NULL(AwtWindow::internalCustomTitleBarHeightMID =
+        env->GetMethodID(cls, "internalCustomTitleBarHeight", "()F"));
 
     jclass windowTypeClass = env->FindClass("java/awt/Window$Type");
     CHECK_NULL(windowTypeClass);
@@ -4143,16 +4159,18 @@ Java_sun_awt_windows_WWindowPeer_repositionSecurityWarning(JNIEnv *env,
 /*
  * Class:     sun_awt_windows_WWindowPeer
  * Method:    setRoundedCorners
- * Signature: (I)V
+ * Signature: (IZI)V
  */
 JNIEXPORT void JNICALL
-Java_sun_awt_windows_WWindowPeer_setRoundedCorners(JNIEnv *env, jobject self, jint type)
+Java_sun_awt_windows_WWindowPeer_setRoundedCorners(JNIEnv *env, jobject self, jint type, jboolean isBorderColor, jint borderColor)
 {
     TRY;
 
     RoundedCornersStruct *rcs = new RoundedCornersStruct;
     rcs->window = env->NewGlobalRef(self);
     rcs->type = (DWM_WINDOW_CORNER_PREFERENCE)type;
+    rcs->isBorderColor = isBorderColor;
+    rcs->borderColor = borderColor;
 
     AwtToolkit::GetInstance().SyncCall(AwtWindow::_SetRoundedCorners, rcs);
     // global refs and rcs are deleted in _SetRoundedCorners

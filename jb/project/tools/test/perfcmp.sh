@@ -14,7 +14,6 @@ echo -e "test_results_ref - the file with metrics values for the reference measu
 echo -e "results - results of comaprison"
 echo -e "test_prefix - specifys measuring type, makes sense for enabled -tc, by default no prefixes"
 echo -e "noHeaders - by default 1-st line contains headers"
-echo -e "deviation - permissible deviation by default deviation=0.1"
 echo -e ""
 echo -e "test_results_* files content should be in csv format with header and tab separator:"
 echo -e "The 1-st column is the test name"
@@ -48,10 +47,6 @@ refFile=$2
 resFile=$3
 testNamePrefix=$4
 noHeaders=$5
-deviation=0.1
-test $# -ge 6 && deviation=$6
-isHigherBetter=${7:-true}
-
 echo $curFile
 echo $refFile
 echo $resFile
@@ -59,27 +54,17 @@ echo $resFile
 curValues=`cat "$curFile" | cut -f 2 | tr -d '\t'`
 if [ -z $noHeaders ]; then
   curValuesHeader=`echo "$curValues" | head -n +1`_cur
-  header=`cat "$refFile" | head -n +1 | awk -F'\t' -v x=$curValuesHeader '{print "  "$1"\t"$2"_ref\t"x"\tdeviation"}'`
+  header=`cat "$refFile" | head -n +1 | awk -F'\t' -v x=$curValuesHeader '{print "  "$1"\t"$2"_ref\t"x"\tratio"}'`
   testContent=`paste -d '\t' $refFile <(echo "$curValues") | tail -n +2`
 else
   testContent=`paste -d '\t' $refFile <(echo "$curValues") | tail -n +1`
 fi
 
-testContent=`echo "$testContent" | tr "," "." | awk -v r="$deviation" -v hb="$isHigherBetter" -F'\t' '{
-  if (hb=="true") {
-    diff=($2>0)?(100 - $3/$2*100):"-"
-    if ($3>$2+$2*r) {
-      printf " * %s\t%.3f\t%.3f\t[%6.2f]\t%.2f\n",$1,$2,$3,diff,r
-    } else {
-      printf " %s\t%.3f\t%.3f\t[%6.2f]\t%.2f\n",$1,$2,$3,diff,r
-    }
+testContent=`echo "$testContent" | tr "," "." | awk -F'\t' '{
+  if ($3>$2+$2*0.1) {
+    print "* "$1"\t"$2"\t"$3"\t"(($2>0)?$3/$2:"-")
   } else {
-    diff=($2>0)?(100 - $3/$2*100):"-"
-    if ($3<$2-$2*r) {
-      printf " * %s\t%.3f\t%.3f\t[%6.2f]\t%.2f\n",$1,$2,$3,diff,r
-    } else {
-      printf " %s\t%.3f\t%.3f\t[%6.2f]\t%.2f\n",$1,$2,$3,diff,r
-    }
+    print "  "$1"\t"$2"\t"$3"\t"(($2>0)?$3/$2:"-")
   }
 }'`
 if [ -z $noHeaders ]; then

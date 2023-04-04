@@ -139,6 +139,9 @@ __attribute__((visibility("default")))
 + (void)detachCurrentThread;
 + (void)setAppkitThreadGroup:(jobject)group;
 
++ (void)setJavaEventsDispatchingOnMainThread;
++ (BOOL)isJavaEventsDispatchingOnMainThread;
+
 + (void)performOnMainThreadWaiting:(BOOL)wait block:(void (^)())block;
 + (void)performOnMainThread:(SEL)aSelector on:(id)target withObject:(id)arg waitUntilDone:(BOOL)wait;
 + (NSString*)javaRunLoopMode;

@@ -43,15 +43,16 @@ static NSString *SHARED_FRAMEWORK_BUNDLE = @"/System/Library/Frameworks/JavaVM.f
 static id <NSApplicationDelegate> applicationDelegate = nil;
 static QueuingApplicationDelegate * qad = nil;
 
-// Flag used to indicate to the Plugin2 event synthesis code to do a postEvent instead of sendEvent
-BOOL postEventDuringEventSynthesis = NO;
-
 /**
  * Subtypes of NSApplicationDefined, which are used for custom events.
  */
 enum {
-    ExecuteBlockEvent = 777, NativeSyncQueueEvent
+    ExecuteBlockEvent = 777, NativeSyncQueueEvent, NativeJavaEvent
 };
+
+@implementation JavaEvent
+- (void)dispatch {}
+@end
 
 @implementation NSApplicationAWT
 
@@ -370,23 +371,28 @@ AWT_ASSERT_APPKIT_THREAD;
     [super orderFrontStandardAboutPanelWithOptions:optionsDictionary];
 }
 
-#define DRAGMASK (NSMouseMovedMask | NSLeftMouseDraggedMask | NSRightMouseDownMask | NSRightMouseDraggedMask | NSLeftMouseUpMask | NSRightMouseUpMask | NSFlagsChangedMask | NSKeyDownMask)
-
-#if defined(MAC_OS_X_VERSION_10_12) && __LP64__
-   // 10.12 changed `mask` to NSEventMask (unsigned long long) for x86_64 builds.
 - (NSEvent *)nextEventMatchingMask:(NSEventMask)mask
-#else
-- (NSEvent *)nextEventMatchingMask:(NSUInteger)mask
-#endif
-untilDate:(NSDate *)expiration inMode:(NSString *)mode dequeue:(BOOL)deqFlag {
-    if (mask == DRAGMASK && [((NSString *)kCFRunLoopDefaultMode) isEqual:mode]) {
-        postEventDuringEventSynthesis = YES;
+                         untilDate:(NSDate *)expiration
+                            inMode:(NSString *)mode
+                           dequeue:(BOOL)deqFlag {
+    if (![ThreadUtilities isJavaEventsDispatchingOnMainThread] || !deqFlag || mask & NSEventMaskApplicationDefined) {
+        return [super nextEventMatchingMask:mask
+                                  untilDate:expiration
+                                     inMode:mode
+                                    dequeue:deqFlag];
+    } else {
+        for (;;) {
+            NSEvent *event = [super nextEventMatchingMask:mask|NSEventMaskApplicationDefined
+                                                untilDate:expiration
+                                                   inMode:mode
+                                                  dequeue:YES];
+            if (event.type == NSApplicationDefined) {
+                [self sendEvent:event];
+            } else {
+                return event;
+            }
+        }
     }
-
-    NSEvent *event = [super nextEventMatchingMask:mask untilDate:expiration inMode:mode dequeue: deqFlag];
-    postEventDuringEventSynthesis = NO;
-
-    return event;
 }
 
 // NSTimeInterval has microseconds precision
@@ -394,6 +400,8 @@ untilDate:(NSDate *)expiration inMode:(NSString *)mode dequeue:(BOOL)deqFlag {
 
 - (void)sendEvent:(NSEvent *)event
 {
+    JavaEvent *je;
+
     if ([event type] == NSApplicationDefined
             && TS_EQUAL([event timestamp], dummyEventTimestamp)
             && (short)[event subtype] == NativeSyncQueueEvent
@@ -407,6 +415,9 @@ untilDate:(NSDate *)expiration inMode:(NSString *)mode dequeue:(BOOL)deqFlag {
         void (^block)() = (void (^)()) [event data1];
         block();
         [block release];
+    } else if ((je = [NSApplicationAWT extractJavaEvent:event])) {
+        [je dispatch];
+        [je release];
     } else if ([event type] == NSKeyUp && ([event modifierFlags] & NSCommandKeyMask)) {
         // Cocoa won't send us key up event when releasing a key while Cmd is down,
         // so we have to do it ourselves.
@@ -462,6 +473,28 @@ untilDate:(NSDate *)expiration inMode:(NSString *)mode dequeue:(BOOL)deqFlag {
         CGEventPostToPSN(&psn, [event CGEvent]);
     }
     [pool drain];
+}
+
++ (void) postJavaEvent:(JavaEvent*) je {
+    [je retain];
+    NSInteger encode = (NSInteger) je;
+    NSEvent* e = [NSEvent otherEventWithType: NSApplicationDefined
+                                    location: NSMakePoint(0,0)
+                               modifierFlags: 0
+                                   timestamp: 0
+                                windowNumber: 0
+                                     context: nil
+                                     subtype: NativeJavaEvent
+                                       data1: encode
+                                       data2: 0];
+    [NSApp postEvent:e atStart:NO];
+}
+
++ (JavaEvent*) extractJavaEvent:(NSEvent*) event {
+    if ([event type] == NSApplicationDefined && [event subtype] == NativeJavaEvent) {
+        return (JavaEvent*)[event data1];
+    }
+    return nil;
 }
 
 - (void)waitForDummyEvent:(double)timeout {

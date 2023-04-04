@@ -27,7 +27,6 @@ package sun.awt.X11;
 import java.awt.*;
 
 import java.awt.event.ComponentEvent;
-import java.awt.event.InvocationEvent;
 import java.awt.event.WindowEvent;
 import java.util.Collections;
 import java.util.HashMap;
@@ -342,18 +341,11 @@ abstract class XDecoratedPeer extends XWindowPeer {
             || ev.get_atom() == XWM.XA_NET_FRAME_EXTENTS.getAtom())
         {
             if (XWM.getWMID() != XWM.UNITY_COMPIZ_WM) {
-                if (getMWMDecorTitleProperty().isPresent()) {
-                    // Insets might have changed "in-flight" if that property
-                    // is present, so we need to get the actual values of
-                    // insets from the WM and propagate them through all the
-                    // proper channels.
-                    wm_set_insets = null;
-                    Insets in = getWMSetInsets(XAtom.get(ev.get_atom()));
-                    if (in != null && !in.equals(dimensions.getInsets())) {
-                        handleCorrectInsets(in);
-                    }
-                } else {
-                    getWMSetInsets(XAtom.get(ev.get_atom()));
+                wm_set_insets = null;
+                Insets in = getWMSetInsets(XAtom.get(ev.get_atom()));
+                if (isReparented() && (!isMapped() || getMWMDecorTitleProperty().isPresent()) &&
+                        in != null && !in.equals(dimensions.getInsets())) {
+                    handleCorrectInsets(in);
                 }
             } else {
                 if (!isReparented()) {
@@ -402,6 +394,9 @@ abstract class XDecoratedPeer extends XWindowPeer {
         if (insLog.isLoggable(PlatformLogger.Level.FINE)) {
             insLog.fine(xe.toString());
         }
+
+        setPendingConfigureEvent(null);
+
         reparent_serial = xe.get_serial();
         long root = XlibWrapper.RootWindow(XToolkit.getDisplay(), getScreenNumber());
 
@@ -747,6 +742,29 @@ abstract class XDecoratedPeer extends XWindowPeer {
         content.setContentBounds(dims);
     }
 
+    private XEvent pendingConfigureEvent;
+
+    private void setPendingConfigureEvent(XConfigureEvent xev) {
+        if (pendingConfigureEvent != null) {
+            pendingConfigureEvent.dispose();
+        }
+        pendingConfigureEvent = xev == null ? null : xev.clone();
+    }
+
+    private void processPendingConfigureEvent() {
+        if (pendingConfigureEvent != null) {
+            processConfigureEvent(pendingConfigureEvent.get_xconfigure());
+            pendingConfigureEvent.dispose();
+            pendingConfigureEvent = null;
+        }
+    }
+
+    @Override
+    public void handleMapNotifyEvent(XEvent xev) {
+        processPendingConfigureEvent();
+        super.handleMapNotifyEvent(xev);
+    }
+
     boolean no_reparent_artifacts = false;
     public void handleConfigureNotifyEvent(XEvent xev) {
         if (XWM.getWMID() == XWM.UNITY_COMPIZ_WM && !insets_corrected) {
@@ -790,12 +808,25 @@ abstract class XDecoratedPeer extends XWindowPeer {
             insLog.fine("reparented={0}, visible={1}, WM={2}, decorations={3}",
                         isReparented(), isVisible(), runningWM, getDecorations());
         }
-        if (ENABLE_REPARENTING_CHECK && !isReparented() && isVisible() && runningWM != XWM.NO_WM
-                &&  !XWM.isNonReparentingWM()
-                && getDecorations() != XWindowAttributesData.AWT_DECOR_NONE) {
-            insLog.fine("- visible but not reparented, skipping");
-            return;
+        if (!isReparented() && isVisible() && getDecorations() != XWindowAttributesData.AWT_DECOR_NONE) {
+            if (ENABLE_REPARENTING_CHECK) {
+                if (runningWM != XWM.NO_WM && !XWM.isNonReparentingWM()) {
+                    insLog.fine("- visible but not reparented, skipping");
+                    return;
+                }
+            } else if (!isMapped()) {
+                // For reparenting window managers we're not processing ConfigureNotify events received before
+                // ReparentNotify. But we cannot know for sure whether WM is reparenting or not, so we remember
+                // the last received ConfigureNotify event, and process it at the time MapNotify is received.
+                setPendingConfigureEvent(xe);
+                return;
+            }
         }
+
+        processConfigureEvent(xe);
+    }
+
+    private void processConfigureEvent(XConfigureEvent xe) {
         //Last chance to correct insets
         if (!insets_corrected && getDecorations() != XWindowAttributesData.AWT_DECOR_NONE) {
             long parent = XlibUtil.getParentWindow(window);
@@ -821,26 +852,28 @@ abstract class XDecoratedPeer extends XWindowPeer {
         Point newLocation = getNewLocation(xe, currentInsets.left, currentInsets.top);
         WindowDimensions newDimensions =
                 new WindowDimensions(newLocation,
-                                     new Dimension(scaleDown(xe.get_width()),
-                                                   scaleDown(xe.get_height())),
-                                     copy(currentInsets), true);
+                        new Dimension(scaleDown(xe.get_width()),
+                                scaleDown(xe.get_height())),
+                        copy(currentInsets), true);
 
         if (insLog.isLoggable(PlatformLogger.Level.FINER)) {
             insLog.finer("Insets are {0}, new dimensions {1}",
-                     currentInsets, newDimensions);
+                    currentInsets, newDimensions);
         }
 
-        checkIfOnNewScreen(newDimensions.getBounds());
+        checkIfOnNewScreen(newDimensions.getBounds(), () -> {
 
-        Point oldLocation = getLocation();
-        dimensions = newDimensions;
-        if (!newLocation.equals(oldLocation)) {
-            handleMoved(newDimensions);
-        }
-        reconfigureContentWindow(newDimensions);
-        updateChildrenSizes();
+            Point oldLocation = getLocation();
+            dimensions = newDimensions;
+            if (!newLocation.equals(oldLocation)) {
+                handleMoved(newDimensions);
+            }
+            reconfigureContentWindow(newDimensions);
+            updateChildrenSizes();
 
-        repositionSecurityWarning();
+            repositionSecurityWarning();
+
+        });
     }
 
     private void checkShellRectSize(Rectangle shellRect) {
@@ -868,7 +901,8 @@ abstract class XDecoratedPeer extends XWindowPeer {
         }
         updateSizeHints(rec.x, rec.y, rec.width, rec.height);
         XlibWrapper.XMoveResizeWindow(XToolkit.getDisplay(), getShell(),
-                                      scaleUp(rec.x), scaleUp(rec.y),
+                                      parentWindow == null ? scaleUpX(rec.x) : scaleUp(rec.x),
+                                      parentWindow == null ? scaleUpY(rec.y) : scaleUp(rec.y),
                                       scaleUp(rec.width), scaleUp(rec.height));
     }
 
@@ -887,7 +921,8 @@ abstract class XDecoratedPeer extends XWindowPeer {
         }
         updateSizeHints(rec.x, rec.y, rec.width, rec.height);
         XlibWrapper.XMoveWindow(XToolkit.getDisplay(), getShell(),
-                                scaleUp(rec.x), scaleUp(rec.y));
+                parentWindow == null ? scaleUpX(rec.x) : scaleUp(rec.x),
+                parentWindow == null ? scaleUpY(rec.y) : scaleUp(rec.y));
     }
 
     public void setResizable(boolean resizable) {
@@ -1231,12 +1266,12 @@ abstract class XDecoratedPeer extends XWindowPeer {
 
         XWindowPeer toFocus = this;
 
-        if (!ENABLE_MODAL_TRANSIENTS_CHAIN && modalBlocker != null) {
+        if (!FULL_MODAL_TRANSIENTS_CHAIN && modalBlocker != null && !haveCommonAncestor(target, modalBlocker)) {
             toFocus = AWTAccessor.getComponentAccessor().getPeer(modalBlocker);
             // raising an already top-most window is a no-op, but we perform corresponding
             // check here to avoid xmonad WM going into an infinite loop - raise request
             // causes it to refresh internal state and re-send WM_TAKE_FOCUS message
-            if (!((Window)target).isAncestorOf(modalBlocker) && !toFocus.isTopMostWindow()) {
+            if (!toFocus.isTopMostWindow()) {
                 toFocus.toFront();
                 return false;
             }
@@ -1364,5 +1399,16 @@ abstract class XDecoratedPeer extends XWindowPeer {
 
     public final boolean getWindowTitleVisible() {
         return getMWMDecorTitleProperty().orElse(true);
+    }
+
+    @Override
+    public boolean updateGraphicsData(GraphicsConfiguration gc) {
+        boolean ret = super.updateGraphicsData(gc);
+        if (content != null) {
+            content.initGraphicsConfiguration();
+            content.syncBounds();
+        }
+        updateMinimumSize();
+        return ret;
     }
 }

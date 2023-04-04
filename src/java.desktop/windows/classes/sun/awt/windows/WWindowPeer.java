@@ -55,12 +55,8 @@ import java.awt.image.DataBufferInt;
 import java.awt.peer.WindowPeer;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
-import java.lang.reflect.Field;
-import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 import javax.swing.JRootPane;
 import javax.swing.RootPaneContainer;
@@ -846,20 +842,31 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
 
     private void setRoundedCornersImpl(Object params) {
         if (params instanceof String) {
-            int type = 0; // default
-            if ("none".equals(params)) {
-                type = 1;
-            } else if ("full".equals(params)) {
-                type = 2;
-            } else if ("small".equals(params)) {
-                type = 3;
+            setRoundedCorners(getRoundedType(params), false, 0);
+        } else if (params instanceof Object[]) {
+            Object[] values = (Object[]) params;
+            if (values.length == 2 && values[0] instanceof String && values[1] instanceof Color) {
+                Color color = (Color) values[1];
+                setRoundedCorners(getRoundedType(values[0]), true, color.getRGB());
             }
-            setRoundedCorners(type);
         }
     }
 
-    private native void setRoundedCorners(int type);
+    private static int getRoundedType(Object params) {
+        if ("none".equals(params)) {
+            return  1;
+        }
+        if ("full".equals(params)) {
+            return 2;
+        }
+        if ("small".equals(params)) {
+            return 3;
+        }
+        return 0; // default
+    }
 
+    private native void setRoundedCorners(int type, boolean isBorderColor, int borderColor);
+    
     native void updateWindowImpl(int[] data, int width, int height);
 
     @Override
@@ -1033,31 +1040,5 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
             }
         }
         return err;
-    }
-
-    // called from client via reflection
-    @Deprecated
-    private void setCustomDecorationHitTestSpots(List<Rectangle> hitTestSpots) {
-        List<Map.Entry<Shape, Integer>> spots = new ArrayList<>();
-        for (Rectangle spot : hitTestSpots) spots.add(Map.entry(spot, 1));
-        try {
-            Field f = Window.class.getDeclaredField("customDecorHitTestSpots");
-            f.setAccessible(true);
-            f.set(target, spots);
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            throw new Error(e);
-        }
-    }
-
-    // called from client via reflection
-    @Deprecated
-    private void setCustomDecorationTitleBarHeight(int height) {
-        try {
-            Field f = Window.class.getDeclaredField("customDecorTitleBarHeight");
-            f.setAccessible(true);
-            f.set(target, height);
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            throw new Error(e);
-        }
     }
 }

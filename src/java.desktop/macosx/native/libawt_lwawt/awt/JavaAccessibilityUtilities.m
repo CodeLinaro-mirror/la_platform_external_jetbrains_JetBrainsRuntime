@@ -24,6 +24,7 @@
  */
 
 #import "JavaAccessibilityUtilities.h"
+#import "sun_swing_AccessibleAnnouncer.h"
 #import "JNIUtilities.h"
 
 #import <AppKit/AppKit.h>
@@ -40,7 +41,9 @@ static SEL JavaAccessibilityAttributeSetter(NSString *attribute);
 NSString *const JavaAccessibilityIgnore = @"JavaAxIgnore";
 
 NSMutableDictionary *sRoles = nil;
+NSMutableDictionary *sAnnouncePriorities = nil;
 void initializeRoles();
+void initializeAnnouncePriorities();
 
 // Unique
 static jclass sjc_AccessibleState = NULL;
@@ -478,7 +481,7 @@ void initializeRoles()
     [sRoles setObject:JavaAccessibilityIgnore forKey:@"frame"];
     [sRoles setObject:JavaAccessibilityIgnore forKey:@"glasspane"];
     [sRoles setObject:NSAccessibilityGroupRole forKey:@"groupbox"];
-    [sRoles setObject:NSAccessibilityStaticTextRole forKey:@"hyperlink"]; //maybe a group?
+    [sRoles setObject:NSAccessibilityLinkRole forKey:@"hyperlink"];
     [sRoles setObject:NSAccessibilityImageRole forKey:@"icon"];
     [sRoles setObject:NSAccessibilityGroupRole forKey:@"internalframe"];
     [sRoles setObject:NSAccessibilityStaticTextRole forKey:@"label"];
@@ -517,4 +520,11 @@ void initializeRoles()
     [sRoles setObject:NSAccessibilityUnknownRole forKey:@"unknown"];
     [sRoles setObject:JavaAccessibilityIgnore forKey:@"viewport"];
     [sRoles setObject:JavaAccessibilityIgnore forKey:@"window"];
+}
+
+void initializeAnnouncePriorities() {
+    sAnnouncePriorities = [[NSMutableDictionary alloc] initWithCapacity:3];
+
+    [sAnnouncePriorities setObject:[NSNumber numberWithInt:NSAccessibilityPriorityMedium] forKey:[NSNumber numberWithInt:sun_swing_AccessibleAnnouncer_ANNOUNCE_WITHOUT_INTERRUPTING_CURRENT_OUTPUT]];
+    [sAnnouncePriorities setObject:[NSNumber numberWithInt:NSAccessibilityPriorityHigh] forKey:[NSNumber numberWithInt:sun_swing_AccessibleAnnouncer_ANNOUNCE_WITH_INTERRUPTING_CURRENT_OUTPUT]];
 }

@@ -25,10 +25,10 @@
 
 package sun.awt;
 
+import java.awt.EventQueue;
 import java.awt.Font;
 import java.awt.GraphicsConfiguration;
 import java.awt.GraphicsDevice;
-import java.awt.HeadlessException;
 import java.awt.Toolkit;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -36,10 +36,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import sun.java2d.MacosxSurfaceManagerFactory;
 import sun.java2d.SunGraphicsEnvironment;
 import sun.java2d.SurfaceManagerFactory;
+import sun.lwawt.macosx.LWCToolkit;
 import sun.util.logging.PlatformLogger;
 
 /**
@@ -92,6 +95,9 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
      */
     private native void deregisterDisplayReconfiguration(long context);
 
+    private native long registerScreenParametersChangedListener();
+    private native void deregisterScreenParametersChangedListener(long listenerPtr);
+
     /** Available CoreGraphics displays. */
     private final Map<Integer, CGraphicsDevice> devices = new HashMap<>(5);
     /**
@@ -100,17 +106,27 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
     private int mainDisplayID;
 
     /** Reference to the display reconfiguration callback context. */
-    private final long displayReconfigContext;
+    private long displayReconfigContext;
 
     // list of invalidated graphics devices (those which were removed)
     private List<WeakReference<CGraphicsDevice>> oldDevices = new ArrayList<>();
+
+    private boolean initialized;
 
     /**
      * Construct a new instance.
      */
     public CGraphicsEnvironment() {
+        if (!LWCToolkit.isDispatchingOnMainThread()) {
+            initializeIfNeeded();
+        }
+    }
+
+    private void initializeIfNeeded() {
+        if (initialized) return;
+        initialized = true;
+
         if (isHeadless()) {
-            displayReconfigContext = 0L;
             return;
         }
 
@@ -118,7 +134,8 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
         rebuildDevices();
 
         /* Register our display reconfiguration listener */
-        displayReconfigContext = registerDisplayReconfiguration();
+        displayReconfigContext = LWCToolkit.isDispatchingOnMainThread() ? registerScreenParametersChangedListener()
+                : registerDisplayReconfiguration();
         if (displayReconfigContext == 0L) {
             throw new RuntimeException("Could not register CoreGraphics display reconfiguration callback");
         }
@@ -153,7 +170,11 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
         try {
             super.finalize();
         } finally {
-            deregisterDisplayReconfiguration(displayReconfigContext);
+            if (LWCToolkit.isDispatchingOnMainThread()) {
+                deregisterScreenParametersChangedListener(displayReconfigContext);
+            } else {
+                deregisterDisplayReconfiguration(displayReconfigContext);
+            }
         }
     }
 
@@ -233,22 +254,46 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
     }
 
     @Override
-    public synchronized GraphicsDevice getDefaultScreenDevice() throws HeadlessException {
-        return devices.get(mainDisplayID);
+    public GraphicsDevice getDefaultScreenDevice() {
+        return performOnMainThreadOrSynchronized(() -> devices.get(mainDisplayID));
     }
 
     @Override
-    public synchronized GraphicsDevice[] getScreenDevices() throws HeadlessException {
-        return devices.values().toArray(new CGraphicsDevice[devices.values().size()]);
+    public GraphicsDevice[] getScreenDevices() {
+        return performOnMainThreadOrSynchronized(() -> devices.values().toArray(new CGraphicsDevice[devices.values().size()]));
     }
 
-    public synchronized GraphicsDevice getScreenDevice(int displayID) {
-        return devices.get(displayID);
+    public GraphicsDevice getScreenDevice(int displayID) {
+        return performOnMainThreadOrSynchronized(() -> devices.get(displayID));
     }
 
     @Override
-    protected synchronized int getNumScreens() {
-        return devices.size();
+    protected int getNumScreens() {
+        return performOnMainThreadOrSynchronized(devices::size);
+    }
+
+    private <T> T performOnMainThreadOrSynchronized(Supplier<T> task) {
+        if (LWCToolkit.isDispatchingOnMainThread()) {
+            Supplier<T> completeTask = () -> {
+                initializeIfNeeded();
+                return task.get();
+            };
+            if (EventQueue.isDispatchThread()) {
+                return completeTask.get();
+            } else {
+                AtomicReference<T> result = new AtomicReference<>();
+                try {
+                    EventQueue.invokeAndWait(() -> result.set(completeTask.get()));
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+                return result.get();
+            }
+        } else {
+            synchronized (this) {
+                return task.get();
+            }
+        }
     }
 
     @Override
