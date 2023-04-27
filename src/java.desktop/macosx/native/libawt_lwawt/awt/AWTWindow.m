@@ -67,6 +67,8 @@ static jclass jc_CPlatformWindow = NULL;
 @interface NSWindow (Private)
 - (void)_setTabBarAccessoryViewController:(id)controller;
 - (int)getJavaWindowBackgroundColor;
+- (void)setIgnoreMove:(BOOL)value;
+- (void)_adjustWindowToScreen;
 @end
 
 // Cocoa windowDidBecomeKey/windowDidResignKey notifications
@@ -364,6 +366,23 @@ AWT_NS_WINDOW_IMPLEMENTATION
     return NO;
 }
 
+- (void)setIgnoreMove:(BOOL)value {
+    _ignoreMove = value;
+    self.movable = !value;
+}
+
+- (void)_adjustWindowToScreen {
+    if (_ignoreMove) {
+        self.movable = YES;
+    }
+
+    [super _adjustWindowToScreen];
+
+    if (_ignoreMove) {
+        self.movable = NO;
+    }
+}
+
 - (int)getJavaWindowBackgroundColor {
     AWT_ASSERT_APPKIT_THREAD;
 
@@ -606,7 +625,7 @@ AWT_ASSERT_APPKIT_THREAD;
         [self setUpCustomTitleBar];
     }
 
-    self.currentDisplayID = nil;
+    self.currentDisplayID = [AWTWindow getNSWindowDisplayID_AppKitThread:nsWindow];;
     return self;
 }
 
@@ -969,8 +988,7 @@ AWT_ASSERT_APPKIT_THREAD;
         }
 
         if (self.currentDisplayID == nil) {
-            // Do not trigger notification at first appearance
-            // to avoid flickering on popups
+            // Do not trigger notification at first initialization
             self.currentDisplayID = newDisplayID;
             return;
         }
@@ -1626,6 +1644,8 @@ static const CGFloat DefaultHorizontalTitleBarButtonOffset = 20.0;
         self.customTitleBarHeightConstraint,
     ]];
 
+    [self.nsWindow setIgnoreMove:YES];
+    
     AWTWindowDragView* windowDragView = [[AWTWindowDragView alloc] initWithPlatformWindow:self.javaPlatformWindow];
     [titlebar addSubview:windowDragView positioned:NSWindowBelow relativeTo:closeButtonView];
 
@@ -1712,6 +1732,8 @@ static const CGFloat DefaultHorizontalTitleBarButtonOffset = 20.0;
 
     [self setWindowControlsHidden:NO];
     [self updateCustomTitleBarInsets:NO];
+    
+    [self.nsWindow setIgnoreMove:NO];
 }
 
 - (void) setWindowControlsHidden: (BOOL) hidden
@@ -1867,10 +1889,6 @@ static const CGFloat DefaultHorizontalTitleBarButtonOffset = 20.0;
     CHECK_EXCEPTION();
     (*env)->DeleteLocalRef(env, platformWindow);
     return hitTest <= java_awt_Window_CustomTitleBar_HIT_TITLEBAR;
-}
-
-- (BOOL) mouseDownCanMoveWindow {
-    return NO;
 }
 
 - (BOOL) acceptsFirstMouse:(NSEvent *)event {
