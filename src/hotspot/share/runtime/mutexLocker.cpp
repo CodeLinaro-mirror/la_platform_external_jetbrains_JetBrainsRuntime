@@ -165,6 +165,7 @@ Mutex*   Bootclasspath_lock           = NULL;
 Monitor* JVMCI_lock                   = NULL;
 #endif
 
+Mutex*   OOMEStacks_lock              = nullptr;
 
 #define MAX_NUM_MUTEX 128
 static Mutex* _mutex_array[MAX_NUM_MUTEX];
@@ -359,6 +360,8 @@ void mutex_init() {
 #if INCLUDE_JVMCI
   def(JVMCI_lock                   , PaddedMonitor, nonleaf+2,   true,  _safepoint_check_always);
 #endif
+
+  def(OOMEStacks_lock              , PaddedMutex  , safepoint,   true, _safepoint_check_always);
 }
 
 GCMutexLocker::GCMutexLocker(Mutex* mutex) {

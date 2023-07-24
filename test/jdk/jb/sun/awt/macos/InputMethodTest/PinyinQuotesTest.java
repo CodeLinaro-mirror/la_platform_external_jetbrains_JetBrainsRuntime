@@ -1,17 +1,24 @@
 /*
- * Copyright 2000-2022 JetBrains s.r.o.
+ * Copyright 2000-2023 JetBrains s.r.o.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
  */
 
 
@@ -19,7 +26,8 @@
  * @test
  * @summary Regression test for IDEA-271898: Cannot enter Chinese full-corner single and double quotes (IDEA: macOS Intel version)
  * @requires (jdk.version.major >= 8 & os.family == "mac")
- * @run shell Runner.sh PinyinQuotesTest
+ * @modules java.desktop/sun.lwawt.macosx
+ * @run main InputMethodTest PinyinQuotesTest
  */
 
 import static java.awt.event.KeyEvent.*;
@@ -40,7 +48,7 @@ public class PinyinQuotesTest implements Runnable {
         InputMethodTest.type(VK_SPACE, 0);
         InputMethodTest.type(VK_QUOTE, 0);
 
-        InputMethodTest.expect("\u2018 \u2019");
+        InputMethodTest.expectText("\u2018 \u2019");
     }
 
     private void doubleQuotes() {
@@ -51,6 +59,6 @@ public class PinyinQuotesTest implements Runnable {
         InputMethodTest.type(VK_SPACE, 0);
         InputMethodTest.type(VK_QUOTE, SHIFT_DOWN_MASK);
 
-        InputMethodTest.expect("\u201c \u201d");
+        InputMethodTest.expectText("\u201c \u201d");
     }
 }

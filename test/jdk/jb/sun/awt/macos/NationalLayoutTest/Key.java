@@ -1,17 +1,24 @@
 /*
- * Copyright 2000-2019 JetBrains s.r.o.
+ * Copyright 2000-2023 JetBrains s.r.o.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
  */
 
 import java.awt.event.KeyEvent;
@@ -53,15 +60,19 @@ public class Key {
     // Key that generates VK_ code when using a US keyboard layout also generates a unique code for other layout.
     // Test firstly determines char mapped to the key on the current layout
     // and then uses KeyEvent.getExtendedKeyCodeForChar(c) to get the key code.
-    int getKeyCode() {
+    int getKeyCode(boolean ignoreDead) {
         KeyChar keyChar = mappedKeyChars.getKeyChar();
         char ch = keyChar.getChar();
-        if (keyChar.isDead() && deadKeyCodesMap.containsKey(ch)) {
+        if (!ignoreDead && keyChar.isDead() && deadKeyCodesMap.containsKey(ch)) {
             // KeyEvent.getExtendedKeyCodeForChar(ch) does not return corresponding VK_ constant for dead keys
             return deadKeyCodesMap.get(ch);
         } else {
             return KeyEvent.getExtendedKeyCodeForChar(ch);
         }
+    }
+
+    int getKeyCode() {
+        return getKeyCode(false);
     }
 
     // Returns key char for the current layout
@@ -100,8 +111,8 @@ public class Key {
             put((char) 0x02DA, VK_DEAD_ABOVERING);
             put((char) 0x00B4, VK_DEAD_ACUTE);              // ACUTE ACCENT
             put((char) 0x0384, VK_DEAD_ACUTE);              // GREEK TONOS
-            // TODO No corresponding VK_DEAD constant for this key as it may add either acute or cedilla to the next key
-            //put((char) 0x0027 /* ' */, VK_DEAD_QUOTE);      // APOSTROPHE, QUOTE
+            // This key may either be an acute accent or a cedilla. On Windows, it is reported as DEAD_ACUTE, let's do the same.
+            put((char) 0x0027 /* ' */, VK_DEAD_ACUTE);      // APOSTROPHE, QUOTE
             put((char) 0x02D8, VK_DEAD_BREVE);
             put((char) 0x02C7, VK_DEAD_CARON);
             put((char) 0x00B8, VK_DEAD_CEDILLA);            // CEDILLA

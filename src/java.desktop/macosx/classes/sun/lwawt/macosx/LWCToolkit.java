@@ -946,24 +946,16 @@ public final class LWCToolkit extends LWToolkit {
     public static native void performOnMainThreadAndWait(Runnable r);
 
     /**
-     * Schedules event execution on the AppKit thread by wrapping it in native NSEvent object and posting to the
-     * application's native event queue.
+     * Schedules the execution of the next AWT event from the event queue on the AppKit thread by creating a custom
+     * native NSEvent object and posting to the application's native event queue.
      */
-    static native void scheduleEvent(AWTEvent event);
+    static native void scheduleEvent(EventQueue eventQueue);
 
-    /**
-     * Retrieves event from the native application's event queue (and unwrapping it from NSEvent, see
-     * {@link #scheduleEvent(AWTEvent)})
-     */
-    static native AWTEvent getNextEvent(boolean removeFromQueue);
+    static native void waitForNextEvent();
 
     // invoked from native code
-    private static void dispatch(AWTEvent event) {
-        try {
-            AWTAccessor.getEventQueueAccessor().dispatchEvent(Toolkit.getDefaultToolkit().getSystemEventQueue(), event);
-        } catch (Throwable t) {
-            APPKIT_THREAD.getUncaughtExceptionHandler().uncaughtException(APPKIT_THREAD, t);
-        }
+    private static void dispatch(EventQueue eventQueue) {
+        AWTAccessor.getEventQueueAccessor().dispatchEvent(eventQueue);
     }
 
 // DnD support
@@ -1234,6 +1226,11 @@ public final class LWCToolkit extends LWToolkit {
     }
 
     @Override
+    protected boolean isMainThreadDispatching() {
+        return isDispatchingOnMainThread();
+    }
+
+    @Override
     public Thread getMainThread() {
         return APPKIT_THREAD;
     }
@@ -1256,48 +1253,67 @@ class MainThreadDispatcher implements FwDispatcher {
     }
 
     @Override
-    public boolean scheduleEvent(AWTEvent event) {
-        LWCToolkit.scheduleEvent(event);
-        return true;
+    public boolean startDefaultDispatchThread() {
+        return false;
     }
 
     @Override
-    public boolean canGetEventsFromNativeQueue() {
-        return isDispatchThread();
+    public void scheduleNativeEvent(EventQueue eventQueue) {
+        LWCToolkit.scheduleEvent(eventQueue);
     }
 
     @Override
-    public AWTEvent getNextEventFromNativeQueue(boolean removeFromQueue) {
-        return LWCToolkit.getNextEvent(removeFromQueue);
+    public void waitForNativeEvent() {
+        if (isDispatchThread()) {
+            LWCToolkit.waitForNextEvent();
+        } else {
+            throw new IllegalStateException("getNextEvent() isn't supported in main thread dispatching mode");
+        }
     }
 }
 
 class MainThreadSecondaryLoop implements SecondaryLoop {
+    private int entryCount;
     private long mediatorHandle;
 
     @Override
     public boolean enter() {
-        AtomicBoolean result = new AtomicBoolean();
-        LWCToolkit.performOnMainThreadAndWait(() -> {
+        int count;
+        synchronized (this) {
+            if ((entryCount & 1) == 1) {
+                return false;
+            }
+            count = ++entryCount;
+        }
+        SunToolkit.performOnMainThreadIfNeeded(() -> {
+            synchronized (MainThreadSecondaryLoop.this) {
+                // This should cater for complex multi-threaded use cases.
+                // It might not help in every case, but SecondaryLoopTest
+                // does pass with this.
+                if (count != entryCount) return;
+            }
             if (mediatorHandle == 0) {
                 mediatorHandle = LWCToolkit.createAWTRunLoopMediator();
                 LWCToolkit.doSimpleRunLoop(mediatorHandle);
-                result.set(true);
             }
         });
-        return result.get();
+        return true;
     }
 
     @Override
     public boolean exit() {
-        AtomicBoolean result = new AtomicBoolean();
-        LWCToolkit.performOnMainThreadAndWait(() -> {
+        synchronized (this) {
+            if ((entryCount & 1) == 0) {
+                return false;
+            }
+            ++entryCount;
+        }
+        SunToolkit.performOnMainThreadIfNeeded(() -> {
             if (mediatorHandle != 0) {
                 LWCToolkit.stopAWTRunLoop(mediatorHandle);
                 mediatorHandle = 0;
-                result.set(true);
             }
         });
-        return result.get();
+        return true;
     }
 }

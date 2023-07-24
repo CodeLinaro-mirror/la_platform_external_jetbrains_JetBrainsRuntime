@@ -258,7 +258,7 @@ public class ScrollPane extends Container implements Accessible {
      * @param index position of child component (must be &lt;= 0)
      */
     protected final void addImpl(Component comp, Object constraints, int index) {
-        synchronized (getTreeLock()) {
+        SunToolkit.performWithTreeLock(() -> {
             if (getComponentCount() > 0) {
                 remove(0);
             }
@@ -271,7 +271,7 @@ public class ScrollPane extends Container implements Accessible {
             } else {
                 addToPanel(comp, constraints, index);
             }
-        }
+        });
     }
 
     /**
@@ -368,13 +368,13 @@ public class ScrollPane extends Container implements Accessible {
      *     a child
      */
     public void setScrollPosition(int x, int y) {
-        synchronized (getTreeLock()) {
+        SunToolkit.performWithTreeLock(() -> {
             if (getComponentCount()==0) {
                 throw new NullPointerException("child is null");
             }
             hAdjustable.setValue(x);
             vAdjustable.setValue(y);
-        }
+        });
     }
 
     /**

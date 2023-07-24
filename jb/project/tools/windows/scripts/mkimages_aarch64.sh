@@ -30,6 +30,7 @@ source jb/project/tools/common/scripts/common.sh
 
 WORK_DIR=$(pwd)
 JCEF_PATH=${JCEF_PATH:=$WORK_DIR/jcef_win_aarch64}
+NVDA_PATH=${NVDA_PATH:=$WORK_DIR/nvda_controllerClient}
 
 function do_configure {
   sh ./configure \
@@ -45,6 +46,7 @@ function do_configure {
     --with-toolchain-version=$TOOLCHAIN_VERSION \
     --with-boot-jdk=$BOOT_JDK \
     --with-build-jdk=$BUILD_JDK \
+    --with-nvdacontrollerclient=$NVDA_PATH \
     --disable-ccache \
     --enable-cds=yes \
     $STATIC_CONF_ARGS \
@@ -101,13 +103,13 @@ esac
 if [ -z "${INC_BUILD:-}" ]; then
   do_configure || do_exit $?
   if [ $do_maketest -eq 1 ]; then
-    make LOG=info CONF=$RELEASE_NAME clean images test-image || do_exit $?
+    make LOG=info CONF=$RELEASE_NAME clean images test-image jbr-api JBR_API_JBR_VERSION=TEST || do_exit $?
   else
     make LOG=info CONF=$RELEASE_NAME clean images || do_exit $?
   fi
 else
   if [ $do_maketest -eq 1 ]; then
-    make LOG=info CONF=$RELEASE_NAME images test-image || do_exit $?
+    make LOG=info CONF=$RELEASE_NAME images test-image jbr-api JBR_API_JBR_VERSION=TEST || do_exit $?
   else
     make LOG=info CONF=$RELEASE_NAME images || do_exit $?
   fi
@@ -124,6 +126,7 @@ if [ "$bundle_type" == "jcef" ] || [ "$bundle_type" == "fd" ]; then
   cp $JCEF_PATH/jmods/* ${JSDK_MODS_DIR} # $JSDK/jmods is not unchanged
 
   jbr_name_postfix="_${bundle_type}"
+  cat $JCEF_PATH/jcef.version >> $JSDK/release
 else
   jbr_name_postfix=""
 fi

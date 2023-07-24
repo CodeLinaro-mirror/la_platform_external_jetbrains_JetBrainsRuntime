@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,6 +31,8 @@
 #import "MTLSurfaceData.h"
 #import "JNIUtilities.h"
 
+const NSTimeInterval DF_BLIT_FRAME_TIME=1.0/120.0;
+
 BOOL isDisplaySyncEnabled() {
     static int syncEnabled = -1;
     if (syncEnabled == -1) {
@@ -42,6 +44,19 @@ BOOL isDisplaySyncEnabled() {
         J2dRlsTraceLn1(J2D_TRACE_INFO, "MTLLayer_isDisplaySyncEnabled: %d", syncEnabled);
     }
     return (BOOL)syncEnabled;
+}
+
+BOOL isColorMatchingEnabled() {
+    static int colorMatchingEnabled = -1;
+    if (colorMatchingEnabled == -1) {
+        JNIEnv *env = [ThreadUtilities getJNIEnvUncached];
+        if (env == NULL) return NO;
+        NSString *colorMatchingEnabledProp = [PropertiesUtilities javaSystemPropertyForKey:@"sun.java2d.metal.colorMatching"
+                                                                                   withEnv:env];
+        colorMatchingEnabled = [@"true" isCaseInsensitiveLike:colorMatchingEnabledProp] ? YES : NO; // false by default
+        J2dRlsTraceLn1(J2D_TRACE_INFO, "MTLLayer_isColorMatchingEnabled: %d", colorMatchingEnabled);
+    }
+    return (BOOL)colorMatchingEnabled;
 }
 
 @implementation MTLLayer
@@ -76,6 +91,10 @@ BOOL isDisplaySyncEnabled() {
     self.nextDrawableCount = 0;
     self.opaque = YES;
     self.redrawCount = 0;
+    if (@available(macOS 10.13, *)) {
+        self.displaySyncEnabled = isDisplaySyncEnabled();
+    }
+    self.avgBlitFrameTime = DF_BLIT_FRAME_TIME;
     return self;
 }
 
@@ -91,6 +110,9 @@ BOOL isDisplaySyncEnabled() {
     }
 
     if (self.nextDrawableCount != 0) {
+        if (!isDisplaySyncEnabled()) {
+            [self performSelectorOnMainThread:@selector(setNeedsDisplay) withObject:nil waitUntilDone:NO];
+        }
         return;
     }
     [self stopRedraw:NO];
@@ -111,7 +133,7 @@ BOOL isDisplaySyncEnabled() {
             return;
         }
 
-        id<MTLCommandBuffer> commandBuf = [self.ctx createCommandBuffer];
+        id<MTLCommandBuffer> commandBuf = [self.ctx createBlitCommandBuffer];
         if (commandBuf == nil) {
             J2dTraceLn(J2D_TRACE_VERBOSE, "MTLLayer.blitTexture: commandBuf is null");
             return;
@@ -122,6 +144,12 @@ BOOL isDisplaySyncEnabled() {
             return;
         }
         self.nextDrawableCount++;
+        id<MTLCommandBuffer> renderBuffer =  [self.ctx createCommandBuffer];
+        self.ctx.syncCount++;
+        if (@available(macOS 10.14, *)) {
+            [renderBuffer encodeWaitForEvent:self.ctx.syncEvent value:self.ctx.syncCount];
+        }
+
 #define MTL_LAYER_USE_BLIT_ENC
 #ifdef MTL_LAYER_USE_BLIT_ENC
         id <MTLBlitCommandEncoder> blitEncoder = [commandBuf blitCommandEncoder];
@@ -167,12 +195,31 @@ BOOL isDisplaySyncEnabled() {
         [computeEncoder endEncoding];
         [cb commit];
 #endif
-        [commandBuf presentDrawable:mtlDrawable];
-        __block MTLLayer* layer = self;
-        [layer retain];
+        if (@available(macOS 10.14, *)) {
+            [commandBuf encodeSignalEvent:self.ctx.syncEvent value:self.ctx.syncCount];
+        }
+
+        if (isDisplaySyncEnabled()) {
+            [commandBuf presentDrawable:mtlDrawable];
+        } else {
+            if (@available(macOS 10.15.4, *)) {
+                [commandBuf presentDrawable:mtlDrawable afterMinimumDuration:self.avgBlitFrameTime];
+            } else {
+                [commandBuf presentDrawable:mtlDrawable];
+            }
+        }
+
+        [self retain];
         [commandBuf addCompletedHandler:^(id <MTLCommandBuffer> commandBuf) {
-            layer.nextDrawableCount--;
-            [layer release];
+            if (@available(macOS 10.15.4, *)) {
+                if (!isDisplaySyncEnabled()) {
+                    const NSTimeInterval gpuTime = commandBuf.GPUEndTime - commandBuf.GPUStartTime;
+                    const NSTimeInterval a = 0.25;
+                    self.avgBlitFrameTime = gpuTime * a + self.avgBlitFrameTime * (1.0 - a);
+                }
+            }
+            self.nextDrawableCount--;
+            [self release];
         }];
 
         [commandBuf commit];
@@ -211,18 +258,13 @@ BOOL isDisplaySyncEnabled() {
     [super display];
 }
 
-- (void) redraw {
-    AWT_ASSERT_APPKIT_THREAD;
-    [self setNeedsDisplay];
-}
-
 - (void)startRedraw {
     if (isDisplaySyncEnabled()) {
         if (self.ctx != nil) {
-            [self.ctx startRedraw:self];
+            [self.ctx performSelectorOnMainThread:@selector(startRedraw:) withObject:self waitUntilDone:NO];
         }
     } else {
-        [self performSelectorOnMainThread:@selector(redraw) withObject:nil waitUntilDone:NO];
+        [self performSelectorOnMainThread:@selector(setNeedsDisplay) withObject:nil waitUntilDone:NO];
     }
 }
 
@@ -231,18 +273,8 @@ BOOL isDisplaySyncEnabled() {
         if (force) {
             self.redrawCount = 0;
         }
-        [self.ctx stopRedraw:self];
+        [self.ctx performSelectorOnMainThread:@selector(stopRedraw:) withObject:self waitUntilDone:NO];
     }
-}
-
-CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeStamp* now, const CVTimeStamp* outputTime, CVOptionFlags flagsIn, CVOptionFlags* flagsOut, void* displayLinkContext)
-{
-    J2dTraceLn(J2D_TRACE_VERBOSE, "MTLLayer_displayLinkCallback() called");
-    @autoreleasepool {
-        MTLLayer *layer = (__bridge MTLLayer *)displayLinkContext;
-        [layer performSelectorOnMainThread:@selector(redraw) withObject:nil waitUntilDone:NO];
-    }
-    return kCVReturnSuccess;
 }
 
 - (void)commitCommandBuffer:(MTLContext*)mtlc wait:(BOOL)waitUntilCompleted display:(BOOL)updateDisplay {
@@ -255,12 +287,11 @@ CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeStamp* no
                 [cbwrapper release];
             }];
         } else {
-            __block MTLLayer* layer = self;
-            [layer retain];
+            [self retain];
             [commandbuf addCompletedHandler:^(id <MTLCommandBuffer> commandbuf) {
                 [cbwrapper release];
-                [layer startRedraw];
-                [layer release];
+                [self startRedraw];
+                [self release];
             }];
        }
        [commandbuf commit];
@@ -316,6 +347,15 @@ Java_sun_java2d_metal_MTLLayer_validate
         layer.ctx = ((MTLSDOps *)bmtlsdo->privOps)->configInfo->context;
         layer.device = layer.ctx.device;
         layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+
+        if (!isColorMatchingEnabled() && (layer.colorspace != nil)) {
+            J2dRlsTraceLn1(J2D_TRACE_VERBOSE,
+                          "Java_sun_java2d_metal_MTLLayer_validate: disable color matching (colorspace was '%s')",
+                           [(NSString *)CGColorSpaceCopyName(layer.colorspace) UTF8String]);
+            // disable color matching:
+            layer.colorspace = nil;
+        }
+
         layer.drawableSize =
             CGSizeMake((*layer.buffer).width,
                        (*layer.buffer).height);

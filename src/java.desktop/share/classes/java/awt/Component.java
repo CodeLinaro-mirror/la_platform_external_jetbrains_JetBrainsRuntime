@@ -96,8 +96,6 @@ import sun.awt.AppContext;
 import sun.awt.ComponentFactory;
 import sun.security.action.GetBooleanAction;
 import sun.security.action.GetPropertyAction;
-import sun.awt.AppContext;
-import sun.awt.AWTAccessor;
 import sun.awt.ConstrainableGraphics;
 import sun.awt.EmbeddedFrame;
 import sun.awt.RequestFocusController;
@@ -109,11 +107,9 @@ import sun.awt.image.VSyncedBSManager;
 import sun.font.FontManager;
 import sun.font.FontManagerFactory;
 import sun.font.SunFontManager;
-import sun.java2d.SunGraphics2D;
 import sun.java2d.SunGraphicsEnvironment;
 import sun.java2d.pipe.Region;
 import sun.java2d.pipe.hw.ExtendedBufferCapabilities;
-import sun.security.action.GetPropertyAction;
 import sun.swing.SwingAccessor;
 import sun.util.logging.PlatformLogger;
 
@@ -1007,6 +1003,11 @@ public abstract class Component implements ImageObserver, MenuContainer,
             @Override
             public BufferStrategy getBufferStrategy(Component comp) {
                 return comp.getBufferStrategy();
+            }
+
+            @Override
+            public Object getTreeLock() {
+                return LOCK;
             }
         });
     }
@@ -2186,10 +2187,10 @@ public abstract class Component implements ImageObserver, MenuContainer,
      */
     @Deprecated
     public void move(int x, int y) {
-        synchronized(getTreeLock()) {
+        SunToolkit.performWithTreeLock(() -> {
             setBoundsOp(ComponentPeer.SET_LOCATION);
             setBounds(x, y, width, height);
-        }
+        });
     }
 
     /**
@@ -2270,10 +2271,10 @@ public abstract class Component implements ImageObserver, MenuContainer,
      */
     @Deprecated
     public void resize(int width, int height) {
-        synchronized(getTreeLock()) {
+        SunToolkit.performWithTreeLock(() -> {
             setBoundsOp(ComponentPeer.SET_SIZE);
             setBounds(x, y, width, height);
-        }
+        });
     }
 
     /**
@@ -2372,7 +2373,7 @@ public abstract class Component implements ImageObserver, MenuContainer,
      */
     @Deprecated
     public void reshape(int x, int y, int width, int height) {
-        synchronized (getTreeLock()) {
+        SunToolkit.performWithTreeLock(() -> {
             try {
                 setBoundsOp(ComponentPeer.SET_BOUNDS);
                 boolean resized = (this.width != width) || (this.height != height);
@@ -2424,7 +2425,7 @@ public abstract class Component implements ImageObserver, MenuContainer,
             } finally {
                 setBoundsOp(ComponentPeer.RESET_OPERATION);
             }
-        }
+        });
     }
 
     private void repaintParentIfNeeded(int oldX, int oldY, int oldWidth,
@@ -3102,7 +3103,7 @@ public abstract class Component implements ImageObserver, MenuContainer,
      * Revalidates the component synchronously.
      */
     final void revalidateSynchronously() {
-        synchronized (getTreeLock()) {
+        SunToolkit.performWithTreeLock(() -> {
             invalidate();
 
             Container root = getContainer();
@@ -3122,7 +3123,7 @@ public abstract class Component implements ImageObserver, MenuContainer,
 
                 root.validate();
             }
-        }
+        });
     }
 
     /**
@@ -8398,7 +8399,7 @@ public abstract class Component implements ImageObserver, MenuContainer,
      * @since     1.1
      */
     public void add(PopupMenu popup) {
-        synchronized (getTreeLock()) {
+        SunToolkit.performWithTreeLock(() -> {
             if (popup.parent != null) {
                 popup.parent.remove(popup);
             }
@@ -8413,7 +8414,7 @@ public abstract class Component implements ImageObserver, MenuContainer,
                     popup.addNotify();
                 }
             }
-        }
+        });
     }
 
     /**

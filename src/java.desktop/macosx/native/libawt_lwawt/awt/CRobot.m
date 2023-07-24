@@ -48,6 +48,8 @@
 
 #define k_JAVA_ROBOT_WHEEL_COUNT 1
 
+static id lockObj;
+
 // In OS X, left and right mouse button share the same click count.
 // That is, if one starts clicking the left button rapidly and then
 // switches to the right button, then the click count will continue
@@ -97,14 +99,16 @@ CreateJavaException(JNIEnv* env, CGError err)
  * for clicks.
  */
 static inline void autoDelay(BOOL isMove) {
-    if (!isMove){
-        NSTimeInterval now = [[NSDate date] timeIntervalSinceReferenceDate];
-        NSTimeInterval delay = gNextKeyEventTime - now;
-        if (delay > 0) {
-            [NSThread sleepForTimeInterval:delay];
+    @synchronized(lockObj) {
+        if (!isMove){
+            NSTimeInterval now = [[NSDate date] timeIntervalSinceReferenceDate];
+            NSTimeInterval delay = gNextKeyEventTime - now;
+            if (delay > 0) {
+                [NSThread sleepForTimeInterval:delay];
+            }
         }
+        gNextKeyEventTime = [[NSDate date] timeIntervalSinceReferenceDate] + safeDelay;
     }
-    gNextKeyEventTime = [[NSDate date] timeIntervalSinceReferenceDate] + safeDelay;
 }
 
 static void initKeyFlags() {
@@ -134,6 +138,7 @@ Java_sun_lwawt_macosx_CRobot_initRobot
     // Always set all states, in case Apple ever changes default behaviors.
     static int setupDone = 0;
     if (!setupDone) {
+        lockObj = [[NSObject alloc] init];
         [ThreadUtilities performOnMainThreadWaiting:NO block:^(){
             int i;
             jint* tmp;
@@ -255,18 +260,22 @@ Java_sun_lwawt_macosx_CRobot_mouseEvent
     }
 
     int clickCount = 0;
-    int eventNumber = gsEventNumber;
+    int eventNumber = 0;
 
-    if (isMouseMove) {
-        // any mouse movement resets click count
-        gsLastClickTime = 0;
-    } else {
-        clickCount = GetClickCount(isButtonsDownState);
+    @synchronized(lockObj) {
+        eventNumber = gsEventNumber;
 
-        if (isButtonsDownState) {
-            gsButtonEventNumber[button] = gsEventNumber++;
+        if (isMouseMove) {
+            // any mouse movement resets click count
+            gsLastClickTime = 0;
+        } else {
+            clickCount = GetClickCount(isButtonsDownState);
+
+            if (isButtonsDownState) {
+                gsButtonEventNumber[button] = gsEventNumber++;
+            }
+            eventNumber = gsButtonEventNumber[button];
         }
-        eventNumber = gsButtonEventNumber[button];
     }
 
     PostMouseEvent(point, button, type, clickCount, eventNumber);
@@ -326,22 +335,29 @@ Java_sun_lwawt_macosx_CRobot_keyEvent
     [ThreadUtilities performOnMainThreadWaiting:YES block:^(){
         CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
         CGKeyCode keyCode;
-        if (javaKeyCode == 0x1000000 + 0x0060) {
+
+        if (javaKeyCode & 0x2000000) {
             // This is a dirty, dirty hack and is only used in tests.
-            // When receiving this key code, Robot should switch the keyboard type to ISO
-            // and then send the key code corresponding to VK_BACK_QUOTE.
+            // This allows us to send macOS virtual key code directly, without first looking up a Java key code.
+            // It also allows the caller to set the physical keyboard layout directly.
+            // The key code that should be passed to Robot in this case is the following:
+            //   0x2000000 | keyCode | (physicalLayout << 8)
+            // where physicalLayout is:
+            //   0 - ANSI
+            //   1 - ISO
+            //   2 - JIS
 
-            // find an ISO keyboard type...
-            // LMGetKbdType() returns Uint8, why don't we just iterate over all the possible values and find one
-            // that works? It's really sad that macOS doesn't provide a decent API for this sort of thing.
-            for (UInt32 keyboardType = 0; keyboardType < 0x100; ++keyboardType) {
-                if (KBGetLayoutType(keyboardType) == kKeyboardISO) {
-                    CGEventSourceSetKeyboardType(source, keyboardType);
-                    break;
-                }
+            UInt32 physicalLayout = (javaKeyCode >> 8) & 0xff;
+            UInt32 keyboardType;
+            if (physicalLayout == 1) {
+                keyboardType = 41; // ISO
+            } else if (physicalLayout == 2) {
+                keyboardType = 42; // JIS
+            } else {
+                keyboardType = 40; // ANSI
             }
-
-            keyCode = OSX_kVK_ANSI_Grave;
+            CGEventSourceSetKeyboardType(source, keyboardType);
+            keyCode = javaKeyCode & 0xff;
         } else {
             keyCode = GetCGKeyCode(javaKeyCode);
         }
@@ -453,26 +469,28 @@ static inline CGKeyCode GetCGKeyCode(jint javaKeyCode)
 }
 
 static int GetClickCount(BOOL isDown) {
-    NSTimeInterval now = [[NSDate date] timeIntervalSinceReferenceDate];
-    NSTimeInterval clickInterval = now - gsLastClickTime;
-    BOOL isWithinTreshold = clickInterval < [NSEvent doubleClickInterval];
+    @synchronized(lockObj) {
+        NSTimeInterval now = [[NSDate date] timeIntervalSinceReferenceDate];
+        NSTimeInterval clickInterval = now - gsLastClickTime;
+        BOOL isWithinTreshold = clickInterval < [NSEvent doubleClickInterval];
 
-    if (isDown) {
-        if (isWithinTreshold) {
-            gsClickCount++;
+        if (isDown) {
+            if (isWithinTreshold) {
+                gsClickCount++;
+            } else {
+                gsClickCount = 1;
+            }
+
+            gsLastClickTime = now;
         } else {
-            gsClickCount = 1;
+            // In OS X, a mouse up has the click count of the last mouse down
+            // if an interval between up and down is within the double click
+            // threshold, and 0 otherwise.
+            if (!isWithinTreshold) {
+                gsClickCount = 0;
+            }
         }
 
-        gsLastClickTime = now;
-    } else {
-        // In OS X, a mouse up has the click count of the last mouse down
-        // if an interval between up and down is within the double click
-        // threshold, and 0 otherwise.
-        if (!isWithinTreshold) {
-            gsClickCount = 0;
-        }
+        return gsClickCount;
     }
-
-    return gsClickCount;
 }

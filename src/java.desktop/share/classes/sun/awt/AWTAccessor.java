@@ -254,6 +254,8 @@ public final class AWTAccessor {
          * returns the buffer strategy used by this component.
          */
         BufferStrategy getBufferStrategy(Component comp);
+
+        Object getTreeLock();
     }
 
     /*
@@ -552,10 +554,7 @@ public final class AWTAccessor {
          */
         SecondaryLoop createSecondaryLoop(EventQueue eventQueue, BooleanSupplier cond);
 
-        /**
-         * Dispatches event using the given EventQueue.
-         */
-        void dispatchEvent(EventQueue eventQueue, AWTEvent event);
+        void dispatchEvent(EventQueue eventQueue);
     }
 
     /*
