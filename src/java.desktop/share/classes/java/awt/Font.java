@@ -1967,7 +1967,7 @@ public class Font implements java.io.Serializable
      *
      * @serial
      */
-    private int fontSerializedDataVersion = 1;
+    private int fontSerializedDataVersion = 2;
 
     /**
      * Writes default serializable fields to a stream.
@@ -2036,9 +2036,13 @@ public class Font implements java.io.Serializable
             } catch (Throwable t) {
                 throw new IOException(t);
             } finally {
-            fRequestedAttributes = null; // don't need it any more
+                fRequestedAttributes = null; // don't need it any more
+            }
         }
-    }
+
+        if (features == null) {
+            features = new TreeMap<>();
+        }
     }
 
     /**
@@ -2723,8 +2727,10 @@ public class Font implements java.io.Serializable
         // quick check for simple text, assume GV ok to use if simple
 
         boolean simple = (values == null ||
-            (values.getKerning() == 0 && values.getLigatures() == 0 &&
-              values.getBaselineTransform() == null)) && !anyEnabledFeatures();
+            (values.getKerning() == 0
+            && values.getLigatures() == 0
+            && values.getTracking() == 0
+            && values.getBaselineTransform() == null)) && !anyEnabledFeatures();
         if (simple) {
             simple = ! FontUtilities.isComplexText(chars, beginIndex, limit);
         }
