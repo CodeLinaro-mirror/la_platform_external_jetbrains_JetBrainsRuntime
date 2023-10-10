@@ -21,7 +21,7 @@
  * questions.
  */
 
-import jdk.testlibrary.OutputAnalyzer;
+import jdk.test.lib.process.OutputAnalyzer;
 import jdk.test.lib.util.JarUtils;
 
 import java.nio.file.*;
@@ -33,7 +33,7 @@ import java.util.Collections;
  * @test
  * @bug 8273826
  * @summary Test for signed jar file with lowercase META-INF files
- * @library /lib/testlibrary /test/lib ../
+ * @library /test/lib ../
  * @build jdk.test.lib.util.JarUtils
  * @run main LowerCaseManifest
  */
@@ -92,7 +92,7 @@ public class LowerCaseManifest extends Test {
         checkVerifying(analyzer, 0, JAR_VERIFIED);
 
         // convert the META-INF/ files to lower case
-        FileSystem fs = FileSystems.newFileSystem(Path.of(SIGNED_JARFILE), null);
+        FileSystem fs = FileSystems.newFileSystem(Path.of(SIGNED_JARFILE), Collections.emptyMap());
         for (String s : new String[]{"ALIAS.SF",  "ALIAS.RSA", "MANIFEST.MF"}) {
             Path origPath = fs.getPath("META-INF/" + s);
             Path lowerCase = fs.getPath("META-INF/" + s.toLowerCase());

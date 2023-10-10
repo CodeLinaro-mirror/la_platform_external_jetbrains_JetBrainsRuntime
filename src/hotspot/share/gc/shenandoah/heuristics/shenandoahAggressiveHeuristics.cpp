@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2018, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2018, 2019, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -55,15 +56,9 @@ void ShenandoahAggressiveHeuristics::choose_collection_set_from_regiondata(Shena
   }
 }
 
-bool ShenandoahAggressiveHeuristics::should_start_gc() const {
+bool ShenandoahAggressiveHeuristics::should_start_gc() {
   log_info(gc)("Trigger: Start next cycle immediately");
   return true;
-}
-
-bool ShenandoahAggressiveHeuristics::should_process_references() {
-  if (!can_process_references()) return false;
-  // Randomly process refs with 50% chance.
-  return (os::random() & 1) == 1;
 }
 
 bool ShenandoahAggressiveHeuristics::should_unload_classes() {

@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2017, 2018, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2017, 2021, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -55,7 +56,7 @@ ShenandoahPhaseTimings::ShenandoahPhaseTimings(uint max_workers) :
   // Initialize everything to sane defaults
   for (uint i = 0; i < _num_phases; i++) {
 #define SHENANDOAH_WORKER_DATA_NULL(type, title) \
-    _worker_data[i] = NULL;
+    _worker_data[i] = nullptr;
     SHENANDOAH_PAR_PHASE_DO(,, SHENANDOAH_WORKER_DATA_NULL)
 #undef SHENANDOAH_WORKER_DATA_NULL
     _cycle_data[i] = uninitialized();
@@ -68,14 +69,14 @@ ShenandoahPhaseTimings::ShenandoahPhaseTimings(uint max_workers) :
     if (is_worker_phase(Phase(i))) {
       int c = 0;
 #define SHENANDOAH_WORKER_DATA_INIT(type, title) \
-      if (c++ != 0) _worker_data[i + c] = new ShenandoahWorkerData(_max_workers, title);
+      if (c++ != 0) _worker_data[i + c] = new ShenandoahWorkerData(nullptr, title, _max_workers);
       SHENANDOAH_PAR_PHASE_DO(,, SHENANDOAH_WORKER_DATA_INIT)
 #undef SHENANDOAH_WORKER_DATA_INIT
     }
   }
 
   _policy = ShenandoahHeap::heap()->shenandoah_policy();
-  assert(_policy != NULL, "Can not be NULL");
+  assert(_policy != nullptr, "Can not be null");
 }
 
 ShenandoahPhaseTimings::Phase ShenandoahPhaseTimings::worker_par_phase(Phase phase, ParPhase par_phase) {
@@ -88,7 +89,7 @@ ShenandoahPhaseTimings::Phase ShenandoahPhaseTimings::worker_par_phase(Phase pha
 ShenandoahWorkerData* ShenandoahPhaseTimings::worker_data(Phase phase, ParPhase par_phase) {
   Phase p = worker_par_phase(phase, par_phase);
   ShenandoahWorkerData* wd = _worker_data[p];
-  assert(wd != NULL, "Counter initialized: %s", phase_name(p));
+  assert(wd != nullptr, "Counter initialized: %s", phase_name(p));
   return wd;
 }
 
@@ -96,18 +97,26 @@ bool ShenandoahPhaseTimings::is_worker_phase(Phase phase) {
   assert(phase >= 0 && phase < _num_phases, "Out of bounds");
   switch (phase) {
     case init_evac:
-    case scan_roots:
-    case update_roots:
-    case final_update_refs_roots:
-    case full_gc_scan_roots:
+    case finish_mark:
+    case purge_weak_par:
+    case full_gc_mark:
     case full_gc_update_roots:
     case full_gc_adjust_roots:
+    case degen_gc_stw_mark:
+    case degen_gc_mark:
     case degen_gc_update_roots:
-    case full_gc_purge_cleanup:
+    case full_gc_weakrefs:
+    case full_gc_purge_class_unload:
     case full_gc_purge_weak_par:
-    case purge_cleanup:
-    case purge_weak_par:
+    case degen_gc_weakrefs:
+    case degen_gc_purge_class_unload:
+    case degen_gc_purge_weak_par:
     case heap_iteration_roots:
+    case conc_mark_roots:
+    case conc_thread_roots:
+    case conc_weak_roots_work:
+    case conc_weak_refs:
+    case conc_strong_roots:
       return true;
     default:
       return false;
@@ -116,12 +125,10 @@ bool ShenandoahPhaseTimings::is_worker_phase(Phase phase) {
 
 bool ShenandoahPhaseTimings::is_root_work_phase(Phase phase) {
   switch (phase) {
-    case scan_roots:
-    case update_roots:
+    case finish_mark:
     case init_evac:
-    case final_update_refs_roots:
     case degen_gc_update_roots:
-    case full_gc_scan_roots:
+    case full_gc_mark:
     case full_gc_update_roots:
     case full_gc_adjust_roots:
       return true;
@@ -212,7 +219,7 @@ void ShenandoahPhaseTimings::flush_cycle_to_global() {
       _global_data[i].add(_cycle_data[i]);
       _cycle_data[i] = uninitialized();
     }
-    if (_worker_data[i] != NULL) {
+    if (_worker_data[i] != nullptr) {
       _worker_data[i]->reset();
     }
   }
@@ -236,7 +243,7 @@ void ShenandoahPhaseTimings::print_cycle_on(outputStream* out) const {
         }
       }
 
-      if (_worker_data[i] != NULL) {
+      if (_worker_data[i] != nullptr) {
         out->print(", workers (us): ");
         for (uint c = 0; c < _max_workers; c++) {
           double tv = _worker_data[i]->get(c);
@@ -256,7 +263,7 @@ void ShenandoahPhaseTimings::print_global_on(outputStream* out) const {
   out->cr();
   out->print_cr("GC STATISTICS:");
   out->print_cr("  \"(G)\" (gross) pauses include VM time: time to notify and block threads, do the pre-");
-  out->print_cr("        and post-safepoint housekeeping. Use -XX:+PrintSafepointStatistics to dissect.");
+  out->print_cr("        and post-safepoint housekeeping. Use -Xlog:safepoint+stats to dissect.");
   out->print_cr("  \"(N)\" (net) pauses are the times spent in the actual GC code.");
   out->print_cr("  \"a\" is average time for each phase, look at levels to see if average makes sense.");
   out->print_cr("  \"lvls\" are quantiles: 0%% (minimum), 25%%, 50%% (median), 75%%, 100%% (maximum).");
@@ -312,4 +319,11 @@ ShenandoahWorkerTimingsTracker::ShenandoahWorkerTimingsTracker(ShenandoahPhaseTi
 
 ShenandoahWorkerTimingsTracker::~ShenandoahWorkerTimingsTracker() {
   _timings->worker_data(_phase, _par_phase)->set(_worker_id, os::elapsedTime() - _start_time);
+
+  if (ShenandoahPhaseTimings::is_root_work_phase(_phase)) {
+    ShenandoahPhaseTimings::Phase root_phase = _phase;
+    ShenandoahPhaseTimings::Phase cur_phase = _timings->worker_par_phase(root_phase, _par_phase);
+    _event.commit(GCId::current(), _worker_id, ShenandoahPhaseTimings::phase_name(cur_phase));
+  }
 }
+

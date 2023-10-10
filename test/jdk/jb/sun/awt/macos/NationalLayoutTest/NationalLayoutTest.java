@@ -1,17 +1,24 @@
 /*
- * Copyright 2000-2019 JetBrains s.r.o.
+ * Copyright 2000-2023 JetBrains s.r.o.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
  */
 
 import sun.lwawt.macosx.LWCToolkit;
@@ -33,9 +40,7 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
 import java.text.CharacterIterator;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -94,6 +99,7 @@ import java.util.stream.Collectors;
 public class NationalLayoutTest {
 
     private static final String MANUAL= "manual";
+    private static final String NODEAD = "nodead";
 
     private static final int PAUSE = 2000;
 
@@ -108,6 +114,7 @@ public class NationalLayoutTest {
     private static boolean jbr = true;
     private static boolean autoTest = true;
     private static boolean showKeyCodeHex = false;
+    private static boolean noDeadKeys = false;
 
     private static Frame mainFrame;
 
@@ -116,6 +123,8 @@ public class NationalLayoutTest {
     private static TextArea typeArea;
 
     private static Robot robot;
+
+    private static final Set<String> addedLayouts = new HashSet<>();
 
     // Synchronized lists for storing results of different key events
     private static CopyOnWriteArrayList<Integer> keysPressed = new CopyOnWriteArrayList();
@@ -138,7 +147,7 @@ public class NationalLayoutTest {
         // Check if program arguments contain known layouts to test
         List<Layout> layoutList = new ArrayList();
         for (String arg : args) {
-            if(!arg.equals(MANUAL)) {
+            if(!arg.equals(MANUAL) && !arg.equals(NODEAD)) {
                 try {
                     layoutList.add(Layout.valueOf(arg));
                 } catch (IllegalArgumentException e) {
@@ -164,6 +173,10 @@ public class NationalLayoutTest {
             System.out.println("WARNING - Manual mode: Press " + KeyEvent.getKeyText(NEXT_MODIFIER)
                     + " to start testing keyboard layout with the modifier set");
             autoTest = false;
+        }
+
+        if (Arrays.asList(args).contains(NODEAD)) {
+            noDeadKeys = true;
         }
 
         String initialLayoutName = null;
@@ -195,10 +208,17 @@ public class NationalLayoutTest {
             }
 
         } finally {
+            for (String layoutId : addedLayouts) {
+                try {
+                    LWCToolkit.disableKeyboardLayout(layoutId);
+                } catch (Exception ignored) {}
+            }
+
             // Restore initial keyboard layout
             if(initialLayoutName != null && !initialLayoutName.isEmpty()) {
                 LWCToolkit.switchKeyboardLayout(initialLayoutName);
             }
+
             // Destroy test GUI
             destroyGUI();
             // Wait for EDT auto-shutdown
@@ -358,7 +378,12 @@ public class NationalLayoutTest {
 
         // Switch current keyboard layout to the test one
         if(jbr) {
-            LWCToolkit.switchKeyboardLayout(layout.toString());
+            String layoutId = layout.toString();
+            if (!LWCToolkit.isKeyboardLayoutEnabled(layoutId)) {
+                LWCToolkit.enableKeyboardLayout(layoutId);
+                addedLayouts.add(layoutId);
+            }
+            LWCToolkit.switchKeyboardLayout(layoutId);
         }
 
         // Support for manual mode: wait while user switches the keyboard layout (if needed)
@@ -383,6 +408,7 @@ public class NationalLayoutTest {
 
         // Go over all keys defined for the layout
         for(LayoutKey layoutKey : layout.getLayoutKeys()) {
+            System.err.printf("KEYPRESS: key=%s, modifier=%s\n", layoutKey.getKey(), modifier.toPlaintextString());
 
             // Clean up synchronized lists which store pressed key codes and typed chars
             keysPressed = new CopyOnWriteArrayList();
@@ -393,7 +419,7 @@ public class NationalLayoutTest {
             Key key = layoutKey.getKey();
 
             // Obtain the key code for the current layout
-            int keyCode = key.getKeyCode();
+            int keyCode = key.getKeyCode(noDeadKeys);
 
             // Append input area with the modifiers + key under test
             if(!modifier.isEmpty()) {

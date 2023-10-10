@@ -49,6 +49,7 @@ public abstract class CtwTest {
         "-XX:+UnlockDiagnosticVMOptions",
         "-XX:+WhiteBoxAPI",
         "-Dsun.hotspot.tools.ctw.logfile=" + LOG_FILE,
+        "--add-exports", "java.base/jdk.internal.access=ALL-UNNAMED",
         "--add-exports", "java.base/jdk.internal.jimage=ALL-UNNAMED",
         "--add-exports", "java.base/jdk.internal.misc=ALL-UNNAMED",
         "--add-exports", "java.base/jdk.internal.reflect=ALL-UNNAMED",
@@ -102,7 +103,7 @@ public abstract class CtwTest {
                 }
             }
         }
-        ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(true, cmd);
+        ProcessBuilder pb = ProcessTools.createTestJvm(cmd);
         OutputAnalyzer output = new OutputAnalyzer(pb.start());
         dump(output, "compile");
         output.shouldHaveExitValue(0);

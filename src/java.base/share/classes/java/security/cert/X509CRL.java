@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,18 +25,15 @@
 
 package java.security.cert;
 
-import java.security.*;
-import java.security.spec.*;
+import sun.security.util.SignatureUtil;
+import sun.security.x509.X509CRLImpl;
 
 import javax.security.auth.x500.X500Principal;
-
 import java.math.BigInteger;
+import java.security.*;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.Set;
-import java.util.Arrays;
-
-import sun.security.x509.X509CRLImpl;
-import sun.security.util.SignatureUtil;
 
 /**
  * <p>
@@ -66,7 +63,7 @@ import sun.security.util.SignatureUtil;
  * </pre>
  * <p>
  * More information can be found in
- * <a href="http://tools.ietf.org/html/rfc5280">RFC 5280: Internet X.509
+ * <a href="https://tools.ietf.org/html/rfc5280">RFC 5280: Internet X.509
  * Public Key Infrastructure Certificate and CRL Profile</a>.
  * <p>
  * The ASN.1 definition of {@code tbsCertList} is:
@@ -170,7 +167,7 @@ public abstract class X509CRL extends CRL implements X509Extension {
      * Returns the ASN.1 DER-encoded form of this CRL.
      *
      * @return the encoded form of this certificate
-     * @exception CRLException if an encoding error occurs.
+     * @throws    CRLException if an encoding error occurs.
      */
     public abstract byte[] getEncoded()
         throws CRLException;
@@ -181,12 +178,12 @@ public abstract class X509CRL extends CRL implements X509Extension {
      *
      * @param key the PublicKey used to carry out the verification.
      *
-     * @exception NoSuchAlgorithmException on unsupported signature
+     * @throws    NoSuchAlgorithmException on unsupported signature
      * algorithms.
-     * @exception InvalidKeyException on incorrect key.
-     * @exception NoSuchProviderException if there's no default provider.
-     * @exception SignatureException on signature errors.
-     * @exception CRLException on encoding errors.
+     * @throws    InvalidKeyException on incorrect key.
+     * @throws    NoSuchProviderException if there's no default provider.
+     * @throws    SignatureException on signature errors.
+     * @throws    CRLException on encoding errors.
      */
     public abstract void verify(PublicKey key)
         throws CRLException,  NoSuchAlgorithmException,
@@ -202,12 +199,12 @@ public abstract class X509CRL extends CRL implements X509Extension {
      * @param key the PublicKey used to carry out the verification.
      * @param sigProvider the name of the signature provider.
      *
-     * @exception NoSuchAlgorithmException on unsupported signature
+     * @throws    NoSuchAlgorithmException on unsupported signature
      * algorithms.
-     * @exception InvalidKeyException on incorrect key.
-     * @exception NoSuchProviderException on incorrect provider.
-     * @exception SignatureException on signature errors.
-     * @exception CRLException on encoding errors.
+     * @throws    InvalidKeyException on incorrect key.
+     * @throws    NoSuchProviderException on incorrect provider.
+     * @throws    SignatureException on signature errors.
+     * @throws    CRLException on encoding errors.
      */
     public abstract void verify(PublicKey key, String sigProvider)
         throws CRLException, NoSuchAlgorithmException,
@@ -229,11 +226,11 @@ public abstract class X509CRL extends CRL implements X509Extension {
      * @param key the PublicKey used to carry out the verification.
      * @param sigProvider the signature provider.
      *
-     * @exception NoSuchAlgorithmException on unsupported signature
+     * @throws    NoSuchAlgorithmException on unsupported signature
      * algorithms.
-     * @exception InvalidKeyException on incorrect key.
-     * @exception SignatureException on signature errors.
-     * @exception CRLException on encoding errors.
+     * @throws    InvalidKeyException on incorrect key.
+     * @throws    SignatureException on signature errors.
+     * @throws    CRLException on encoding errors.
      * @since 1.8
      */
     public void verify(PublicKey key, Provider sigProvider)
@@ -257,7 +254,7 @@ public abstract class X509CRL extends CRL implements X509Extension {
         byte[] tbsCRL = getTBSCertList();
         sig.update(tbsCRL, 0, tbsCRL.length);
 
-        if (sig.verify(getSignature()) == false) {
+        if (!sig.verify(getSignature())) {
             throw new SignatureException("Signature does not match.");
         }
     }
@@ -279,12 +276,6 @@ public abstract class X509CRL extends CRL implements X509Extension {
     public abstract int getVersion();
 
     /**
-     * <strong>Denigrated</strong>, replaced by {@linkplain
-     * #getIssuerX500Principal()}. This method returns the {@code issuer}
-     * as an implementation specific Principal object, which should not be
-     * relied upon by portable code.
-     *
-     * <p>
      * Gets the {@code issuer} (issuer distinguished name) value from
      * the CRL. The issuer name identifies the entity that signed (and
      * issued) the CRL.
@@ -316,7 +307,13 @@ public abstract class X509CRL extends CRL implements X509Extension {
      * {@code TeletexString} or {@code UniversalString}.
      *
      * @return a Principal whose name is the issuer distinguished name.
+     *
+     * @deprecated Use {@link #getIssuerX500Principal} instead. This method
+     * returns the {@code issuer} as an implementation specific
+     * {@code Principal} object, which should not be relied upon by portable
+     * code.
      */
+    @Deprecated(since="16")
     public abstract Principal getIssuerDN();
 
     /**
@@ -383,14 +380,14 @@ public abstract class X509CRL extends CRL implements X509Extension {
      *   up
      * @return the entry for the given certificate, or null if no such entry
      *   exists in this CRL.
-     * @exception NullPointerException if certificate is null
+     * @throws    NullPointerException if certificate is null
      *
      * @since 1.5
      */
     public X509CRLEntry getRevokedCertificate(X509Certificate certificate) {
         X500Principal certIssuer = certificate.getIssuerX500Principal();
         X500Principal crlIssuer = getIssuerX500Principal();
-        if (certIssuer.equals(crlIssuer) == false) {
+        if (!certIssuer.equals(crlIssuer)) {
             return null;
         }
         return getRevokedCertificate(certificate.getSerialNumber());
@@ -411,7 +408,7 @@ public abstract class X509CRL extends CRL implements X509Extension {
      * This can be used to verify the signature independently.
      *
      * @return the DER-encoded CRL information.
-     * @exception CRLException if an encoding error occurs.
+     * @throws    CRLException if an encoding error occurs.
      */
     public abstract byte[] getTBSCertList() throws CRLException;
 

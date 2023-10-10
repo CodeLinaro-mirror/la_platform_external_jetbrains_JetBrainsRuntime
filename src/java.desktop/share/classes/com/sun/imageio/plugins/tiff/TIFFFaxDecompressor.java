@@ -72,13 +72,13 @@ class TIFFFaxDecompressor extends TIFFDecompressor {
     // Data structures needed to store changing elements for the previous
     // and the current scanline
     private int changingElemSize = 0;
-    private int prevChangingElems[];
-    private int currChangingElems[];
+    private int[] prevChangingElems;
+    private int[] currChangingElems;
 
     // Element at which to start search in getNextChangingElement
     private int lastChangingElement = 0;
 
-    private static int table1[] = {
+    private static int[] table1 = {
         0x00, // 0 bits are left in first byte - SHOULD NOT HAPPEN
         0x01, // 1 bits are left in first byte
         0x03, // 2 bits are left in first byte
@@ -90,7 +90,7 @@ class TIFFFaxDecompressor extends TIFFDecompressor {
         0xff  // 8 bits are left in first byte
     };
 
-    private static int table2[] = {
+    private static int[] table2 = {
         0x00, // 0
         0x80, // 1
         0xc0, // 2
@@ -104,7 +104,7 @@ class TIFFFaxDecompressor extends TIFFDecompressor {
 
     // Table to be used for flipping bytes when fillOrder is
     // BaselineTIFFTagSet.FILL_ORDER_RIGHT_TO_LEFT (2).
-    static byte flipTable[] = {
+    static byte[] flipTable = {
          0,  -128,    64,   -64,    32,   -96,    96,   -32,
         16,  -112,    80,   -48,    48,   -80,   112,   -16,
          8,  -120,    72,   -56,    40,   -88,   104,   -24,
@@ -140,7 +140,7 @@ class TIFFFaxDecompressor extends TIFFDecompressor {
     };
 
     // The main 10 bit white runs lookup table
-    private static short white[] = {
+    private static short[] white = {
         // 0 - 7
         6430,   6400,   6400,   6400,   3225,   3225,   3225,   3225,
         // 8 - 15
@@ -400,7 +400,7 @@ class TIFFFaxDecompressor extends TIFFDecompressor {
     };
 
     // Additional make up codes for both White and Black runs
-    private static short additionalMakeup[] = {
+    private static short[] additionalMakeup = {
         28679,  28679,  31752,  (short)32777,
         (short)33801,  (short)34825,  (short)35849,  (short)36873,
         (short)29703,  (short)29703,  (short)30727,  (short)30727,
@@ -408,7 +408,7 @@ class TIFFFaxDecompressor extends TIFFDecompressor {
     };
 
     // Initial black run look up table, uses the first 4 bits of a code
-    private static short initBlack[] = {
+    private static short[] initBlack = {
         // 0 - 7
         3226,  6412,    200,    168,    38,     38,    134,    134,
         // 8 - 15
@@ -416,10 +416,10 @@ class TIFFFaxDecompressor extends TIFFDecompressor {
     };
 
     //
-    private static short twoBitBlack[] = {292, 260, 226, 226};   // 0 - 3
+    private static short[] twoBitBlack = {292, 260, 226, 226};   // 0 - 3
 
     // Main black run table, using the last 9 bits of possible 13 bit code
-    private static short black[] = {
+    private static short[] black = {
         // 0 - 7
         62,     62,     30,     30,     0,      0,      0,      0,
         // 8 - 15
@@ -550,7 +550,7 @@ class TIFFFaxDecompressor extends TIFFDecompressor {
         390,    390,    390,    390,    390,    390,    390,    390,
     };
 
-    private static byte twoDCodes[] = {
+    private static byte[] twoDCodes = {
         // 0 - 7
         80,     88,     23,     71,     30,     30,     62,     62,
         // 8 - 15
@@ -854,7 +854,7 @@ class TIFFFaxDecompressor extends TIFFDecompressor {
         int entry, code, bits, color;
         boolean isWhite;
         int currIndex = 0;
-        int temp[];
+        int[] temp;
 
         if(data.length < 2) {
             throw new IIOException("Insufficient data to read initial EOL.");
@@ -1030,7 +1030,7 @@ class TIFFFaxDecompressor extends TIFFDecompressor {
         byte color;
         boolean isWhite;
         int currIndex;
-        int temp[];
+        int[] temp;
 
         // Return values from getNextChangingElement
         int[] b = new int[2];
@@ -1432,7 +1432,7 @@ class TIFFFaxDecompressor extends TIFFDecompressor {
         int ces = this.changingElemSize;
 
         // If the previous match was at an odd element, we still
-        // have to search the preceeding element.
+        // have to search the preceding element.
         // int start = lastChangingElement & ~0x1;
         int start = lastChangingElement > 0 ? lastChangingElement - 1 : 0;
         if (isWhite) {

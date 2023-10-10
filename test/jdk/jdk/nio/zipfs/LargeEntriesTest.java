@@ -25,13 +25,13 @@
 import org.testng.annotations.*;
 
 import java.io.*;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.*;
 import java.security.SecureRandom;
 import java.util.Arrays;
-import java.util.Collections;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.zip.ZipEntry;
@@ -213,10 +213,8 @@ public class LargeEntriesTest {
     private void createZipFile(Path zipFile, Map<String, String> env,
                                int entries) throws IOException {
         System.out.printf("Creating file = %s%n", zipFile);
-
-        URI uri = URI.create("jar:" + zipFile.toUri());
         try (FileSystem zipfs =
-                     FileSystems.newFileSystem(uri, env)) {
+                     FileSystems.newFileSystem(zipFile, env)) {
 
             for (int i = 0; i < entries; i++) {
                 Files.writeString(zipfs.getPath("Entry-" + i), ZIP_FILE_VALUE);
@@ -244,9 +242,8 @@ public class LargeEntriesTest {
                 + System.lineSeparator()
                 + "Created-By: " + jdkVersion + " (" + jdkVendor + ")";
 
-        URI uri = URI.create("jar:" + zipFile.toUri());
         try (FileSystem zipfs =
-                     FileSystems.newFileSystem(uri, env);
+                     FileSystems.newFileSystem(zipFile, env);
              InputStream in = new ByteArrayInputStream(manifest.getBytes())) {
 
             // Get ZIP FS path to META-INF/MANIFEST.MF
@@ -336,8 +333,7 @@ public class LargeEntriesTest {
             }
         }
         // check entries with FileSystem API
-        URI uri = URI.create("jar:" + zipfile.toUri());
-        try (FileSystem fs = FileSystems.newFileSystem(uri, Collections.emptyMap())) {
+        try (FileSystem fs = FileSystems.newFileSystem(zipfile)) {
 
             // check entry count
             Path top = fs.getPath("/");

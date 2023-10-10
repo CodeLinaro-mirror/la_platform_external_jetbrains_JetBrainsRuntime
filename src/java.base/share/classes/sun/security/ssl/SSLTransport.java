@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, 2021 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -74,7 +74,7 @@ interface SSLTransport {
      * destination application data buffers.
      *
      * For SSL/TLS connections, if no source data, the network data may be
-     * received from the underlying underlying SSL/TLS input stream.
+     * received from the underlying SSL/TLS input stream.
      *
      * @param context      the transportation context
      * @param srcs         an array of {@code ByteBuffers} containing the
@@ -105,12 +105,12 @@ interface SSLTransport {
         ByteBuffer[] srcs, int srcsOffset, int srcsLength,
         ByteBuffer[] dsts, int dstsOffset, int dstsLength) throws IOException {
 
-        Plaintext[] plaintexts = null;
+        Plaintext[] plaintexts;
         try {
             plaintexts =
                     context.inputRecord.decode(srcs, srcsOffset, srcsLength);
         } catch (UnsupportedOperationException unsoe) {         // SSLv2Hello
-            // Hack code to deliver SSLv2 error message for SSL/TLS connections.
+            // Code to deliver SSLv2 error message for SSL/TLS connections.
             if (!context.sslContext.isDTLS()) {
                 context.outputRecord.encodeV2NoCipher();
                 if (SSLLogger.isOn && SSLLogger.isOn("ssl")) {
@@ -136,7 +136,7 @@ interface SSLTransport {
             // may be record sequence number overflow
             throw context.fatal(Alert.HANDSHAKE_FAILURE, she);
         } catch (EOFException eofe) {
-            // rethrow EOFException, the call will handle it if neede.
+            // rethrow EOFException, the call will handle it if needed.
             throw eofe;
         } catch (InterruptedIOException | SocketException se) {
             // don't close the Socket in case of timeouts or interrupts or SocketException.
@@ -162,7 +162,7 @@ interface SSLTransport {
                     context.handshakeContext.sslConfig.enableRetransmissions &&
                     context.sslContext.isDTLS()) {
                     if (SSLLogger.isOn && SSLLogger.isOn("ssl,verbose")) {
-                        SSLLogger.finest("retransmited handshake flight");
+                        SSLLogger.finest("retransmitted handshake flight");
                     }
 
                     context.outputRecord.launchRetransmission();

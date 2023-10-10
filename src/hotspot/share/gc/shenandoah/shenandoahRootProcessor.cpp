@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2015, 2018, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2015, 2021, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -24,58 +25,42 @@
 #include "precompiled.hpp"
 
 #include "classfile/classLoaderData.hpp"
-#include "classfile/stringTable.hpp"
-#include "classfile/systemDictionary.hpp"
-#include "code/codeCache.hpp"
+#include "code/nmethod.hpp"
 #include "gc/shenandoah/shenandoahClosures.inline.hpp"
 #include "gc/shenandoah/shenandoahRootProcessor.inline.hpp"
 #include "gc/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc/shenandoah/shenandoahPhaseTimings.hpp"
-#include "gc/shenandoah/shenandoahStringDedup.hpp"
-#include "gc/shenandoah/shenandoahVMOperations.hpp"
-#include "gc/shenandoah/heuristics/shenandoahHeuristics.hpp"
-#include "gc/shared/weakProcessor.hpp"
-#include "memory/allocation.inline.hpp"
+#include "gc/shenandoah/shenandoahStackWatermark.hpp"
 #include "memory/iterator.hpp"
 #include "memory/resourceArea.hpp"
-#include "runtime/thread.hpp"
-#include "services/management.hpp"
+#include "runtime/javaThread.hpp"
+#include "runtime/stackWatermarkSet.inline.hpp"
+#include "runtime/threads.hpp"
 
-ShenandoahSerialRoot::ShenandoahSerialRoot(ShenandoahSerialRoot::OopsDo oops_do,
-  ShenandoahPhaseTimings::Phase phase, ShenandoahPhaseTimings::ParPhase par_phase) :
-  _oops_do(oops_do), _phase(phase), _par_phase(par_phase) {
+ShenandoahJavaThreadsIterator::ShenandoahJavaThreadsIterator(ShenandoahPhaseTimings::Phase phase, uint n_workers) :
+  _threads(),
+  _length(_threads.length()),
+  _stride(MAX2(1u, _length / n_workers / _chunks_per_worker)),
+  _claimed(0),
+  _phase(phase) {
 }
 
-void ShenandoahSerialRoot::oops_do(OopClosure* cl, uint worker_id) {
-  if (_claimed.try_set()) {
-    ShenandoahWorkerTimingsTracker timer(_phase, _par_phase, worker_id);
-    _oops_do(cl);
+uint ShenandoahJavaThreadsIterator::claim() {
+  return Atomic::fetch_then_add(&_claimed, _stride, memory_order_relaxed);
+}
+
+void ShenandoahJavaThreadsIterator::threads_do(ThreadClosure* cl, uint worker_id) {
+  ShenandoahWorkerTimingsTracker timer(_phase, ShenandoahPhaseTimings::ThreadRoots, worker_id);
+  for (uint i = claim(); i < _length; i = claim()) {
+    for (uint t = i; t < MIN2(_length, i + _stride); t++) {
+      cl->do_thread(thread_at(t));
+    }
   }
-}
-
-ShenandoahSerialRoots::ShenandoahSerialRoots(ShenandoahPhaseTimings::Phase phase) :
-  _universe_root(&ShenandoahSerialRoots::universe_oops_do, phase, ShenandoahPhaseTimings::UniverseRoots),
-  _object_synchronizer_root(&ObjectSynchronizer::oops_do, phase, ShenandoahPhaseTimings::ObjectSynchronizerRoots),
-  _management_root(&Management::oops_do, phase, ShenandoahPhaseTimings::ManagementRoots),
-  _system_dictionary_root(&SystemDictionary::oops_do, phase, ShenandoahPhaseTimings::SystemDictionaryRoots),
-  _jvmti_root(&JvmtiExport::oops_do, phase, ShenandoahPhaseTimings::JVMTIRoots) {
-}
-
-void ShenandoahSerialRoots::oops_do(OopClosure* cl, uint worker_id) {
-  _universe_root.oops_do(cl, worker_id);
-  _object_synchronizer_root.oops_do(cl, worker_id);
-  _management_root.oops_do(cl, worker_id);
-  _system_dictionary_root.oops_do(cl, worker_id);
-  _jvmti_root.oops_do(cl, worker_id);
-}
-
-ShenandoahJNIHandleRoots::ShenandoahJNIHandleRoots(ShenandoahPhaseTimings::Phase phase) :
-  ShenandoahSerialRoot(&JNIHandles::oops_do, phase, ShenandoahPhaseTimings::JNIRoots) {
 }
 
 ShenandoahThreadRoots::ShenandoahThreadRoots(ShenandoahPhaseTimings::Phase phase, bool is_par) :
   _phase(phase), _is_par(is_par) {
-  Threads::change_thread_claim_parity();
+  Threads::change_thread_claim_token();
 }
 
 void ShenandoahThreadRoots::oops_do(OopClosure* oops_cl, CodeBlobClosure* code_cl, uint worker_id) {
@@ -94,144 +79,195 @@ ShenandoahThreadRoots::~ShenandoahThreadRoots() {
   Threads::assert_all_threads_claimed();
 }
 
-ShenandoahWeakRoots::ShenandoahWeakRoots(ShenandoahPhaseTimings::Phase phase, uint n_workers) :
-  _phase(phase),
-  _par_state_string(StringTable::weak_storage()),
-  _claimed(false) {
+ShenandoahCodeCacheRoots::ShenandoahCodeCacheRoots(ShenandoahPhaseTimings::Phase phase) : _phase(phase) {
 }
 
-ShenandoahWeakRoots::~ShenandoahWeakRoots() {
-}
-
-ShenandoahStringDedupRoots::ShenandoahStringDedupRoots(ShenandoahPhaseTimings::Phase phase) : _phase(phase) {
-  if (ShenandoahStringDedup::is_enabled()) {
-    StringDedup::gc_prologue(false);
-  }
-}
-
-ShenandoahStringDedupRoots::~ShenandoahStringDedupRoots() {
-  if (ShenandoahStringDedup::is_enabled()) {
-    StringDedup::gc_epilogue();
-  }
-}
-
-void ShenandoahStringDedupRoots::oops_do(BoolObjectClosure* is_alive, OopClosure* keep_alive, uint worker_id) {
-  if (ShenandoahStringDedup::is_enabled()) {
-    ShenandoahStringDedup::parallel_oops_do(_phase, is_alive, keep_alive, worker_id);
-  }
+void ShenandoahCodeCacheRoots::code_blobs_do(CodeBlobClosure* blob_cl, uint worker_id) {
+  ShenandoahWorkerTimingsTracker timer(_phase, ShenandoahPhaseTimings::CodeCacheRoots, worker_id);
+  _coderoots_iterator.possibly_parallel_blobs_do(blob_cl);
 }
 
 ShenandoahRootProcessor::ShenandoahRootProcessor(ShenandoahPhaseTimings::Phase phase) :
   _heap(ShenandoahHeap::heap()),
   _phase(phase),
   _worker_phase(phase) {
-  assert(SafepointSynchronize::is_at_safepoint(), "Must at safepoint");
 }
 
-ShenandoahRootEvacuator::ShenandoahRootEvacuator(uint n_workers, ShenandoahPhaseTimings::Phase phase) :
-  ShenandoahRootProcessor(phase),
-  _serial_roots(phase),
-  _jni_roots(phase),
-  _cld_roots(phase, n_workers),
-  _thread_roots(phase, n_workers > 1),
-  _weak_roots(phase, n_workers),
-  _dedup_roots(phase),
-  _code_roots(phase) {
+ShenandoahSTWRootScanner::ShenandoahSTWRootScanner(ShenandoahPhaseTimings::Phase phase) :
+   ShenandoahRootProcessor(phase),
+   _thread_roots(phase, ShenandoahHeap::heap()->workers()->active_workers() > 1),
+   _code_roots(phase),
+   _cld_roots(phase, ShenandoahHeap::heap()->workers()->active_workers(), false /*heap iteration*/),
+   _vm_roots(phase),
+   _unload_classes(ShenandoahHeap::heap()->unload_classes()) {
 }
 
-void ShenandoahRootEvacuator::roots_do(uint worker_id, OopClosure* oops) {
-  MarkingCodeBlobClosure blobsCl(oops, CodeBlobToOopClosure::FixRelocations);
-  CLDToOopClosure clds(oops);
+class ShenandoahConcurrentMarkThreadClosure : public ThreadClosure {
+private:
+  OopClosure* const _oops;
 
-  AlwaysTrueClosure always_true;
+public:
+  ShenandoahConcurrentMarkThreadClosure(OopClosure* oops);
+  void do_thread(Thread* thread);
+};
 
-  // Process serial-claiming roots first
-  _serial_roots.oops_do(oops, worker_id);
-  _jni_roots.oops_do(oops, worker_id);
+ShenandoahConcurrentMarkThreadClosure::ShenandoahConcurrentMarkThreadClosure(OopClosure* oops) :
+  _oops(oops) {
+}
+
+void ShenandoahConcurrentMarkThreadClosure::do_thread(Thread* thread) {
+  assert(thread->is_Java_thread(), "Must be");
+  JavaThread* const jt = JavaThread::cast(thread);
+
+  StackWatermarkSet::finish_processing(jt, _oops, StackWatermarkKind::gc);
+}
+
+ShenandoahConcurrentRootScanner::ShenandoahConcurrentRootScanner(uint n_workers,
+                                                                 ShenandoahPhaseTimings::Phase phase) :
+   ShenandoahRootProcessor(phase),
+   _java_threads(phase, n_workers),
+  _vm_roots(phase),
+  _cld_roots(phase, n_workers, false /*heap iteration*/),
+  _codecache_snapshot(nullptr),
+  _phase(phase) {
+  if (!ShenandoahHeap::heap()->unload_classes()) {
+    MutexLocker locker(CodeCache_lock, Mutex::_no_safepoint_check_flag);
+    _codecache_snapshot = ShenandoahCodeRoots::table()->snapshot_for_iteration();
+  }
+  update_tlab_stats();
+  assert(!ShenandoahHeap::heap()->has_forwarded_objects(), "Not expecting forwarded pointers during concurrent marking");
+}
+
+ShenandoahConcurrentRootScanner::~ShenandoahConcurrentRootScanner() {
+  if (!ShenandoahHeap::heap()->unload_classes()) {
+    MonitorLocker locker(CodeCache_lock, Mutex::_no_safepoint_check_flag);
+    ShenandoahCodeRoots::table()->finish_iteration(_codecache_snapshot);
+    locker.notify_all();
+  }
+}
+
+void ShenandoahConcurrentRootScanner::roots_do(OopClosure* oops, uint worker_id) {
+  ShenandoahHeap* const heap = ShenandoahHeap::heap();
+  CLDToOopClosure clds_cl(oops, ClassLoaderData::_claim_strong);
 
   // Process light-weight/limited parallel roots then
-  _weak_roots.oops_do<AlwaysTrueClosure, OopClosure>(&always_true, oops, worker_id);
-  _dedup_roots.oops_do(&always_true, oops, worker_id);
-  _cld_roots.cld_do(&clds, worker_id);
+  _vm_roots.oops_do(oops, worker_id);
+
+  if (heap->unload_classes()) {
+    _cld_roots.always_strong_cld_do(&clds_cl, worker_id);
+  } else {
+    _cld_roots.cld_do(&clds_cl, worker_id);
+
+    {
+      ShenandoahWorkerTimingsTracker timer(_phase, ShenandoahPhaseTimings::CodeCacheRoots, worker_id);
+      CodeBlobToOopClosure blobs(oops, !CodeBlobToOopClosure::FixRelocations);
+      _codecache_snapshot->parallel_blobs_do(&blobs);
+    }
+  }
 
   // Process heavy-weight/fully parallel roots the last
-  _code_roots.code_blobs_do(&blobsCl, worker_id);
-  _thread_roots.oops_do(oops, NULL, worker_id);
+  ShenandoahConcurrentMarkThreadClosure thr_cl(oops);
+  _java_threads.threads_do(&thr_cl, worker_id);
+}
+
+void ShenandoahConcurrentRootScanner::update_tlab_stats() {
+  if (UseTLAB) {
+    ThreadLocalAllocStats total;
+    for (uint i = 0; i < _java_threads.length(); i ++) {
+      Thread* thr = _java_threads.thread_at(i);
+      if (thr->is_Java_thread()) {
+        ShenandoahStackWatermark* wm = StackWatermarkSet::get<ShenandoahStackWatermark>(JavaThread::cast(thr), StackWatermarkKind::gc);
+        total.update(wm->stats());
+      }
+    }
+    total.publish();
+  }
 }
 
 ShenandoahRootUpdater::ShenandoahRootUpdater(uint n_workers, ShenandoahPhaseTimings::Phase phase) :
   ShenandoahRootProcessor(phase),
-  _serial_roots(phase),
-  _jni_roots(phase),
-  _cld_roots(phase, n_workers),
+  _vm_roots(phase),
+  _cld_roots(phase, n_workers, false /*heap iteration*/),
   _thread_roots(phase, n_workers > 1),
-  _weak_roots(phase, n_workers),
-  _dedup_roots(phase),
+  _weak_roots(phase),
   _code_roots(phase) {
 }
 
 ShenandoahRootAdjuster::ShenandoahRootAdjuster(uint n_workers, ShenandoahPhaseTimings::Phase phase) :
   ShenandoahRootProcessor(phase),
-  _serial_roots(phase),
-  _jni_roots(phase),
-  _cld_roots(phase, n_workers),
+  _vm_roots(phase),
+  _cld_roots(phase, n_workers, false /*heap iteration*/),
   _thread_roots(phase, n_workers > 1),
-  _weak_roots(phase, n_workers),
-  _dedup_roots(phase),
+  _weak_roots(phase),
   _code_roots(phase) {
   assert(ShenandoahHeap::heap()->is_full_gc_in_progress(), "Full GC only");
 }
 
 void ShenandoahRootAdjuster::roots_do(uint worker_id, OopClosure* oops) {
-  CodeBlobToOopClosure adjust_code_closure(oops, CodeBlobToOopClosure::FixRelocations);
-  CLDToOopClosure adjust_cld_closure(oops);
-  AlwaysTrueClosure always_true;
-
-  // Process serial-claiming roots first
-  _serial_roots.oops_do(oops, worker_id);
-  _jni_roots.oops_do(oops, worker_id);
+  CodeBlobToOopClosure code_blob_cl(oops, CodeBlobToOopClosure::FixRelocations);
+  ShenandoahCodeBlobAndDisarmClosure blobs_and_disarm_Cl(oops);
+  CodeBlobToOopClosure* adjust_code_closure = (ClassUnloading && ShenandoahNMethodBarrier) ?
+                                              static_cast<CodeBlobToOopClosure*>(&blobs_and_disarm_Cl) :
+                                              static_cast<CodeBlobToOopClosure*>(&code_blob_cl);
+  CLDToOopClosure adjust_cld_closure(oops, ClassLoaderData::_claim_strong);
 
   // Process light-weight/limited parallel roots then
-  _weak_roots.oops_do<AlwaysTrueClosure, OopClosure>(&always_true, oops, worker_id);
-  _dedup_roots.oops_do(&always_true, oops, worker_id);
+  _vm_roots.oops_do(oops, worker_id);
+  _weak_roots.oops_do<OopClosure>(oops, worker_id);
   _cld_roots.cld_do(&adjust_cld_closure, worker_id);
 
   // Process heavy-weight/fully parallel roots the last
-  _code_roots.code_blobs_do(&adjust_code_closure, worker_id);
-  _thread_roots.oops_do(oops, NULL, worker_id);
+  _code_roots.code_blobs_do(adjust_code_closure, worker_id);
+  _thread_roots.oops_do(oops, nullptr, worker_id);
 }
 
-ShenandoahHeapIterationRootScanner::ShenandoahHeapIterationRootScanner() :
-   ShenandoahRootProcessor(ShenandoahPhaseTimings::heap_iteration_roots),
-   _serial_roots(ShenandoahPhaseTimings::heap_iteration_roots),
-   _thread_roots(ShenandoahPhaseTimings::heap_iteration_roots, false /*is par*/),
-   _jni_roots(ShenandoahPhaseTimings::heap_iteration_roots),
-   _cld_roots(ShenandoahPhaseTimings::heap_iteration_roots, 1),
-   _weak_roots(ShenandoahPhaseTimings::heap_iteration_roots, 1),
-   _dedup_roots(ShenandoahPhaseTimings::heap_iteration_roots),
-   _code_roots(ShenandoahPhaseTimings::heap_iteration_roots)
- { }
+ShenandoahHeapIterationRootScanner::ShenandoahHeapIterationRootScanner(uint n_workers) :
+  ShenandoahRootProcessor(ShenandoahPhaseTimings::heap_iteration_roots),
+  _thread_roots(ShenandoahPhaseTimings::heap_iteration_roots, false /*is par*/),
+  _vm_roots(ShenandoahPhaseTimings::heap_iteration_roots),
+  _cld_roots(ShenandoahPhaseTimings::heap_iteration_roots, n_workers, true /*heap iteration*/),
+  _weak_roots(ShenandoahPhaseTimings::heap_iteration_roots),
+  _code_roots(ShenandoahPhaseTimings::heap_iteration_roots) {
+}
 
- void ShenandoahHeapIterationRootScanner::roots_do(OopClosure* oops) {
-   assert(Thread::current()->is_VM_thread(), "Only by VM thread");
-   // Must use _claim_none to avoid interfering with concurrent CLDG iteration
-   CLDToOopClosure clds(oops, false);
-   MarkingCodeBlobClosure code(oops, !CodeBlobToOopClosure::FixRelocations);
-   ShenandoahParallelOopsDoThreadClosure tc_cl(oops, &code, NULL);
-   AlwaysTrueClosure always_true;
-   ResourceMark rm;
+class ShenandoahMarkCodeBlobClosure : public CodeBlobClosure {
+private:
+  OopClosure* const _oops;
+  BarrierSetNMethod* const _bs_nm;
 
-   // Process serial-claiming roots first
-   _serial_roots.oops_do(oops, 0);
-   _jni_roots.oops_do(oops, 0);
+public:
+  ShenandoahMarkCodeBlobClosure(OopClosure* oops) :
+    _oops(oops),
+    _bs_nm(BarrierSet::barrier_set()->barrier_set_nmethod()) {}
 
-   // Process light-weight/limited parallel roots then
-   _weak_roots.oops_do<AlwaysTrueClosure, OopClosure>(&always_true, oops, 0);
-   _dedup_roots.oops_do(&always_true, oops, 0);
-   _cld_roots.cld_do(&clds, 0);
+  virtual void do_code_blob(CodeBlob* cb) {
+    nmethod* const nm = cb->as_nmethod_or_null();
+    if (nm != nullptr) {
+      if (_bs_nm != nullptr) {
+        // Make sure it only sees to-space objects
+        _bs_nm->nmethod_entry_barrier(nm);
+      }
+      ShenandoahNMethod* const snm = ShenandoahNMethod::gc_data(nm);
+      assert(snm != nullptr, "Sanity");
+      snm->oops_do(_oops, false /*fix_relocations*/);
+    }
+  }
+};
 
-   // Process heavy-weight/fully parallel roots the last
-   _code_roots.code_blobs_do(&code, 0);
-   _thread_roots.threads_do(&tc_cl, 0);
+void ShenandoahHeapIterationRootScanner::roots_do(OopClosure* oops) {
+  // Must use _claim_other to avoid interfering with concurrent CLDG iteration
+  CLDToOopClosure clds(oops, ClassLoaderData::_claim_other);
+  ShenandoahMarkCodeBlobClosure code(oops);
+  ShenandoahParallelOopsDoThreadClosure tc_cl(oops, &code, nullptr);
 
- }
+  ResourceMark rm;
+
+  // Process light-weight/limited parallel roots then
+  _vm_roots.oops_do(oops, 0);
+  _weak_roots.oops_do<OopClosure>(oops, 0);
+  _cld_roots.cld_do(&clds, 0);
+
+  // Process heavy-weight/fully parallel roots the last
+  _code_roots.code_blobs_do(&code, 0);
+  _thread_roots.threads_do(&tc_cl, 0);
+}

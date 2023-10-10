@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2018, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2018, 2021, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -28,7 +29,7 @@
 #include "gc/shenandoah/c2/shenandoahSupport.hpp"
 #include "utilities/growableArray.hpp"
 
-class ShenandoahBarrierSetC2State : public ResourceObj {
+class ShenandoahBarrierSetC2State : public ArenaObj {
 private:
   GrowableArray<ShenandoahIUBarrierNode*>* _iu_barriers;
   GrowableArray<ShenandoahLoadReferenceBarrierNode*>* _load_reference_barriers;
@@ -51,7 +52,7 @@ class ShenandoahBarrierSetC2 : public BarrierSetC2 {
 private:
   void shenandoah_eliminate_wb_pre(Node* call, PhaseIterGVN* igvn) const;
 
-  bool satb_can_remove_pre_barrier(GraphKit* kit, PhaseTransform* phase, Node* adr,
+  bool satb_can_remove_pre_barrier(GraphKit* kit, PhaseValues* phase, Node* adr,
                                    BasicType bt, uint adr_idx) const;
   void satb_write_barrier_pre(GraphKit* kit, bool do_load,
                               Node* obj,
@@ -82,18 +83,18 @@ private:
 protected:
   virtual Node* load_at_resolved(C2Access& access, const Type* val_type) const;
   virtual Node* store_at_resolved(C2Access& access, C2AccessValue& val) const;
-  virtual Node* atomic_cmpxchg_val_at_resolved(C2AtomicAccess& access, Node* expected_val,
+  virtual Node* atomic_cmpxchg_val_at_resolved(C2AtomicParseAccess& access, Node* expected_val,
                                                Node* new_val, const Type* val_type) const;
-  virtual Node* atomic_cmpxchg_bool_at_resolved(C2AtomicAccess& access, Node* expected_val,
+  virtual Node* atomic_cmpxchg_bool_at_resolved(C2AtomicParseAccess& access, Node* expected_val,
                                                 Node* new_val, const Type* value_type) const;
-  virtual Node* atomic_xchg_at_resolved(C2AtomicAccess& access, Node* new_val, const Type* val_type) const;
+  virtual Node* atomic_xchg_at_resolved(C2AtomicParseAccess& access, Node* new_val, const Type* val_type) const;
 
 public:
   static ShenandoahBarrierSetC2* bsc2();
 
   static bool is_shenandoah_wb_pre_call(Node* call);
   static bool is_shenandoah_lrb_call(Node* call);
-  static bool is_shenandoah_marking_if(PhaseTransform *phase, Node* n);
+  static bool is_shenandoah_marking_if(PhaseValues* phase, Node* n);
   static bool is_shenandoah_state_load(Node* n);
   static bool has_only_shenandoah_wb_pre_uses(Node* n);
 
@@ -102,15 +103,16 @@ public:
   static const TypeFunc* write_ref_field_pre_entry_Type();
   static const TypeFunc* shenandoah_clone_barrier_Type();
   static const TypeFunc* shenandoah_load_reference_barrier_Type();
-  virtual bool has_load_barriers() const { return true; }
+  virtual bool has_load_barrier_nodes() const { return true; }
 
   // This is the entry-point for the backend to perform accesses through the Access API.
   virtual void clone_at_expansion(PhaseMacroExpand* phase, ArrayCopyNode* ac) const;
 
   // These are general helper methods used by C2
-  virtual bool array_copy_requires_gc_barriers(BasicType type) const;
+  virtual bool array_copy_requires_gc_barriers(bool tightly_coupled_alloc, BasicType type, bool is_clone, bool is_clone_instance, ArrayCopyPhase phase) const;
 
   // Support for GC barriers emitted during parsing
+  virtual bool is_gc_pre_barrier_node(Node* node) const;
   virtual bool is_gc_barrier_node(Node* node) const;
   virtual Node* step_over_gc_barrier(Node* c) const;
   virtual bool expand_barriers(Compile* C, PhaseIterGVN& igvn) const;
@@ -122,9 +124,8 @@ public:
   virtual void register_potential_barrier_node(Node* node) const;
   virtual void unregister_potential_barrier_node(Node* node) const;
   virtual void eliminate_gc_barrier(PhaseMacroExpand* macro, Node* node) const;
-  virtual void enqueue_useful_gc_barrier(Unique_Node_List &worklist, Node* node) const;
-  virtual void eliminate_useless_gc_barriers(Unique_Node_List &useful) const;
-  virtual void add_users_to_worklist(Unique_Node_List* worklist) const;
+  virtual void enqueue_useful_gc_barrier(PhaseIterGVN* igvn, Node* node) const;
+  virtual void eliminate_useless_gc_barriers(Unique_Node_List &useful, Compile* C) const;
 
   // Allow barrier sets to have shared state that is preserved across a compilation unit.
   // This could for example comprise macro nodes to be expanded during macro expansion.
@@ -134,13 +135,18 @@ public:
   virtual bool expand_macro_nodes(PhaseMacroExpand* macro) const;
 
 #ifdef ASSERT
-  virtual void verify_gc_barriers(bool post_parse) const;
+  virtual void verify_gc_barriers(Compile* compile, CompilePhase phase) const;
 #endif
 
   virtual Node* ideal_node(PhaseGVN* phase, Node* n, bool can_reshape) const;
+  virtual bool final_graph_reshaping(Compile* compile, Node* n, uint opcode, Unique_Node_List& dead_nodes) const;
 
-  Node* arraycopy_load_reference_barrier(PhaseGVN *phase, Node* v);
+  virtual bool escape_add_to_con_graph(ConnectionGraph* conn_graph, PhaseGVN* gvn, Unique_Node_List* delayed_worklist, Node* n, uint opcode) const;
+  virtual bool escape_add_final_edges(ConnectionGraph* conn_graph, PhaseGVN* gvn, Node* n, uint opcode) const;
+  virtual bool escape_has_out_with_unsafe_object(Node* n) const;
 
+  virtual bool matcher_find_shared_post_visit(Matcher* matcher, Node* n, uint opcode) const;
+  virtual bool matcher_is_store_load_barrier(Node* x, uint xop) const;
 };
 
 #endif // SHARE_GC_SHENANDOAH_C2_SHENANDOAHBARRIERSETC2_HPP

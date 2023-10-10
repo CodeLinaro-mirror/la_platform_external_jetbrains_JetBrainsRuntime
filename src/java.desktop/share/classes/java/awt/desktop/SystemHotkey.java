@@ -17,6 +17,7 @@ import java.awt.event.InputEvent;
  * Provides info about system hotkeys
  */
 public class SystemHotkey extends AWTKeyStroke {
+    private static final long serialVersionUID = -6593119259058157651L;
     private static final PlatformLogger ourLog = PlatformLogger.getLogger(java.awt.desktop.SystemHotkey.class.getName());
     private static final Map<Integer, String> ourCodeDescriptionCache = new HashMap<>();
 

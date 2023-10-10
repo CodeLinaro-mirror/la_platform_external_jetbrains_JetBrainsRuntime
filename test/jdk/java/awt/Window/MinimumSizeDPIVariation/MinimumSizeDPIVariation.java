@@ -59,12 +59,11 @@ public final class MinimumSizeDPIVariation {
             System.err.println("comp = " + comp);
             System.err.println("scale = " + scale);
 
-            Dimension minimumSize = null;
-            switch (comp) {
-            case "frame":  minimumSize = test(new Frame()); break;
-            case "window": minimumSize = test(new Window(null)); break;
-            case "dialog": minimumSize = test(new Dialog((Frame) null)); break;
-            default:  throw new java.lang.IllegalStateException(
+            Dimension minimumSize = switch (comp) {
+                case "frame" -> test(new Frame());
+                case "window" -> test(new Window(null));
+                case "dialog" -> test(new Dialog((Frame) null));
+                default -> throw new java.lang.IllegalStateException(
                         "Unexpected value: " + comp);
             };
             check(minimumSize.width, Math.max(w / scale, 1));

@@ -29,7 +29,7 @@
 #import <Cocoa/Cocoa.h>
 
 
-@interface PropertiesUtilities : NSObject
+JNIEXPORT @interface PropertiesUtilities : NSObject
 
 + (NSString *) javaSystemPropertyForKey:(NSString *)key withEnv:(JNIEnv *)env;
 

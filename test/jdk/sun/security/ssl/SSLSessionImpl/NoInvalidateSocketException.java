@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2021, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,7 +30,7 @@
 
 /*
  * @test
- * @bug 8274736
+ * @bug 8274736 8277970
  * @summary Concurrent read/close of SSLSockets causes SSLSessions to be
  *          invalidated unnecessarily
  * @library /javax/net/ssl/templates
@@ -266,10 +266,6 @@ public class NoInvalidateSocketException extends SSLSocketTemplate {
         System.out.println(System.nanoTime() + ": " +
                 Thread.currentThread().getName() + ": " + s);
     }
-    /*
-     * What's the server address?  null means binding to the wildcard.
-     */
-    protected volatile InetAddress serverAddress = null;
 
     @Override
     public void doServerSide() throws Exception {

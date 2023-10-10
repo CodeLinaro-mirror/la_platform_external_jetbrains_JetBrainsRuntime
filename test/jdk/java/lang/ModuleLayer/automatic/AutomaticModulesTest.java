@@ -33,7 +33,6 @@
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.lang.ModuleLayer.Controller;
 import java.lang.module.*;
 import java.lang.reflect.Method;
@@ -68,7 +67,7 @@ public class AutomaticModulesTest {
         // jar cf lib/alib.jar -C classes .
         Files.createDirectory(CLASSES);
         assertTrue(CompilerUtils.compile(Path.of(TEST_SRC, "src", "alib"), CLASSES));
-        JarUtils.createJarFile(LIB.resolve("alib.jar"), CLASSES, Paths.get("."));
+        JarUtils.createJarFile(LIB.resolve("alib.jar"), CLASSES);
 
         // javac -p lib -d mods/m - src/m/**
         Path src = Path.of(TEST_SRC, "src", "m");

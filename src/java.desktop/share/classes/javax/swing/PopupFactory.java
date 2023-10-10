@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -39,7 +39,6 @@ import java.awt.Toolkit;
 import java.awt.Window;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.security.AccessController;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -47,6 +46,7 @@ import java.util.Map;
 
 import sun.awt.EmbeddedFrame;
 import sun.awt.OSInfo;
+import sun.awt.SunToolkit;
 import sun.swing.SwingAccessor;
 
 import static javax.swing.ClientPropertyKey.PopupFactory_FORCE_HEAVYWEIGHT_POPUP;
@@ -115,6 +115,10 @@ public class PopupFactory {
      */
     private int popupType = LIGHT_WEIGHT_POPUP;
 
+    /**
+     * Constructs a {@code PopupFactory}.
+     */
+    public PopupFactory() {}
 
     /**
      * Sets the <code>PopupFactory</code> that will be used to obtain
@@ -123,7 +127,7 @@ public class PopupFactory {
      * <code>factory</code> is null.
      *
      * @param factory Shared PopupFactory
-     * @exception IllegalArgumentException if <code>factory</code> is null
+     * @throws IllegalArgumentException if <code>factory</code> is null
      * @see #getPopup
      */
     public static void setSharedInstance(PopupFactory factory) {
@@ -174,7 +178,7 @@ public class PopupFactory {
      * <code>Popup</code> creates to. A null <code>owner</code> implies there
      * is no valid parent. <code>x</code> and
      * <code>y</code> specify the preferred initial location to place
-     * the <code>Popup</code> at. Based on screen size, or other paramaters,
+     * the <code>Popup</code> at. Based on screen size, or other parameters,
      * the <code>Popup</code> may not display at <code>x</code> and
      * <code>y</code>.
      *
@@ -182,7 +186,7 @@ public class PopupFactory {
      * @param contents Contents of the Popup
      * @param x        Initial x screen coordinate
      * @param y        Initial y screen coordinate
-     * @exception IllegalArgumentException if contents is null
+     * @throws IllegalArgumentException if contents is null
      * @return Popup containing Contents
      */
     public Popup getPopup(Component owner, Component contents,
@@ -238,6 +242,10 @@ public class PopupFactory {
      */
     private int getPopupType(Component owner, Component contents,
                              int ownerX, int ownerY) {
+        if (PopupFactory.isPopupPositionedRelatively()) {
+            return HEAVY_WEIGHT_POPUP;
+        }
+
         int popupType = getPopupType();
 
         if (owner == null || invokerInHeavyWeightPopup(owner)) {
@@ -271,7 +279,7 @@ public class PopupFactory {
      * Obtains the appropriate <code>Popup</code> based on
      * <code>popupType</code>.
      */
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("removal")
     private Popup getPopup(Component owner, Component contents,
                            int ownerX, int ownerY, int popupType) {
         if (GraphicsEnvironment.isHeadless()) {
@@ -285,8 +293,7 @@ public class PopupFactory {
             return getMediumWeightPopup(owner, contents, ownerX, ownerY);
         case HEAVY_WEIGHT_POPUP:
             Popup popup = getHeavyWeightPopup(owner, contents, ownerX, ownerY);
-            if ((AccessController.doPrivileged(OSInfo.getOSTypeAction()) ==
-                OSInfo.OSType.MACOSX) && (owner != null) &&
+            if ((OSInfo.getOSType() == OSInfo.OSType.MACOSX) && (owner != null) &&
                 (EmbeddedFrame.getAppletIfAncestorOf(owner) != null)) {
                 ((HeavyWeightPopup)popup).setCacheEnabled(false);
             }
@@ -358,7 +365,7 @@ public class PopupFactory {
         private static final Object heavyWeightPopupCacheKey =
                  new StringBuffer("PopupFactory.heavyWeightPopupCache");
 
-        private volatile boolean isCacheEnabled = false;
+        private volatile boolean isCacheEnabled = true;
 
         /**
          * Returns either a new or recycled <code>Popup</code> containing
@@ -378,7 +385,7 @@ public class PopupFactory {
             if(contents != null && contents.isFocusable()) {
                 if(contents instanceof JPopupMenu) {
                     JPopupMenu jpm = (JPopupMenu) contents;
-                    Component popComps[] = jpm.getComponents();
+                    Component[] popComps = jpm.getComponents();
                     for (Component popComp : popComps) {
                         if (!(popComp instanceof MenuElement) &&
                                 !(popComp instanceof JSeparator)) {
@@ -389,9 +396,13 @@ public class PopupFactory {
                 }
             }
 
+            Toolkit toolkit = Toolkit.getDefaultToolkit();
             if (popup == null ||
                 ((JWindow) popup.getComponent())
-                 .getFocusableWindowState() != focusPopup) {
+                 .getFocusableWindowState() != focusPopup ||
+                (toolkit instanceof SunToolkit) &&
+                        (((SunToolkit) toolkit).popupMenusAreSpecial()) &&
+                        popup.isPopupMenu() != (contents instanceof JPopupMenu)) {
 
                 if(popup != null) {
                     // The recycled popup can't serve us well
@@ -413,6 +424,11 @@ public class PopupFactory {
             }
 
             return popup;
+        }
+
+        private boolean isPopupMenu() {
+            Component[] components = ((JWindow) getComponent()).getContentPane().getComponents();
+            return components.length == 1 && components[0] instanceof JPopupMenu;
         }
 
         /**
@@ -626,7 +642,7 @@ public class PopupFactory {
          * Returns true if popup can fit the screen and the owner's top parent.
          * It determines can popup be lightweight or mediumweight.
          */
-        @SuppressWarnings("deprecation")
+        @SuppressWarnings("removal")
         boolean fitsOnScreen() {
             boolean result = false;
             Component component = getComponent();
@@ -797,7 +813,7 @@ public class PopupFactory {
             recycleLightWeightPopup(this);
         }
 
-        @SuppressWarnings("deprecation")
+        @SuppressWarnings("removal")
         public void show() {
             Container parent = null;
 
@@ -952,7 +968,7 @@ public class PopupFactory {
             recycleMediumWeightPopup(this);
         }
 
-        @SuppressWarnings("deprecation")
+        @SuppressWarnings("removal")
         public void show() {
             Component component = getComponent();
             Container parent = null;
@@ -993,7 +1009,7 @@ public class PopupFactory {
             rootPane = new JRootPane();
             // NOTE: this uses setOpaque vs LookAndFeel.installProperty as
             // there is NO reason for the RootPane not to be opaque. For
-            // painting to work the contentPane must be opaque, therefor the
+            // painting to work the contentPane must be opaque, therefore the
             // RootPane can also be opaque.
             rootPane.setOpaque(true);
             component.add(rootPane, BorderLayout.CENTER);
@@ -1025,5 +1041,9 @@ public class PopupFactory {
             }
         }
     }
-}
 
+    static boolean isPopupPositionedRelatively() {
+        final Toolkit toolkit = Toolkit.getDefaultToolkit();
+        return toolkit != null && toolkit.getClass().getName().equals("sun.awt.wl.WLToolkit");
+    }
+}

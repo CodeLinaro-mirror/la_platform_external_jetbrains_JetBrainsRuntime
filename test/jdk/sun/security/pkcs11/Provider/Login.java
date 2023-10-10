@@ -25,7 +25,7 @@
  * @bug 4850423
  * @summary login facilities for hardware tokens
  * @library /test/lib ..
- * @run testng/othervm Login
+ * @run testng/othervm -Djava.security.manager=allow Login
  */
 
 import org.testng.annotations.BeforeClass;
@@ -65,14 +65,12 @@ public class Login extends PKCS11Test {
         KeyStore ks = KeyStore.getInstance(KS_TYPE, p);
 
         // check instance
-        if (ks.getProvider() instanceof AuthProvider) {
+        if (ks.getProvider() instanceof AuthProvider ap) {
             System.out.println("keystore provider instance of AuthProvider");
             System.out.println("test " + testnum++ + " passed");
         } else {
             throw new SecurityException("did not get AuthProvider KeyStore");
         }
-
-        AuthProvider ap = (AuthProvider) ks.getProvider();
 
         try {
 
@@ -128,10 +126,9 @@ public class Login extends PKCS11Test {
     public static class PasswordCallbackHandler implements CallbackHandler {
         public void handle(Callback[] callbacks)
                 throws IOException, UnsupportedCallbackException {
-            if (!(callbacks[0] instanceof PasswordCallback)) {
+            if (!(callbacks[0] instanceof PasswordCallback pc)) {
                 throw new UnsupportedCallbackException(callbacks[0]);
             }
-            PasswordCallback pc = (PasswordCallback) callbacks[0];
             pc.setPassword(Login.password);
         }
     }

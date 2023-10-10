@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,6 +26,7 @@ package java.awt;
 
 import java.awt.event.FocusEvent;
 import java.awt.event.InputEvent;
+import java.awt.event.InvocationEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowEvent;
 
@@ -85,10 +86,10 @@ import sun.awt.AWTAccessor;
  * ClassLoader.
  * <p>
  * Please see
- * <a href="http://docs.oracle.com/javase/tutorial/uiswing/misc/focus.html">
+ * <a href="https://docs.oracle.com/javase/tutorial/uiswing/misc/focus.html">
  * How to Use the Focus Subsystem</a>,
  * a section in <em>The Java Tutorial</em>, and the
- * <a href="../../java/awt/doc-files/FocusSpec.html">Focus Specification</a>
+ * <a href="doc-files/FocusSpec.html">Focus Specification</a>
  * for more information.
  *
  * @author David Mendenhall
@@ -151,17 +152,6 @@ public abstract class KeyboardFocusManager
                 }
                 public Container getCurrentFocusCycleRoot() {
                     return KeyboardFocusManager.currentFocusCycleRoot;
-                }
-
-                @Override
-                public void enqueueKeyEvents(Component untilFocused) {
-                    KeyboardFocusManager.getCurrentKeyboardFocusManager().enqueueKeyEvents(
-                            Toolkit.getEventQueue().getMostRecentKeyEventTime(), untilFocused);
-                }
-
-                @Override
-                public void dequeueKeyEvents(Component untilFocused) {
-                    KeyboardFocusManager.getCurrentKeyboardFocusManager().dequeueKeyEvents(-1, untilFocused);
                 }
             }
         );
@@ -656,6 +646,7 @@ public abstract class KeyboardFocusManager
         peer.clearGlobalFocusOwner(activeWindow);
     }
 
+    @SuppressWarnings("removal")
     void clearGlobalFocusOwnerPriv() {
         AccessController.doPrivileged(new PrivilegedAction<Void>() {
             public Void run() {
@@ -1295,6 +1286,7 @@ public abstract class KeyboardFocusManager
                            newFocusCycleRoot);
     }
 
+    @SuppressWarnings("removal")
     void setGlobalCurrentFocusCycleRootPriv(final Container newFocusCycleRoot) {
         AccessController.doPrivileged(new PrivilegedAction<Void>() {
             public Void run() {
@@ -2537,12 +2529,6 @@ public abstract class KeyboardFocusManager
         }
     }
 
-    public void cleanUpHeavyWeightRequests(Window window) {
-        synchronized (heavyweightRequests) {
-            heavyweightRequests.removeIf(next -> window.equals(next.heavyweight));
-        }
-    }
-
     /**
      * Returns the Window which will be active after processing this request,
      * or null if this is a duplicate request. The active Window is useful
@@ -2619,10 +2605,8 @@ public abstract class KeyboardFocusManager
         Throwable retEx = null;
         try {
             comp.dispatchEvent(event);
-        } catch (RuntimeException re) {
-            retEx = re;
-        } catch (Error er) {
-            retEx = er;
+        } catch (RuntimeException | Error e) {
+            retEx = e;
         }
         if (retEx != null) {
             if (ex != null) {
@@ -2819,11 +2803,8 @@ public abstract class KeyboardFocusManager
                 if (hwFocusRequest.lightweightRequests.size() > 0) {
                     currentLightweightRequests =
                         hwFocusRequest.lightweightRequests;
-                    EventQueue.invokeLater(new Runnable() {
-                            public void run() {
-                                processCurrentLightweightRequests();
-                            }
-                        });
+                    SunToolkit.postPriorityEvent(new InvocationEvent(source,
+                            KeyboardFocusManager::processCurrentLightweightRequests));
                 }
 
                 // 'opposite' will be fixed by
@@ -2960,6 +2941,8 @@ public abstract class KeyboardFocusManager
                     newFocusOwner = null;
                     return event;
                 }
+
+                newFocusOwner = null;
             }
         }
 
@@ -2999,13 +2982,9 @@ public abstract class KeyboardFocusManager
             if (hwFocusRequest != null) {
                 heavyweightRequests.removeFirst();
                 if (hwFocusRequest.lightweightRequests != null) {
-                    for (Iterator<KeyboardFocusManager.LightweightFocusRequest> lwIter = hwFocusRequest.lightweightRequests.
-                             iterator();
-                         lwIter.hasNext(); )
-                    {
+                    for (LightweightFocusRequest lwFocusRequest : hwFocusRequest.lightweightRequests) {
                         manager.dequeueKeyEvents
-                            (-1, lwIter.next().
-                             component);
+                            (-1, lwFocusRequest.component);
                     }
                 }
             }
@@ -3113,6 +3092,7 @@ public abstract class KeyboardFocusManager
     private static void checkReplaceKFMPermission()
         throws SecurityException
     {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             if (replaceKeyboardFocusManagerPermission == null) {

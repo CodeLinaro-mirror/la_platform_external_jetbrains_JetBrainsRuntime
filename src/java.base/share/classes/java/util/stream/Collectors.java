@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -55,6 +55,8 @@ import java.util.function.Supplier;
 import java.util.function.ToDoubleFunction;
 import java.util.function.ToIntFunction;
 import java.util.function.ToLongFunction;
+
+import jdk.internal.access.SharedSecrets;
 
 /**
  * Implementations of {@link Collector} that implement various useful reduction
@@ -192,55 +194,18 @@ public final class Collectors {
      * @param <T> the type of elements to be collected
      * @param <R> the type of the result
      */
-    static class CollectorImpl<T, A, R> implements Collector<T, A, R> {
-        private final Supplier<A> supplier;
-        private final BiConsumer<A, T> accumulator;
-        private final BinaryOperator<A> combiner;
-        private final Function<A, R> finisher;
-        private final Set<Characteristics> characteristics;
-
-        CollectorImpl(Supplier<A> supplier,
-                      BiConsumer<A, T> accumulator,
-                      BinaryOperator<A> combiner,
-                      Function<A,R> finisher,
-                      Set<Characteristics> characteristics) {
-            this.supplier = supplier;
-            this.accumulator = accumulator;
-            this.combiner = combiner;
-            this.finisher = finisher;
-            this.characteristics = characteristics;
-        }
+    record CollectorImpl<T, A, R>(Supplier<A> supplier,
+                                  BiConsumer<A, T> accumulator,
+                                  BinaryOperator<A> combiner,
+                                  Function<A, R> finisher,
+                                  Set<Characteristics> characteristics
+            ) implements Collector<T, A, R> {
 
         CollectorImpl(Supplier<A> supplier,
                       BiConsumer<A, T> accumulator,
                       BinaryOperator<A> combiner,
                       Set<Characteristics> characteristics) {
             this(supplier, accumulator, combiner, castingIdentity(), characteristics);
-        }
-
-        @Override
-        public BiConsumer<A, T> accumulator() {
-            return accumulator;
-        }
-
-        @Override
-        public Supplier<A> supplier() {
-            return supplier;
-        }
-
-        @Override
-        public BinaryOperator<A> combiner() {
-            return combiner;
-        }
-
-        @Override
-        public Function<A, R> finisher() {
-            return finisher;
-        }
-
-        @Override
-        public Set<Characteristics> characteristics() {
-            return characteristics;
         }
     }
 
@@ -275,7 +240,7 @@ public final class Collectors {
      */
     public static <T>
     Collector<T, ?, List<T>> toList() {
-        return new CollectorImpl<>((Supplier<List<T>>) ArrayList::new, List::add,
+        return new CollectorImpl<>(ArrayList::new, List::add,
                                    (left, right) -> { left.addAll(right); return left; },
                                    CH_ID);
     }
@@ -291,12 +256,18 @@ public final class Collectors {
      * <a href="../List.html#unmodifiable">unmodifiable List</a> in encounter order
      * @since 10
      */
-    @SuppressWarnings("unchecked")
     public static <T>
     Collector<T, ?, List<T>> toUnmodifiableList() {
-        return new CollectorImpl<>((Supplier<List<T>>) ArrayList::new, List::add,
+        return new CollectorImpl<>(ArrayList::new, List::add,
                                    (left, right) -> { left.addAll(right); return left; },
-                                   list -> (List<T>)List.of(list.toArray()),
+                                   list -> {
+                                       if (list.getClass() == ArrayList.class) { // ensure it's trusted
+                                           return SharedSecrets.getJavaUtilCollectionAccess()
+                                                               .listFromTrustedArray(list.toArray());
+                                       } else {
+                                           throw new IllegalArgumentException();
+                                       }
+                                   },
                                    CH_NOID);
     }
 
@@ -316,7 +287,7 @@ public final class Collectors {
      */
     public static <T>
     Collector<T, ?, Set<T>> toSet() {
-        return new CollectorImpl<>((Supplier<Set<T>>) HashSet::new, Set::add,
+        return new CollectorImpl<>(HashSet::new, Set::add,
                                    (left, right) -> {
                                        if (left.size() < right.size()) {
                                            right.addAll(left); return right;
@@ -345,7 +316,7 @@ public final class Collectors {
     @SuppressWarnings("unchecked")
     public static <T>
     Collector<T, ?, Set<T>> toUnmodifiableSet() {
-        return new CollectorImpl<>((Supplier<Set<T>>) HashSet::new, Set::add,
+        return new CollectorImpl<>(HashSet::new, Set::add,
                                    (left, right) -> {
                                        if (left.size() < right.size()) {
                                            right.addAll(left); return right;
@@ -658,7 +629,7 @@ public final class Collectors {
     }
 
     /**
-     * Returns a {@code Collector} that produces the sum of a integer-valued
+     * Returns a {@code Collector} that produces the sum of an integer-valued
      * function applied to the input elements.  If no elements are present,
      * the result is 0.
      *
@@ -1892,6 +1863,102 @@ public final class Collectors {
     }
 
     /**
+     * Returns a {@code Collector} that is a composite of two downstream collectors.
+     * Every element passed to the resulting collector is processed by both downstream
+     * collectors, then their results are merged using the specified merge function
+     * into the final result.
+     *
+     * <p>The resulting collector functions do the following:
+     *
+     * <ul>
+     * <li>supplier: creates a result container that contains result containers
+     * obtained by calling each collector's supplier
+     * <li>accumulator: calls each collector's accumulator with its result container
+     * and the input element
+     * <li>combiner: calls each collector's combiner with two result containers
+     * <li>finisher: calls each collector's finisher with its result container,
+     * then calls the supplied merger and returns its result.
+     * </ul>
+     *
+     * <p>The resulting collector is {@link Collector.Characteristics#UNORDERED} if both downstream
+     * collectors are unordered and {@link Collector.Characteristics#CONCURRENT} if both downstream
+     * collectors are concurrent.
+     *
+     * @param <T>         the type of the input elements
+     * @param <R1>        the result type of the first collector
+     * @param <R2>        the result type of the second collector
+     * @param <R>         the final result type
+     * @param downstream1 the first downstream collector
+     * @param downstream2 the second downstream collector
+     * @param merger      the function which merges two results into the single one
+     * @return a {@code Collector} which aggregates the results of two supplied collectors.
+     * @since 12
+     */
+    public static <T, R1, R2, R>
+    Collector<T, ?, R> teeing(Collector<? super T, ?, R1> downstream1,
+                              Collector<? super T, ?, R2> downstream2,
+                              BiFunction<? super R1, ? super R2, R> merger) {
+        return teeing0(downstream1, downstream2, merger);
+    }
+
+    private static <T, A1, A2, R1, R2, R>
+    Collector<T, ?, R> teeing0(Collector<? super T, A1, R1> downstream1,
+                               Collector<? super T, A2, R2> downstream2,
+                               BiFunction<? super R1, ? super R2, R> merger) {
+        Objects.requireNonNull(downstream1, "downstream1");
+        Objects.requireNonNull(downstream2, "downstream2");
+        Objects.requireNonNull(merger, "merger");
+
+        Supplier<A1> c1Supplier = Objects.requireNonNull(downstream1.supplier(), "downstream1 supplier");
+        Supplier<A2> c2Supplier = Objects.requireNonNull(downstream2.supplier(), "downstream2 supplier");
+        BiConsumer<A1, ? super T> c1Accumulator =
+                Objects.requireNonNull(downstream1.accumulator(), "downstream1 accumulator");
+        BiConsumer<A2, ? super T> c2Accumulator =
+                Objects.requireNonNull(downstream2.accumulator(), "downstream2 accumulator");
+        BinaryOperator<A1> c1Combiner = Objects.requireNonNull(downstream1.combiner(), "downstream1 combiner");
+        BinaryOperator<A2> c2Combiner = Objects.requireNonNull(downstream2.combiner(), "downstream2 combiner");
+        Function<A1, R1> c1Finisher = Objects.requireNonNull(downstream1.finisher(), "downstream1 finisher");
+        Function<A2, R2> c2Finisher = Objects.requireNonNull(downstream2.finisher(), "downstream2 finisher");
+
+        Set<Collector.Characteristics> characteristics;
+        Set<Collector.Characteristics> c1Characteristics = downstream1.characteristics();
+        Set<Collector.Characteristics> c2Characteristics = downstream2.characteristics();
+        if (CH_ID.containsAll(c1Characteristics) || CH_ID.containsAll(c2Characteristics)) {
+            characteristics = CH_NOID;
+        } else {
+            EnumSet<Collector.Characteristics> c = EnumSet.noneOf(Collector.Characteristics.class);
+            c.addAll(c1Characteristics);
+            c.retainAll(c2Characteristics);
+            c.remove(Collector.Characteristics.IDENTITY_FINISH);
+            characteristics = Collections.unmodifiableSet(c);
+        }
+
+        class PairBox {
+            A1 left = c1Supplier.get();
+            A2 right = c2Supplier.get();
+
+            void add(T t) {
+                c1Accumulator.accept(left, t);
+                c2Accumulator.accept(right, t);
+            }
+
+            PairBox combine(PairBox other) {
+                left = c1Combiner.apply(left, other.left);
+                right = c2Combiner.apply(right, other.right);
+                return this;
+            }
+
+            R get() {
+                R1 r1 = c1Finisher.apply(left);
+                R2 r2 = c2Finisher.apply(right);
+                return merger.apply(r1, r2);
+            }
+        }
+
+        return new CollectorImpl<>(PairBox::new, PairBox::add, PairBox::combine, PairBox::get, characteristics);
+    }
+
+    /**
      * Implementation class used by partitioningBy.
      */
     private static final class Partition<T>
@@ -1903,6 +1970,35 @@ public final class Collectors {
         Partition(T forTrue, T forFalse) {
             this.forTrue = forTrue;
             this.forFalse = forFalse;
+        }
+
+        @Override
+        public int size() {
+            return 2;
+        }
+
+        @Override
+        public boolean isEmpty() {
+            return false;
+        }
+
+        @Override
+        public T get(Object key) {
+            if (key instanceof Boolean b) {
+                return b ? forTrue : forFalse;
+            } else {
+                return null;
+            }
+        }
+
+        @Override
+        public boolean containsKey(Object key) {
+            return key instanceof Boolean;
+        }
+
+        @Override
+        public boolean containsValue(Object value) {
+            return Objects.equals(value, forTrue) || Objects.equals(value, forFalse);
         }
 
         @Override

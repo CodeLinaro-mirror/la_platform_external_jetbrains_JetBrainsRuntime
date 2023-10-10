@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -79,7 +79,7 @@ final class Finished {
             VerifyDataScheme vds =
                     VerifyDataScheme.valueOf(context.negotiatedProtocol);
 
-            byte[] vd = null;
+            byte[] vd;
             try {
                 vd = vds.createVerifyData(context, false);
             } catch (IOException ioe) {
@@ -143,11 +143,12 @@ final class Finished {
         @Override
         public String toString() {
             MessageFormat messageFormat = new MessageFormat(
-                    "\"Finished\": '{'\n" +
-                    "  \"verify data\": '{'\n" +
-                    "{0}\n" +
-                    "  '}'" +
-                    "'}'",
+                    """
+                            "Finished": '{'
+                              "verify data": '{'
+                            {0}
+                              '}'
+                            '}'""",
                     Locale.ENGLISH);
 
             HexDumpEncoder hexEncoder = new HexDumpEncoder();
@@ -214,7 +215,6 @@ final class Finished {
             HandshakeHash handshakeHash = context.handshakeHash;
             SecretKey masterSecretKey =
                     context.handshakeSession.getMasterSecret();
-
             boolean useClientLabel =
                     (context.sslConfig.isClientMode && !isValidation) ||
                     (!context.sslConfig.isClientMode && isValidation);
@@ -257,7 +257,7 @@ final class Finished {
                 TlsPrfParameterSpec spec = new TlsPrfParameterSpec(
                     masterSecretKey, tlsLabel, seed, 12,
                     hashAlg.name, hashAlg.hashLength, hashAlg.blockSize);
-                KeyGenerator kg = JsseJce.getKeyGenerator(prfAlg);
+                KeyGenerator kg = KeyGenerator.getInstance(prfAlg);
                 kg.init(spec);
                 SecretKey prfKey = kg.generateKey();
                 if (!"RAW".equals(prfKey.getFormat())) {
@@ -265,8 +265,7 @@ final class Finished {
                         "Invalid PRF output, format must be RAW. " +
                         "Format received: " + prfKey.getFormat());
                 }
-                byte[] finished = prfKey.getEncoded();
-                return finished;
+                return prfKey.getEncoded();
             } catch (GeneralSecurityException e) {
                 throw new RuntimeException("PRF failed", e);
             }
@@ -309,7 +308,7 @@ final class Finished {
                 TlsPrfParameterSpec spec = new TlsPrfParameterSpec(
                     masterSecretKey, tlsLabel, seed, 12,
                     hashAlg.name, hashAlg.hashLength, hashAlg.blockSize);
-                KeyGenerator kg = JsseJce.getKeyGenerator(prfAlg);
+                KeyGenerator kg = KeyGenerator.getInstance(prfAlg);
                 kg.init(spec);
                 SecretKey prfKey = kg.generateKey();
                 if (!"RAW".equals(prfKey.getFormat())) {
@@ -317,15 +316,14 @@ final class Finished {
                         "Invalid PRF output, format must be RAW. " +
                         "Format received: " + prfKey.getFormat());
                 }
-                byte[] finished = prfKey.getEncoded();
-                return finished;
+                return prfKey.getEncoded();
             } catch (GeneralSecurityException e) {
                 throw new RuntimeException("PRF failed", e);
             }
         }
     }
 
-    // TLS 1.2
+    // TLS 1.3
     private static final
             class T13VerifyDataGenerator implements VerifyDataGenerator {
         private static final byte[] hkdfLabel = "tls13 finished".getBytes();
@@ -350,7 +348,7 @@ final class Finished {
             String hmacAlg =
                 "Hmac" + hashAlg.name.replace("-", "");
             try {
-                Mac hmac = JsseJce.getMac(hmacAlg);
+                Mac hmac = Mac.getInstance(hmacAlg);
                 hmac.init(finishedSecret);
                 return hmac.doFinal(context.handshakeHash.digest());
             } catch (NoSuchAlgorithmException |InvalidKeyException ex) {
@@ -410,6 +408,10 @@ final class Finished {
                 chc.conContext.clientVerifyData = fm.verifyData;
             }
 
+            if (chc.statelessResumption) {
+                chc.handshakeConsumers.put(
+                        SSLHandshake.NEW_SESSION_TICKET.id, SSLHandshake.NEW_SESSION_TICKET);
+            }
             // update the consumers and producers
             if (!chc.isResumption) {
                 chc.conContext.consumers.put(ContentType.CHANGE_CIPHER_SPEC.id,
@@ -441,6 +443,10 @@ final class Finished {
 
         private byte[] onProduceFinished(ServerHandshakeContext shc,
                 HandshakeMessage message) throws IOException {
+            if (shc.statelessResumption) {
+                NewSessionTicket.handshake12Producer.produce(shc, message);
+            }
+
             // Refresh handshake hash
             shc.handshakeHash.update();
 
@@ -473,10 +479,17 @@ final class Finished {
                         SSLHandshake.FINISHED.id, SSLHandshake.FINISHED);
                 shc.conContext.inputRecord.expectingFinishFlight();
             } else {
-                if (shc.handshakeSession.isRejoinable()) {
-                    ((SSLSessionContextImpl)shc.sslContext.
-                        engineGetServerSessionContext()).put(
-                            shc.handshakeSession);
+                // Set the session's context based on stateless/cache status
+                if (shc.statelessResumption &&
+                        shc.handshakeSession.isStatelessable()) {
+                    shc.handshakeSession.setContext((SSLSessionContextImpl)
+                            shc.sslContext.engineGetServerSessionContext());
+                } else {
+                    if (shc.handshakeSession.isRejoinable()) {
+                        ((SSLSessionContextImpl)shc.sslContext.
+                                engineGetServerSessionContext()).put(
+                                shc.handshakeSession);
+                    }
                 }
                 shc.conContext.conSession = shc.handshakeSession.finish();
                 shc.conContext.protocolVersion = shc.negotiatedProtocol;
@@ -601,7 +614,8 @@ final class Finished {
             }
 
             if (shc.isResumption) {
-                if (shc.handshakeSession.isRejoinable()) {
+                if (shc.handshakeSession.isRejoinable() &&
+                        !shc.statelessResumption) {
                     ((SSLSessionContextImpl)shc.sslContext.
                         engineGetServerSessionContext()).put(
                             shc.handshakeSession);
@@ -847,6 +861,11 @@ final class Finished {
                 shc.conContext.serverVerifyData = fm.verifyData;
             }
 
+            // Make sure session's context is set
+            shc.handshakeSession.setContext((SSLSessionContextImpl)
+                    shc.sslContext.engineGetServerSessionContext());
+            shc.conContext.conSession = shc.handshakeSession.finish();
+
             // update the context
             shc.handshakeConsumers.put(
                     SSLHandshake.FINISHED.id, SSLHandshake.FINISHED);
@@ -937,9 +956,9 @@ final class Finished {
 
             // save the session
             if (!chc.isResumption && chc.handshakeSession.isRejoinable()) {
-                SSLSessionContextImpl sessionContext = (SSLSessionContextImpl)
-                chc.sslContext.engineGetClientSessionContext();
-                sessionContext.put(chc.handshakeSession);
+                ((SSLSessionContextImpl)chc.sslContext.
+                        engineGetClientSessionContext()).
+                        put(chc.handshakeSession);
             }
 
             // derive salt secret
@@ -1062,13 +1081,6 @@ final class Finished {
                         shc.negotiatedProtocol);
             }
 
-            // save the session
-            if (!shc.isResumption && shc.handshakeSession.isRejoinable()) {
-                SSLSessionContextImpl sessionContext = (SSLSessionContextImpl)
-                shc.sslContext.engineGetServerSessionContext();
-                sessionContext.put(shc.handshakeSession);
-            }
-
             try {
                 // update the application traffic read keys.
                 SecretKey readSecret = kd.deriveKey(
@@ -1127,27 +1139,23 @@ final class Finished {
 
             //
             // produce
-            if (SSLLogger.isOn && SSLLogger.isOn("ssl,handshake")) {
-                SSLLogger.fine(
-                "Sending new session ticket");
-            }
-            NewSessionTicket.kickstartProducer.produce(shc);
-
+            NewSessionTicket.t13PosthandshakeProducer.produce(shc);
         }
     }
 
     private static void recordEvent(SSLSessionImpl session) {
         TLSHandshakeEvent event = new TLSHandshakeEvent();
         if (event.shouldCommit() || EventHelper.isLoggingSecurity()) {
-            int peerCertificateId = 0;
+            int hash = 0;
             try {
                 // use hash code for Id
-                peerCertificateId = session
+                hash = session
                         .getCertificateChain()[0]
                         .hashCode();
             } catch (SSLPeerUnverifiedException e) {
                  // not verified msg
             }
+            long peerCertificateId = Integer.toUnsignedLong(hash);
             if (event.shouldCommit()) {
                 event.peerHost = session.getPeerHost();
                 event.peerPort = session.getPeerPort();

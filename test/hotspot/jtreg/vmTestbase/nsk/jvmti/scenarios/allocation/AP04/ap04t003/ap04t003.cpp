@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,7 @@
 #include <string.h>
 #include <jvmti.h>
 #include "agent_common.h"
-
+#include "ExceptionCheckingJniEnv.hpp"
 #include "nsk_tools.h"
 #include "jni_tools.h"
 #include "JVMTITools.h"
@@ -120,10 +120,10 @@ void notifyThread() {
 }
 
 jvmtiIterationControl JNICALL
-heapObjectCallback( jlong  class_tag,
-                    jlong  size,
-                    jlong* tag_ptr,
-                    void*  user_data) {
+heapObjectCallback(jlong  class_tag,
+                   jlong  size,
+                   jlong* tag_ptr,
+                   void*  user_data) {
 
     if (getCounter(&iterationCount) == 0) {
         notifyThread();
@@ -139,11 +139,11 @@ heapObjectCallback( jlong  class_tag,
 
 /* jvmtiHeapRootCallback */
 jvmtiIterationControl JNICALL
-heapRootCallback( jvmtiHeapRootKind root_kind,
-                  jlong class_tag,
-                  jlong size,
-                  jlong* tag_ptr,
-                  void* user_data) {
+heapRootCallback(jvmtiHeapRootKind root_kind,
+                 jlong class_tag,
+                 jlong size,
+                 jlong* tag_ptr,
+                 void* user_data) {
 
     if (getCounter(&iterationCount) == 0) {
         notifyThread();
@@ -159,15 +159,15 @@ heapRootCallback( jvmtiHeapRootKind root_kind,
 
 /* jvmtiStackReferenceCallback */
 jvmtiIterationControl JNICALL
-stackReferenceCallback( jvmtiHeapRootKind root_kind,
-                        jlong     class_tag,
-                        jlong     size,
-                        jlong*    tag_ptr,
-                        jlong     thread_tag,
-                        jint      depth,
-                        jmethodID method,
-                        jint      slot,
-                        void*     user_data) {
+stackReferenceCallback(jvmtiHeapRootKind root_kind,
+                       jlong     class_tag,
+                       jlong     size,
+                       jlong*    tag_ptr,
+                       jlong     thread_tag,
+                       jint      depth,
+                       jmethodID method,
+                       jint      slot,
+                       void*     user_data) {
 
     if (getCounter(&iterationCount) == 0) {
         notifyThread();
@@ -184,13 +184,13 @@ stackReferenceCallback( jvmtiHeapRootKind root_kind,
 
 /* jvmtiObjectReferenceCallback */
 jvmtiIterationControl JNICALL
-objectReferenceCallback( jvmtiObjectReferenceKind reference_kind,
-                         jlong  class_tag,
-                         jlong  size,
-                         jlong* tag_ptr,
-                         jlong  referrer_tag,
-                         jint   referrer_index,
-                         void*  user_data) {
+objectReferenceCallback(jvmtiObjectReferenceKind reference_kind,
+                        jlong  class_tag,
+                        jlong  size,
+                        jlong* tag_ptr,
+                        jlong  referrer_tag,
+                        jint   referrer_index,
+                        void*  user_data) {
 
     if (getCounter(&iterationCount) == 0) {
         notifyThread();
@@ -305,7 +305,7 @@ void JNICALL agent_start(jvmtiEnv* jvmti, JNIEnv* jni, void *p) {
 
 /***********************************************************************/
 
-static int startThread(JNIEnv* jni, jthread threadObj) {
+static int startThread(jthread threadObj) {
     int success = NSK_TRUE;
 
     /* enter startLock */
@@ -334,42 +334,26 @@ static int startThread(JNIEnv* jni, jthread threadObj) {
 }
 
 /** Create thread object for new agent thread. */
-static jthread newThreadObj(JNIEnv* jni) {
+static jthread newThreadObj(JNIEnv* jni_env) {
+    ExceptionCheckingJniEnvPtr ec_jni(jni_env);
     jclass thrClass;
     jmethodID cid;
-    jthread result = NULL;
 
-    if (!NSK_JNI_VERIFY(jni, (thrClass = jni->FindClass("java/lang/Thread")) != NULL )) {
-        nsk_jvmti_setFailStatus();
-        return result;
-    }
-
-    if (!NSK_JNI_VERIFY(jni, (cid = jni->GetMethodID(thrClass, "<init>", "()V")) != NULL )) {
-        nsk_jvmti_setFailStatus();
-        return result;
-    }
-
-    if (!NSK_JNI_VERIFY(jni, (result = jni->NewObject(thrClass, cid)) != NULL )) {
-        nsk_jvmti_setFailStatus();
-        return result;
-    }
-
-    return result;
+    thrClass = ec_jni->FindClass("java/lang/Thread", TRACE_JNI_CALL);
+    cid = ec_jni->GetMethodID(thrClass, "<init>", "()V", TRACE_JNI_CALL);
+    return ec_jni->NewObject(thrClass, cid, TRACE_JNI_CALL);
 }
 
 /***********************************************************************/
 
 /** Clean counters and start new agent thread with agent_start() body. */
-static int prepareToIteration (JNIEnv* jni) {
+static int prepareToIteration(JNIEnv* jni) {
     jthread threadObj = NULL;
 
     setCounter(&iterationCount, 0);
     setCounter(&objectCount, 0);
 
-    if (!NSK_VERIFY((threadObj = newThreadObj(jni)) != NULL)) {
-        nsk_jvmti_setFailStatus();
-        return NSK_FALSE;
-    }
+    threadObj = newThreadObj(jni);
 
     /* enter endLock */
     if (!NSK_JVMTI_VERIFY(jvmti->RawMonitorEnter(endLock))) {
@@ -377,11 +361,11 @@ static int prepareToIteration (JNIEnv* jni) {
     }
 
     NSK_DISPLAY0("Starting new agent thread...\n");
-    return startThread(jni, threadObj);
+    return startThread(threadObj);
 }
 
 /** Wait for new agent thread to complete. */
-static void afterIteration (JNIEnv* jni) {
+static void afterIteration() {
 
     /* notify new agent thread (in case if not yet notified) */
     notifyThread();
@@ -402,10 +386,10 @@ static void afterIteration (JNIEnv* jni) {
 /***********************************************************************/
 
 JNIEXPORT void JNICALL
-Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_setTag( JNIEnv* jni,
-                                                          jclass  klass,
-                                                          jobject target, /* object to be tagged */
-                                                          jlong   tag ) {
+Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_setTag(JNIEnv* jni,
+                                                         jclass  klass,
+                                                         jobject target, /* object to be tagged */
+                                                         jlong   tag) {
 
     if (!NSK_JVMTI_VERIFY(jvmti->SetTag(target, tag))) {
         nsk_jvmti_setFailStatus();
@@ -413,8 +397,8 @@ Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_setTag( JNIEnv* jni,
 }
 
 JNIEXPORT void JNICALL
-Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_runIterateOverHeap( JNIEnv* jni,
-                                                                      jclass  klass ) {
+Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_runIterateOverHeap(JNIEnv* jni,
+                                                                     jclass  klass) {
     int modified = 0;
     int found = 0;
 
@@ -429,7 +413,7 @@ Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_runIterateOverHeap( JNIEnv* jn
     }
     NSK_DISPLAY0("IterateOverHeap finished.\n");
 
-    afterIteration(jni);
+    afterIteration();
 
     found = getCounter(&objectCount);
     NSK_DISPLAY1("Found tagged objects: %d\n", found);
@@ -443,8 +427,8 @@ Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_runIterateOverHeap( JNIEnv* jn
 }
 
 JNIEXPORT void JNICALL
-Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_runIterateOverReachableObjects( JNIEnv* jni,
-                                                                                  jclass  klass ) {
+Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_runIterateOverReachableObjects(JNIEnv* jni,
+                                                                                 jclass  klass) {
     int modified = 0;
     int found = 0;
 
@@ -460,7 +444,7 @@ Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_runIterateOverReachableObjects
     }
     NSK_DISPLAY0("IterateOverReachableObjects finished.\n");
 
-    afterIteration(jni);
+    afterIteration();
 
     found = getCounter(&objectCount);
     NSK_DISPLAY1("Found tagged objects: %d\n", found);
@@ -474,8 +458,8 @@ Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_runIterateOverReachableObjects
 }
 
 JNIEXPORT void JNICALL
-Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_runIterateOverInstancesOfClass( JNIEnv* jni,
-                                                                                  jclass  klass ) {
+Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_runIterateOverInstancesOfClass(JNIEnv* jni,
+                                                                                 jclass  klass) {
     int modified = 0;
     int found = 0;
 
@@ -491,7 +475,7 @@ Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_runIterateOverInstancesOfClass
     }
     NSK_DISPLAY0("IterateOverInstancesOfClass finished.\n");
 
-    afterIteration(jni);
+    afterIteration();
 
     found = getCounter(&objectCount);
     NSK_DISPLAY1("Found tagged objects: %d\n", found);
@@ -505,20 +489,16 @@ Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_runIterateOverInstancesOfClass
 }
 
 JNIEXPORT void JNICALL
-Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_runIterateOverObjectsReachableFromObject( JNIEnv* jni,
-                                                                                            jclass  klass ) {
+Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_runIterateOverObjectsReachableFromObject(JNIEnv* jni_env,
+                                                                                           jclass  klass) {
+    ExceptionCheckingJniEnvPtr ec_jni(jni_env);
     jobject root = NULL;
     int modified = 0;
     int found = 0;
 
-    if (!NSK_JNI_VERIFY(jni, (root =
-            jni->GetStaticObjectField(debugeeClass, rootFieldID)) != NULL )) {
-        NSK_COMPLAIN0("GetStaticObjectField returned NULL for 'root' field value\n\n");
-        nsk_jvmti_setFailStatus();
-        return;
-    }
+    root = ec_jni->GetStaticObjectField(debugeeClass, rootFieldID, TRACE_JNI_CALL);
 
-    if (!prepareToIteration(jni))
+    if (!prepareToIteration(jni_env))
         return;
 
     NSK_DISPLAY0("Calling IterateOverObjectsReachableFromObject...\n");
@@ -529,7 +509,7 @@ Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_runIterateOverObjectsReachable
     }
     NSK_DISPLAY0("IterateOverObjectsReachableFromObject finished.\n");
 
-    afterIteration(jni);
+    afterIteration();
 
     found = getCounter(&objectCount);
     NSK_DISPLAY1("Found tagged objects: %d\n", found);
@@ -543,8 +523,8 @@ Java_nsk_jvmti_scenarios_allocation_AP04_ap04t003_runIterateOverObjectsReachable
 }
 
 static void JNICALL
-agentProc(jvmtiEnv* jvmti, JNIEnv* jni, void* arg) {
-
+agentProc(jvmtiEnv* jvmti, JNIEnv* jni_env, void* arg) {
+    ExceptionCheckingJniEnvPtr ec_jni(jni_env);
     NSK_DISPLAY0("Wait for debugee start\n\n");
     if (!NSK_VERIFY(nsk_jvmti_waitForSync(timeout)))
         return;
@@ -556,15 +536,11 @@ agentProc(jvmtiEnv* jvmti, JNIEnv* jni, void* arg) {
         return;
     }
 
-    if (!NSK_JNI_VERIFY(jni, (debugeeClass = (jclass)jni->NewGlobalRef(debugeeClass)) != NULL))
-        return;
+    debugeeClass = (jclass) ec_jni->NewGlobalRef(debugeeClass, TRACE_JNI_CALL);
 
     NSK_DISPLAY1("Find ID of 'root' field: %s\n", ROOT_SIGNATURE);
-    if (!NSK_JNI_VERIFY(jni, (rootFieldID =
-            jni->GetStaticFieldID(debugeeClass, "root", ROOT_SIGNATURE)) != NULL )) {
-        nsk_jvmti_setFailStatus();
-        return;
-    }
+    rootFieldID = ec_jni->GetStaticFieldID(debugeeClass, "root",
+                                        ROOT_SIGNATURE, TRACE_JNI_CALL);
 
     NSK_DISPLAY0("Let debugee to run test cases\n");
     if (!NSK_VERIFY(nsk_jvmti_resumeSync()))
@@ -574,7 +550,7 @@ agentProc(jvmtiEnv* jvmti, JNIEnv* jni, void* arg) {
     if (!NSK_VERIFY(nsk_jvmti_waitForSync(timeout)))
         return;
 
-    NSK_TRACE(jni->DeleteGlobalRef(debugeeClass));
+    ec_jni->DeleteGlobalRef(debugeeClass, TRACE_JNI_CALL);
     NSK_TRACE(jvmti->DestroyRawMonitor(counterMonitor_ptr));
     NSK_TRACE(jvmti->DestroyRawMonitor(startLock));
     NSK_TRACE(jvmti->DestroyRawMonitor(runLock));
@@ -602,8 +578,8 @@ jint Agent_Initialize(JavaVM *jvm, char *options, void *reserved) {
         return JNI_ERR;
 
     /* create JVMTI environment */
-    if (!NSK_VERIFY((jvmti =
-            nsk_jvmti_createJVMTIEnv(jvm, reserved)) != NULL))
+    jvmti = nsk_jvmti_createJVMTIEnv(jvm, reserved);
+    if (!NSK_VERIFY(jvmti != NULL))
         return JNI_ERR;
 
     if (!NSK_JVMTI_VERIFY(jvmti->CreateRawMonitor("counterMonitor", &counterMonitor_ptr))) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,10 +30,9 @@
 
 package sun.java2d.loops;
 
-import sun.java2d.loops.GraphicsPrimitive;
-import sun.java2d.pipe.SpanIterator;
 import sun.java2d.SunGraphics2D;
 import sun.java2d.SurfaceData;
+import sun.java2d.pipe.SpanIterator;
 
 /**
  * FillSpans
@@ -82,15 +81,6 @@ public class FillSpans extends GraphicsPrimitive
         FillSpans(sg2d, dest, sg2d.pixel, si.getNativeIterator(), si);
     }
 
-    public GraphicsPrimitive makePrimitive(SurfaceType srctype,
-                                           CompositeType comptype,
-                                           SurfaceType dsttype)
-    {
-        // REMIND: iterate with a FillRect primitive?
-        throw new InternalError("FillSpans not implemented for "+
-                                srctype+" with "+comptype);
-    }
-
     public GraphicsPrimitive traceWrap() {
         return new TraceFillSpans(this);
     }
@@ -112,12 +102,8 @@ public class FillSpans extends GraphicsPrimitive
         public void FillSpans(SunGraphics2D sg2d, SurfaceData dest,
                               SpanIterator si)
         {
-            if ((traceflags & TRACEPTIME) == 0) {
-                tracePrimitive(target);
-            }
-            long time = System.nanoTime();
+            tracePrimitive(target);
             target.FillSpans(sg2d, dest, si);
-            tracePrimitiveTime(target, System.nanoTime() - time);
         }
     }
 }

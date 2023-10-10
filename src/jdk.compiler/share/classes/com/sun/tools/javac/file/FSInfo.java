@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,7 +34,6 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.spi.FileSystemProvider;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -71,6 +70,7 @@ public class FSInfo {
     protected FSInfo() {
     }
 
+    @SuppressWarnings("this-escape")
     protected FSInfo(Context context) {
         context.put(FSInfo.class, this);
     }
@@ -118,7 +118,7 @@ public class FSInfo {
                 try {
                     URL url = tryResolveFile(base, elt);
                     if (url != null) {
-                        list.add(Paths.get(url.toURI()));
+                        list.add(Path.of(url.toURI()));
                     }
                 } catch (URISyntaxException ex) {
                     throw new IOException(ex);
@@ -138,6 +138,7 @@ public class FSInfo {
      * @throws MalformedURLException
      */
     static URL tryResolveFile(URL base, String input) throws MalformedURLException {
+        @SuppressWarnings("deprecation")
         URL retVal = new URL(base, input);
         if (input.indexOf(':') >= 0 && !"file".equalsIgnoreCase(retVal.getProtocol())) {
             // 'input' contains a ':', which might be a scheme, or might be

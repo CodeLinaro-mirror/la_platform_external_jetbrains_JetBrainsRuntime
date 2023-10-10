@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,11 +23,10 @@
 
 // key: compiler.note.preview.filename
 // key: compiler.note.preview.recompile
-// options: -XDforcePreview  -source 11 --enable-preview
+// options: -XDforcePreview  -source ${jdk.version} --enable-preview
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.function.Function;
 
 class PreviewFilename {
-    List<String> ls = new ArrayList<>();
+    Function<String, String> f = (var s) -> s;
 }

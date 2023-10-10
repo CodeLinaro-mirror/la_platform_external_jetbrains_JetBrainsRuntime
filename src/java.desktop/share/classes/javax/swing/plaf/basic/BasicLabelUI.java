@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,6 +36,7 @@ import javax.swing.text.View;
 
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.Component;
 import java.awt.Container;
@@ -69,6 +70,11 @@ public class BasicLabelUI extends LabelUI implements  PropertyChangeListener
 
     private Rectangle paintIconR = new Rectangle();
     private Rectangle paintTextR = new Rectangle();
+
+    /**
+     * Constructs a {@code BasicLabelUI}.
+     */
+    public BasicLabelUI() {}
 
     static void loadActionMap(LazyActionMap map) {
         map.put(new Actions(Actions.PRESS));
@@ -303,7 +309,7 @@ public class BasicLabelUI extends LabelUI implements  PropertyChangeListener
         super.getBaseline(c, width, height);
         JLabel label = (JLabel)c;
         String text = label.getText();
-        if (text == null || "".equals(text) || label.getFont() == null) {
+        if (text == null || text.isEmpty() || label.getFont() == null) {
             return -1;
         }
         FontMetrics fm = label.getFontMetrics(label.getFont());
@@ -402,6 +408,10 @@ public class BasicLabelUI extends LabelUI implements  PropertyChangeListener
             }
             inputMap.clear();
             inputMap.put(KeyStroke.getKeyStroke(dka, BasicLookAndFeel.getFocusAcceleratorKeyMask(), false), "press");
+            inputMap.put(KeyStroke.getKeyStroke(dka,
+                    SwingUtilities2.setAltGraphMask (
+                            BasicLookAndFeel.getFocusAcceleratorKeyMask()),
+                    false), "press");
         }
         else {
             InputMap inputMap = SwingUtilities.getUIInputMap
@@ -456,6 +466,7 @@ public class BasicLabelUI extends LabelUI implements  PropertyChangeListener
      * @param c a component
      * @return an instance of {@code BasicLabelUI}
      */
+    @SuppressWarnings("removal")
     public static ComponentUI createUI(JComponent c) {
         if (System.getSecurityManager() != null) {
             AppContext appContext = AppContext.getAppContext();
@@ -520,6 +531,8 @@ public class BasicLabelUI extends LabelUI implements  PropertyChangeListener
                 int dka = label.getDisplayedMnemonic();
                 putOnRelease(inputMap, dka, BasicLookAndFeel
                         .getFocusAcceleratorKeyMask());
+                putOnRelease(inputMap, dka, SwingUtilities2.setAltGraphMask (
+                        BasicLookAndFeel.getFocusAcceleratorKeyMask()));
                 // Need this when the sticky keys are enabled
                 putOnRelease(inputMap, dka, 0);
                 // Need this if ALT is released before the accelerator
@@ -539,6 +552,9 @@ public class BasicLabelUI extends LabelUI implements  PropertyChangeListener
                         int dka = label.getDisplayedMnemonic();
                         removeOnRelease(inputMap, dka, BasicLookAndFeel
                                 .getFocusAcceleratorKeyMask());
+                        removeOnRelease(inputMap, dka,
+                                SwingUtilities2.setAltGraphMask (
+                                BasicLookAndFeel.getFocusAcceleratorKeyMask()));
                         removeOnRelease(inputMap, dka, 0);
                         removeOnRelease(inputMap, KeyEvent.VK_ALT, 0);
                     }
@@ -555,6 +571,9 @@ public class BasicLabelUI extends LabelUI implements  PropertyChangeListener
                     } else {
                         putOnRelease(inputMap, dka, BasicLookAndFeel
                                 .getFocusAcceleratorKeyMask());
+                        putOnRelease(inputMap, dka,
+                                SwingUtilities2.setAltGraphMask (
+                                BasicLookAndFeel.getFocusAcceleratorKeyMask()));
                         // Need this when the sticky keys are enabled
                         putOnRelease(inputMap, dka, 0);
                     }
@@ -572,6 +591,9 @@ public class BasicLabelUI extends LabelUI implements  PropertyChangeListener
                         if (isCommand) {
                             removeOnRelease(inputMap, dka, BasicLookAndFeel
                                     .getFocusAcceleratorKeyMask());
+                            removeOnRelease(inputMap, dka,
+                                    SwingUtilities2.setAltGraphMask (
+                                    BasicLookAndFeel.getFocusAcceleratorKeyMask()));
                             removeOnRelease(inputMap, dka, 0);
                         } else {
                             removeOnRelease(inputMap, KeyEvent.VK_ALT, 0);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2023, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2014, 2021, Red Hat Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -23,8 +23,8 @@
  *
  */
 
-#ifndef OS_CPU_LINUX_AARCH64_VM_ATOMIC_LINUX_AARCH64_HPP
-#define OS_CPU_LINUX_AARCH64_VM_ATOMIC_LINUX_AARCH64_HPP
+#ifndef OS_CPU_LINUX_AARCH64_ATOMIC_LINUX_AARCH64_HPP
+#define OS_CPU_LINUX_AARCH64_ATOMIC_LINUX_AARCH64_HPP
 
 #include "atomic_aarch64.hpp"
 #include "runtime/vm_version.hpp"
@@ -33,10 +33,6 @@
 
 // Note that memory_order_conservative requires a full barrier after atomic stores.
 // See https://patchwork.kernel.org/patch/3575821/
-
-#define FULL_MEM_BARRIER  __sync_synchronize()
-#define READ_MEM_BARRIER  __atomic_thread_fence(__ATOMIC_ACQUIRE);
-#define WRITE_MEM_BARRIER __atomic_thread_fence(__ATOMIC_RELEASE);
 
 // Call one of the stubs from C++. This uses the C calling convention,
 // but this asm definition is used in order only to clobber the
@@ -74,41 +70,53 @@ inline D atomic_fastcall(F stub, volatile D *dest, T1 arg1, T2 arg2) {
 }
 
 template<size_t byte_size>
-struct Atomic::PlatformAdd
-  : Atomic::FetchAndAdd<Atomic::PlatformAdd<byte_size> >
-{
-  template<typename I, typename D>
-  D fetch_and_add(I add_value, D volatile* dest, atomic_memory_order order) const;
+struct Atomic::PlatformAdd {
+  template<typename D, typename I>
+  D fetch_then_add(D volatile* dest, I add_value, atomic_memory_order order) const;
+
+  template<typename D, typename I>
+  D add_then_fetch(D volatile* dest, I add_value, atomic_memory_order order) const {
+    D value = fetch_then_add(dest, add_value, order) + add_value;
+    return value;
+  }
 };
 
 template<>
-template<typename I, typename D>
-inline D Atomic::PlatformAdd<4>::fetch_and_add(I add_value,
-                                               D volatile* dest,
-                                               atomic_memory_order order) const {
+template<typename D, typename I>
+inline D Atomic::PlatformAdd<4>::fetch_then_add(D volatile* dest, I add_value,
+                                                atomic_memory_order order) const {
   STATIC_ASSERT(4 == sizeof(I));
   STATIC_ASSERT(4 == sizeof(D));
-  D old_value
-    = atomic_fastcall(aarch64_atomic_fetch_add_4_impl, dest, add_value);
-  return old_value;
+  aarch64_atomic_stub_t stub;
+  switch (order) {
+  case memory_order_relaxed:
+    stub = aarch64_atomic_fetch_add_4_relaxed_impl; break;
+  default:
+    stub = aarch64_atomic_fetch_add_4_impl; break;
+  }
+  return atomic_fastcall(stub, dest, add_value);
 }
 
 template<>
-template<typename I, typename D>
-inline D Atomic::PlatformAdd<8>::fetch_and_add(I add_value,
-                                               D volatile* dest,
-                                               atomic_memory_order order) const {
+template<typename D, typename I>
+inline D Atomic::PlatformAdd<8>::fetch_then_add(D volatile* dest, I add_value,
+                                                atomic_memory_order order) const {
   STATIC_ASSERT(8 == sizeof(I));
   STATIC_ASSERT(8 == sizeof(D));
-  D old_value
-    = atomic_fastcall(aarch64_atomic_fetch_add_8_impl, dest, add_value);
-  return old_value;
+  aarch64_atomic_stub_t stub;
+  switch (order) {
+  case memory_order_relaxed:
+    stub = aarch64_atomic_fetch_add_8_relaxed_impl; break;
+  default:
+    stub = aarch64_atomic_fetch_add_8_impl; break;
+  }
+  return atomic_fastcall(stub, dest, add_value);
 }
 
 template<>
 template<typename T>
-inline T Atomic::PlatformXchg<4>::operator()(T exchange_value,
-                                             T volatile* dest,
+inline T Atomic::PlatformXchg<4>::operator()(T volatile* dest,
+                                             T exchange_value,
                                              atomic_memory_order order) const {
   STATIC_ASSERT(4 == sizeof(T));
   T old_value = atomic_fastcall(aarch64_atomic_xchg_4_impl, dest, exchange_value);
@@ -117,8 +125,7 @@ inline T Atomic::PlatformXchg<4>::operator()(T exchange_value,
 
 template<>
 template<typename T>
-inline T Atomic::PlatformXchg<8>::operator()(T exchange_value,
-                                             T volatile* dest,
+inline T Atomic::PlatformXchg<8>::operator()(T volatile* dest, T exchange_value,
                                              atomic_memory_order order) const {
   STATIC_ASSERT(8 == sizeof(T));
   T old_value = atomic_fastcall(aarch64_atomic_xchg_8_impl, dest, exchange_value);
@@ -127,9 +134,9 @@ inline T Atomic::PlatformXchg<8>::operator()(T exchange_value,
 
 template<>
 template<typename T>
-inline T Atomic::PlatformCmpxchg<1>::operator()(T exchange_value,
-                                                T volatile* dest,
+inline T Atomic::PlatformCmpxchg<1>::operator()(T volatile* dest,
                                                 T compare_value,
+                                                T exchange_value,
                                                 atomic_memory_order order) const {
   STATIC_ASSERT(1 == sizeof(T));
   aarch64_atomic_stub_t stub;
@@ -145,15 +152,20 @@ inline T Atomic::PlatformCmpxchg<1>::operator()(T exchange_value,
 
 template<>
 template<typename T>
-inline T Atomic::PlatformCmpxchg<4>::operator()(T exchange_value,
-                                                T volatile* dest,
+inline T Atomic::PlatformCmpxchg<4>::operator()(T volatile* dest,
                                                 T compare_value,
+                                                T exchange_value,
                                                 atomic_memory_order order) const {
   STATIC_ASSERT(4 == sizeof(T));
   aarch64_atomic_stub_t stub;
   switch (order) {
   case memory_order_relaxed:
     stub = aarch64_atomic_cmpxchg_4_relaxed_impl; break;
+  case memory_order_release:
+    stub = aarch64_atomic_cmpxchg_4_release_impl; break;
+  case memory_order_acq_rel:
+  case memory_order_seq_cst:
+    stub = aarch64_atomic_cmpxchg_4_seq_cst_impl; break;
   default:
     stub = aarch64_atomic_cmpxchg_4_impl; break;
   }
@@ -163,15 +175,20 @@ inline T Atomic::PlatformCmpxchg<4>::operator()(T exchange_value,
 
 template<>
 template<typename T>
-inline T Atomic::PlatformCmpxchg<8>::operator()(T exchange_value,
-                                                T volatile* dest,
+inline T Atomic::PlatformCmpxchg<8>::operator()(T volatile* dest,
                                                 T compare_value,
+                                                T exchange_value,
                                                 atomic_memory_order order) const {
   STATIC_ASSERT(8 == sizeof(T));
   aarch64_atomic_stub_t stub;
   switch (order) {
   case memory_order_relaxed:
     stub = aarch64_atomic_cmpxchg_8_relaxed_impl; break;
+  case memory_order_release:
+    stub = aarch64_atomic_cmpxchg_8_release_impl; break;
+  case memory_order_acq_rel:
+  case memory_order_seq_cst:
+    stub = aarch64_atomic_cmpxchg_8_seq_cst_impl; break;
   default:
     stub = aarch64_atomic_cmpxchg_8_impl; break;
   }
@@ -179,4 +196,25 @@ inline T Atomic::PlatformCmpxchg<8>::operator()(T exchange_value,
   return atomic_fastcall(stub, dest, compare_value, exchange_value);
 }
 
-#endif // OS_CPU_LINUX_AARCH64_VM_ATOMIC_LINUX_AARCH64_HPP
+template<size_t byte_size>
+struct Atomic::PlatformOrderedLoad<byte_size, X_ACQUIRE>
+{
+  template <typename T>
+  T operator()(const volatile T* p) const { T data; __atomic_load(const_cast<T*>(p), &data, __ATOMIC_ACQUIRE); return data; }
+};
+
+template<size_t byte_size>
+struct Atomic::PlatformOrderedStore<byte_size, RELEASE_X>
+{
+  template <typename T>
+  void operator()(volatile T* p, T v) const { __atomic_store(const_cast<T*>(p), &v, __ATOMIC_RELEASE); }
+};
+
+template<size_t byte_size>
+struct Atomic::PlatformOrderedStore<byte_size, RELEASE_X_FENCE>
+{
+  template <typename T>
+  void operator()(volatile T* p, T v) const { release_store(p, v); OrderAccess::fence(); }
+};
+
+#endif // OS_CPU_LINUX_AARCH64_ATOMIC_LINUX_AARCH64_HPP

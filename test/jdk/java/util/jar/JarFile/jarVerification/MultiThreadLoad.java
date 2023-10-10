@@ -21,8 +21,8 @@
  * questions.
  */
 
-import jdk.internal.misc.JavaUtilJarAccess;
-import jdk.internal.misc.SharedSecrets;
+import jdk.internal.access.JavaUtilJarAccess;
+import jdk.internal.access.SharedSecrets;
 
 import java.io.*;
 import java.nio.file.Path;

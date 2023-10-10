@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2016, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -115,8 +115,8 @@ public class GlobalFilterTest {
                 asSetSystemProp);
 
         String pattern =
-               System.getProperty("expected-" + serialPropName,
-                       Security.getProperty(serialPropName));
+                System.getProperty("expected-" + serialPropName,
+                        Security.getProperty(serialPropName));
         System.out.printf("global pattern: %s, filter: %s%n", pattern, filter);
         Assert.assertEquals(Objects.toString(filter, null), pattern,
                 "process-wide filter pattern does not match");
@@ -130,6 +130,7 @@ public class GlobalFilterTest {
      * If there is no security manager then setting it should work.
      */
     @Test()
+    @SuppressWarnings("removal")
     static void setGlobalFilter() {
         SecurityManager sm = System.getSecurityManager();
         ObjectInputFilter filter = new SerialFilterTest.Validator();

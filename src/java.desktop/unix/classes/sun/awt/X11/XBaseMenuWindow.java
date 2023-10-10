@@ -481,8 +481,8 @@ public abstract class XBaseMenuWindow extends XWindow {
     }
 
     /**
-     * returns item thats mapped coordinates contain
-     * specified point, null of none.
+     * returns item which mapped coordinates contain
+     * the specified point, null if none.
      * @param pt the point in this window's coordinate system
      */
     XMenuItemPeer getItemFromPoint(Point pt) {
@@ -654,13 +654,12 @@ public abstract class XBaseMenuWindow extends XWindow {
      *
      ************************************************/
 
-    GraphicsConfiguration getCurrentGraphicsConfiguration() {
+    void updateCurrentGraphicsConfiguration() {
         Component hw = SunToolkit.getHeavyweightComponent(target);
         XWindow peer = AWTAccessor.getComponentAccessor().getPeer(hw);
         if (peer != null && peer.graphicsConfig != null) {
-            return peer.graphicsConfig;
+            graphicsConfig = peer.graphicsConfig;
         }
-        return graphicsConfig;
     }
 
     /**
@@ -887,7 +886,7 @@ public abstract class XBaseMenuWindow extends XWindow {
 
     /************************************************
      *
-     * Overriden utility functions of XWindow
+     * Overridden utility functions of XWindow
      *
      ************************************************/
 
@@ -939,9 +938,9 @@ public abstract class XBaseMenuWindow extends XWindow {
 
     /**
      * Invokes event processing on eventHandlerThread
-     * This function needs to be overriden since
+     * This function needs to be overridden since
      * XBaseMenuWindow has no corresponding component
-     * so events can not be processed using standart means
+     * so events cannot be processed using standard means
      */
     void postEvent(final AWTEvent event) {
         InvocationEvent ev = new InvocationEvent(event.getSource(), new Runnable() {

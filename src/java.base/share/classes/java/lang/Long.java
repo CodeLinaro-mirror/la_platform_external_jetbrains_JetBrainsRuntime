@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,9 +26,16 @@
 package java.lang;
 
 import java.lang.annotation.Native;
+import java.lang.invoke.MethodHandles;
+import java.lang.constant.Constable;
+import java.lang.constant.ConstantDesc;
 import java.math.*;
 import java.util.Objects;
-import jdk.internal.HotSpotIntrinsicCandidate;
+import java.util.Optional;
+
+import jdk.internal.misc.CDS;
+import jdk.internal.vm.annotation.ForceInline;
+import jdk.internal.vm.annotation.IntrinsicCandidate;
 
 import static java.lang.String.COMPACT_STRINGS;
 import static java.lang.String.LATIN1;
@@ -44,6 +51,12 @@ import static java.lang.String.UTF16;
  * long}, as well as other constants and methods useful when dealing
  * with a {@code long}.
  *
+ * <p>This is a <a href="{@docRoot}/java.base/java/lang/doc-files/ValueBased.html">value-based</a>
+ * class; programmers should treat instances that are
+ * {@linkplain #equals(Object) equal} as interchangeable and should not
+ * use instances for synchronization, or unpredictable behavior may
+ * occur. For example, in a future release, synchronization may fail.
+ *
  * <p>Implementation note: The implementations of the "bit twiddling"
  * methods (such as {@link #highestOneBit(long) highestOneBit} and
  * {@link #numberOfTrailingZeros(long) numberOfTrailingZeros}) are
@@ -56,7 +69,9 @@ import static java.lang.String.UTF16;
  * @author  Joseph D. Darcy
  * @since   1.0
  */
-public final class Long extends Number implements Comparable<Long> {
+@jdk.internal.ValueBased
+public final class Long extends Number
+        implements Comparable<Long>, Constable, ConstantDesc {
     /**
      * A constant holding the minimum value a {@code long} can
      * have, -2<sup>63</sup>.
@@ -199,38 +214,27 @@ public final class Long extends Number implements Comparable<Long> {
         if (i >= 0)
             return toString(i, radix);
         else {
-            switch (radix) {
-            case 2:
-                return toBinaryString(i);
-
-            case 4:
-                return toUnsignedString0(i, 2);
-
-            case 8:
-                return toOctalString(i);
-
-            case 10:
-                /*
-                 * We can get the effect of an unsigned division by 10
-                 * on a long value by first shifting right, yielding a
-                 * positive value, and then dividing by 5.  This
-                 * allows the last digit and preceding digits to be
-                 * isolated more quickly than by an initial conversion
-                 * to BigInteger.
-                 */
-                long quot = (i >>> 1) / 5;
-                long rem = i - quot * 10;
-                return toString(quot) + rem;
-
-            case 16:
-                return toHexString(i);
-
-            case 32:
-                return toUnsignedString0(i, 5);
-
-            default:
-                return toUnsignedBigInteger(i).toString(radix);
-            }
+            return switch (radix) {
+                case 2  -> toBinaryString(i);
+                case 4  -> toUnsignedString0(i, 2);
+                case 8  -> toOctalString(i);
+                case 10 -> {
+                    /*
+                     * We can get the effect of an unsigned division by 10
+                     * on a long value by first shifting right, yielding a
+                     * positive value, and then dividing by 5.  This
+                     * allows the last digit and preceding digits to be
+                     * isolated more quickly than by an initial conversion
+                     * to BigInteger.
+                     */
+                    long quot = (i >>> 1) / 5;
+                    long rem = i - quot * 10;
+                    yield toString(quot) + rem;
+                }
+                case 16 -> toHexString(i);
+                case 32 -> toUnsignedString0(i, 5);
+                default -> toUnsignedBigInteger(i).toString(radix);
+            };
         }
     }
 
@@ -286,10 +290,18 @@ public final class Long extends Number implements Comparable<Long> {
      *  {@code Long.toHexString(n).toUpperCase()}
      * </blockquote>
      *
+     * @apiNote
+     * The {@link java.util.HexFormat} class provides formatting and parsing
+     * of byte arrays and primitives to return a string or adding to an {@link Appendable}.
+     * {@code HexFormat} formats and parses uppercase or lowercase hexadecimal characters,
+     * with leading zeros and for byte arrays includes for each byte
+     * a delimiter, prefix, and suffix.
+     *
      * @param   i   a {@code long} to be converted to a string.
      * @return  the string representation of the unsigned {@code long}
      *          value represented by the argument in hexadecimal
      *          (base&nbsp;16).
+     * @see java.util.HexFormat
      * @see #parseUnsignedLong(String, int)
      * @see #toUnsignedString(long, int)
      * @since   1.0.2
@@ -391,19 +403,17 @@ public final class Long extends Number implements Comparable<Long> {
     }
 
     /**
-     * Format a long (treated as unsigned) into a character buffer. If
+     * Format a long (treated as unsigned) into a byte buffer (LATIN1 version). If
      * {@code len} exceeds the formatted ASCII representation of {@code val},
      * {@code buf} will be padded with leading zeroes.
      *
      * @param val the unsigned long to format
      * @param shift the log2 of the base to format in (4 for hex, 3 for octal, 1 for binary)
-     * @param buf the character buffer to write to
+     * @param buf the byte buffer to write to
      * @param offset the offset in the destination buffer to start at
      * @param len the number of characters to write
      */
-
-    /** byte[]/LATIN1 version    */
-    static void formatUnsignedLong0(long val, int shift, byte[] buf, int offset, int len) {
+    private static void formatUnsignedLong0(long val, int shift, byte[] buf, int offset, int len) {
         int charPos = offset + len;
         int radix = 1 << shift;
         int mask = radix - 1;
@@ -413,7 +423,17 @@ public final class Long extends Number implements Comparable<Long> {
         } while (charPos > offset);
     }
 
-    /** byte[]/UTF16 version    */
+    /**
+     * Format a long (treated as unsigned) into a byte buffer (UTF16 version). If
+     * {@code len} exceeds the formatted ASCII representation of {@code val},
+     * {@code buf} will be padded with leading zeroes.
+     *
+     * @param val the unsigned long to format
+     * @param shift the log2 of the base to format in (4 for hex, 3 for octal, 1 for binary)
+     * @param buf the byte buffer to write to
+     * @param offset the offset in the destination buffer to start at
+     * @param len the number of characters to write
+     */
     private static void formatUnsignedLong0UTF16(long val, int shift, byte[] buf, int offset, int len) {
         int charPos = offset + len;
         int radix = 1 << shift;
@@ -546,13 +566,9 @@ public final class Long extends Number implements Comparable<Long> {
         }
 
         // We know there are at most two digits left at this point.
-        q2 = i2 / 10;
-        r  = (q2 * 10) - i2;
-        buf[--charPos] = (byte)('0' + r);
-
-        // Whatever left is the remaining digit.
-        if (q2 < 0) {
-            buf[--charPos] = (byte)('0' - q2);
+        buf[--charPos] = Integer.DigitOnes[-i2];
+        if (i2 < -9) {
+            buf[--charPos] = Integer.DigitTens[-i2];
         }
 
         if (negative) {
@@ -652,7 +668,7 @@ public final class Long extends Number implements Comparable<Long> {
               throws NumberFormatException
     {
         if (s == null) {
-            throw new NumberFormatException("null");
+            throw new NumberFormatException("Cannot parse null string");
         }
 
         if (radix < Character.MIN_RADIX) {
@@ -675,11 +691,11 @@ public final class Long extends Number implements Comparable<Long> {
                     negative = true;
                     limit = Long.MIN_VALUE;
                 } else if (firstChar != '+') {
-                    throw NumberFormatException.forInputString(s);
+                    throw NumberFormatException.forInputString(s, radix);
                 }
 
                 if (len == 1) { // Cannot have lone "+" or "-"
-                    throw NumberFormatException.forInputString(s);
+                    throw NumberFormatException.forInputString(s, radix);
                 }
                 i++;
             }
@@ -689,17 +705,17 @@ public final class Long extends Number implements Comparable<Long> {
                 // Accumulating negatively avoids surprises near MAX_VALUE
                 int digit = Character.digit(s.charAt(i++),radix);
                 if (digit < 0 || result < multmin) {
-                    throw NumberFormatException.forInputString(s);
+                    throw NumberFormatException.forInputString(s, radix);
                 }
                 result *= radix;
                 if (result < limit + digit) {
-                    throw NumberFormatException.forInputString(s);
+                    throw NumberFormatException.forInputString(s, radix);
                 }
                 result -= digit;
             }
             return negative ? result : -result;
         } else {
-            throw NumberFormatException.forInputString(s);
+            throw NumberFormatException.forInputString(s, radix);
         }
     }
 
@@ -724,7 +740,7 @@ public final class Long extends Number implements Comparable<Long> {
      *             {@code endIndex} or if {@code endIndex} is greater than
      *             {@code s.length()}.
      * @throws     NumberFormatException  if the {@code CharSequence} does not
-     *             contain a parsable {@code int} in the specified
+     *             contain a parsable {@code long} in the specified
      *             {@code radix}, or if {@code radix} is either smaller than
      *             {@link java.lang.Character#MIN_RADIX} or larger than
      *             {@link java.lang.Character#MAX_RADIX}.
@@ -732,11 +748,9 @@ public final class Long extends Number implements Comparable<Long> {
      */
     public static long parseLong(CharSequence s, int beginIndex, int endIndex, int radix)
                 throws NumberFormatException {
-        s = Objects.requireNonNull(s);
+        Objects.requireNonNull(s);
+        Objects.checkFromToIndex(beginIndex, endIndex, s.length());
 
-        if (beginIndex < 0 || beginIndex > endIndex || endIndex > s.length()) {
-            throw new IndexOutOfBoundsException();
-        }
         if (radix < Character.MIN_RADIX) {
             throw new NumberFormatException("radix " + radix +
                     " less than Character.MIN_RADIX");
@@ -863,7 +877,7 @@ public final class Long extends Number implements Comparable<Long> {
     public static long parseUnsignedLong(String s, int radix)
                 throws NumberFormatException {
         if (s == null)  {
-            throw new NumberFormatException("null");
+            throw new NumberFormatException("Cannot parse null string");
         }
 
         int len = s.length();
@@ -945,7 +959,7 @@ public final class Long extends Number implements Comparable<Long> {
                 return result;
             }
         } else {
-            throw NumberFormatException.forInputString(s);
+            throw NumberFormatException.forInputString(s, radix);
         }
     }
 
@@ -978,11 +992,9 @@ public final class Long extends Number implements Comparable<Long> {
      */
     public static long parseUnsignedLong(CharSequence s, int beginIndex, int endIndex, int radix)
                 throws NumberFormatException {
-        s = Objects.requireNonNull(s);
+        Objects.requireNonNull(s);
+        Objects.checkFromToIndex(beginIndex, endIndex, s.length());
 
-        if (beginIndex < 0 || beginIndex > endIndex || endIndex > s.length()) {
-            throw new IndexOutOfBoundsException();
-        }
         int start = beginIndex, len = endIndex - beginIndex;
 
         if (len > 0) {
@@ -1063,7 +1075,7 @@ public final class Long extends Number implements Comparable<Long> {
                 return result;
             }
         } else {
-            throw NumberFormatException.forInputString("");
+            throw NumberFormatException.forInputString("", radix);
         }
     }
 
@@ -1102,7 +1114,7 @@ public final class Long extends Number implements Comparable<Long> {
      * to the value of:
      *
      * <blockquote>
-     *  {@code new Long(Long.parseLong(s, radix))}
+     *  {@code Long.valueOf(Long.parseLong(s, radix))}
      * </blockquote>
      *
      * @param      s       the string to be parsed
@@ -1130,7 +1142,7 @@ public final class Long extends Number implements Comparable<Long> {
      * equal to the value of:
      *
      * <blockquote>
-     *  {@code new Long(Long.parseLong(s))}
+     *  {@code Long.valueOf(Long.parseLong(s))}
      * </blockquote>
      *
      * @param      s   the string to be parsed.
@@ -1145,13 +1157,25 @@ public final class Long extends Number implements Comparable<Long> {
     }
 
     private static class LongCache {
-        private LongCache(){}
+        private LongCache() {}
 
-        static final Long cache[] = new Long[-(-128) + 127 + 1];
+        static final Long[] cache;
+        static Long[] archivedCache;
 
         static {
-            for(int i = 0; i < cache.length; i++)
-                cache[i] = new Long(i - 128);
+            int size = -(-128) + 127 + 1;
+
+            // Load and use the archived cache if it exists
+            CDS.initializeFromArchive(LongCache.class);
+            if (archivedCache == null || archivedCache.length != size) {
+                Long[] c = new Long[size];
+                long value = -128;
+                for(int i = 0; i < size; i++) {
+                    c[i] = new Long(value++);
+                }
+                archivedCache = c;
+            }
+            cache = archivedCache;
         }
     }
 
@@ -1171,7 +1195,7 @@ public final class Long extends Number implements Comparable<Long> {
      * @return a {@code Long} instance representing {@code l}.
      * @since  1.5
      */
-    @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     public static Long valueOf(long l) {
         final int offset = 128;
         if (l >= -128 && l <= 127) { // will cache
@@ -1201,8 +1225,8 @@ public final class Long extends Number implements Comparable<Long> {
      * </blockquote>
      *
      * <i>DecimalNumeral</i>, <i>HexDigits</i>, and <i>OctalDigits</i>
-     * are as defined in section 3.10.1 of
-     * <cite>The Java&trade; Language Specification</cite>,
+     * are as defined in section {@jls 3.10.1} of
+     * <cite>The Java Language Specification</cite>,
      * except that underscores are not accepted between digits.
      *
      * <p>The sequence of characters following an optional
@@ -1227,7 +1251,7 @@ public final class Long extends Number implements Comparable<Long> {
         int radix = 10;
         int index = 0;
         boolean negative = false;
-        Long result;
+        long result;
 
         if (nm.isEmpty())
             throw new NumberFormatException("Zero length string");
@@ -1257,15 +1281,15 @@ public final class Long extends Number implements Comparable<Long> {
             throw new NumberFormatException("Sign character in wrong position");
 
         try {
-            result = Long.valueOf(nm.substring(index), radix);
-            result = negative ? Long.valueOf(-result.longValue()) : result;
+            result = parseLong(nm, index, nm.length(), radix);
+            result = negative ? -result : result;
         } catch (NumberFormatException e) {
             // If number is Long.MIN_VALUE, we'll end up here. The next line
             // handles this case, and causes any genuine format error to be
             // rethrown.
             String constant = negative ? ("-" + nm.substring(index))
                                        : nm.substring(index);
-            result = Long.valueOf(constant, radix);
+            result = parseLong(constant, radix);
         }
         return result;
     }
@@ -1289,7 +1313,7 @@ public final class Long extends Number implements Comparable<Long> {
      * {@link #valueOf(long)} is generally a better choice, as it is
      * likely to yield significantly better space and time performance.
      */
-    @Deprecated(since="9")
+    @Deprecated(since="9", forRemoval = true)
     public Long(long value) {
         this.value = value;
     }
@@ -1312,7 +1336,7 @@ public final class Long extends Number implements Comparable<Long> {
      * {@code long} primitive, or use {@link #valueOf(String)}
      * to convert a string to a {@code Long} object.
      */
-    @Deprecated(since="9")
+    @Deprecated(since="9", forRemoval = true)
     public Long(String s) throws NumberFormatException {
         this.value = parseLong(s, 10);
     }
@@ -1320,7 +1344,7 @@ public final class Long extends Number implements Comparable<Long> {
     /**
      * Returns the value of this {@code Long} as a {@code byte} after
      * a narrowing primitive conversion.
-     * @jls 5.1.3 Narrowing Primitive Conversions
+     * @jls 5.1.3 Narrowing Primitive Conversion
      */
     public byte byteValue() {
         return (byte)value;
@@ -1329,7 +1353,7 @@ public final class Long extends Number implements Comparable<Long> {
     /**
      * Returns the value of this {@code Long} as a {@code short} after
      * a narrowing primitive conversion.
-     * @jls 5.1.3 Narrowing Primitive Conversions
+     * @jls 5.1.3 Narrowing Primitive Conversion
      */
     public short shortValue() {
         return (short)value;
@@ -1338,7 +1362,7 @@ public final class Long extends Number implements Comparable<Long> {
     /**
      * Returns the value of this {@code Long} as an {@code int} after
      * a narrowing primitive conversion.
-     * @jls 5.1.3 Narrowing Primitive Conversions
+     * @jls 5.1.3 Narrowing Primitive Conversion
      */
     public int intValue() {
         return (int)value;
@@ -1348,7 +1372,7 @@ public final class Long extends Number implements Comparable<Long> {
      * Returns the value of this {@code Long} as a
      * {@code long} value.
      */
-    @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     public long longValue() {
         return value;
     }
@@ -1356,7 +1380,7 @@ public final class Long extends Number implements Comparable<Long> {
     /**
      * Returns the value of this {@code Long} as a {@code float} after
      * a widening primitive conversion.
-     * @jls 5.1.2 Widening Primitive Conversions
+     * @jls 5.1.2 Widening Primitive Conversion
      */
     public float floatValue() {
         return (float)value;
@@ -1365,7 +1389,7 @@ public final class Long extends Number implements Comparable<Long> {
     /**
      * Returns the value of this {@code Long} as a {@code double}
      * after a widening primitive conversion.
-     * @jls 5.1.2 Widening Primitive Conversions
+     * @jls 5.1.2 Widening Primitive Conversion
      */
     public double doubleValue() {
         return (double)value;
@@ -1485,14 +1509,14 @@ public final class Long extends Number implements Comparable<Long> {
      * to the value of:
      *
      * <blockquote>
-     *  {@code getLong(nm, new Long(val))}
+     *  {@code getLong(nm, Long.valueOf(val))}
      * </blockquote>
      *
      * but in practice it may be implemented in a manner such as:
      *
      * <blockquote><pre>
      * Long result = getLong(nm, null);
-     * return (result == null) ? new Long(val) : result;
+     * return (result == null) ? Long.valueOf(val) : result;
      * </pre></blockquote>
      *
      * to avoid the unnecessary allocation of a {@code Long} object when
@@ -1617,6 +1641,7 @@ public final class Long extends Number implements Comparable<Long> {
      *         unsigned values
      * @since 1.8
      */
+    @IntrinsicCandidate
     public static int compareUnsigned(long x, long y) {
         return compare(x + MIN_VALUE, y + MIN_VALUE);
     }
@@ -1640,25 +1665,15 @@ public final class Long extends Number implements Comparable<Long> {
      * @see #remainderUnsigned
      * @since 1.8
      */
+    @IntrinsicCandidate
     public static long divideUnsigned(long dividend, long divisor) {
-        if (divisor < 0L) { // signed comparison
-            // Answer must be 0 or 1 depending on relative magnitude
-            // of dividend and divisor.
-            return (compareUnsigned(dividend, divisor)) < 0 ? 0L :1L;
+        /* See Hacker's Delight (2nd ed), section 9.3 */
+        if (divisor >= 0) {
+            final long q = (dividend >>> 1) / divisor << 1;
+            final long r = dividend - q * divisor;
+            return q + ((r | ~(r - divisor)) >>> (Long.SIZE - 1));
         }
-
-        if (dividend > 0) //  Both inputs non-negative
-            return dividend/divisor;
-        else {
-            /*
-             * For simple code, leveraging BigInteger.  Longer and faster
-             * code written directly in terms of operations on longs is
-             * possible; see "Hacker's Delight" for divide and remainder
-             * algorithms.
-             */
-            return toUnsignedBigInteger(dividend).
-                divide(toUnsignedBigInteger(divisor)).longValue();
-        }
+        return (dividend & ~(dividend - divisor)) >>> (Long.SIZE - 1);
     }
 
     /**
@@ -1673,16 +1688,35 @@ public final class Long extends Number implements Comparable<Long> {
      * @see #divideUnsigned
      * @since 1.8
      */
+    @IntrinsicCandidate
     public static long remainderUnsigned(long dividend, long divisor) {
-        if (dividend > 0 && divisor > 0) { // signed comparisons
-            return dividend % divisor;
-        } else {
-            if (compareUnsigned(dividend, divisor) < 0) // Avoid explicit check for 0 divisor
-                return dividend;
-            else
-                return toUnsignedBigInteger(dividend).
-                    remainder(toUnsignedBigInteger(divisor)).longValue();
+        /* See Hacker's Delight (2nd ed), section 9.3 */
+        if (divisor >= 0) {
+            final long q = (dividend >>> 1) / divisor << 1;
+            final long r = dividend - q * divisor;
+            /*
+             * Here, 0 <= r < 2 * divisor
+             * (1) When 0 <= r < divisor, the remainder is simply r.
+             * (2) Otherwise the remainder is r - divisor.
+             *
+             * In case (1), r - divisor < 0. Applying ~ produces a long with
+             * sign bit 0, so >> produces 0. The returned value is thus r.
+             *
+             * In case (2), a similar reasoning shows that >> produces -1,
+             * so the returned value is r - divisor.
+             */
+            return r - ((~(r - divisor) >> (Long.SIZE - 1)) & divisor);
         }
+        /*
+         * (1) When dividend >= 0, the remainder is dividend.
+         * (2) Otherwise
+         *      (2.1) When dividend < divisor, the remainder is dividend.
+         *      (2.2) Otherwise the remainder is dividend - divisor
+         *
+         * A reasoning similar to the above shows that the returned value
+         * is as expected.
+         */
+        return dividend - (((dividend & ~(dividend - divisor)) >> (Long.SIZE - 1)) & divisor);
     }
 
     // Bit Twiddling
@@ -1759,7 +1793,7 @@ public final class Long extends Number implements Comparable<Long> {
      *     is equal to zero.
      * @since 1.5
      */
-    @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     public static int numberOfLeadingZeros(long i) {
         int x = (int)(i >>> 32);
         return x == 0 ? 32 + Integer.numberOfLeadingZeros((int)i)
@@ -1780,18 +1814,11 @@ public final class Long extends Number implements Comparable<Long> {
      *     to zero.
      * @since 1.5
      */
-    @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     public static int numberOfTrailingZeros(long i) {
-        // HD, Figure 5-14
-        int x, y;
-        if (i == 0) return 64;
-        int n = 63;
-        y = (int)i; if (y != 0) { n = n -32; x = y; } else x = (int)(i>>>32);
-        y = x <<16; if (y != 0) { n = n -16; x = y; }
-        y = x << 8; if (y != 0) { n = n - 8; x = y; }
-        y = x << 4; if (y != 0) { n = n - 4; x = y; }
-        y = x << 2; if (y != 0) { n = n - 2; x = y; }
-        return n - ((x << 1) >>> 31);
+        int x = (int)i;
+        return x == 0 ? 32 + Integer.numberOfTrailingZeros((int)(i >>> 32))
+                : Integer.numberOfTrailingZeros(x);
     }
 
     /**
@@ -1804,7 +1831,7 @@ public final class Long extends Number implements Comparable<Long> {
      *     representation of the specified {@code long} value.
      * @since 1.5
      */
-     @HotSpotIntrinsicCandidate
+     @IntrinsicCandidate
      public static int bitCount(long i) {
         // HD, Figure 5-2
         i = i - ((i >>> 1) & 0x5555555555555555L);
@@ -1874,6 +1901,7 @@ public final class Long extends Number implements Comparable<Long> {
      *     specified {@code long} value.
      * @since 1.5
      */
+    @IntrinsicCandidate
     public static long reverse(long i) {
         // HD, Figure 7-1
         i = (i & 0x5555555555555555L) << 1 | (i >>> 1) & 0x5555555555555555L;
@@ -1881,6 +1909,236 @@ public final class Long extends Number implements Comparable<Long> {
         i = (i & 0x0f0f0f0f0f0f0f0fL) << 4 | (i >>> 4) & 0x0f0f0f0f0f0f0f0fL;
 
         return reverseBytes(i);
+    }
+
+    /**
+     * Returns the value obtained by compressing the bits of the
+     * specified {@code long} value, {@code i}, in accordance with
+     * the specified bit mask.
+     * <p>
+     * For each one-bit value {@code mb} of the mask, from least
+     * significant to most significant, the bit value of {@code i} at
+     * the same bit location as {@code mb} is assigned to the compressed
+     * value contiguously starting from the least significant bit location.
+     * All the upper remaining bits of the compressed value are set
+     * to zero.
+     *
+     * @apiNote
+     * Consider the simple case of compressing the digits of a hexadecimal
+     * value:
+     * {@snippet lang="java" :
+     * // Compressing drink to food
+     * compress(0xCAFEBABEL, 0xFF00FFF0L) == 0xCABABL
+     * }
+     * Starting from the least significant hexadecimal digit at position 0
+     * from the right, the mask {@code 0xFF00FFF0} selects hexadecimal digits
+     * at positions 1, 2, 3, 6 and 7 of {@code 0xCAFEBABE}. The selected digits
+     * occur in the resulting compressed value contiguously from digit position
+     * 0 in the same order.
+     * <p>
+     * The following identities all return {@code true} and are helpful to
+     * understand the behaviour of {@code compress}:
+     * {@snippet lang="java" :
+     * // Returns 1 if the bit at position n is one
+     * compress(x, 1L << n) == (x >> n & 1)
+     *
+     * // Logical shift right
+     * compress(x, -1L << n) == x >>> n
+     *
+     * // Any bits not covered by the mask are ignored
+     * compress(x, m) == compress(x & m, m)
+     *
+     * // Compressing a value by itself
+     * compress(m, m) == (m == -1 || m == 0) ? m : (1L << bitCount(m)) - 1
+     *
+     * // Expanding then compressing with the same mask
+     * compress(expand(x, m), m) == x & compress(m, m)
+     * }
+     * <p>
+     * The Sheep And Goats (SAG) operation (see Hacker's Delight, section 7.7)
+     * can be implemented as follows:
+     * {@snippet lang="java" :
+     * long compressLeft(long i, long mask) {
+     *     // This implementation follows the description in Hacker's Delight which
+     *     // is informative. A more optimal implementation is:
+     *     //   Long.compress(i, mask) << -Long.bitCount(mask)
+     *     return Long.reverse(
+     *         Long.compress(Long.reverse(i), Long.reverse(mask)));
+     * }
+     *
+     * long sag(long i, long mask) {
+     *     return compressLeft(i, mask) | Long.compress(i, ~mask);
+     * }
+     *
+     * // Separate the sheep from the goats
+     * sag(0x00000000_CAFEBABEL, 0xFFFFFFFF_FF00FFF0L) == 0x00000000_CABABFEEL
+     * }
+     *
+     * @param i the value whose bits are to be compressed
+     * @param mask the bit mask
+     * @return the compressed value
+     * @see #expand
+     * @since 19
+     */
+    @IntrinsicCandidate
+    public static long compress(long i, long mask) {
+        // See Hacker's Delight (2nd ed) section 7.4 Compress, or Generalized Extract
+
+        i = i & mask; // Clear irrelevant bits
+        long maskCount = ~mask << 1; // Count 0's to right
+
+        for (int j = 0; j < 6; j++) {
+            // Parallel prefix
+            // Mask prefix identifies bits of the mask that have an odd number of 0's to the right
+            long maskPrefix = parallelSuffix(maskCount);
+            // Bits to move
+            long maskMove = maskPrefix & mask;
+            // Compress mask
+            mask = (mask ^ maskMove) | (maskMove >>> (1 << j));
+            // Bits of i to be moved
+            long t = i & maskMove;
+            // Compress i
+            i = (i ^ t) | (t >>> (1 << j));
+            // Adjust the mask count by identifying bits that have 0 to the right
+            maskCount = maskCount & ~maskPrefix;
+        }
+        return i;
+    }
+
+    /**
+     * Returns the value obtained by expanding the bits of the
+     * specified {@code long} value, {@code i}, in accordance with
+     * the specified bit mask.
+     * <p>
+     * For each one-bit value {@code mb} of the mask, from least
+     * significant to most significant, the next contiguous bit value
+     * of {@code i} starting at the least significant bit is assigned
+     * to the expanded value at the same bit location as {@code mb}.
+     * All other remaining bits of the expanded value are set to zero.
+     *
+     * @apiNote
+     * Consider the simple case of expanding the digits of a hexadecimal
+     * value:
+     * {@snippet lang="java" :
+     * expand(0x0000CABABL, 0xFF00FFF0L) == 0xCA00BAB0L
+     * }
+     * Starting from the least significant hexadecimal digit at position 0
+     * from the right, the mask {@code 0xFF00FFF0} selects the first five
+     * hexadecimal digits of {@code 0x0000CABAB}. The selected digits occur
+     * in the resulting expanded value in order at positions 1, 2, 3, 6, and 7.
+     * <p>
+     * The following identities all return {@code true} and are helpful to
+     * understand the behaviour of {@code expand}:
+     * {@snippet lang="java" :
+     * // Logically shift right the bit at position 0
+     * expand(x, 1L << n) == (x & 1) << n
+     *
+     * // Logically shift right
+     * expand(x, -1L << n) == x << n
+     *
+     * // Expanding all bits returns the mask
+     * expand(-1L, m) == m
+     *
+     * // Any bits not covered by the mask are ignored
+     * expand(x, m) == expand(x, m) & m
+     *
+     * // Compressing then expanding with the same mask
+     * expand(compress(x, m), m) == x & m
+     * }
+     * <p>
+     * The select operation for determining the position of the one-bit with
+     * index {@code n} in a {@code long} value can be implemented as follows:
+     * {@snippet lang="java" :
+     * long select(long i, long n) {
+     *     // the one-bit in i (the mask) with index n
+     *     long nthBit = Long.expand(1L << n, i);
+     *     // the bit position of the one-bit with index n
+     *     return Long.numberOfTrailingZeros(nthBit);
+     * }
+     *
+     * // The one-bit with index 0 is at bit position 1
+     * select(0b10101010_10101010, 0) == 1
+     * // The one-bit with index 3 is at bit position 7
+     * select(0b10101010_10101010, 3) == 7
+     * }
+     *
+     * @param i the value whose bits are to be expanded
+     * @param mask the bit mask
+     * @return the expanded value
+     * @see #compress
+     * @since 19
+     */
+    @IntrinsicCandidate
+    public static long expand(long i, long mask) {
+        // Save original mask
+        long originalMask = mask;
+        // Count 0's to right
+        long maskCount = ~mask << 1;
+        long maskPrefix = parallelSuffix(maskCount);
+        // Bits to move
+        long maskMove1 = maskPrefix & mask;
+        // Compress mask
+        mask = (mask ^ maskMove1) | (maskMove1 >>> (1 << 0));
+        maskCount = maskCount & ~maskPrefix;
+
+        maskPrefix = parallelSuffix(maskCount);
+        // Bits to move
+        long maskMove2 = maskPrefix & mask;
+        // Compress mask
+        mask = (mask ^ maskMove2) | (maskMove2 >>> (1 << 1));
+        maskCount = maskCount & ~maskPrefix;
+
+        maskPrefix = parallelSuffix(maskCount);
+        // Bits to move
+        long maskMove3 = maskPrefix & mask;
+        // Compress mask
+        mask = (mask ^ maskMove3) | (maskMove3 >>> (1 << 2));
+        maskCount = maskCount & ~maskPrefix;
+
+        maskPrefix = parallelSuffix(maskCount);
+        // Bits to move
+        long maskMove4 = maskPrefix & mask;
+        // Compress mask
+        mask = (mask ^ maskMove4) | (maskMove4 >>> (1 << 3));
+        maskCount = maskCount & ~maskPrefix;
+
+        maskPrefix = parallelSuffix(maskCount);
+        // Bits to move
+        long maskMove5 = maskPrefix & mask;
+        // Compress mask
+        mask = (mask ^ maskMove5) | (maskMove5 >>> (1 << 4));
+        maskCount = maskCount & ~maskPrefix;
+
+        maskPrefix = parallelSuffix(maskCount);
+        // Bits to move
+        long maskMove6 = maskPrefix & mask;
+
+        long t = i << (1 << 5);
+        i = (i & ~maskMove6) | (t & maskMove6);
+        t = i << (1 << 4);
+        i = (i & ~maskMove5) | (t & maskMove5);
+        t = i << (1 << 3);
+        i = (i & ~maskMove4) | (t & maskMove4);
+        t = i << (1 << 2);
+        i = (i & ~maskMove3) | (t & maskMove3);
+        t = i << (1 << 1);
+        i = (i & ~maskMove2) | (t & maskMove2);
+        t = i << (1 << 0);
+        i = (i & ~maskMove1) | (t & maskMove1);
+
+        // Clear irrelevant bits
+        return i & originalMask;
+    }
+
+    @ForceInline
+    private static long parallelSuffix(long maskCount) {
+        long maskPrefix = maskCount ^ (maskCount << 1);
+        maskPrefix = maskPrefix ^ (maskPrefix << 2);
+        maskPrefix = maskPrefix ^ (maskPrefix << 4);
+        maskPrefix = maskPrefix ^ (maskPrefix << 8);
+        maskPrefix = maskPrefix ^ (maskPrefix << 16);
+        maskPrefix = maskPrefix ^ (maskPrefix << 32);
+        return maskPrefix;
     }
 
     /**
@@ -1906,7 +2164,7 @@ public final class Long extends Number implements Comparable<Long> {
      *     {@code long} value.
      * @since 1.5
      */
-    @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     public static long reverseBytes(long i) {
         i = (i & 0x00ff00ff00ff00ffL) << 8 | (i >>> 8) & 0x00ff00ff00ff00ffL;
         return (i << 48) | ((i & 0xffff0000L) << 16) |
@@ -1954,6 +2212,32 @@ public final class Long extends Number implements Comparable<Long> {
         return Math.min(a, b);
     }
 
+    /**
+     * Returns an {@link Optional} containing the nominal descriptor for this
+     * instance, which is the instance itself.
+     *
+     * @return an {@link Optional} describing the {@linkplain Long} instance
+     * @since 12
+     */
+    @Override
+    public Optional<Long> describeConstable() {
+        return Optional.of(this);
+    }
+
+    /**
+     * Resolves this instance as a {@link ConstantDesc}, the result of which is
+     * the instance itself.
+     *
+     * @param lookup ignored
+     * @return the {@linkplain Long} instance
+     * @since 12
+     */
+    @Override
+    public Long resolveConstantDesc(MethodHandles.Lookup lookup) {
+        return this;
+    }
+
     /** use serialVersionUID from JDK 1.0.2 for interoperability */
+    @java.io.Serial
     @Native private static final long serialVersionUID = 4290774380558885855L;
 }

@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2015, 2018, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2015, 2019, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -21,11 +22,12 @@
  *
  */
 
-#ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGION_INLINE_HPP
-#define SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGION_INLINE_HPP
+#ifndef SHARE_GC_SHENANDOAH_SHENANDOAHHEAPREGION_INLINE_HPP
+#define SHARE_GC_SHENANDOAH_SHENANDOAHHEAPREGION_INLINE_HPP
+
+#include "gc/shenandoah/shenandoahHeapRegion.hpp"
 
 #include "gc/shenandoah/shenandoahHeap.inline.hpp"
-#include "gc/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc/shenandoah/shenandoahPacer.inline.hpp"
 #include "runtime/atomic.hpp"
 
@@ -46,7 +48,7 @@ HeapWord* ShenandoahHeapRegion::allocate(size_t size, ShenandoahAllocRequest::Ty
 
     return obj;
   } else {
-    return NULL;
+    return nullptr;
   }
 }
 
@@ -79,7 +81,7 @@ inline void ShenandoahHeapRegion::increase_live_data_gc_words(size_t s) {
 }
 
 inline void ShenandoahHeapRegion::internal_increase_live_data(size_t s) {
-  size_t new_live_data = Atomic::add(s, &_live_data);
+  size_t new_live_data = Atomic::add(&_live_data, s, memory_order_relaxed);
 #ifdef ASSERT
   size_t live_bytes = new_live_data * HeapWordSize;
   size_t used_bytes = used();
@@ -89,11 +91,11 @@ inline void ShenandoahHeapRegion::internal_increase_live_data(size_t s) {
 }
 
 inline void ShenandoahHeapRegion::clear_live_data() {
-  OrderAccess::release_store_fence<size_t>(&_live_data, 0);
+  Atomic::store(&_live_data, (size_t)0);
 }
 
 inline size_t ShenandoahHeapRegion::get_live_data_words() const {
-  return OrderAccess::load_acquire(&_live_data);
+  return Atomic::load(&_live_data);
 }
 
 inline size_t ShenandoahHeapRegion::get_live_data_bytes() const {
@@ -114,14 +116,14 @@ inline size_t ShenandoahHeapRegion::garbage() const {
 }
 
 inline HeapWord* ShenandoahHeapRegion::get_update_watermark() const {
-  HeapWord* watermark = OrderAccess::load_acquire(&_update_watermark);
+  HeapWord* watermark = Atomic::load_acquire(&_update_watermark);
   assert(bottom() <= watermark && watermark <= top(), "within bounds");
   return watermark;
 }
 
 inline void ShenandoahHeapRegion::set_update_watermark(HeapWord* w) {
   assert(bottom() <= w && w <= top(), "within bounds");
-  OrderAccess::release_store(&_update_watermark, w);
+  Atomic::release_store(&_update_watermark, w);
 }
 
 // Fast version that avoids synchronization, only to be used at safepoints.
@@ -131,4 +133,4 @@ inline void ShenandoahHeapRegion::set_update_watermark_at_safepoint(HeapWord* w)
   _update_watermark = w;
 }
 
-#endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGION_INLINE_HPP
+#endif // SHARE_GC_SHENANDOAH_SHENANDOAHHEAPREGION_INLINE_HPP

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,7 +24,6 @@
  */
 package sun.awt;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.awt.event.KeyEvent;
@@ -32,33 +31,32 @@ import java.awt.event.KeyEvent;
 public class ExtendedKeyCodes {
     /**
      * ATTN: These are the readonly hashes with load factor == 1;
-     * adding a value, please set the inital capacity to exact number of items
+     * adding a value, please set the initial capacity to exact number of items
      * or higher.
      */
      // Keycodes declared in KeyEvent.java with corresponding Unicode values.
-     private static final HashMap<Integer, Integer>  regularKeyCodesMap =
-                                          new HashMap<Integer,Integer>(98, 1.0f);
+     private static final HashMap<Integer, Integer> regularKeyCodesMap =
+                                          new HashMap<>(98, 1.0f);
 
      // Keycodes derived from Unicode values. Here should be collected codes
      // for characters appearing on the primary layer of at least one
      // known keyboard layout. For instance, sterling sign is on the primary layer
      // of the Mac Italian layout.
      private static final HashSet<Integer> extendedKeyCodesSet =
-                                                  new HashSet<Integer>(501, 1.0f);
-     public static final int getExtendedKeyCodeForChar( int c ) {
+                                                  new HashSet<>(510, 1.0f);
+     public static int getExtendedKeyCodeForChar( int c ) {
          int uc = Character.toUpperCase( c );
-         int lc = Character.toLowerCase( c );
-         if (regularKeyCodesMap.containsKey( c )) {
-             if(regularKeyCodesMap.containsKey(uc)) {
-                 return regularKeyCodesMap.get( uc );
-             }
-             return regularKeyCodesMap.get( c );
+         Integer regularKeyCode = regularKeyCodesMap.get(c);
+         if (regularKeyCode != null) {
+             return regularKeyCodesMap.getOrDefault(uc, regularKeyCode);
          }
          uc += 0x01000000;
-         lc += 0x01000000;
          if (extendedKeyCodesSet.contains( uc )) {
              return uc;
-         }else if (extendedKeyCodesSet.contains( lc )) {
+         }
+         int lc = Character.toLowerCase( c );
+         lc += 0x01000000;
+         if (extendedKeyCodesSet.contains( lc )) {
              return lc;
          }
          return KeyEvent.VK_UNDEFINED;
@@ -162,50 +160,6 @@ public class ExtendedKeyCodes {
          regularKeyCodesMap.put(0x7D, KeyEvent.VK_BRACERIGHT);
          regularKeyCodesMap.put(0x7F, KeyEvent.VK_DELETE);
          regularKeyCodesMap.put(0xA1, KeyEvent.VK_INVERTED_EXCLAMATION_MARK);
-
-
-         regularKeyCodesMap.put(0xF701, KeyEvent.VK_DOWN);    // NSDownArrowFunctionKey
-         regularKeyCodesMap.put(0xF702, KeyEvent.VK_LEFT);    // NSLeftArrowFunctionKey
-         regularKeyCodesMap.put(0xF703, KeyEvent.VK_RIGHT);   // NSRightArrowFunctionKey
-         regularKeyCodesMap.put(0xF704, KeyEvent.VK_F1);      // NSF1FunctionKey
-         regularKeyCodesMap.put(0xF705, KeyEvent.VK_F2);      // NSF2FunctionKey
-         regularKeyCodesMap.put(0xF706, KeyEvent.VK_F3);      // NSF3FunctionKey
-         regularKeyCodesMap.put(0xF707, KeyEvent.VK_F4);      // NSF4FunctionKey
-         regularKeyCodesMap.put(0xF708, KeyEvent.VK_F5);      // NSF5FunctionKey
-         regularKeyCodesMap.put(0xF709, KeyEvent.VK_F6);      // NSF6FunctionKey
-         regularKeyCodesMap.put(0xF70A, KeyEvent.VK_F7);      // NSF7FunctionKey
-         regularKeyCodesMap.put(0xF70B, KeyEvent.VK_F8);      // NSF8FunctionKey
-         regularKeyCodesMap.put(0xF70C, KeyEvent.VK_F9);      // NSF9FunctionKey
-         regularKeyCodesMap.put(0xF70D, KeyEvent.VK_F10);     // NSF10FunctionKey
-         regularKeyCodesMap.put(0xF70E, KeyEvent.VK_F11);     // NSF11FunctionKey
-         regularKeyCodesMap.put(0xF70F, KeyEvent.VK_F12);     // NSF12FunctionKey
-         regularKeyCodesMap.put(0xF710, KeyEvent.VK_F13);     // NSF13FunctionKey
-         regularKeyCodesMap.put(0xF711, KeyEvent.VK_F14);     // NSF14FunctionKey
-         regularKeyCodesMap.put(0xF712, KeyEvent.VK_F15);     // NSF15FunctionKey
-         regularKeyCodesMap.put(0xF713, KeyEvent.VK_F16);     // NSF16FunctionKey
-         regularKeyCodesMap.put(0xF714, KeyEvent.VK_F17);     // NSF17FunctionKey
-         regularKeyCodesMap.put(0xF715, KeyEvent.VK_F18);     // NSF18FunctionKey
-         regularKeyCodesMap.put(0xF716, KeyEvent.VK_F19);     // NSF19FunctionKey
-         regularKeyCodesMap.put(0xF717, KeyEvent.VK_F20);     // NSF20FunctionKey
-         regularKeyCodesMap.put(0xF718, KeyEvent.VK_F21);     // NSF21FunctionKey
-         regularKeyCodesMap.put(0xF719, KeyEvent.VK_F22);     // NSF22FunctionKey
-         regularKeyCodesMap.put(0xF71A, KeyEvent.VK_F23);     // NSF23FunctionKey
-         regularKeyCodesMap.put(0xF71B, KeyEvent.VK_F24);     // NSF24FunctionKey
-         regularKeyCodesMap.put(0xF727, KeyEvent.VK_INSERT);    // NSInsertFunctionKey
-         regularKeyCodesMap.put(0xF728, KeyEvent.VK_DELETE);    // NSDeleteFunctionKey
-         regularKeyCodesMap.put(0xF729, KeyEvent.VK_HOME);    // NSHomeFunctionKey
-         regularKeyCodesMap.put(0xF72A, KeyEvent.VK_BEGIN);    // NSBeginFunctionKey
-         regularKeyCodesMap.put(0xF72B, KeyEvent.VK_END);    // NSEndFunctionKey
-         regularKeyCodesMap.put(0xF72C, KeyEvent.VK_PAGE_UP);    // NSPageUpFunctionKey
-         regularKeyCodesMap.put(0xF72D, KeyEvent.VK_PAGE_DOWN);    // NSPageDownFunctionKey
-         regularKeyCodesMap.put(0xF72E, KeyEvent.VK_PRINTSCREEN);    // NSPrintScreenFunctionKey
-         regularKeyCodesMap.put(0xF72F, KeyEvent.VK_SCROLL_LOCK);    // NSScrollLockFunctionKey
-         regularKeyCodesMap.put(0xF730, KeyEvent.VK_PAUSE);    // NSPauseFunctionKey
-         regularKeyCodesMap.put(0xF734, KeyEvent.VK_STOP);    // NSStopFunctionKey
-         regularKeyCodesMap.put(0xF735, KeyEvent.VK_CONTEXT_MENU);    // NSMenuFunctionKey
-         regularKeyCodesMap.put(0xF738, KeyEvent.VK_PRINTSCREEN);    // NSPrintFunctionKey
-         regularKeyCodesMap.put(0xF739, KeyEvent.VK_CLEAR);    // NSClearLineFunctionKey
-         regularKeyCodesMap.put(0xF746, KeyEvent.VK_HELP);    // NSHelpFunctionKey
 
          extendedKeyCodesSet.add(0x01000000+0x0060);
          extendedKeyCodesSet.add(0x01000000+0x007C);
@@ -438,7 +392,6 @@ public class ExtendedKeyCodes {
          extendedKeyCodesSet.add(0x01000000+0x06AF);
          extendedKeyCodesSet.add(0x01000000+0x06BE);
          extendedKeyCodesSet.add(0x01000000+0x06CC);
-         extendedKeyCodesSet.add(0x01000000+0x06CC);
          extendedKeyCodesSet.add(0x01000000+0x06D2);
          extendedKeyCodesSet.add(0x01000000+0x0493);
          extendedKeyCodesSet.add(0x01000000+0x0497);
@@ -621,12 +574,8 @@ public class ExtendedKeyCodes {
          extendedKeyCodesSet.add(0x01000000+0x0E59);
          extendedKeyCodesSet.add(0x01000000+0x0587);
          extendedKeyCodesSet.add(0x01000000+0x0589);
-         extendedKeyCodesSet.add(0x01000000+0x0589);
-         extendedKeyCodesSet.add(0x01000000+0x055D);
          extendedKeyCodesSet.add(0x01000000+0x055D);
          extendedKeyCodesSet.add(0x01000000+0x055B);
-         extendedKeyCodesSet.add(0x01000000+0x055B);
-         extendedKeyCodesSet.add(0x01000000+0x055E);
          extendedKeyCodesSet.add(0x01000000+0x055E);
          extendedKeyCodesSet.add(0x01000000+0x0561);
          extendedKeyCodesSet.add(0x01000000+0x0562);
@@ -708,5 +657,21 @@ public class ExtendedKeyCodes {
          extendedKeyCodesSet.add(0x01000000+0x01A1);
          extendedKeyCodesSet.add(0x01000000+0x01B0);
          extendedKeyCodesSet.add(0x01000000+0x20AB);
+
+         // Additional keys discovered on the base layers of macOS ascii-capable keyboards
+         extendedKeyCodesSet.add(0x01000000+0x00A4);
+         extendedKeyCodesSet.add(0x01000000+0x00B8);
+         extendedKeyCodesSet.add(0x01000000+0x0219);
+         extendedKeyCodesSet.add(0x01000000+0x021B);
+         extendedKeyCodesSet.add(0x01000000+0x0254);
+         extendedKeyCodesSet.add(0x01000000+0x025B);
+         extendedKeyCodesSet.add(0x01000000+0x028B);
+         extendedKeyCodesSet.add(0x01000000+0x02BB);
+         extendedKeyCodesSet.add(0x01000000+0x02BC);
+         extendedKeyCodesSet.add(0x01000000+0x02C7);
+         extendedKeyCodesSet.add(0x01000000+0x0301);
+         extendedKeyCodesSet.add(0x01000000+0x0309);
+         extendedKeyCodesSet.add(0x01000000+0x0323);
+         extendedKeyCodesSet.add(0x01000000+0x0331);
      }
 }

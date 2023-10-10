@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,7 @@
 
 package sun.font;
 
-import com.apple.concurrent.Dispatch;
+import sun.lwawt.macosx.concurrent.Dispatch;
 
 import java.awt.Rectangle;
 import java.awt.geom.*;
@@ -33,6 +33,7 @@ import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import sun.lwawt.macosx.CThreading;
 import static sun.awt.SunHints.*;
+
 
 public final class CStrike extends PhysicalStrike {
 
@@ -66,6 +67,12 @@ public final class CStrike extends PhysicalStrike {
                                                             int glyphCode,
                                                             double x,
                                                             double y);
+
+    private static native void getNativeGlyphRenderData(long nativeStrikePtr,
+                                                        int glyphCode,
+                                                        double x,
+                                                        double y,
+                                                        GlyphRenderData result);
 
     private static native void getNativeGlyphOutlineBounds(long nativeStrikePtr,
                                                            int glyphCode,
@@ -131,14 +138,14 @@ public final class CStrike extends PhysicalStrike {
             nativeStrikePtr =
                 createNativeStrikePtr(nativeFont.getNativeFontPtr(),
                                       glyphTx, invDevTxMatrix, aaHint, fmHint,
-                                      FontUtilities.supplementarySubpixelGlyphResolution.width,
-                                      FontUtilities.supplementarySubpixelGlyphResolution.height);
+                                      FontUtilities.subpixelResolution.width,
+                                      FontUtilities.subpixelResolution.height);
         }
 
         return nativeStrikePtr;
     }
 
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("removal")
     protected synchronized void finalize() throws Throwable {
         if (nativeStrikePtr != 0) {
             disposeNativeStrikePtr(nativeStrikePtr);
@@ -208,10 +215,8 @@ public final class CStrike extends PhysicalStrike {
 
         boolean subpixel = desc.aaHint == INTVAL_TEXT_ANTIALIAS_ON &&
                 desc.fmHint == INTVAL_FRACTIONALMETRICS_ON;
-        float subpixelResolutionX = subpixel ?
-                FontUtilities.supplementarySubpixelGlyphResolution.width : 1;
-        float subpixelResolutionY = subpixel ?
-                FontUtilities.supplementarySubpixelGlyphResolution.height : 1;
+        float subpixelResolutionX = subpixel ? FontUtilities.subpixelResolution.width : 1;
+        float subpixelResolutionY = subpixel ? FontUtilities.subpixelResolution.height : 1;
         // Before rendering, glyph positions are offset by 0.5 pixels, take into consideration
         float x = ((int) (pt.x * subpixelResolutionX + 0.5f)) / subpixelResolutionX;
         float y = ((int) (pt.y * subpixelResolutionY + 0.5f)) / subpixelResolutionY;
@@ -230,6 +235,12 @@ public final class CStrike extends PhysicalStrike {
     // should implement, however not called though any path that is publicly exposed
     GeneralPath getGlyphVectorOutline(int[] glyphs, float x, float y) {
         throw new Error("not implemented yet");
+    }
+
+    GlyphRenderData getGlyphRenderData(int glyphCode, float x, float y) {
+        GlyphRenderData result = new GlyphRenderData();
+        getNativeGlyphRenderData(getNativeStrikePtr(), glyphCode, x, y, result);
+        return result;
     }
 
     // called from the Sun2D renderer
@@ -453,8 +464,7 @@ public final class CStrike extends PhysicalStrike {
 
                     // clean up everyone else
                     if (generalCache != null) {
-                        for (Long aLong : generalCache.values()) {
-                            final long longValue = aLong;
+                        for (long longValue : generalCache.values()) {
                             if (longValue != -1 && longValue != 0) {
                                 removeGlyphInfoFromCache(longValue);
                                 StrikeCache.freeLongPointer(longValue);
@@ -475,12 +485,7 @@ public final class CStrike extends PhysicalStrike {
             // If dispatch instance is not available, run the code on
             // disposal thread as before
 
-            final Dispatch dispatch = Dispatch.getInstance();
-
-            if (!CThreading.isAppKit() && dispatch != null)
-                dispatch.getNonBlockingMainQueueExecutor().execute(command);
-            else
-                command.run();
+            CThreading.executeOnAppKit(command);
         }
 
         private static void disposeLongArray(final long[] longArray) {
@@ -529,12 +534,6 @@ public final class CStrike extends PhysicalStrike {
         private final float[] firstLayerCache = new float[FIRST_LAYER_SIZE];
         private SparseBitShiftingTwoLayerArray secondLayerCache;
         private HashMap<Integer, Float> generalCache;
-
-        // Empty non private constructor was added because access to this
-        // class shouldn't be emulated by a synthetic accessor method.
-        GlyphAdvanceCache() {
-            super();
-        }
 
         public synchronized float get(final int index) {
             if (index < 0) {

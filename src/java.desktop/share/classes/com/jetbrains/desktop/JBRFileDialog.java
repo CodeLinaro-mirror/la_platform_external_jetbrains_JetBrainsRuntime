@@ -1,5 +1,6 @@
 package com.jetbrains.desktop;
 
+import java.io.Serial;
 import java.io.Serializable;
 import java.lang.annotation.Native;
 import java.lang.invoke.MethodHandles;
@@ -8,6 +9,7 @@ import java.awt.*;
 
 public class JBRFileDialog implements Serializable {
 
+    @Serial
     private static final long serialVersionUID = -9154712118353824660L;
 
     private static final VarHandle getter;

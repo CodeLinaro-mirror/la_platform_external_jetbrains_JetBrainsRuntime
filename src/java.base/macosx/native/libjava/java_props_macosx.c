@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,7 +28,6 @@
 #include <arpa/inet.h>
 #include <objc/objc-runtime.h>
 
-#include <Security/AuthSession.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <SystemConfiguration/SystemConfiguration.h>
 #include <Foundation/Foundation.h>
@@ -151,7 +150,7 @@ char *getMacOSXLocale(int cat) {
  * and script designators of BCP 47.  So possible formats are:
  *
  * "en"         (language designator only)
- * "haw"        (3-letter lanuage designator)
+ * "haw"        (3-letter language designator)
  * "en-GB"      (language with alpha-2 region designator)
  * "es-419"     (language with 3-digit UN M.49 area code)
  * "zh-Hans"    (language with ISO 15924 script designator)
@@ -223,25 +222,6 @@ char *setupMacOSXLocale(int cat) {
     }
 }
 
-int isInAquaSession() {
-    // environment variable to bypass the aqua session check
-    char *ev = getenv("AWT_FORCE_HEADFUL");
-    if (ev && (strncasecmp(ev, "true", 4) == 0)) {
-        // if "true" then tell the caller we're in an Aqua session without actually checking
-        return 1;
-    }
-    // Is the WindowServer available?
-    SecuritySessionId session_id;
-    SessionAttributeBits session_info;
-    OSStatus status = SessionGetInfo(callerSecuritySession, &session_id, &session_info);
-    if (status == noErr) {
-        if (session_info & sessionHasGraphicAccess) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 // 10.9 SDK does not include the NSOperatingSystemVersion struct.
 // For now, create our own
 typedef struct {
@@ -267,7 +247,6 @@ void setOSNameAndVersion(java_props_t *sprops) {
         [invoke invokeWithTarget:[NSProcessInfo processInfo]];
         [invoke getReturnValue:&osVer];
 
-        NSString *nsVerStr;
         // Copy out the char* if running on version other than 10.16 Mac OS (10.16 == 11.x)
         // or explicitly requesting version compatibility
         if (!((long)osVer.majorVersion == 10 && (long)osVer.minorVersion >= 16) ||
@@ -447,14 +426,12 @@ void setProxyProperties(java_props_t *sProps) {
     cf_httpHost = NULL,
     cf_httpsHost = NULL,
     cf_ftpHost = NULL,
-    cf_socksHost = NULL,
-    cf_gopherHost = NULL;
+    cf_socksHost = NULL;
     int
     httpPort = 80, // Default proxy port values
     httpsPort = 443,
     ftpPort = 21,
-    socksPort = 1080,
-    gopherPort = 70;
+    socksPort = 1080;
 
     CFDictionaryRef dict = SCDynamicStoreCopyProxies(NULL);
     if (dict == NULL) return;
@@ -510,7 +487,6 @@ void setProxyProperties(java_props_t *sProps) {
     CHECK_PROXY(https, HTTPS);
     CHECK_PROXY(ftp, FTP);
     CHECK_PROXY(socks, SOCKS);
-    CHECK_PROXY(gopher, Gopher);
 
 #undef CHECK_PROXY
 

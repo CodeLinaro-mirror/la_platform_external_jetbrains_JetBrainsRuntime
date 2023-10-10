@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,22 +27,22 @@ package sun.awt;
 
 import java.awt.AWTError;
 import java.awt.GraphicsDevice;
-import java.awt.Point;
-import java.awt.Rectangle;
 import java.lang.ref.WeakReference;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.List;
+import java.util.ListIterator;
+import java.util.Map;
 
-import java.security.AccessController;
-import java.util.*;
 import sun.awt.X11.XToolkit;
 import sun.java2d.SunGraphicsEnvironment;
 import sun.java2d.SurfaceManagerFactory;
 import sun.java2d.UnixSurfaceManagerFactory;
-import sun.security.action.GetPropertyAction;
-import sun.util.logging.PlatformLogger;
 import sun.java2d.xr.XRSurfaceData;
 
 /**
@@ -55,24 +55,26 @@ import sun.java2d.xr.XRSurfaceData;
  */
 public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
 
-    private static final PlatformLogger log = PlatformLogger.getLogger("sun.awt.X11GraphicsEnvironment");
-    private static final PlatformLogger screenLog = PlatformLogger.getLogger("sun.awt.screen.X11GraphicsEnvironment");
-
-
     static {
+        initStatic();
+    }
+
+    @SuppressWarnings("removal")
+    private static void initStatic() {
         java.security.AccessController.doPrivileged(
                           new java.security.PrivilegedAction<Object>() {
             public Object run() {
                 System.loadLibrary("awt");
 
                 /*
-                 * Note: The MToolkit object depends on the static initializer
+                 * Note: The XToolkit object depends on the static initializer
                  * of X11GraphicsEnvironment to initialize the connection to
                  * the X11 server.
                  */
                 if (!isHeadless()) {
                     // first check the OGL system property
                     boolean glxRequested = false;
+                    boolean glxRecommended = false;
                     String prop = System.getProperty("sun.java2d.opengl");
                     if (prop != null) {
                         if (prop.equals("true") || prop.equals("t")) {
@@ -81,6 +83,9 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
                             glxRequested = true;
                             glxVerbose = true;
                         }
+                    } else if (openGLRecommended()) {
+                        glxRequested = true;
+                        glxRecommended = true;
                     }
 
                     // Now check for XRender system property
@@ -105,7 +110,7 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
 
                     // only attempt to initialize GLX if it was requested
                     if (glxRequested) {
-                        glxAvailable = initGLX();
+                        glxAvailable = initGLX(glxRecommended);
                         if (glxVerbose && !glxAvailable) {
                             System.out.println(
                                 "Could not enable OpenGL " +
@@ -136,11 +141,21 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
 
     }
 
+    private static boolean isVMWare() {
+        final String virtName = System.getProperty("jbr.virtualization.information");
+        return virtName != null && virtName.equals("VMWare virtualization");
+    }
+
+    private static boolean openGLRecommended() {
+        final String sessionType = System.getenv("XDG_SESSION_TYPE");
+        return (sessionType != null && sessionType.equals("wayland") && isVMWare());
+    }
+
 
     private static boolean glxAvailable;
     private static boolean glxVerbose;
 
-    private static native boolean initGLX();
+    private static native boolean initGLX(boolean glxRecommended);
 
     public static boolean isGLXAvailable() {
         return glxAvailable;
@@ -235,7 +250,9 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
             throw new AWTError("no screen devices");
         }
         int index = getDefaultScreenNum();
-        mainScreen = 0 < index && index < screens.length ? index : 0;
+        mainScreen = 0 < index && index < numScreens ? index : 0;
+
+        updateWaylandMonitorScaling();
 
         for (int id = 0; id < numScreens; ++id) {
             devices.put(id, old.containsKey(id) ? old.remove(id) :
@@ -255,12 +272,6 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
             } else {
                 // no more references to this device, remove it
                 it.remove();
-            }
-        }
-
-        if (useBoundsCache()) {
-            for (final X11GraphicsDevice gd : devices.values()) {
-                gd.resetBoundsCache();
             }
         }
     }
@@ -304,6 +315,7 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
             return true;
         }
 
+        @SuppressWarnings("removal")
         String isRemote = java.security.AccessController.doPrivileged(
             new sun.security.action.GetPropertyAction("sun.java2d.remote"));
         if (isRemote != null) {
@@ -326,10 +338,11 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
             return true;
         }
 
+        @SuppressWarnings("removal")
         Boolean result = java.security.AccessController.doPrivileged(
             new java.security.PrivilegedAction<Boolean>() {
             public Boolean run() {
-                InetAddress remAddr[] = null;
+                InetAddress[] remAddr = null;
                 Enumeration<InetAddress> locals = null;
                 Enumeration<NetworkInterface> interfaces = null;
                 try {
@@ -375,135 +388,12 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
     }
 
     private static native boolean pRunningXinerama();
-    private static native Point getXineramaCenterPoint();
-
-    /**
-     * Override for Xinerama case: call new Solaris API for getting the correct
-     * centering point from the windowing system.
-     */
-    public Point getCenterPoint() {
-        if (runningXinerama()) {
-            Point p = getXineramaCenterPoint();
-            if (p != null) {
-                return p;
-            }
-        }
-        return super.getCenterPoint();
-    }
-
-    /**
-     * Override for Xinerama case
-     */
-    public Rectangle getMaximumWindowBounds() {
-        if (runningXinerama()) {
-            return getXineramaWindowBounds();
-        } else {
-            return super.getMaximumWindowBounds();
-        }
-    }
 
     public boolean runningXinerama() {
         return pRunningXinerama();
     }
 
-    /**
-     * Return the bounds for a centered Window on a system running in Xinerama
-     * mode.
-     *
-     * Calculations are based on the assumption of a perfectly rectangular
-     * display area (display edges line up with one another, and displays
-     * have consistent width and/or height).
-     *
-     * The bounds to return depend on the arrangement of displays and on where
-     * Windows are to be centered.  There are two common situations:
-     *
-     * 1) The center point lies at the center of the combined area of all the
-     *    displays.  In this case, the combined area of all displays is
-     *    returned.
-     *
-     * 2) The center point lies at the center of a single display.  In this case
-     *    the user most likely wants centered Windows to be constrained to that
-     *    single display.  The boundaries of the one display are returned.
-     *
-     * It is possible for the center point to be at both the center of the
-     * entire display space AND at the center of a single monitor (a square of
-     * 9 monitors, for instance).  In this case, the entire display area is
-     * returned.
-     *
-     * Because the center point is arbitrarily settable by the user, it could
-     * fit neither of the cases above.  The fallback case is to simply return
-     * the combined area for all screens.
-     */
-    protected Rectangle getXineramaWindowBounds() {
-        Point center = getCenterPoint();
-        Rectangle unionRect, tempRect;
-        GraphicsDevice[] gds = getScreenDevices();
-        Rectangle centerMonitorRect = null;
-        int i;
-
-        // if center point is at the center of all monitors
-        // return union of all bounds
-        //
-        //  MM*MM     MMM       M
-        //            M*M       *
-        //            MMM       M
-
-        // if center point is at center of a single monitor (but not of all
-        // monitors)
-        // return bounds of single monitor
-        //
-        // MMM         MM
-        // MM*         *M
-
-        // else, center is in some strange spot (such as on the border between
-        // monitors), and we should just return the union of all monitors
-        //
-        // MM          MMM
-        // MM          MMM
-
-        unionRect = getUsableBounds(gds[0]);
-
-        for (i = 0; i < gds.length; i++) {
-            tempRect = getUsableBounds(gds[i]);
-            if (centerMonitorRect == null &&
-                // add a pixel or two for fudge-factor
-                (tempRect.width / 2) + tempRect.x > center.x - 1 &&
-                (tempRect.height / 2) + tempRect.y > center.y - 1 &&
-                (tempRect.width / 2) + tempRect.x < center.x + 1 &&
-                (tempRect.height / 2) + tempRect.y < center.y + 1) {
-                centerMonitorRect = tempRect;
-            }
-            unionRect = unionRect.union(tempRect);
-        }
-
-        // first: check for center of all monitors (video wall)
-        // add a pixel or two for fudge-factor
-        if ((unionRect.width / 2) + unionRect.x > center.x - 1 &&
-            (unionRect.height / 2) + unionRect.y > center.y - 1 &&
-            (unionRect.width / 2) + unionRect.x < center.x + 1 &&
-            (unionRect.height / 2) + unionRect.y < center.y + 1) {
-
-            if (screenLog.isLoggable(PlatformLogger.Level.FINER)) {
-                screenLog.finer("Video Wall: center point is at center of all displays.");
-            }
-            return unionRect;
-        }
-
-        // next, check if at center of one monitor
-        if (centerMonitorRect != null) {
-            if (screenLog.isLoggable(PlatformLogger.Level.FINER)) {
-                screenLog.finer("Center point at center of a particular " +
-                                "monitor, but not of the entire virtual display.");
-            }
-            return centerMonitorRect;
-        }
-
-        // otherwise, the center is at some weird spot: return unionRect
-        if (screenLog.isLoggable(PlatformLogger.Level.FINER)) {
-            screenLog.finer("Center point is somewhere strange - return union of all bounds.");
-        }
-        return unionRect;
-    }
+    private static native void updateWaylandMonitorScaling();
 
     /**
      * From the DisplayChangedListener interface; devices do not need
@@ -511,12 +401,5 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
      */
     @Override
     public void paletteChanged() {
-    }
-
-    private static final boolean cacheScreenBoundsValue = Boolean.parseBoolean(AccessController.doPrivileged(
-            new GetPropertyAction("x11.cache.screen.bounds", "true")));
-
-    public static boolean useBoundsCache() {
-        return cacheScreenBoundsValue;
     }
 }

@@ -23,9 +23,9 @@
  */
 
 /*
- * @test TestSoftMaxHeapSize
+ * @test
  * @summary Test that Shenandoah checks SoftMaxHeapSize
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @requires vm.gc.Shenandoah
  * @library /test/lib
  * @modules java.base/jdk.internal.misc
  *          java.management
@@ -42,7 +42,7 @@ public class TestSoftMaxHeapSize {
                     "-XX:+UseShenandoahGC",
                     "-Xms4m",
                     "-Xmx128m",
-                    "-XX:ShenandoahSoftMaxHeapSize=4m",
+                    "-XX:SoftMaxHeapSize=4m",
                     "-version");
             OutputAnalyzer output = new OutputAnalyzer(pb.start());
             output.shouldHaveExitValue(0);
@@ -53,7 +53,7 @@ public class TestSoftMaxHeapSize {
                     "-XX:+UseShenandoahGC",
                     "-Xms4m",
                     "-Xmx128m",
-                    "-XX:ShenandoahSoftMaxHeapSize=128m",
+                    "-XX:SoftMaxHeapSize=128m",
                     "-version");
             OutputAnalyzer output = new OutputAnalyzer(pb.start());
             output.shouldHaveExitValue(0);
@@ -64,7 +64,7 @@ public class TestSoftMaxHeapSize {
                     "-XX:+UseShenandoahGC",
                     "-Xms4m",
                     "-Xmx128m",
-                    "-XX:ShenandoahSoftMaxHeapSize=129m",
+                    "-XX:SoftMaxHeapSize=129m",
                     "-version");
             OutputAnalyzer output = new OutputAnalyzer(pb.start());
             output.shouldHaveExitValue(1);

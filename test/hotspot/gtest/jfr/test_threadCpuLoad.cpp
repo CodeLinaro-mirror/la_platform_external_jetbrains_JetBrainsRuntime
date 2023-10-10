@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,16 +32,14 @@
 // with the ones that should pick up the mocks removed. Those should be included
 // later after the mocks have been defined.
 
-#include "logging/log.hpp"
 #include "jfr/jfrEvents.hpp"
 #include "jfr/support/jfrThreadId.hpp"
 #include "jfr/support/jfrThreadLocal.hpp"
+#include "jfr/utilities/jfrThreadIterator.hpp"
 #include "jfr/utilities/jfrTime.hpp"
-#include "utilities/globalDefinitions.hpp"
+#include "logging/log.hpp"
 #include "runtime/os.hpp"
-#include "runtime/thread.inline.hpp"
-#include "runtime/threadSMR.inline.hpp"
-
+#include "utilities/globalDefinitions.hpp"
 #include "unittest.hpp"
 
 namespace {
@@ -81,11 +79,18 @@ namespace {
     MockJavaThread() : ::JavaThread() {}
   };
 
-  class MockJavaThreadIteratorWithHandle
+  class MockJfrJavaThreadIterator
   {
   public:
     MockJavaThread* next() { return NULL; }
-    int length() { return 0; }
+    bool has_next() const { return false; }
+  };
+
+  class MockJfrJavaThreadIteratorAdapter
+  {
+  public:
+    MockJavaThread* next() { return NULL; }
+    bool has_next() const { return false; }
   };
 
 // Reincluding source files in the anonymous namespace unfortunately seems to
@@ -97,7 +102,8 @@ namespace {
 #define os MockOs
 #define EventThreadCPULoad MockEventThreadCPULoad
 #define JavaThread MockJavaThread
-#define JavaThreadIteratorWithHandle MockJavaThreadIteratorWithHandle
+#define JfrJavaThreadIterator MockJfrJavaThreadIterator
+#define JfrJavaThreadIteratorAdapter MockJfrJavaThreadIteratorAdapter
 
 #include "jfr/periodic/jfrThreadCPULoadEvent.hpp"
 #include "jfr/periodic/jfrThreadCPULoadEvent.cpp"
@@ -105,7 +111,8 @@ namespace {
 #undef os
 #undef EventThreadCPULoad
 #undef JavaThread
-#undef JavaThreadIteratorWithHandle
+#define JfrJavaThreadIterator MockJfrJavaThreadIterator
+#define JfrJavaThreadIteratorAdapter MockJfrJavaThreadIteratorAdapter
 
 } // anonymous namespace
 

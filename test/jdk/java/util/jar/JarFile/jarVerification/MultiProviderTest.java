@@ -32,7 +32,7 @@
  *        jdk.test.lib.util.JarUtils
  *        jdk.test.lib.JDKToolLauncher
  *        MultiThreadLoad FooService
- * @modules java.base/jdk.internal.misc:+open
+ * @modules java.base/jdk.internal.access:+open
  * @run main MultiProviderTest
  * @run main MultiProviderTest sign
  */
@@ -80,7 +80,7 @@ public class MultiProviderTest {
                 "-cp",
                 COMBO_CP,
                 "--add-opens",
-                "java.base/jdk.internal.misc=ALL-UNNAMED",
+                "java.base/jdk.internal.access=ALL-UNNAMED",
                 "-Djava.util.logging.config.file=" +
                 Path.of(System.getProperty("test.src", "."), "logging.properties").toString(),
                 "MultiThreadLoad",
@@ -131,7 +131,7 @@ public class MultiProviderTest {
             Path target = xdir.resolve(source.getFileName());
             Files.copy(source, target, REPLACE_EXISTING);
         }
-        JarUtils.createJarFile(Path.of(TEST_CLASS_PATH, jar.getFileName().toString()), xdir, Paths.get("."));
+        JarUtils.createJarFile(Path.of(TEST_CLASS_PATH, jar.getFileName().toString()), xdir);
     }
 
     private static void genKey() throws Throwable {

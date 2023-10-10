@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, JetBrains s.r.o.. All rights reserved.
+ * Copyright (c) 2021, 2022, JetBrains s.r.o.. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,18 +30,41 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreServices/CoreServices.h>
 
+#if defined(__GNUC__) || defined(__clang__)
+#  ifndef ATTRIBUTE_PRINTF
+#    define ATTRIBUTE_PRINTF(fmt,vargs)  __attribute__((format(printf, fmt, vargs)))
+#  endif
+#endif
+
+static void
+traceLine(JNIEnv* env, const char* fmt, ...) ATTRIBUTE_PRINTF(2, 3);
+
 // Controls exception stack trace output and debug trace.
 // Set by raising the logging level of sun.nio.fs.MacOSXWatchService to or above FINEST.
 static jboolean  tracingEnabled;
 
-static jmethodID callbackMID;         // MacOSXWatchService.callback()
-
+static jmethodID        callbackMID;  // MacOSXWatchService.callback()
 static __thread jobject watchService; // The instance of MacOSXWatchService that is associated with this thread
+
+
+JNIEXPORT void JNICALL
+Java_sun_nio_fs_MacOSXWatchService_initIDs(JNIEnv* env, __unused jclass clazz)
+{
+  jfieldID tracingEnabledFieldID = (*env)->GetStaticFieldID(env, clazz, "tracingEnabled", "Z");
+  CHECK_NULL(tracingEnabledFieldID);
+  tracingEnabled = (*env)->GetStaticBooleanField(env, clazz, tracingEnabledFieldID);
+  if ((*env)->ExceptionCheck(env)) {
+    (*env)->ExceptionDescribe(env);
+  }
+
+  callbackMID = (*env)->GetMethodID(env, clazz, "callback", "(J[Ljava/lang/String;J)V");
+}
 
 extern CFStringRef toCFString(JNIEnv *env, jstring javaString);
 
 static void
-traceLine(JNIEnv* env, const char* fmt, ...) {
+traceLine(JNIEnv* env, const char* fmt, ...)
+{
     if (tracingEnabled) {
         va_list vargs;
         va_start(vargs, fmt);
@@ -66,11 +89,12 @@ convertToJavaStringArray(JNIEnv* env, char **eventPaths,
         (*env)->SetObjectArrayElement(env, javaEventPathsArray, i, path);
     }
 
-    return TRUE;
+    return JNI_TRUE;
 }
 
 static void
-callJavaCallback(JNIEnv* env, jlong streamRef, jobjectArray javaEventPathsArray, jlong eventFlags) {
+callJavaCallback(JNIEnv* env, jlong streamRef, jobjectArray javaEventPathsArray, jlong eventFlags)
+{
     if (callbackMID != NULL && watchService != NULL) {
         // We are called on the run loop thread, so it's OK to use the thread-local reference
         // to the watch service.
@@ -98,7 +122,7 @@ callback(__unused ConstFSEventStreamRef streamRef,
     // so report them in chunks.
     const size_t MAX_EVENTS_TO_REPORT_AT_ONCE = (INT_MAX - 2);
 
-    jboolean success = TRUE;
+    jboolean success = JNI_TRUE;
     for(size_t eventIndex = 0; success && (eventIndex < numEventsTotal); ) {
         const size_t numEventsRemaining = (numEventsTotal - eventIndex);
         const jsize  numEventsToReport  = (numEventsRemaining > MAX_EVENTS_TO_REPORT_AT_ONCE)
@@ -132,33 +156,20 @@ callback(__unused ConstFSEventStreamRef streamRef,
     }
 }
 
-JNIEXPORT void JNICALL
-Java_sun_nio_fs_MacOSXWatchService_initIDs(JNIEnv* env, __unused jclass clazz)
-{
-    jfieldID tracingEnabledFieldID = (*env)->GetStaticFieldID(env, clazz, "tracingEnabled", "Z");
-    CHECK_NULL(tracingEnabledFieldID);
-    tracingEnabled = (*env)->GetStaticBooleanField(env, clazz, tracingEnabledFieldID);
-    if ((*env)->ExceptionCheck(env)) {
-        (*env)->ExceptionDescribe(env);
-    }
-
-    callbackMID = (*env)->GetMethodID(env, clazz, "callback", "(J[Ljava/lang/String;J)V");
-}
-
 /**
  * Creates a new FSEventStream and returns FSEventStreamRef for it.
  */
 JNIEXPORT jlong JNICALL
 Java_sun_nio_fs_MacOSXWatchService_eventStreamCreate(JNIEnv* env, __unused jclass clazz,
-                                                           jstring dir, jdouble latencyInSeconds,
-                                                           jint flags) {
+                                                     jstring dir, jdouble latencyInSeconds, jint flags)
+{
     const CFStringRef path = toCFString(env, dir);
     CHECK_NULL_RETURN(path, 0);
     const CFArrayRef pathsToWatch = CFArrayCreate(NULL, (const void **) &path, 1, NULL);
     CHECK_NULL_RETURN(pathsToWatch, 0);
 
     const FSEventStreamRef stream = FSEventStreamCreate(
-            NULL,           // allocator
+            NULL,
             &callback,
             NULL,
             pathsToWatch,
@@ -198,6 +209,7 @@ JNIEXPORT void JNICALL
 Java_sun_nio_fs_MacOSXWatchService_eventStreamStop(__unused JNIEnv* env, __unused jclass clazz, jlong eventStreamRef)
 {
     const FSEventStreamRef streamRef = (FSEventStreamRef)eventStreamRef;
+
     FSEventStreamStop(streamRef);       // Unregister with the FS Events service. No more callbacks from this stream
     FSEventStreamInvalidate(streamRef); // Unschedule from any runloops
     FSEventStreamRelease(streamRef);    // Decrement the stream's refcount
@@ -236,6 +248,6 @@ Java_sun_nio_fs_MacOSXWatchService_CFRunLoopRun(__unused JNIEnv* env, __unused j
 JNIEXPORT void JNICALL
 Java_sun_nio_fs_MacOSXWatchService_CFRunLoopStop(__unused JNIEnv* env, __unused jclass clazz, jlong runLoopRef)
 {
-  traceLine(env, "stopping run loop 0x%p", runLoopRef);
+  traceLine(env, "stopping run loop 0x%p", (void*)runLoopRef);
   CFRunLoopStop((CFRunLoopRef)runLoopRef);
 }

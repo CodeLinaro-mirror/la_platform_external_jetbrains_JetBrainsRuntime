@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -438,7 +438,7 @@ static void* CreatePortControl(PortMixer *mixer, PortControlCreator *creator, Po
     case PortControl::Balance:
         jControl = creator->newFloatControl(creator, control, CONTROL_TYPE_BALANCE, -1, 1, precision, "");
         break;
-    };
+    }
 
     if (jControl == NULL) {
         ERROR0("CreatePortControl: javaControl was not created\n");
@@ -619,7 +619,7 @@ void PORT_GetControls(void* id, INT32 portIndex, PortControlCreator* creator) {
                 // get the channel name
                 char *channelName;
                 CFStringRef cfname = NULL;
-                const AudioObjectPropertyAddress address = {kAudioObjectPropertyElementName, port->scope, static_cast<AudioObjectPropertyElement>(ch)};  // compiles with Clang
+                const AudioObjectPropertyAddress address = {kAudioObjectPropertyElementName, port->scope, (unsigned)ch};
                 UInt32 size = sizeof(cfname);
                 OSStatus err = AudioObjectGetPropertyData(mixer->deviceID, &address, 0, NULL, &size, &cfname);
                 if (err == noErr) {
@@ -635,7 +635,7 @@ void PORT_GetControls(void* id, INT32 portIndex, PortControlCreator* creator) {
                     if (channelName == NULL) {
                         return;
                     }
-                    sprintf(channelName, "Ch %d", ch);
+                    snprintf(channelName, 16, "Ch %d", ch);
                 }
 
                 void* jControls[2];

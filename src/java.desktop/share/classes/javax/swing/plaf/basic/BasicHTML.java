@@ -34,6 +34,9 @@ import javax.swing.*;
 import javax.swing.text.*;
 import javax.swing.text.html.*;
 
+import sun.swing.SwingAccessor;
+import sun.swing.SwingUtilities2;
+
 /**
  * Support for providing html views for the swing components.
  * This translates a simple html string to a javax.swing.text.View
@@ -45,6 +48,7 @@ import javax.swing.text.html.*;
  */
 public class BasicHTML {
     // Rebase CSS size map to let relative font sizes scale properly.
+    @SuppressWarnings("removal")
     private final static boolean REBASE_CSS_SIZE_MAP =
             java.security.AccessController.doPrivileged(
                     (PrivilegedAction<Boolean>)
@@ -52,6 +56,11 @@ public class BasicHTML {
                                     "javax.swing.rebaseCssSizeMap"));
 
     private final static String JLABEL_USER_CSS_KEY = "javax.swing.JLabel.userStyleSheet";
+
+    /**
+     * Constructs a {@code BasicHTML}.
+     */
+    public BasicHTML() {}
 
     /**
      * Create an html renderer for the given component and
@@ -228,7 +237,7 @@ public class BasicHTML {
         View value = null;
         View oldValue = (View)c.getClientProperty(BasicHTML.propertyKey);
         Boolean htmlDisabled = (Boolean) c.getClientProperty(htmlDisable);
-        if (htmlDisabled != Boolean.TRUE && BasicHTML.isHTMLString(text)) {
+        if (!(Boolean.TRUE.equals(htmlDisabled)) && BasicHTML.isHTMLString(text)) {
             value = BasicHTML.createHTMLView(c, text);
         }
         if (value != oldValue && oldValue != null) {
@@ -335,7 +344,7 @@ public class BasicHTML {
         private static StyleSheet defaultStyles;
 
         /**
-         * Overriden to return our own slimmed down style sheet.
+         * Overridden to return our own slimmed down style sheet.
          */
         public StyleSheet getStyleSheet() {
             if (defaultStyles == null) {
@@ -384,15 +393,36 @@ public class BasicHTML {
      */
     static class BasicHTMLViewFactory extends HTMLEditorKit.HTMLFactory {
         public View create(Element elem) {
-            View view = super.create(elem);
 
+            View view = null;
+            try {
+                setAllowHTMLObject();
+                view = super.create(elem);
+            } finally {
+                clearAllowHTMLObject();
+            }
             if (view instanceof ImageView) {
                 ((ImageView)view).setLoadsSynchronously(true);
             }
             return view;
         }
-    }
 
+        private static Boolean useOV = null;
+
+        @SuppressWarnings("removal")
+        private static void setAllowHTMLObject() {
+            if (useOV == null) {
+                useOV = java.security.AccessController.doPrivileged(
+                    new sun.security.action.GetBooleanAction(
+                        "swing.html.object"));
+            };
+            SwingAccessor.setAllowHTMLObject(useOV);
+        }
+
+        private static void clearAllowHTMLObject() {
+            SwingAccessor.setAllowHTMLObject(null);
+        }
+    }
 
     /**
      * The subclass of HTMLDocument that is used as the model. getForeground
@@ -597,9 +627,9 @@ public class BasicHTML {
          *  position is a boundary of two views.
          * @param a the allocated region to render into
          * @return the bounding box of the given position is returned
-         * @exception BadLocationException  if the given position does
+         * @throws BadLocationException  if the given position does
          *   not represent a valid location in the associated document
-         * @exception IllegalArgumentException for an invalid bias argument
+         * @throws IllegalArgumentException for an invalid bias argument
          * @see View#viewToModel
          */
         public Shape modelToView(int p0, Position.Bias b0, int p1,

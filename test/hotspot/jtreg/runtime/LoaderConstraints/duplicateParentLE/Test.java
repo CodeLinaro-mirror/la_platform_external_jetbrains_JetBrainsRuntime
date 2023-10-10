@@ -69,7 +69,7 @@ public class Test {
             if (!errorMsg.contains(expectedErrorMessage_part1) ||
                 !errorMsg.contains(expectedErrorMessage_part2) ||
                 !errorMsg.contains(expectedErrorMessage_part3)) {
-                System.out.println("Expected: " + expectedErrorMessage_part1 + "<id>" + expectedErrorMessage_part2 + "<id>" + expectedErrorMessage_part3 + "\n" +
+                System.out.println("Expected: " + expectedErrorMessage_part1 + "<id>" + expectedErrorMessage_part2 + "\n" +
                                    "but got:  " + errorMsg);
                 throw new RuntimeException("Wrong LinkageError exception thrown: " + errorMsg);
             }

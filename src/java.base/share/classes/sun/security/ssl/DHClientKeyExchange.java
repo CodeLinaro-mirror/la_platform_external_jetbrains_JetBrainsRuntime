@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -67,7 +67,7 @@ final class DHClientKeyExchange {
      */
     private static final
             class DHClientKeyExchangeMessage extends HandshakeMessage {
-        private byte[] y;        // 1 to 2^16 - 1 bytes
+        private final byte[] y;        // 1 to 2^16 - 1 bytes
 
         DHClientKeyExchangeMessage(
                 HandshakeContext handshakeContext) throws IOException {
@@ -133,13 +133,14 @@ final class DHClientKeyExchange {
         @Override
         public String toString() {
             MessageFormat messageFormat = new MessageFormat(
-                "\"DH ClientKeyExchange\": '{'\n" +
-                "  \"parameters\": '{'\n" +
-                "    \"dh_Yc\": '{'\n" +
-                "{0}\n" +
-                "    '}',\n" +
-                "  '}'\n" +
-                "'}'",
+                    """
+                            "DH ClientKeyExchange": '{'
+                              "parameters": '{'
+                                "dh_Yc": '{'
+                            {0}
+                                '}',
+                              '}'
+                            '}'""",
                 Locale.ENGLISH);
 
             HexDumpEncoder hexEncoder = new HexDumpEncoder();
@@ -279,7 +280,7 @@ final class DHClientKeyExchange {
                 DHPublicKeySpec spec = new DHPublicKeySpec(
                         new BigInteger(1, ckem.y),
                         params.getP(), params.getG());
-                KeyFactory kf = JsseJce.getKeyFactory("DiffieHellman");
+                KeyFactory kf = KeyFactory.getInstance("DiffieHellman");
                 DHPublicKey peerPublicKey =
                         (DHPublicKey)kf.generatePublic(spec);
 
@@ -295,8 +296,8 @@ final class DHClientKeyExchange {
                 shc.handshakeCredentials.add(
                         new DHECredentials(peerPublicKey, namedGroup));
             } catch (GeneralSecurityException | java.io.IOException e) {
-                throw (SSLHandshakeException)(new SSLHandshakeException(
-                        "Could not generate DHPublicKey").initCause(e));
+                throw new SSLHandshakeException(
+                        "Could not generate DHPublicKey", e);
             }
 
             // update the states

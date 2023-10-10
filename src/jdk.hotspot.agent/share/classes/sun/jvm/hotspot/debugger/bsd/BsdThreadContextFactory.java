@@ -28,7 +28,6 @@ import sun.jvm.hotspot.debugger.*;
 import sun.jvm.hotspot.debugger.bsd.aarch64.*;
 import sun.jvm.hotspot.debugger.bsd.amd64.*;
 import sun.jvm.hotspot.debugger.bsd.x86.*;
-import sun.jvm.hotspot.debugger.bsd.aarch64.*;
 
 class BsdThreadContextFactory {
    static ThreadContext createThreadContext(BsdDebugger dbg) {

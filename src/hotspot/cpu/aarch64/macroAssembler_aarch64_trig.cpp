@@ -1,4 +1,4 @@
-/* Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
+/* Copyright (c) 2018, 2022, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2018, Cavium. All rights reserved. (By BELLSOFT)
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -25,7 +25,6 @@
 #include "precompiled.hpp"
 #include "asm/assembler.hpp"
 #include "asm/assembler.inline.hpp"
-#include "runtime/stubRoutines.hpp"
 #include "macroAssembler_aarch64.hpp"
 
 // The following code is a optimized version of fdlibm sin/cos implementation
@@ -297,7 +296,7 @@ void MacroAssembler::generate__ieee754_rem_pio2(address npio2_hw,
       fmsubd(v3, v2, v6, v31); // v3 = r = t - fn * pio2_1
       fmuld(v26, v2, v7);      // v26 = w = fn * pio2_1t
       fsubd(v4, v3, v26);      // y[0] = r - w. Calculated before branch
-      cmp(n, 32);
+      cmp(n, (u1)32);
       br(GT, LARGE_ELSE);
       subw(tmp5, n, 1);        // tmp5 = n - 1
       ldrw(jv, Address(ih, tmp5, Address::lsl(2)));
@@ -312,7 +311,7 @@ void MacroAssembler::generate__ieee754_rem_pio2(address npio2_hw,
           sub(tmp3, tmp5, jx, LSR, 32 + 20 + 1);   // r7 = j-(((*(i0+(int*)&y[0]))>>20)&0x7ff);
 
           block_comment("if(i>16)"); {
-            cmp(tmp3, 16);
+            cmp(tmp3, (u1)16);
             br(LE, X_IS_MEDIUM_BRANCH_DONE);
             // i > 16. 2nd iteration needed
             ldpd(v6, v7, Address(ih, -32));
@@ -328,7 +327,7 @@ void MacroAssembler::generate__ieee754_rem_pio2(address npio2_hw,
             sub(tmp3, tmp5, jx, LSR, 32 + 20 + 1); // r7 = j-(((*(i0+(int*)&y[0]))>>20)&0x7ff);
 
             block_comment("if(i>49)"); {
-              cmp(tmp3, 49);
+              cmp(tmp3, (u1)49);
               br(LE, X_IS_MEDIUM_BRANCH_DONE);
               // 3rd iteration need, 151 bits acc
               ldpd(v6, v7, Address(ih, -16));
@@ -432,7 +431,7 @@ void MacroAssembler::generate__ieee754_rem_pio2(address npio2_hw,
 // *                      z    = (z-x[i])*2**24
 // *
 // *
-// *      y[]     ouput result in an array of double precision numbers.
+// *      y[]     output result in an array of double precision numbers.
 // *              The dimension of y[] is:
 // *                      24-bit  precision       1
 // *                      53-bit  precision       2
@@ -451,7 +450,7 @@ void MacroAssembler::generate__ieee754_rem_pio2(address npio2_hw,
 // *
 // *      nx      dimension of x[]
 // *
-// *      prec    an interger indicating the precision:
+// *      prec    an integer indicating the precision:
 // *                      0       24  bits (single)
 // *                      1       53  bits (double)
 // *                      2       64  bits (extended)
@@ -668,7 +667,7 @@ void MacroAssembler::generate__ieee754_rem_pio2(address npio2_hw,
 // Changes between fdlibm and intrinsic:
 //     1. One loop is unrolled and vectorized (see comments in code)
 //     2. One loop is split into 2 loops (see comments in code)
-//     3. Non-double code is removed(last switch). Sevaral variables became
+//     3. Non-double code is removed(last switch). Several variables became
 //         constants because of that (see comments in code)
 //     4. Use of jx, which is nx-1 instead of nx
 // Assumptions:
@@ -1000,11 +999,11 @@ void MacroAssembler::generate__kernel_rem_pio2(address two_over_pi, address pio2
       block_comment("else block of if(z==0.0) {"); {
         bind(RECOMP_CHECK_DONE_NOT_ZERO);
           fmuld(v18, v18, v22);
-          fcmpd(v18, v24);                                   // v24 is stil two24A
+          fcmpd(v18, v24);                                   // v24 is still two24A
           br(LT, Z_IS_LESS_THAN_TWO24B);
           fmuld(v1, v18, v17);                               // twon24*z
           frintzd(v1, v1);                                   // v1 = (double)(int)(v1)
-          fmaddd(v2, v24, v1, v18);
+          fmsubd(v2, v24, v1, v18);
           fcvtzdw(tmp3, v1);                                 // (int)fw
           fcvtzdw(tmp2, v2);                                 // double to int
           strw(tmp2, Address(iqBase, jz, Address::lsl(2)));
@@ -1181,7 +1180,7 @@ void MacroAssembler::generate__kernel_rem_pio2(address two_over_pi, address pio2
 //     3. C code parameter "int iy" was modified to "bool iyIsOne", because
 //         iy is always 0 or 1. Also, iyIsOne branch was moved into
 //         generation phase instead of taking it during code execution
-// Input ans output:
+// Input and output:
 //     1. Input for generated function: X argument = x
 //     2. Input for generator: x = register to read argument from, iyIsOne
 //         = flag to use low argument low part or not, dsin_coef = coefficients
@@ -1406,7 +1405,7 @@ void MacroAssembler::generate_kernel_cos(FloatRegister x, address dcos_coef) {
 // Changes between fdlibm and intrinsic:
 //     1. Moved ix < 2**27 from kernel_sin/kernel_cos into dsin/dcos
 //     2. Final switch use equivalent bit checks(tbz/tbnz)
-// Input ans output:
+// Input and output:
 //     1. Input for generated function: X = r0
 //     2. Input for generator: isCos = generate sin or cos, npio2_hw = address
 //         of npio2_hw table, two_over_pi = address of two_over_pi table,

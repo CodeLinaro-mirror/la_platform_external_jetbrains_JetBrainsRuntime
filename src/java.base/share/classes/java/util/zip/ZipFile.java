@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -45,27 +45,32 @@ import java.util.Deque;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.Spliterator;
 import java.util.Spliterators;
+import java.util.TreeSet;
 import java.util.WeakHashMap;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
-import jdk.internal.misc.JavaLangAccess;
-import jdk.internal.misc.JavaUtilZipFileAccess;
-import jdk.internal.misc.SharedSecrets;
-import jdk.internal.misc.VM;
+import jdk.internal.access.JavaUtilZipFileAccess;
+import jdk.internal.access.JavaUtilJarAccess;
+import jdk.internal.access.SharedSecrets;
+import jdk.internal.util.OperatingSystem;
 import jdk.internal.perf.PerfCounter;
 import jdk.internal.ref.CleanerFactory;
 import jdk.internal.vm.annotation.Stable;
 import sun.nio.cs.UTF_8;
+import sun.nio.fs.DefaultFileSystemProvider;
+import sun.security.action.GetBooleanAction;
+import sun.security.util.SignatureFileVerifier;
 
 import static java.util.zip.ZipConstants64.*;
 import static java.util.zip.ZipUtils.*;
@@ -85,22 +90,13 @@ import static java.util.zip.ZipUtils.*;
  * cleanup mechanisms such as {@link java.lang.ref.Cleaner} and remove the overriding
  * {@code finalize} method.
  *
- * @implSpec
- * If this {@code ZipFile} has been subclassed and the {@code close} method has
- * been overridden, the {@code close} method will be called by the finalization
- * when {@code ZipFile} is unreachable. But the subclasses should not depend on
- * this specific implementation; the finalization is not reliable and the
- * {@code finalize} method is deprecated to be removed.
- *
  * @author      David Connelly
  * @since 1.1
  */
-public
-class ZipFile implements ZipConstants, Closeable {
+public class ZipFile implements ZipConstants, Closeable {
 
     private final String name;     // zip file name
     private volatile boolean closeRequested;
-    private final @Stable ZipCoder zc;
 
     // The "resource" used by this zip file that needs to be
     // cleaned after use.
@@ -126,6 +122,12 @@ class ZipFile implements ZipConstants, Closeable {
      */
     public static final int OPEN_DELETE = 0x4;
 
+    /**
+     * Flag which specifies whether the validation of the Zip64 extra
+     * fields should be disabled
+     */
+    private static final boolean disableZip64ExtraFieldValidation =
+            GetBooleanAction.privilegedGetProperty("jdk.util.zip.disableZip64ExtraFieldValidation");
     /**
      * Opens a zip file for reading.
      *
@@ -213,7 +215,7 @@ class ZipFile implements ZipConstants, Closeable {
      *
      * @throws SecurityException
      *         if a security manager exists and its {@code checkRead}
-     *         method doesn't allow read access to the file,or its
+     *         method doesn't allow read access to the file, or its
      *         {@code checkDelete} method doesn't allow deleting the
      *         file when the {@code OPEN_DELETE} flag is set
      *
@@ -232,6 +234,7 @@ class ZipFile implements ZipConstants, Closeable {
         }
         String name = file.getPath();
         file = new File(name);
+        @SuppressWarnings("removal")
         SecurityManager sm = System.getSecurityManager();
         if (sm != null) {
             sm.checkRead(name);
@@ -241,11 +244,10 @@ class ZipFile implements ZipConstants, Closeable {
         }
         Objects.requireNonNull(charset, "charset");
 
-        this.zc = ZipCoder.get(charset);
         this.name = name;
         long t0 = System.nanoTime();
 
-        this.res = CleanableResource.get(this, file, mode);
+        this.res = new CleanableResource(this, ZipCoder.get(charset), file, mode);
 
         PerfCounter.getZipFileOpenTime().addElapsedTimeFrom(t0);
         PerfCounter.getZipFileCount().increment();
@@ -316,7 +318,7 @@ class ZipFile implements ZipConstants, Closeable {
             if (res.zsrc.comment == null) {
                 return null;
             }
-            return zc.toString(res.zsrc.comment);
+            return res.zsrc.zc.toString(res.zsrc.comment);
         }
     }
 
@@ -329,30 +331,16 @@ class ZipFile implements ZipConstants, Closeable {
      * @throws IllegalStateException if the zip file has been closed
      */
     public ZipEntry getEntry(String name) {
-        return getEntry(name, ZipEntry::new);
-    }
-
-    /*
-     * Returns the zip file entry for the specified name, or null
-     * if not found.
-     *
-     * @param name the name of the entry
-     * @param func the function that creates the returned entry
-     *
-     * @return the zip file entry, or null if not found
-     * @throws IllegalStateException if the zip file has been closed
-     */
-    private ZipEntry getEntry(String name, Function<String, ? extends ZipEntry> func) {
         Objects.requireNonNull(name, "name");
+        ZipEntry entry = null;
         synchronized (this) {
             ensureOpen();
-            byte[] bname = zc.getBytes(name);
-            int pos = res.zsrc.getEntryPos(bname, true);
+            int pos = res.zsrc.getEntryPos(name, true);
             if (pos != -1) {
-                return getZipEntry(name, bname, pos, func);
+                entry = getZipEntry(name, pos);
             }
         }
-        return null;
+        return entry;
     }
 
     /**
@@ -362,9 +350,16 @@ class ZipFile implements ZipConstants, Closeable {
      * Closing this ZIP file will, in turn, close all input streams that
      * have been returned by invocations of this method.
      *
+     * @apiNote The {@code InputStream} returned by this method can wrap an
+     * {@link java.util.zip.InflaterInputStream InflaterInputStream}, whose
+     * {@link java.util.zip.InflaterInputStream#read(byte[], int, int)
+     * read(byte[], int, int)} method can modify any element of the output
+     * buffer.
+     *
      * @param entry the zip file entry
      * @return the input stream for reading the contents of the specified
-     * zip file entry.
+     * zip file entry or null if the zip file entry does not exist
+     * within the zip file.
      * @throws ZipException if a ZIP format error has occurred
      * @throws IOException if an I/O error has occurred
      * @throws IllegalStateException if the zip file has been closed
@@ -379,38 +374,36 @@ class ZipFile implements ZipConstants, Closeable {
             ensureOpen();
             if (Objects.equals(lastEntryName, entry.name)) {
                 pos = lastEntryPos;
-            } else if (!zc.isUTF8() && (entry.flag & USE_UTF8) != 0) {
-                pos = zsrc.getEntryPos(zc.getBytesUTF8(entry.name), false);
             } else {
-                pos = zsrc.getEntryPos(zc.getBytes(entry.name), false);
+                pos = zsrc.getEntryPos(entry.name, false);
             }
             if (pos == -1) {
                 return null;
             }
             in = new ZipFileInputStream(zsrc.cen, pos);
             switch (CENHOW(zsrc.cen, pos)) {
-            case STORED:
-                synchronized (istreams) {
-                    istreams.add(in);
-                }
-                return in;
-            case DEFLATED:
-                // Inflater likes a bit of slack
-                // MORE: Compute good size for inflater stream:
-                long size = CENLEN(zsrc.cen, pos) + 2;
-                if (size > 65536) {
-                    size = 8192;
-                }
-                if (size <= 0) {
-                    size = 4096;
-                }
-                InputStream is = new ZipFileInflaterInputStream(in, res, (int)size);
-                synchronized (istreams) {
-                    istreams.add(is);
-                }
-                return is;
-            default:
-                throw new ZipException("invalid compression method");
+                case STORED:
+                    synchronized (istreams) {
+                        istreams.add(in);
+                    }
+                    return in;
+                case DEFLATED:
+                    // Inflater likes a bit of slack
+                    // MORE: Compute good size for inflater stream:
+                    long size = CENLEN(zsrc.cen, pos) + 2;
+                    if (size > 65536) {
+                        size = 8192;
+                    }
+                    if (size <= 0) {
+                        size = 4096;
+                    }
+                    InputStream is = new ZipFileInflaterInputStream(in, res, (int) size);
+                    synchronized (istreams) {
+                        istreams.add(is);
+                    }
+                    return is;
+                default:
+                    throw new ZipException("invalid compression method");
             }
         }
     }
@@ -497,11 +490,9 @@ class ZipFile implements ZipConstants, Closeable {
 
         private int i = 0;
         private final int entryCount;
-        private final Function<String, T> gen;
 
-        public ZipEntryIterator(int entryCount, Function<String, T> gen) {
+        public ZipEntryIterator(int entryCount) {
             this.entryCount = entryCount;
-            this.gen = gen;
         }
 
         @Override
@@ -528,7 +519,7 @@ class ZipFile implements ZipConstants, Closeable {
                     throw new NoSuchElementException();
                 }
                 // each "entry" has 3 ints in table entries
-                return (T)getZipEntry(null, null, res.zsrc.getEntryPos(i++ * 3), gen);
+                return (T)getZipEntry(null, res.zsrc.getEntryPos(i++ * 3));
             }
         }
 
@@ -546,14 +537,14 @@ class ZipFile implements ZipConstants, Closeable {
     public Enumeration<? extends ZipEntry> entries() {
         synchronized (this) {
             ensureOpen();
-            return new ZipEntryIterator<ZipEntry>(res.zsrc.total, ZipEntry::new);
+            return new ZipEntryIterator<ZipEntry>(res.zsrc.total);
         }
     }
 
-    private Enumeration<JarEntry> entries(Function<String, JarEntry> func) {
+    private Enumeration<JarEntry> jarEntries() {
         synchronized (this) {
             ensureOpen();
-            return new ZipEntryIterator<JarEntry>(res.zsrc.total, func);
+            return new ZipEntryIterator<JarEntry>(res.zsrc.total);
         }
     }
 
@@ -600,18 +591,15 @@ class ZipFile implements ZipConstants, Closeable {
         synchronized (this) {
             ensureOpen();
             return StreamSupport.stream(new EntrySpliterator<>(0, res.zsrc.total,
-                pos -> getZipEntry(null, null, pos, ZipEntry::new)), false);
+                pos -> getZipEntry(null, pos)), false);
        }
     }
 
     private String getEntryName(int pos) {
         byte[] cen = res.zsrc.cen;
         int nlen = CENNAM(cen, pos);
-        if (!zc.isUTF8() && (CENFLG(cen, pos) & USE_UTF8) != 0) {
-            return ZipCoder.toStringUTF8(cen, pos + CENHDR, nlen);
-        } else {
-            return zc.toString(cen, pos + CENHDR, nlen);
-        }
+        ZipCoder zc = res.zsrc.zipCoderForPos(pos);
+        return zc.toString(cen, pos + CENHDR, nlen);
     }
 
     /*
@@ -638,43 +626,49 @@ class ZipFile implements ZipConstants, Closeable {
      * Entries appear in the {@code Stream} in the order they appear in
      * the central directory of the jar file.
      *
-     * @param func the function that creates the returned entry
      * @return an ordered {@code Stream} of entries in this zip file
      * @throws IllegalStateException if the zip file has been closed
      * @since 10
      */
-    private Stream<JarEntry> stream(Function<String, JarEntry> func) {
+    private Stream<JarEntry> jarStream() {
         synchronized (this) {
             ensureOpen();
             return StreamSupport.stream(new EntrySpliterator<>(0, res.zsrc.total,
-                pos -> (JarEntry)getZipEntry(null, null, pos, func)), false);
+                pos -> (JarEntry)getZipEntry(null, pos)), false);
         }
     }
 
     private String lastEntryName;
     private int lastEntryPos;
 
-    /* Checks ensureOpen() before invoke this method */
-    private ZipEntry getZipEntry(String name, byte[] bname, int pos,
-                                 Function<String, ? extends ZipEntry> func) {
+    /* Check ensureOpen() before invoking this method */
+    private ZipEntry getZipEntry(String name, int pos) {
         byte[] cen = res.zsrc.cen;
         int nlen = CENNAM(cen, pos);
         int elen = CENEXT(cen, pos);
         int clen = CENCOM(cen, pos);
-        int flag = CENFLG(cen, pos);
-        if (name == null || bname.length != nlen) {
-            // to use the entry name stored in cen, if the passed in name is
-            // (1) null, invoked from iterator, or
-            // (2) not equal to the name stored, a slash is appended during
-            // getEntryPos() search.
-            if (!zc.isUTF8() && (flag & USE_UTF8) != 0) {
-                name = ZipCoder.toStringUTF8(cen, pos + CENHDR, nlen);
-            } else {
-                name = zc.toString(cen, pos + CENHDR, nlen);
+
+        ZipCoder zc = res.zsrc.zipCoderForPos(pos);
+        if (name != null) {
+            // only need to check for mismatch of trailing slash
+            if (nlen > 0 &&
+                !name.isEmpty() &&
+                zc.hasTrailingSlash(cen, pos + CENHDR + nlen) &&
+                !name.endsWith("/"))
+            {
+                name += '/';
             }
+        } else {
+            // invoked from iterator, use the entry name stored in cen
+            name = zc.toString(cen, pos + CENHDR, nlen);
         }
-        ZipEntry e = func.apply(name);    //ZipEntry e = new ZipEntry(name);
-        e.flag = flag;
+        ZipEntry e;
+        if (this instanceof JarFile) {
+            e = Source.JUJA.entryFor((JarFile)this, name);
+        } else {
+            e = new ZipEntry(name);
+        }
+        e.flag = CENFLG(cen, pos);
         e.xdostime = CENTIM(cen, pos);
         e.crc = CENCRC(cen, pos);
         e.size = CENLEN(cen, pos);
@@ -691,11 +685,7 @@ class ZipFile implements ZipConstants, Closeable {
         }
         if (clen != 0) {
             int start = pos + CENHDR + nlen + elen;
-            if (!zc.isUTF8() && (flag & USE_UTF8) != 0) {
-                e.comment = ZipCoder.toStringUTF8(cen, start, clen);
-            } else {
-                e.comment = zc.toString(cen, start, clen);
-            }
+            e.comment = zc.toString(cen, start, clen);
         }
         lastEntryName = e.name;
         lastEntryPos = pos;
@@ -726,11 +716,11 @@ class ZipFile implements ZipConstants, Closeable {
 
         Source zsrc;
 
-        CleanableResource(ZipFile zf, File file, int mode) throws IOException {
+        CleanableResource(ZipFile zf, ZipCoder zc, File file, int mode) throws IOException {
             this.cleanable = CleanerFactory.cleaner().register(zf, this);
             this.istreams = Collections.newSetFromMap(new WeakHashMap<>());
             this.inflaterCache = new ArrayDeque<>();
-            this.zsrc = Source.get(file, (mode & OPEN_DELETE) != 0, zf.zc);
+            this.zsrc = Source.get(file, (mode & OPEN_DELETE) != 0, zc);
         }
 
         void clean() {
@@ -822,53 +812,6 @@ class ZipFile implements ZipConstants, Closeable {
                 throw new UncheckedIOException(ioe);
             }
         }
-
-        CleanableResource(File file, int mode, ZipCoder zc)
-            throws IOException {
-            this.cleanable = null;
-            this.istreams = Collections.newSetFromMap(new WeakHashMap<>());
-            this.inflaterCache = new ArrayDeque<>();
-            this.zsrc = Source.get(file, (mode & OPEN_DELETE) != 0, zc);
-        }
-
-        /*
-         * If {@code ZipFile} has been subclassed and the {@code close} method is
-         * overridden, uses the {@code finalizer} mechanism for resource cleanup.
-         * So {@code close} method can be called when the the {@code ZipFile} is
-         * unreachable. This mechanism will be removed when {@code finalize} method
-         * is removed from {@code ZipFile}.
-         */
-        static CleanableResource get(ZipFile zf, File file, int mode)
-            throws IOException {
-            Class<?> clz = zf.getClass();
-            while (clz != ZipFile.class && clz != JarFile.class) {
-                if (JLA.getDeclaredPublicMethods(clz, "close").size() != 0) {
-                    return new FinalizableResource(zf, file, mode);
-                }
-                clz = clz.getSuperclass();
-            }
-            return new CleanableResource(zf, file, mode);
-        }
-
-        static class FinalizableResource extends CleanableResource {
-            ZipFile zf;
-            FinalizableResource(ZipFile zf, File file, int mode)
-                throws IOException {
-                super(file, mode, zf.zc);
-                this.zf = zf;
-            }
-
-            @Override
-            void clean() {
-                run();
-            }
-
-            @Override
-            @SuppressWarnings("deprecation")
-            protected void finalize() throws IOException {
-                zf.close();
-            }
-        }
     }
 
     /**
@@ -897,25 +840,6 @@ class ZipFile implements ZipConstants, Closeable {
         }
     }
 
-    /**
-     * Ensures that the system resources held by this ZipFile object are
-     * released when there are no more references to it.
-     *
-     * @deprecated The {@code finalize} method has been deprecated and will be
-     *     removed. It is implemented as a no-op. Subclasses that override
-     *     {@code finalize} in order to perform cleanup should be modified to
-     *     use alternative cleanup mechanisms and to remove the overriding
-     *     {@code finalize} method. The recommended cleanup for ZipFile object
-     *     is to explicitly invoke {@code close} method when it is no longer in
-     *     use, or use try-with-resources. If the {@code close} is not invoked
-     *     explicitly the resources held by this object will be released when
-     *     the instance becomes unreachable.
-     *
-     * @throws IOException if an I/O error has occurred
-     */
-    @Deprecated(since="9", forRemoval=true)
-    protected void finalize() throws IOException {}
-
     private void ensureOpen() {
         if (closeRequested) {
             throw new IllegalStateException("zip file closed");
@@ -938,6 +862,7 @@ class ZipFile implements ZipConstants, Closeable {
     private class ZipFileInputStream extends InputStream {
         private volatile boolean closeRequested;
         private   long pos;     // current position within entry data
+        private   long startingPos; // Start position for the entry data
         protected long rem;     // number of remaining bytes within entry
         protected long size;    // uncompressed size of this entry
 
@@ -1009,11 +934,12 @@ class ZipFile implements ZipConstants, Closeable {
                     throw new ZipException("ZipFile invalid LOC header (bad signature)");
                 }
                 pos += LOCHDR + LOCNAM(loc) + LOCEXT(loc);
+                startingPos = pos; // Save starting position for the entry
             }
             return pos;
         }
 
-        public int read(byte b[], int off, int len) throws IOException {
+        public int read(byte[] b, int off, int len) throws IOException {
             synchronized (ZipFile.this) {
                 ensureOpenOrZipException();
                 initDataOffset();
@@ -1050,8 +976,19 @@ class ZipFile implements ZipConstants, Closeable {
         public long skip(long n) throws IOException {
             synchronized (ZipFile.this) {
                 initDataOffset();
-                if (n > rem) {
-                    n = rem;
+                long newPos = pos + n;
+                if (n > 0) {
+                    // If we overflowed adding the skip value or are moving
+                    // past EOF, set the skip value to number of bytes remaining
+                    // to reach EOF
+                    if (newPos < 0 || n > rem) {
+                        n = rem;
+                    }
+                } else if (newPos < startingPos) {
+                    // Tried to position before BOF so set position to the
+                    // BOF and return the number of bytes we moved backwards
+                    // to reach BOF
+                    n = startingPos - pos;
                 }
                 pos += n;
                 rem -= n;
@@ -1084,6 +1021,33 @@ class ZipFile implements ZipConstants, Closeable {
     }
 
     /**
+     * Returns the names of the META-INF/MANIFEST.MF entry - if exists -
+     * and any signature-related files under META-INF. This method is used in
+     * JarFile, via SharedSecrets, as an optimization.
+     */
+    private List<String> getManifestAndSignatureRelatedFiles() {
+        synchronized (this) {
+            ensureOpen();
+            Source zsrc = res.zsrc;
+            int[] metanames = zsrc.signatureMetaNames;
+            List<String> files = null;
+            if (zsrc.manifestPos >= 0) {
+                files = new ArrayList<>();
+                files.add(getEntryName(zsrc.manifestPos));
+            }
+            if (metanames != null) {
+                if (files == null) {
+                    files = new ArrayList<>();
+                }
+                for (int i = 0; i < metanames.length; i++) {
+                    files.add(getEntryName(metanames[i]));
+                }
+            }
+            return files == null ? List.of() : files;
+        }
+    }
+
+    /**
      * Returns the number of the META-INF/MANIFEST.MF entries, case insensitive.
      * When this number is greater than 1, JarVerifier will treat a file as
      * unsigned.
@@ -1096,31 +1060,37 @@ class ZipFile implements ZipConstants, Closeable {
     }
 
     /**
-     * Returns the names of all non-directory entries that begin with
-     * "META-INF/" (case ignored). This method is used in JarFile, via
-     * SharedSecrets, as an optimization when looking up manifest and
-     * signature file entries. Returns null if no entries were found.
+     * Returns the name of the META-INF/MANIFEST.MF entry, ignoring
+     * case. If {@code onlyIfSignatureRelatedFiles} is true, we only return the
+     * manifest if there is also at least one signature-related file.
+     * This method is used in JarFile, via SharedSecrets, as an optimization
+     * when looking up the manifest file.
      */
-    private String[] getMetaInfEntryNames() {
+    private String getManifestName(boolean onlyIfSignatureRelatedFiles) {
         synchronized (this) {
             ensureOpen();
             Source zsrc = res.zsrc;
-            if (zsrc.metanames == null) {
-                return null;
+            int pos = zsrc.manifestPos;
+            if (pos >= 0 && (!onlyIfSignatureRelatedFiles || zsrc.signatureMetaNames != null)) {
+                return getEntryName(pos);
             }
-            String[] names = new String[zsrc.metanames.length];
-            byte[] cen = zsrc.cen;
-            for (int i = 0; i < names.length; i++) {
-                int pos = zsrc.metanames[i];
-                names[i] = new String(cen, pos + CENHDR, CENNAM(cen, pos),
-                                      UTF_8.INSTANCE);
-            }
-            return names;
         }
+        return null;
     }
 
-    private static boolean isWindows;
-    private static final JavaLangAccess JLA;
+    /**
+     * Returns the versions for which there exists a non-directory
+     * entry that begin with "META-INF/versions/" (case ignored).
+     * This method is used in JarFile, via SharedSecrets, as an
+     * optimization when looking up potentially versioned entries.
+     * Returns an empty array if no versioned entries exist.
+     */
+    private int[] getMetaInfVersions() {
+        synchronized (this) {
+            ensureOpen();
+            return res.zsrc.metaVersions;
+        }
+    }
 
     static {
         SharedSecrets.setJavaUtilZipFileAccess(
@@ -1130,27 +1100,28 @@ class ZipFile implements ZipConstants, Closeable {
                     return zip.res.zsrc.startsWithLoc;
                 }
                 @Override
+                public List<String> getManifestAndSignatureRelatedFiles(JarFile jar) {
+                    return ((ZipFile)jar).getManifestAndSignatureRelatedFiles();
+                }
+                @Override
                 public int getManifestNum(JarFile jar) {
                     return ((ZipFile)jar).getManifestNum();
                 }
                 @Override
-                public String[] getMetaInfEntryNames(ZipFile zip) {
-                    return zip.getMetaInfEntryNames();
+                public String getManifestName(JarFile jar, boolean onlyIfHasSignatureRelatedFiles) {
+                    return ((ZipFile)jar).getManifestName(onlyIfHasSignatureRelatedFiles);
                 }
                 @Override
-                public JarEntry getEntry(ZipFile zip, String name,
-                    Function<String, JarEntry> func) {
-                    return (JarEntry)zip.getEntry(name, func);
+                public int[] getMetaInfVersions(JarFile jar) {
+                    return ((ZipFile)jar).getMetaInfVersions();
                 }
                 @Override
-                public Enumeration<JarEntry> entries(ZipFile zip,
-                    Function<String, JarEntry> func) {
-                    return zip.entries(func);
+                public Enumeration<JarEntry> entries(ZipFile zip) {
+                    return zip.jarEntries();
                 }
                 @Override
-                public Stream<JarEntry> stream(ZipFile zip,
-                    Function<String, JarEntry> func) {
-                    return zip.stream(func);
+                public Stream<JarEntry> stream(ZipFile zip) {
+                    return zip.jarStream();
                 }
                 @Override
                 public Stream<String> entryNameStream(ZipFile zip) {
@@ -1167,14 +1138,19 @@ class ZipFile implements ZipConstants, Closeable {
 
              }
         );
-        JLA = jdk.internal.misc.SharedSecrets.getJavaLangAccess();
-        isWindows = VM.getSavedProperty("os.name").contains("Windows");
     }
 
     private static class Source {
+        // While this is only used from ZipFile, defining it there would cause
+        // a bootstrap cycle that would leave this initialized as null
+        private static final JavaUtilJarAccess JUJA = SharedSecrets.javaUtilJarAccess();
         // "META-INF/".length()
         private static final int META_INF_LEN = 9;
+        private static final int[] EMPTY_META_VERSIONS = new int[0];
+
         private final Key key;               // the key in files
+        private final @Stable ZipCoder zc;   // zip coder used to decode/encode
+
         private int refs = 1;
 
         private RandomAccessFile zfile;      // zfile of the underlying zip file
@@ -1182,8 +1158,10 @@ class ZipFile implements ZipConstants, Closeable {
         private long locpos;                 // position of first LOC header (usually 0)
         private byte[] comment;              // zip file comment
                                              // list of meta entries in META-INF dir
-        private int[] metanames;
+        private int   manifestPos = -1;      // position of the META-INF/MANIFEST.MF, if exists
         private int   manifestNum = 0;       // number of META-INF/MANIFEST.MF, case insensitive
+        private int[] signatureMetaNames;    // positions of signature related entries, if such exist
+        private int[] metaVersions;          // list of unique versions found in META-INF/versions/
         private final boolean startsWithLoc; // true, if zip file starts with LOCSIG (usually true)
 
         // A Hashmap for all entries.
@@ -1201,15 +1179,179 @@ class ZipFile implements ZipConstants, Closeable {
         // private Entry[] entries;             // array of hashed cen entry
         //
         // To reduce the total size of entries further, we use a int[] here to store 3 "int"
-        // {@code hash}, {@code next and {@code "pos for each entry. The entry can then be
+        // {@code hash}, {@code next} and {@code pos} for each entry. The entry can then be
         // referred by their index of their positions in the {@code entries}.
         //
         private int[] entries;                  // array of hashed cen entry
-        private int addEntry(int index, int hash, int next, int pos) {
-            entries[index++] = hash;
-            entries[index++] = next;
-            entries[index++] = pos;
-            return index;
+
+        // Checks the entry at offset pos in the CEN, calculates the Entry values as per above,
+        // then returns the length of the entry name.
+        private int checkAndAddEntry(int pos, int index)
+            throws ZipException
+        {
+            byte[] cen = this.cen;
+            if (CENSIG(cen, pos) != CENSIG) {
+                zerror("invalid CEN header (bad signature)");
+            }
+            int method = CENHOW(cen, pos);
+            int flag   = CENFLG(cen, pos);
+            if ((flag & 1) != 0) {
+                zerror("invalid CEN header (encrypted entry)");
+            }
+            if (method != STORED && method != DEFLATED) {
+                zerror("invalid CEN header (bad compression method: " + method + ")");
+            }
+            int entryPos = pos + CENHDR;
+            int nlen = CENNAM(cen, pos);
+            if (entryPos + nlen > cen.length - ENDHDR) {
+                zerror("invalid CEN header (bad header size)");
+            }
+
+            int elen = CENEXT(cen, pos);
+            if (elen > 0 && !disableZip64ExtraFieldValidation) {
+                long extraStartingOffset = pos + CENHDR + nlen;
+                if ((int)extraStartingOffset != extraStartingOffset) {
+                    zerror("invalid CEN header (bad extra offset)");
+                }
+                checkExtraFields(pos, (int)extraStartingOffset, elen);
+            }
+
+            try {
+                ZipCoder zcp = zipCoderForPos(pos);
+                int hash = zcp.checkedHash(cen, entryPos, nlen);
+                int hsh = (hash & 0x7fffffff) % tablelen;
+                int next = table[hsh];
+                table[hsh] = index;
+                // Record the CEN offset and the name hash in our hash cell.
+                entries[index++] = hash;
+                entries[index++] = next;
+                entries[index  ] = pos;
+                // Validate comment if it exists
+                // if the bytes representing the comment cannot be converted to
+                // a String via zcp.toString, an Exception will be thrown
+                int clen = CENCOM(cen, pos);
+                if (clen > 0) {
+                    int start = entryPos + nlen + elen;
+                    zcp.toString(cen, start, clen);
+                }
+            } catch (Exception e) {
+                zerror("invalid CEN header (bad entry name or comment)");
+            }
+            return nlen;
+        }
+
+        /**
+         * Validate the Zip64 Extra block fields
+         * @param startingOffset Extra Field starting offset within the CEN
+         * @param extraFieldLen Length of this Extra field
+         * @throws ZipException  If an error occurs validating the Zip64 Extra
+         * block
+         */
+        private void checkExtraFields(int cenPos, int startingOffset,
+                                      int extraFieldLen) throws ZipException {
+            // Extra field Length cannot exceed 65,535 bytes per the PKWare
+            // APP.note 4.4.11
+            if (extraFieldLen > 0xFFFF) {
+                zerror("invalid extra field length");
+            }
+            // CEN Offset where this Extra field ends
+            int extraEndOffset = startingOffset + extraFieldLen;
+            if (extraEndOffset > cen.length) {
+                zerror("Invalid CEN header (extra data field size too long)");
+            }
+            int currentOffset = startingOffset;
+            while (currentOffset < extraEndOffset) {
+                int tag = get16(cen, currentOffset);
+                currentOffset += Short.BYTES;
+
+                int tagBlockSize = get16(cen, currentOffset);
+                int tagBlockEndingOffset = currentOffset + tagBlockSize;
+
+                //  The ending offset for this tag block should not go past the
+                //  offset for the end of the extra field
+                if (tagBlockEndingOffset > extraEndOffset) {
+                    zerror("Invalid CEN header (invalid zip64 extra data field size)");
+                }
+                currentOffset += Short.BYTES;
+
+                if (tag == ZIP64_EXTID) {
+                    // Get the compressed size;
+                    long csize = CENSIZ(cen, cenPos);
+                    // Get the uncompressed size;
+                    long size = CENLEN(cen, cenPos);
+                    checkZip64ExtraFieldValues(currentOffset, tagBlockSize,
+                            csize, size);
+                }
+                currentOffset += tagBlockSize;
+            }
+        }
+
+        /**
+         * Validate the Zip64 Extended Information Extra Field (0x0001) block
+         * size and that the uncompressed size and compressed size field
+         * values are not negative.
+         * Note:  As we do not use the LOC offset or Starting disk number
+         * field value we will not validate them
+         * @param off the starting offset for the Zip64 field value
+         * @param blockSize the size of the Zip64 Extended Extra Field
+         * @param csize CEN header compressed size value
+         * @param size CEN header uncompressed size value
+         * @throws ZipException if an error occurs
+         */
+        private void checkZip64ExtraFieldValues(int off, int blockSize, long csize,
+                                                long size)
+                throws ZipException {
+            byte[] cen = this.cen;
+            // Validate the Zip64 Extended Information Extra Field (0x0001)
+            // length.
+            if (!isZip64ExtBlockSizeValid(blockSize)) {
+                zerror("Invalid CEN header (invalid zip64 extra data field size)");
+            }
+            // Check the uncompressed size is not negative
+            // Note we do not need to check blockSize is >= 8 as
+            // we know its length is at least 8 from the call to
+            // isZip64ExtBlockSizeValid()
+            if ((size == ZIP64_MAGICVAL)) {
+                if(get64(cen, off) < 0) {
+                    zerror("Invalid zip64 extra block size value");
+                }
+            }
+            // Check the compressed size is not negative
+            if ((csize == ZIP64_MAGICVAL) && (blockSize >= 16)) {
+                if (get64(cen, off + 8) < 0) {
+                    zerror("Invalid zip64 extra block compressed size value");
+                }
+            }
+        }
+
+        /**
+         * Validate the size and contents of a Zip64 extended information field
+         * The order of the Zip64 fields is fixed, but the fields MUST
+         * only appear if the corresponding LOC or CEN field is set to 0xFFFF:
+         * or 0xFFFFFFFF:
+         * Uncompressed Size - 8 bytes
+         * Compressed Size   - 8 bytes
+         * LOC Header offset - 8 bytes
+         * Disk Start Number - 4 bytes
+         * See PKWare APP.Note Section 4.5.3 for more details
+         *
+         * @param blockSize the Zip64 Extended Information Extra Field size
+         * @return true if the extra block size is valid; false otherwise
+         */
+        private static boolean isZip64ExtBlockSizeValid(int blockSize) {
+            /*
+             * As the fields must appear in order, the block size indicates which
+             * fields to expect:
+             *  8 - uncompressed size
+             * 16 - uncompressed size, compressed size
+             * 24 - uncompressed size, compressed sise, LOC Header offset
+             * 28 - uncompressed size, compressed sise, LOC Header offset,
+             * and Disk start number
+             */
+            return switch(blockSize) {
+                case 8, 16, 24, 28 -> true;
+                default -> false;
+            };
         }
         private int getEntryHash(int index) { return entries[index]; }
         private int getEntryNext(int index) { return entries[index + 1]; }
@@ -1220,22 +1362,27 @@ class ZipFile implements ZipConstants, Closeable {
         private int tablelen;                // number of hash heads
 
         private static class Key {
-            BasicFileAttributes attrs;
+            final BasicFileAttributes attrs;
             File file;
+            final boolean utf8;
 
-            public Key(File file, BasicFileAttributes attrs) {
+            public Key(File file, BasicFileAttributes attrs, ZipCoder zc) {
                 this.attrs = attrs;
                 this.file = file;
+                this.utf8 = zc.isUTF8();
             }
 
             public int hashCode() {
-                long t = attrs.lastModifiedTime().toMillis();
+                long t = utf8 ? 0 : Long.MAX_VALUE;
+                t += attrs.lastModifiedTime().toMillis();
                 return ((int)(t ^ (t >>> 32))) + file.hashCode();
             }
 
             public boolean equals(Object obj) {
-                if (obj instanceof Key) {
-                    Key key = (Key)obj;
+                if (obj instanceof Key key) {
+                    if (key.utf8 != utf8) {
+                        return false;
+                    }
                     if (!attrs.lastModifiedTime().equals(key.attrs.lastModifiedTime())) {
                         return false;
                     }
@@ -1250,13 +1397,19 @@ class ZipFile implements ZipConstants, Closeable {
             }
         }
         private static final HashMap<Key, Source> files = new HashMap<>();
-
+        /**
+         * Use the platform's default file system to avoid
+         * issues when the VM is configured to use a custom file system provider.
+         */
+        private static final java.nio.file.FileSystem builtInFS =
+                DefaultFileSystemProvider.theFileSystem();
 
         static Source get(File file, boolean toDelete, ZipCoder zc) throws IOException {
             final Key key;
             try {
                 key = new Key(file,
-                        Files.readAttributes(file.toPath(), BasicFileAttributes.class));
+                        Files.readAttributes(builtInFS.getPath(file.getPath()),
+                                BasicFileAttributes.class), zc);
             } catch (InvalidPathException ipe) {
                 throw new IOException(ipe);
             }
@@ -1271,13 +1424,12 @@ class ZipFile implements ZipConstants, Closeable {
             src = new Source(key, toDelete, zc);
 
             synchronized (files) {
-                if (files.containsKey(key)) {    // someone else put in first
-                    src.close();                 // close the newly created one
-                    src = files.get(key);
-                    src.refs++;
-                    return src;
+                Source prev = files.putIfAbsent(key, src);
+                if (prev != null) {    // someone else put in first
+                    src.close();       // close the newly created one
+                    prev.refs++;
+                    return prev;
                 }
-                files.put(key, src);
                 return src;
             }
         }
@@ -1292,9 +1444,10 @@ class ZipFile implements ZipConstants, Closeable {
         }
 
         private Source(Key key, boolean toDelete, ZipCoder zc) throws IOException {
+            this.zc = zc;
             this.key = key;
             if (toDelete) {
-                if (isWindows) {
+                if (OperatingSystem.isWindows()) {
                     this.zfile = SharedSecrets.getJavaIORandomAccessFileAccess()
                                               .openAndDelete(key.file, "r");
                 } else {
@@ -1305,7 +1458,7 @@ class ZipFile implements ZipConstants, Closeable {
                 this.zfile = new RandomAccessFile(key.file, "r");
             }
             try {
-                initCEN(-1, zc);
+                initCEN(-1);
                 byte[] buf = new byte[4];
                 readFullyAt(buf, 0, 4, 0);
                 this.startsWithLoc = (LOCSIG(buf) == LOCSIG);
@@ -1323,8 +1476,10 @@ class ZipFile implements ZipConstants, Closeable {
             cen = null;
             entries = null;
             table = null;
-            metanames = null;
+            manifestPos = -1;
             manifestNum = 0;
+            signatureMetaNames = null;
+            metaVersions = EMPTY_META_VERSIONS;
         }
 
         private static final int BUF_SIZE = 8192;
@@ -1353,43 +1508,6 @@ class ZipFile implements ZipConstants, Closeable {
             }
         }
 
-        private static final void checkUTF8(byte[] a, int pos, int len) throws ZipException {
-            try {
-                int end = pos + len;
-                while (pos < end) {
-                    // ASCII fast-path: When checking that a range of bytes is
-                    // valid UTF-8, we can avoid some allocation by skipping
-                    // past bytes in the 0-127 range
-                    if (a[pos] < 0) {
-                        ZipCoder.toStringUTF8(a, pos, end - pos);
-                        break;
-                    }
-                    pos++;
-                }
-            } catch(Exception e) {
-                zerror("invalid CEN header (bad entry name)");
-            }
-        }
-
-        private final void checkEncoding(ZipCoder zc, byte[] a, int pos, int nlen) throws ZipException {
-            try {
-                zc.toString(a, pos, nlen);
-            } catch(Exception e) {
-                zerror("invalid CEN header (bad entry name)");
-            }
-        }
-
-        private static final int hashN(byte[] a, int off, int len) {
-            int h = 1;
-            while (len-- > 0) {
-                h = 31 * h + a[off++];
-            }
-            return h;
-        }
-
-        private static final int hash_append(int hash, byte b) {
-            return hash * 31 + b;
-        }
 
         private static class End {
             int  centot;     // 4 bytes
@@ -1494,19 +1612,20 @@ class ZipFile implements ZipConstants, Closeable {
                     }
                 }
             }
-            zerror("zip END header not found");
-            return null; //make compiler happy
+            throw new ZipException("zip END header not found");
         }
 
         // Reads zip file central directory.
-        private void initCEN(int knownTotal, ZipCoder zc) throws IOException {
+        private void initCEN(int knownTotal) throws IOException {
+            // Prefer locals for better performance during startup
+            byte[] cen;
             if (knownTotal == -1) {
                 End end = findEND();
                 if (end.endpos == 0) {
                     locpos = 0;
                     total = 0;
-                    entries  = new int[0];
-                    cen = null;
+                    entries = new int[0];
+                    this.cen = null;
                     return;         // only END header present
                 }
                 if (end.cenlen > end.endpos)
@@ -1519,88 +1638,109 @@ class ZipFile implements ZipConstants, Closeable {
                     zerror("invalid END header (bad central directory offset)");
                 }
                 // read in the CEN and END
-                cen = new byte[(int)(end.cenlen + ENDHDR)];
+                if (end.cenlen + ENDHDR >= Integer.MAX_VALUE) {
+                    zerror("invalid END header (central directory size too large)");
+                }
+                cen = this.cen = new byte[(int)(end.cenlen + ENDHDR)];
                 if (readFullyAt(cen, 0, cen.length, cenpos) != end.cenlen + ENDHDR) {
                     zerror("read CEN tables failed");
                 }
-                total = end.centot;
+                this.total = end.centot;
             } else {
-                total = knownTotal;
+                cen = this.cen;
+                this.total = knownTotal;
             }
             // hash table for entries
-            entries  = new int[total * 3];
-            tablelen = ((total/2) | 1); // Odd -> fewer collisions
-            table    =  new int[tablelen];
+            int entriesLength = this.total * 3;
+            entries = new int[entriesLength];
+
+            int tablelen = ((total/2) | 1); // Odd -> fewer collisions
+            this.tablelen = tablelen;
+
+            int[] table = new int[tablelen];
+            this.table = table;
+
             Arrays.fill(table, ZIP_ENDCHAIN);
-            int idx = 0;
-            int hash;
-            int next;
 
             // list for all meta entries
-            ArrayList<Integer> metanamesList = null;
+            ArrayList<Integer> signatureNames = null;
+            // Set of all version numbers seen in META-INF/versions/
+            Set<Integer> metaVersionsSet = null;
 
             // Iterate through the entries in the central directory
-            int i = 0;
-            int hsh;
+            int idx = 0; // Index into the entries array
             int pos = 0;
+            int entryPos = CENHDR;
             int limit = cen.length - ENDHDR;
             manifestNum = 0;
-            while (pos + CENHDR <= limit) {
-                if (i >= total) {
+            while (entryPos <= limit) {
+                if (idx >= entriesLength) {
                     // This will only happen if the zip file has an incorrect
                     // ENDTOT field, which usually means it contains more than
                     // 65535 entries.
-                    initCEN(countCENHeaders(cen, limit), zc);
+                    initCEN(countCENHeaders(cen, limit));
                     return;
                 }
-                if (CENSIG(cen, pos) != CENSIG)
-                    zerror("invalid CEN header (bad signature)");
-                int method = CENHOW(cen, pos);
-                int nlen   = CENNAM(cen, pos);
-                int elen   = CENEXT(cen, pos);
-                int clen   = CENCOM(cen, pos);
-                int flag   = CENFLG(cen, pos);
-                if ((flag & 1) != 0)
-                    zerror("invalid CEN header (encrypted entry)");
-                if (method != STORED && method != DEFLATED)
-                    zerror("invalid CEN header (bad compression method: " + method + ")");
-                if (pos + CENHDR + nlen > limit)
-                    zerror("invalid CEN header (bad header size)");
-                if (zc.isUTF8() || (flag & USE_UTF8) != 0) {
-                    checkUTF8(cen, pos + CENHDR, nlen);
-                } else {
-                    checkEncoding(zc, cen, pos + CENHDR, nlen);
-                }
-                // Record the CEN offset and the name hash in our hash cell.
-                hash = hashN(cen, pos + CENHDR, nlen);
-                hsh = (hash & 0x7fffffff) % tablelen;
-                next = table[hsh];
-                table[hsh] = idx;
-                idx = addEntry(idx, hash, next, pos);
+
+                // Checks the entry and adds values to entries[idx ... idx+2]
+                int nlen = checkAndAddEntry(pos, idx);
+                idx += 3;
+
                 // Adds name to metanames.
-                if (isMetaName(cen, pos + CENHDR, nlen)) {
-                    if (metanamesList == null)
-                        metanamesList = new ArrayList<>(4);
-                    metanamesList.add(pos);
-                    if (isManifestName(cen, pos + CENHDR +
-                            META_INF_LEN, nlen - META_INF_LEN)) {
+                if (isMetaName(cen, entryPos, nlen)) {
+                    // nlen is at least META_INF_LENGTH
+                    if (isManifestName(entryPos + META_INF_LEN, nlen - META_INF_LEN)) {
+                        manifestPos = pos;
                         manifestNum++;
+                    } else {
+                        if (isSignatureRelated(entryPos, nlen)) {
+                            if (signatureNames == null)
+                                signatureNames = new ArrayList<>(4);
+                            signatureNames.add(pos);
+                        }
+
+                        // If this is a versioned entry, parse the version
+                        // and store it for later. This optimizes lookup
+                        // performance in multi-release jar files
+                        int version = getMetaVersion(entryPos + META_INF_LEN, nlen - META_INF_LEN);
+                        if (version > 0) {
+                            if (metaVersionsSet == null)
+                                metaVersionsSet = new TreeSet<>();
+                            metaVersionsSet.add(version);
+                        }
                     }
                 }
-                // skip ext and comment
-                pos += (CENHDR + nlen + elen + clen);
-                i++;
+                // skip to the start of the next entry
+                pos = nextEntryPos(pos, entryPos, nlen);
+                entryPos = pos + CENHDR;
             }
-            total = i;
-            if (metanamesList != null) {
-                metanames = new int[metanamesList.size()];
-                for (int j = 0, len = metanames.length; j < len; j++) {
-                    metanames[j] = metanamesList.get(j);
+
+            // Adjust the total entries
+            this.total = idx / 3;
+
+            if (signatureNames != null) {
+                int len = signatureNames.size();
+                signatureMetaNames = new int[len];
+                for (int j = 0; j < len; j++) {
+                    signatureMetaNames[j] = signatureNames.get(j);
                 }
+            }
+            if (metaVersionsSet != null) {
+                metaVersions = new int[metaVersionsSet.size()];
+                int c = 0;
+                for (Integer version : metaVersionsSet) {
+                    metaVersions[c++] = version;
+                }
+            } else {
+                metaVersions = EMPTY_META_VERSIONS;
             }
             if (pos + ENDHDR != cen.length) {
                 zerror("invalid CEN header (bad header size)");
             }
+        }
+
+        private int nextEntryPos(int pos, int entryPos, int nlen) {
+            return entryPos + nlen + CENCOM(cen, pos) + CENEXT(cen, pos);
         }
 
         private static void zerror(String msg) throws ZipException {
@@ -1611,55 +1751,60 @@ class ZipFile implements ZipConstants, Closeable {
          * Returns the {@code pos} of the zip cen entry corresponding to the
          * specified entry name, or -1 if not found.
          */
-        private int getEntryPos(byte[] name, boolean addSlash) {
+        private int getEntryPos(String name, boolean addSlash) {
             if (total == 0) {
                 return -1;
             }
-            int hsh = hashN(name, 0, name.length);
+
+            int hsh = ZipCoder.hash(name);
             int idx = table[(hsh & 0x7fffffff) % tablelen];
-            /*
-             * This while loop is an optimization where a double lookup
-             * for name and name+/ is being performed. The name char
-             * array has enough room at the end to try again with a
-             * slash appended if the first table lookup does not succeed.
-             */
-            while (true) {
-                /*
-                 * Search down the target hash chain for a entry whose
-                 * 32 bit hash matches the hashed name.
-                 */
-                while (idx != ZIP_ENDCHAIN) {
-                    if (getEntryHash(idx) == hsh) {
-                        // The CEN name must match the specfied one
-                        int pos = getEntryPos(idx);
-                        if (name.length == CENNAM(cen, pos)) {
-                            boolean matched = true;
-                            int nameoff = pos + CENHDR;
-                            for (int i = 0; i < name.length; i++) {
-                                if (name[i] != cen[nameoff++]) {
-                                    matched = false;
-                                    break;
-                                }
-                            }
-                            if (matched) {
-                                return pos;
-                            }
-                         }
+
+            int dirPos = -1; // Position of secondary match "name/"
+
+            // Search down the target hash chain for a entry whose
+            // 32 bit hash matches the hashed name.
+            while (idx != ZIP_ENDCHAIN) {
+                if (getEntryHash(idx) == hsh) {
+
+                    int pos = getEntryPos(idx);
+                    int noff = pos + CENHDR;
+                    int nlen = CENNAM(cen, pos);
+
+                    ZipCoder zc = zipCoderForPos(pos);
+
+                    // Compare the lookup name with the name encoded in the CEN
+                    switch (zc.compare(name, cen, noff, nlen, addSlash)) {
+                        case EXACT_MATCH:
+                            // We found an exact match for "name"
+                            return pos;
+                        case DIRECTORY_MATCH:
+                            // We found the directory "name/"
+                            // Track its position, then continue the search for "name"
+                            dirPos = pos;
+                            break;
+                        case NO_MATCH:
+                            // Hash collision, continue searching
                     }
-                    idx = getEntryNext(idx);
                 }
-                /* If not addSlash, or slash is already there, we are done */
-                if (!addSlash  || name.length == 0 || name[name.length - 1] == '/') {
-                     return -1;
-                }
-                /* Add slash and try once more */
-                name = Arrays.copyOf(name, name.length + 1);
-                name[name.length - 1] = '/';
-                hsh = hash_append(hsh, (byte)'/');
-                //idx = table[hsh % tablelen];
-                idx = table[(hsh & 0x7fffffff) % tablelen];
-                addSlash = false;
+                idx = getEntryNext(idx);
             }
+            // Reaching this point means we did not find "name".
+            // Return the position of "name/" if we found it
+            if (dirPos != -1) {
+                return dirPos;
+            }
+            // No entry found
+            return -1;
+        }
+
+        private ZipCoder zipCoderForPos(int pos) {
+            if (zc.isUTF8()) {
+                return zc;
+            }
+            if ((CENFLG(cen, pos) & USE_UTF8) != 0) {
+                return ZipCoder.UTF8;
+            }
+            return zc;
         }
 
         /**
@@ -1667,8 +1812,9 @@ class ZipFile implements ZipConstants, Closeable {
          * beginning with "META-INF/", disregarding ASCII case.
          */
         private static boolean isMetaName(byte[] name, int off, int len) {
-            // Use the "oldest ASCII trick in the book"
-            return len > 9                     // "META-INF/".length()
+            // Use the "oldest ASCII trick in the book":
+            // ch | 0x20 == Character.toLowerCase(ch)
+            return len > META_INF_LEN       // "META-INF/".length()
                 && name[off + len - 1] != '/'  // non-directory
                 && (name[off++] | 0x20) == 'm'
                 && (name[off++] | 0x20) == 'e'
@@ -1684,7 +1830,8 @@ class ZipFile implements ZipConstants, Closeable {
         /*
          * Check if the bytes represents a name equals to MANIFEST.MF
          */
-        private boolean isManifestName(byte[] name, int off, int len) {
+        private boolean isManifestName(int off, int len) {
+            byte[] name = cen;
             return (len == 11 // "MANIFEST.MF".length()
                     && (name[off++] | 0x20) == 'm'
                     && (name[off++] | 0x20) == 'a'
@@ -1697,6 +1844,94 @@ class ZipFile implements ZipConstants, Closeable {
                     && (name[off++]       ) == '.'
                     && (name[off++] | 0x20) == 'm'
                     && (name[off]   | 0x20) == 'f');
+        }
+
+        private boolean isSignatureRelated(int off, int len) {
+            // Only called when isMetaName(name, off, len) is true, which means
+            // len is at least META_INF_LENGTH
+            // assert isMetaName(name, off, len)
+            boolean signatureRelated = false;
+            byte[] name = cen;
+            if (name[off + len - 3] == '.') {
+                // Check if entry ends with .EC and .SF
+                int b1 = name[off + len - 2] | 0x20;
+                int b2 = name[off + len - 1] | 0x20;
+                if ((b1 == 'e' && b2 == 'c') || (b1 == 's' && b2 == 'f')) {
+                    signatureRelated = true;
+                }
+            } else if (name[off + len - 4] == '.') {
+                // Check if entry ends with .DSA and .RSA
+                int b1 = name[off + len - 3] | 0x20;
+                int b2 = name[off + len - 2] | 0x20;
+                int b3 = name[off + len - 1] | 0x20;
+                if ((b1 == 'r' || b1 == 'd') && b2 == 's' && b3 == 'a') {
+                    signatureRelated = true;
+                }
+            }
+            // Above logic must match SignatureFileVerifier.isBlockOrSF
+            assert(signatureRelated == SignatureFileVerifier
+                .isBlockOrSF(new String(name, off, len, UTF_8.INSTANCE)
+                    .toUpperCase(Locale.ENGLISH)));
+
+            // Signature related files must reside directly in META-INF/
+            if (signatureRelated && hasSlash(name, off + META_INF_LEN, off + len)) {
+                signatureRelated = false;
+            }
+            return signatureRelated;
+        }
+        /*
+         * Return true if the encoded name contains a '/' within the byte given range
+         * This assumes an ASCII-compatible encoding, which is ok here since
+         * it is already assumed in isMetaName
+         */
+        private boolean hasSlash(byte[] name, int start, int end) {
+            for (int i = start; i < end; i++) {
+                int c = name[i];
+                if (c == '/') {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /*
+         * If the bytes represents a non-directory name beginning
+         * with "versions/", continuing with a positive integer,
+         * followed by a '/', then return that integer value.
+         * Otherwise, return 0
+         */
+        private int getMetaVersion(int off, int len) {
+            byte[] name = cen;
+            int nend = off + len;
+            if (!(len > 10                         // "versions//".length()
+                    && name[off + len - 1] != '/'  // non-directory
+                    && (name[off++] | 0x20) == 'v'
+                    && (name[off++] | 0x20) == 'e'
+                    && (name[off++] | 0x20) == 'r'
+                    && (name[off++] | 0x20) == 's'
+                    && (name[off++] | 0x20) == 'i'
+                    && (name[off++] | 0x20) == 'o'
+                    && (name[off++] | 0x20) == 'n'
+                    && (name[off++] | 0x20) == 's'
+                    && (name[off++]       ) == '/')) {
+                return 0;
+            }
+            int version = 0;
+            while (off < nend) {
+                final byte c = name[off++];
+                if (c == '/') {
+                    return version;
+                }
+                if (c < '0' || c > '9') {
+                    return 0;
+                }
+                version = version * 10 + c - '0';
+                // Check for overflow and leading zeros
+                if (version <= 0) {
+                    return 0;
+                }
+            }
+            return 0;
         }
 
         /**

@@ -40,8 +40,10 @@ import javax.imageio.ImageIO;
 /**
  * @test
  * @key headful
- * @bug 8215105 8211999
+ * @bug 8215105 8211999 8298887
  * @summary tests that Robot can capture the common colors without artifacts
+ * @run main/othervm CheckCommonColors
+ * @run main/othervm -Xcheck:jni CheckCommonColors
  */
 public final class CheckCommonColors {
 
@@ -85,6 +87,7 @@ public final class CheckCommonColors {
         int attempt = 0;
         while (true) {
             Point p = frame.getLocationOnScreen();
+            p.translate(frame.getWidth() / 2, frame.getHeight() / 2);
             Color pixel;
             Rectangle rect = new Rectangle(p.x, p.y, 1, 1);
             if (useRect) {

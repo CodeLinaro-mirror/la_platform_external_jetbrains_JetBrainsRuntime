@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,8 +27,7 @@ package sun.awt.X11;
 
 import java.awt.*;
 
-import java.util.LinkedList;
-import java.util.Iterator;
+import java.util.ArrayList;
 
 import sun.util.logging.PlatformLogger;
 
@@ -41,7 +40,7 @@ public class XEmbeddedFramePeer extends XFramePeer {
 
     private static final PlatformLogger xembedLog = PlatformLogger.getLogger("sun.awt.X11.xembed.XEmbeddedFramePeer");
 
-    LinkedList<AWTKeyStroke> strokes;
+    private ArrayList<AWTKeyStroke> strokes;
 
     XEmbedClientHelper embedder; // Caution - can be null if XEmbed is not supported
     public XEmbeddedFramePeer(EmbeddedFrame target) {
@@ -56,7 +55,7 @@ public class XEmbeddedFramePeer extends XFramePeer {
 
     public void preInit(XCreateWindowParams params) {
         super.preInit(params);
-        strokes = new LinkedList<AWTKeyStroke>();
+        strokes = new ArrayList<>();
         if (supportsXEmbed()) {
             embedder = new XEmbedClientHelper();
         }
@@ -143,30 +142,35 @@ public class XEmbeddedFramePeer extends XFramePeer {
             xembedLog.fine(xe.toString());
         }
 
+        WindowLocation newLocation = getNewLocation(xe);
+        Dimension newDimension = new Dimension(xe.get_width(), xe.get_height());
+        boolean xinerama = XToolkit.localEnv.runningXinerama();
         // fix for 5063031
         // if we use super.handleConfigureNotifyEvent() we would get wrong
         // size and position because embedded frame really is NOT a decorated one
-        checkIfOnNewScreen(toGlobal(new Rectangle(scaleDown(xe.get_x()),
-                                                  scaleDown(xe.get_y()),
-                                                  scaleDown(xe.get_width()),
-                                                  scaleDown(xe.get_height()))));
+        SunToolkit.executeOnEventHandlerThread(target, () -> {
+            Point newUserLocation = newLocation.getUserLocation();
+            Rectangle oldBounds = getBounds();
 
-        Rectangle oldBounds = getBounds();
+            synchronized (getStateLock()) {
+                x = newUserLocation.x;
+                y = newUserLocation.y;
+                width = scaleDown(newDimension.width);
+                height = scaleDown(newDimension.height);
 
-        synchronized (getStateLock()) {
-            x = scaleDown(xe.get_x());
-            y = scaleDown(xe.get_y());
-            width = scaleDown(xe.get_width());
-            height = scaleDown(xe.get_height());
+                dimensions.setClientSize(width, height);
+                dimensions.setLocation(x, y);
+            }
 
-            dimensions.setClientSize(width, height);
-            dimensions.setLocation(x, y);
-        }
+            if (!getLocation().equals(oldBounds.getLocation())) {
+                handleMoved(dimensions);
+            }
+            reconfigureContentWindow(dimensions);
 
-        if (!getLocation().equals(oldBounds.getLocation())) {
-            handleMoved(dimensions);
-        }
-        reconfigureContentWindow(dimensions);
+            if (xinerama) {
+                checkIfOnNewScreen(new Rectangle(newLocation.getDeviceLocation(), newDimension));
+            }
+        });
     }
 
     protected void traverseOutForward() {
@@ -246,9 +250,8 @@ public class XEmbeddedFramePeer extends XFramePeer {
         // Register accelerators
         if (embedder != null && embedder.isActive()) {
             int i = 0;
-            Iterator<AWTKeyStroke> iter = strokes.iterator();
-            while (iter.hasNext()) {
-                embedder.registerAccelerator(iter.next(), i++);
+            for (AWTKeyStroke stroke : strokes) {
+                embedder.registerAccelerator(stroke, i++);
             }
         }
         // Now we know that the embedder is an XEmbed server, so we
@@ -276,16 +279,16 @@ public class XEmbeddedFramePeer extends XFramePeer {
     {
         Point absoluteLoc = XlibUtil.translateCoordinates(getWindow(),
                                                           XToolkit.getDefaultRootWindow(),
-                                                          new Point(0, 0), getScale());
-        return absoluteLoc != null ? absoluteLoc.x : 0;
+                                                          0, 0);
+        return absoluteLoc != null ? scaleDownX(absoluteLoc.x) : 0;
     }
 
     public int getAbsoluteY()
     {
         Point absoluteLoc = XlibUtil.translateCoordinates(getWindow(),
                                                           XToolkit.getDefaultRootWindow(),
-                                                          new Point(0, 0), getScale());
-        return absoluteLoc != null ? absoluteLoc.y : 0;
+                                                          0, 0);
+        return absoluteLoc != null ? scaleDownY(absoluteLoc.y) : 0;
     }
 
     public int getWidth() {

@@ -22,8 +22,8 @@
  *
  */
 
-#ifndef SHARE_VM_UTILITIES_BREAKPOINT_HPP
-#define SHARE_VM_UTILITIES_BREAKPOINT_HPP
+#ifndef SHARE_UTILITIES_BREAKPOINT_HPP
+#define SHARE_UTILITIES_BREAKPOINT_HPP
 
 // If no more specific definition provided, default to calling a
 // function that is defined per-platform.  See also os::breakpoint().
@@ -32,4 +32,4 @@ extern "C" void breakpoint();
 #define BREAKPOINT ::breakpoint()
 #endif
 
-#endif // SHARE_VM_UTILITIES_BREAKPOINT_HPP
+#endif // SHARE_UTILITIES_BREAKPOINT_HPP

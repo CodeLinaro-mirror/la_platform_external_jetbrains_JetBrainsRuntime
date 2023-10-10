@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,17 +25,13 @@
 
 package jdk.internal.net.http.common;
 
-import sun.net.NetProperties;
-import sun.net.util.IPAddressUtil;
-import sun.net.www.HeaderParser;
-
 import javax.net.ssl.ExtendedSSLSession;
 import javax.net.ssl.SSLException;
+import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSession;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
-import java.io.EOFException;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
@@ -59,6 +55,7 @@ import java.text.Normalizer;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
@@ -71,11 +68,16 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import jdk.internal.net.http.common.DebugLogger.LoggerConfig;
 import jdk.internal.net.http.HttpRequestImpl;
+
+import sun.net.NetProperties;
+import sun.net.util.IPAddressUtil;
+import sun.net.www.HeaderParser;
 
 import static java.lang.String.format;
 import static java.nio.charset.StandardCharsets.US_ASCII;
-import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
 
 /**
@@ -98,16 +100,54 @@ public final class Utils {
 //            TESTING = AccessController.doPrivileged(action) != null;
 //        } else TESTING = false;
 //    }
-    public static final boolean DEBUG = // Revisit: temporary dev flag.
-            getBooleanProperty(DebugLogger.HTTP_NAME, false);
-    public static final boolean DEBUG_WS = // Revisit: temporary dev flag.
-            getBooleanProperty(DebugLogger.WS_NAME, false);
-    public static final boolean DEBUG_HPACK = // Revisit: temporary dev flag.
-            getBooleanProperty(DebugLogger.HPACK_NAME, false);
+    public static final LoggerConfig DEBUG_CONFIG =
+            getLoggerConfig(DebugLogger.HTTP_NAME, LoggerConfig.OFF);
+    public static final LoggerConfig DEBUG_WS_CONFIG =
+            getLoggerConfig(DebugLogger.WS_NAME, LoggerConfig.OFF);
+    public static final LoggerConfig DEBUG_HPACK_CONFIG =
+            getLoggerConfig(DebugLogger.HPACK_NAME, LoggerConfig.OFF);
+
+    public static final boolean DEBUG = DEBUG_CONFIG.on(); // Revisit: temporary dev flag.
+    public static final boolean DEBUG_WS = DEBUG_WS_CONFIG.on(); // Revisit: temporary dev flag.
     public static final boolean TESTING = DEBUG;
 
     public static final boolean isHostnameVerificationDisabled = // enabled by default
             hostnameVerificationDisabledValue();
+
+    private static LoggerConfig getLoggerConfig(String loggerName, LoggerConfig def) {
+        PrivilegedAction<String> action = () -> System.getProperty(loggerName);
+        @SuppressWarnings("removal")
+        var prop = AccessController.doPrivileged(action);
+        if (prop == null) return def;
+        var config = LoggerConfig.OFF;
+        for (var s : prop.split(",")) {
+            s = s.trim();
+            if (s.isEmpty()) continue;
+            int len = s.length();
+            switch (len) {
+                case 3 -> {
+                    if (s.regionMatches(true, 0, "err", 0, 3)) {
+                        config = config.withErrLevel(Level.ALL);
+                        continue;
+                    }
+                    if (s.regionMatches(true, 0, "out", 0, 3)) {
+                        config = config.withOutLevel(Level.ALL);
+                        continue;
+                    }
+                    if (s.regionMatches(true, 0, "log", 0, 3)) {
+                        config = config.withLogLevel(Level.ALL);
+                    }
+                }
+                case 4 -> {
+                    if (s.regionMatches(true, 0, "true", 0, 4)) {
+                        config = config.withErrLevel(Level.ALL).withLogLevel(Level.ALL);
+                    }
+                }
+                default -> { continue; }
+            }
+        }
+        return config;
+    }
 
     private static boolean hostnameVerificationDisabledValue() {
         String prop = getProperty("jdk.internal.httpclient.disableHostnameVerification");
@@ -167,8 +207,6 @@ public final class Utils {
                 return true;
             };
 
-    private static final Predicate<String> IS_HOST = "host"::equalsIgnoreCase;
-
     // Headers that are not generally restricted, and can therefore be set by users,
     // but can in some contexts be overridden by the implementation.
     // Currently, only contains "Authorization" which will
@@ -177,11 +215,19 @@ public final class Utils {
     // used by caller.
 
     public static final BiPredicate<String, String> CONTEXT_RESTRICTED(HttpClient client) {
-        return (k, v) -> client.authenticator() == null ||
-                ! (k.equalsIgnoreCase("Authorization")
-                        && k.equalsIgnoreCase("Proxy-Authorization"));
+        return (k, v) -> client.authenticator().isEmpty() ||
+                (!k.equalsIgnoreCase("Authorization")
+                        && !k.equalsIgnoreCase("Proxy-Authorization"));
     }
 
+    public record ProxyHeaders(HttpHeaders userHeaders, HttpHeaders systemHeaders) {}
+
+    private static final BiPredicate<String, String> HOST_RESTRICTED = (k,v) -> !"host".equalsIgnoreCase(k);
+    public static final BiPredicate<String, String> PROXY_TUNNEL_RESTRICTED(HttpClient client)  {
+        return CONTEXT_RESTRICTED(client).and(HOST_RESTRICTED);
+    }
+
+    private static final Predicate<String> IS_HOST = "host"::equalsIgnoreCase;
     private static final Predicate<String> IS_PROXY_HEADER = (k) ->
             k != null && k.length() > 6 && "proxy-".equalsIgnoreCase(k.substring(0,6));
     private static final Predicate<String> NO_PROXY_HEADER =
@@ -284,11 +330,21 @@ public final class Utils {
     }
 
     public static Throwable getCompletionCause(Throwable x) {
-        if (!(x instanceof CompletionException)
-                && !(x instanceof ExecutionException)) return x;
-        final Throwable cause = x.getCause();
-        if (cause == null) {
+        Throwable cause = x;
+        while ((cause instanceof CompletionException)
+                || (cause instanceof ExecutionException)) {
+            cause = cause.getCause();
+        }
+        if (cause == null && cause != x) {
             throw new InternalError("Unexpected null cause", x);
+        }
+        return cause;
+    }
+
+    public static Throwable getCancelCause(Throwable x) {
+        Throwable cause = getCompletionCause(x);
+        if (cause instanceof ConnectionExpiredException) {
+            cause = cause.getCause();
         }
         return cause;
     }
@@ -319,11 +375,16 @@ public final class Utils {
         if (!(t instanceof IOException))
             return t;
 
+        if (t instanceof SSLHandshakeException)
+            return t;  // no need to decorate
+
         String msg = messageSupplier.get();
         if (msg == null)
             return t;
 
         if (t instanceof ConnectionExpiredException) {
+            if (t.getCause() instanceof SSLHandshakeException)
+                return t;  // no need to decorate
             IOException ioe = new IOException(msg, t.getCause());
             t = new ConnectionExpiredException(ioe);
         } else {
@@ -370,27 +431,41 @@ public final class Utils {
         return new URLPermission(urlString, actionStringBuilder.toString());
     }
 
+    private static final boolean[] LOWER_CASE_CHARS = new boolean[128];
 
     // ABNF primitives defined in RFC 7230
     private static final boolean[] tchar      = new boolean[256];
     private static final boolean[] fieldvchar = new boolean[256];
 
     static {
-        char[] allowedTokenChars =
-                ("!#$%&'*+-.^_`|~0123456789" +
-                 "abcdefghijklmnopqrstuvwxyz" +
-                 "ABCDEFGHIJKLMNOPQRSTUVWXYZ").toCharArray();
-        for (char c : allowedTokenChars) {
+        char[] lcase = ("!#$%&'*+-.^_`|~0123456789" +
+                "abcdefghijklmnopqrstuvwxyz").toCharArray();
+        for (char c : lcase) {
+            tchar[c] = true;
+            LOWER_CASE_CHARS[c] = true;
+        }
+        char[] ucase = ("ABCDEFGHIJKLMNOPQRSTUVWXYZ").toCharArray();
+        for (char c : ucase) {
             tchar[c] = true;
         }
-        for (char c = 0x21; c < 0xFF; c++) {
+        for (char c = 0x21; c <= 0xFF; c++) {
             fieldvchar[c] = true;
         }
         fieldvchar[0x7F] = false; // a little hole (DEL) in the range
     }
 
+    public static boolean isValidLowerCaseName(String token) {
+        for (int i = 0; i < token.length(); i++) {
+            char c = token.charAt(i);
+            if (c > 255 || !LOWER_CASE_CHARS[c]) {
+                return false;
+            }
+        }
+        return !token.isEmpty();
+    }
+
     /*
-     * Validates a RFC 7230 field-name.
+     * Validates an RFC 7230 field-name.
      */
     public static boolean isValidName(String token) {
         for (int i = 0; i < token.length(); i++) {
@@ -451,7 +526,7 @@ public final class Utils {
     }
 
     /*
-     * Validates a RFC 7230 field-value.
+     * Validates an RFC 7230 field-value.
      *
      * "Obsolete line folding" rule
      *
@@ -474,27 +549,31 @@ public final class Utils {
         return true;
     }
 
-
+    @SuppressWarnings("removal")
     public static int getIntegerNetProperty(String name, int defaultValue) {
         return AccessController.doPrivileged((PrivilegedAction<Integer>) () ->
                 NetProperties.getInteger(name, defaultValue));
     }
 
+    @SuppressWarnings("removal")
     public static String getNetProperty(String name) {
         return AccessController.doPrivileged((PrivilegedAction<String>) () ->
                 NetProperties.get(name));
     }
 
+    @SuppressWarnings("removal")
     public static boolean getBooleanProperty(String name, boolean def) {
         return AccessController.doPrivileged((PrivilegedAction<Boolean>) () ->
                 Boolean.parseBoolean(System.getProperty(name, String.valueOf(def))));
     }
 
+    @SuppressWarnings("removal")
     public static String getProperty(String name) {
         return AccessController.doPrivileged((PrivilegedAction<String>) () ->
                 System.getProperty(name));
     }
 
+    @SuppressWarnings("removal")
     public static int getIntegerProperty(String name, int defaultValue) {
         return AccessController.doPrivileged((PrivilegedAction<Integer>) () ->
                 Integer.parseInt(System.getProperty(name, String.valueOf(defaultValue))));
@@ -634,33 +713,41 @@ public final class Utils {
     }
 
     public static boolean hasRemaining(List<ByteBuffer> bufs) {
-        synchronized (bufs) {
-            for (ByteBuffer buf : bufs) {
-                if (buf.hasRemaining())
-                    return true;
-            }
+        for (ByteBuffer buf : bufs) {
+            if (buf.hasRemaining())
+                return true;
+        }
+        return false;
+    }
+
+    public static boolean hasRemaining(ByteBuffer[] bufs) {
+        for (ByteBuffer buf : bufs) {
+            if (buf.hasRemaining())
+                return true;
         }
         return false;
     }
 
     public static long remaining(List<ByteBuffer> bufs) {
         long remain = 0;
-        synchronized (bufs) {
-            for (ByteBuffer buf : bufs) {
-                remain += buf.remaining();
-            }
+        for (ByteBuffer buf : bufs) {
+            remain += buf.remaining();
         }
         return remain;
     }
 
+    public static long synchronizedRemaining(List<ByteBuffer> bufs) {
+        synchronized (bufs) {
+            return remaining(bufs);
+        }
+    }
+
     public static int remaining(List<ByteBuffer> bufs, int max) {
         long remain = 0;
-        synchronized (bufs) {
-            for (ByteBuffer buf : bufs) {
-                remain += buf.remaining();
-                if (remain > max) {
-                    throw new IllegalArgumentException("too many bytes");
-                }
+        for (ByteBuffer buf : bufs) {
+            remain += buf.remaining();
+            if (remain > max) {
+                throw new IllegalArgumentException("too many bytes");
             }
         }
         return (int) remain;
@@ -741,13 +828,24 @@ public final class Utils {
 
     /**
      * Get a logger for debug HTTP traces.
-     *
+     * <p>
      * The logger should only be used with levels whose severity is
-     * {@code <= DEBUG}. By default, this logger will forward all messages
-     * logged to an internal logger named "jdk.internal.httpclient.debug".
-     * In addition, if the property -Djdk.internal.httpclient.debug=true is set,
-     * it will print the messages on stderr.
-     * The logger will add some decoration to the printed message, in the form of
+     * {@code <= DEBUG}.
+     * <p>
+     * The output of this logger is controlled by the system property
+     * -Djdk.internal.httpclient.debug. The value of the property is
+     * a comma separated list of tokens. The following tokens are
+     * recognized:
+     * <ul>
+     *   <li> err: the messages will be logged on System.err</li>
+     *   <li> out: the messages will be logged on System.out</li>
+     *   <li> log: the messages will be forwarded to an internal
+     *        System.Logger named "jdk.internal.httpclient.debug"</li>
+     *   <li> true: this is equivalent to "err,log":  the messages will be logged
+     *        both on System.err, and forwarded to the internal logger.</li>
+     * </ul>
+     *
+     * This logger will add some decoration to the printed message, in the form of
      * {@code <Level>:[<thread-name>] [<elapsed-time>] <dbgTag>: <formatted message>}
      *
      * @param dbgTag A lambda that returns a string that identifies the caller
@@ -756,72 +854,26 @@ public final class Utils {
      * @return A logger for HTTP internal debug traces
      */
     public static Logger getDebugLogger(Supplier<String> dbgTag) {
-        return getDebugLogger(dbgTag, DEBUG);
+        return DebugLogger.createHttpLogger(dbgTag, DEBUG_CONFIG);
     }
+
 
     /**
      * Get a logger for debug HTTP traces.The logger should only be used
      * with levels whose severity is {@code <= DEBUG}.
      *
-     * By default, this logger will forward all messages logged to an internal
-     * logger named "jdk.internal.httpclient.debug".
-     * In addition, if the message severity level is >= to
-     * the provided {@code errLevel} it will print the messages on stderr.
-     * The logger will add some decoration to the printed message, in the form of
-     * {@code <Level>:[<thread-name>] [<elapsed-time>] <dbgTag>: <formatted message>}
-     *
-     * @apiNote To obtain a logger that will always print things on stderr in
-     *          addition to forwarding to the internal logger, use
-     *          {@code getDebugLogger(this::dbgTag, Level.ALL);}.
-     *          This is also equivalent to calling
-     *          {@code getDebugLogger(this::dbgTag, true);}.
-     *          To obtain a logger that will only forward to the internal logger,
-     *          use {@code getDebugLogger(this::dbgTag, Level.OFF);}.
-     *          This is also equivalent to calling
-     *          {@code getDebugLogger(this::dbgTag, false);}.
+     * If {@code on} is false, returns a logger that doesn't log anything.
+     * Otherwise, returns a logger equivalent to {@link #getDebugLogger(Supplier)}.
      *
      * @param dbgTag A lambda that returns a string that identifies the caller
      *               (e.g: "SocketTube(3)", or "Http2Connection(SocketTube(3))")
-     * @param errLevel The level above which messages will be also printed on
-     *               stderr (in addition to be forwarded to the internal logger).
-     *
-     * @return A logger for HTTP internal debug traces
-     */
-    static Logger getDebugLogger(Supplier<String> dbgTag, Level errLevel) {
-        return DebugLogger.createHttpLogger(dbgTag, Level.OFF, errLevel);
-    }
-
-    /**
-     * Get a logger for debug HTTP traces.The logger should only be used
-     * with levels whose severity is {@code <= DEBUG}.
-     *
-     * By default, this logger will forward all messages logged to an internal
-     * logger named "jdk.internal.httpclient.debug".
-     * In addition, the provided boolean {@code on==true}, it will print the
-     * messages on stderr.
-     * The logger will add some decoration to the printed message, in the form of
-     * {@code <Level>:[<thread-name>] [<elapsed-time>] <dbgTag>: <formatted message>}
-     *
-     * @apiNote To obtain a logger that will always print things on stderr in
-     *          addition to forwarding to the internal logger, use
-     *          {@code getDebugLogger(this::dbgTag, true);}.
-     *          This is also equivalent to calling
-     *          {@code getDebugLogger(this::dbgTag, Level.ALL);}.
-     *          To obtain a logger that will only forward to the internal logger,
-     *          use {@code getDebugLogger(this::dbgTag, false);}.
-     *          This is also equivalent to calling
-     *          {@code getDebugLogger(this::dbgTag, Level.OFF);}.
-     *
-     * @param dbgTag A lambda that returns a string that identifies the caller
-     *               (e.g: "SocketTube(3)", or "Http2Connection(SocketTube(3))")
-     * @param on  Whether messages should also be printed on
-     *               stderr (in addition to be forwarded to the internal logger).
+     * @param on  Whether the logger is enabled.
      *
      * @return A logger for HTTP internal debug traces
      */
     public static Logger getDebugLogger(Supplier<String> dbgTag, boolean on) {
-        Level errLevel = on ? Level.ALL : Level.OFF;
-        return getDebugLogger(dbgTag, errLevel);
+        LoggerConfig config = on ? DEBUG_CONFIG : LoggerConfig.OFF;
+        return DebugLogger.createHttpLogger(dbgTag, config);
     }
 
     /**
@@ -847,7 +899,7 @@ public final class Utils {
         if (defaultPort) {
             return host;
         } else {
-            return host + ":" + Integer.toString(port);
+            return host + ":" + port;
         }
     }
 
@@ -855,22 +907,12 @@ public final class Utils {
      * Get a logger for debug HPACK traces.The logger should only be used
      * with levels whose severity is {@code <= DEBUG}.
      *
-     * By default, this logger will forward all messages logged to an internal
-     * logger named "jdk.internal.httpclient.hpack.debug".
-     * In addition, if the message severity level is >= to
-     * the provided {@code errLevel} it will print the messages on stderr.
-     * The logger will add some decoration to the printed message, in the form of
-     * {@code <Level>:[<thread-name>] [<elapsed-time>] <dbgTag>: <formatted message>}
-     *
-     * @apiNote To obtain a logger that will always print things on stderr in
-     *          addition to forwarding to the internal logger, use
-     *          {@code getHpackLogger(this::dbgTag, Level.ALL);}.
-     *          This is also equivalent to calling
-     *          {@code getHpackLogger(this::dbgTag, true);}.
-     *          To obtain a logger that will only forward to the internal logger,
-     *          use {@code getHpackLogger(this::dbgTag, Level.OFF);}.
-     *          This is also equivalent to calling
-     *          {@code getHpackLogger(this::dbgTag, false);}.
+     * By default, this logger has a configuration equivalent to that
+     * returned by {@link #getHpackLogger(Supplier)}. This original
+     * configuration is amended by the provided {@code errLevel} in
+     * the following way: if the message severity level is >= to
+     * the provided {@code errLevel} the message will additionally
+     * be printed on stderr.
      *
      * @param dbgTag A lambda that returns a string that identifies the caller
      *               (e.g: "Http2Connection(SocketTube(3))/hpack.Decoder(3)")
@@ -880,107 +922,72 @@ public final class Utils {
      * @return A logger for HPACK internal debug traces
      */
     public static Logger getHpackLogger(Supplier<String> dbgTag, Level errLevel) {
-        Level outLevel = Level.OFF;
-        return DebugLogger.createHpackLogger(dbgTag, outLevel, errLevel);
+        return DebugLogger.createHpackLogger(dbgTag, DEBUG_HPACK_CONFIG.withErrLevel(errLevel));
     }
 
     /**
      * Get a logger for debug HPACK traces.The logger should only be used
      * with levels whose severity is {@code <= DEBUG}.
      *
-     * By default, this logger will forward all messages logged to an internal
-     * logger named "jdk.internal.httpclient.hpack.debug".
-     * In addition, the provided boolean {@code on==true}, it will print the
-     * messages on stderr.
-     * The logger will add some decoration to the printed message, in the form of
-     * {@code <Level>:[<thread-name>] [<elapsed-time>] <dbgTag>: <formatted message>}
+     * The logger should only be used with levels whose severity is
+     * {@code <= DEBUG}.
+     * <p>
+     * The output of this logger is controlled by the system property
+     * -Djdk.internal.httpclient.hpack.debug. The value of the property is
+     * a comma separated list of tokens. The following tokens are
+     * recognized:
+     * <ul>
+     *   <li> err: the messages will be logged on System.err</li>
+     *   <li> out: the messages will be logged on System.out</li>
+     *   <li> log: the messages will be forwarded to an internal
+     *        System.Logger named "jdk.internal.httpclient.hpack.debug"</li>
+     *   <li> true: this is equivalent to "err,log":  the messages will be logged
+     *        both on System.err, and forwarded to the internal logger.</li>
+     * </ul>
      *
-     * @apiNote To obtain a logger that will always print things on stderr in
-     *          addition to forwarding to the internal logger, use
-     *          {@code getHpackLogger(this::dbgTag, true);}.
-     *          This is also equivalent to calling
-     *          {@code getHpackLogger(this::dbgTag, Level.ALL);}.
-     *          To obtain a logger that will only forward to the internal logger,
-     *          use {@code getHpackLogger(this::dbgTag, false);}.
-     *          This is also equivalent to calling
-     *          {@code getHpackLogger(this::dbgTag, Level.OFF);}.
+     * This logger will add some decoration to the printed message, in the form of
+     * {@code <Level>:[<thread-name>] [<elapsed-time>] <dbgTag>: <formatted message>}
      *
      * @param dbgTag A lambda that returns a string that identifies the caller
      *               (e.g: "Http2Connection(SocketTube(3))/hpack.Decoder(3)")
-     * @param on  Whether messages should also be printed on
-     *            stderr (in addition to be forwarded to the internal logger).
      *
      * @return A logger for HPACK internal debug traces
      */
-    public static Logger getHpackLogger(Supplier<String> dbgTag, boolean on) {
-        Level errLevel = on ? Level.ALL : Level.OFF;
-        return getHpackLogger(dbgTag, errLevel);
+    public static Logger getHpackLogger(Supplier<String> dbgTag) {
+        return DebugLogger.createHpackLogger(dbgTag, DEBUG_HPACK_CONFIG);
     }
 
     /**
      * Get a logger for debug WebSocket traces.The logger should only be used
      * with levels whose severity is {@code <= DEBUG}.
+     * <p>
+     * The logger should only be used with levels whose severity is
+     * {@code <= DEBUG}.
+     * <p>
+     * The output of this logger is controlled by the system property
+     * -Djdk.internal.httpclient.websocket.debug. The value of the property is
+     * a comma separated list of tokens. The following tokens are
+     * recognized:
+     * <ul>
+     *   <li> err: the messages will be logged on System.err</li>
+     *   <li> out: the messages will be logged on System.out</li>
+     *   <li> log: the messages will be forwarded to an internal
+     *        System.Logger named "jdk.internal.httpclient.websocket.debug"</li>
+     *   <li> true: this is equivalent to "err,log":  the messages will be logged
+     *        both on System.err, and forwarded to the internal logger.</li>
+     * </ul>
      *
-     * By default, this logger will forward all messages logged to an internal
-     * logger named "jdk.internal.httpclient.websocket.debug".
-     * In addition, if the message severity level is >= to
-     * the provided {@code errLevel} it will print the messages on stderr.
-     * The logger will add some decoration to the printed message, in the form of
+     * This logger will add some decoration to the printed message, in the form of
      * {@code <Level>:[<thread-name>] [<elapsed-time>] <dbgTag>: <formatted message>}
      *
-     * @apiNote To obtain a logger that will always print things on stderr in
-     *          addition to forwarding to the internal logger, use
-     *          {@code getWebSocketLogger(this::dbgTag, Level.ALL);}.
-     *          This is also equivalent to calling
-     *          {@code getWSLogger(this::dbgTag, true);}.
-     *          To obtain a logger that will only forward to the internal logger,
-     *          use {@code getWebSocketLogger(this::dbgTag, Level.OFF);}.
-     *          This is also equivalent to calling
-     *          {@code getWSLogger(this::dbgTag, false);}.
      *
      * @param dbgTag A lambda that returns a string that identifies the caller
      *               (e.g: "WebSocket(3)")
-     * @param errLevel The level above which messages will be also printed on
-     *               stderr (in addition to be forwarded to the internal logger).
-     *
-     * @return A logger for HPACK internal debug traces
-     */
-    public static Logger getWebSocketLogger(Supplier<String> dbgTag, Level errLevel) {
-        Level outLevel = Level.OFF;
-        return DebugLogger.createWebSocketLogger(dbgTag, outLevel, errLevel);
-    }
-
-    /**
-     * Get a logger for debug WebSocket traces.The logger should only be used
-     * with levels whose severity is {@code <= DEBUG}.
-     *
-     * By default, this logger will forward all messages logged to an internal
-     * logger named "jdk.internal.httpclient.websocket.debug".
-     * In addition, the provided boolean {@code on==true}, it will print the
-     * messages on stderr.
-     * The logger will add some decoration to the printed message, in the form of
-     * {@code <Level>:[<thread-name>] [<elapsed-time>] <dbgTag>: <formatted message>}
-     *
-     * @apiNote To obtain a logger that will always print things on stderr in
-     *          addition to forwarding to the internal logger, use
-     *          {@code getWebSocketLogger(this::dbgTag, true);}.
-     *          This is also equivalent to calling
-     *          {@code getWebSocketLogger(this::dbgTag, Level.ALL);}.
-     *          To obtain a logger that will only forward to the internal logger,
-     *          use {@code getWebSocketLogger(this::dbgTag, false);}.
-     *          This is also equivalent to calling
-     *          {@code getHpackLogger(this::dbgTag, Level.OFF);}.
-     *
-     * @param dbgTag A lambda that returns a string that identifies the caller
-     *               (e.g: "WebSocket(3)")
-     * @param on  Whether messages should also be printed on
-     *            stderr (in addition to be forwarded to the internal logger).
      *
      * @return A logger for WebSocket internal debug traces
      */
-    public static Logger getWebSocketLogger(Supplier<String> dbgTag, boolean on) {
-        Level errLevel = on ? Level.ALL : Level.OFF;
-        return getWebSocketLogger(dbgTag, errLevel);
+    public static Logger getWebSocketLogger(Supplier<String> dbgTag) {
+        return DebugLogger.createWebSocketLogger(dbgTag, DEBUG_WS_CONFIG);
     }
 
     /**
@@ -1068,17 +1075,6 @@ public final class Utils {
 
     // -- toAsciiString-like support to encode path and query URI segments
 
-    private static final char[] hexDigits = {
-            '0', '1', '2', '3', '4', '5', '6', '7',
-            '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'
-    };
-
-    private static void appendEscape(StringBuilder sb, byte b) {
-        sb.append('%');
-        sb.append(hexDigits[(b >> 4) & 0x0f]);
-        sb.append(hexDigits[(b >> 0) & 0x0f]);
-    }
-
     // Encodes all characters >= \u0080 into escaped, normalized UTF-8 octets,
     // assuming that s is otherwise legal
     //
@@ -1106,13 +1102,16 @@ public final class Utils {
             assert false : x;
         }
 
+        HexFormat format = HexFormat.of().withUpperCase();
         StringBuilder sb = new StringBuilder();
         while (bb.hasRemaining()) {
             int b = bb.get() & 0xff;
-            if (b >= 0x80)
-                appendEscape(sb, (byte)b);
-            else
-                sb.append((char)b);
+            if (b >= 0x80) {
+                sb.append('%');
+                format.toHexDigits(sb, (byte)b);
+            } else {
+                sb.append((char) b);
+            }
         }
         return sb.toString();
     }

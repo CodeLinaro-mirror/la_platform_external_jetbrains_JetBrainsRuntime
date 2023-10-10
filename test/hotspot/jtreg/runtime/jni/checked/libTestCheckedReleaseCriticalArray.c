@@ -35,8 +35,7 @@ Java_TestCheckedReleaseCriticalArray_modifyArray(JNIEnv *env,
   if (isCopy == JNI_FALSE) {
     jint len = (*env)->GetArrayLength(env, iarr);
     // make arbitrary changes to the array
-    int i;
-    for (i = 0; i < len; i++) {
+    for (int i = 0; i < len; i++) {
       arr[i] *= 2;
     }
     // write-back using JNI_COMMIT to test for memory leak

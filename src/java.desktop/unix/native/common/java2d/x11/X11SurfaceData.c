@@ -90,7 +90,7 @@ jint forceSharedPixmaps = JNI_FALSE;
 int mitShmPermissionMask = MITSHM_PERM_OWNER;
 #endif
 
-/* Cached shared image, one for all surface datas. */
+/* Cached shared image, one for all surface data. */
 static XImage * cachedXImage;
 
 #endif /* !HEADLESS */
@@ -1316,27 +1316,28 @@ struct X11GetImageInfo {
 // All the possible settings for the "remote.x11.workaround"  property.
 #define WORKAROUND_PROPERTY_NAME "remote.x11.workaround"
 
-// Corresponds to property value "false" (the default)  and means that the
-// workaround will not be used at all.
+// Corresponds to property value "false" and means that the workaround will not be used at all
 #define WORKAROUND_DONT_USE 0
 
-// Corresponds to property value "true" and forces the workaround to be used.
+// Corresponds to property value "true" and forces the workaround to be used even if not needed or not useful
 #define WORKAROUND_USE      1
 
+// This is the default setting and is used when the property wasn't specified or is neither "true" nor "false".
+// Enables the workaround only when XGetImage() calls become "slow", but once enabled, never switches
+// the workaround off.
+#define WORKAROUND_AUTO     2
+
 // Returns one of WORKAROUND_... values based on "remote.x11.workaround" VM property.
-// The default is WORKAROUND_DONT_USE.
+// The default is WORKAROUND_AUTO.
 static int getRemoteX11WorkaroundProperty() {
-    int ret = WORKAROUND_DONT_USE;
+    int ret = WORKAROUND_AUTO;
 
     JNIEnv *env = (JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2);
     jstring name = (*env)->NewStringUTF(env, WORKAROUND_PROPERTY_NAME);
     CHECK_NULL_RETURN(name, ret);
-    jobject jPropGetAction = JNU_NewObjectByName(env, "sun/security/action/GetPropertyAction", "(Ljava/lang/String;)V", name);
-    CHECK_NULL_RETURN(name, ret);
-    jboolean ignoreExc;
-    jstring jPropValue = JNU_CallStaticMethodByName(env, &ignoreExc, "java/security/AccessController", "doPrivileged",
-                                                    "(Ljava/security/PrivilegedAction;)Ljava/lang/Object;", jPropGetAction).l;
-    if (jPropValue != NULL && JNU_IsInstanceOfByName(env, jPropValue, "java/lang/String")) {
+    jstring jPropValue = JNU_CallStaticMethodByName(env, NULL, "java/lang/System", "getProperty",
+                                                    "(Ljava/lang/String;)Ljava/lang/String;", name).l;
+    if (jPropValue != NULL) {
         const char * utf8string = (*env)->GetStringUTFChars(env, jPropValue, NULL);
         if (utf8string != NULL) {
             if (strcmp(utf8string, "true") == 0) {
@@ -1347,6 +1348,7 @@ static int getRemoteX11WorkaroundProperty() {
         }
         (*env)->ReleaseStringUTFChars(env, jPropValue, utf8string);
     }
+    (*env)->DeleteLocalRef(env, name);
 
     return ret;
 }
@@ -1357,6 +1359,8 @@ static int getRemoteX11WorkaroundProperty() {
 // Returns False - use workaround, True - use real XGetImage().
 static jboolean shouldUseRealGetImage(int workaroundPropertyValue,
                                       XImage* img,
+                                      const struct timespec* timeStart,
+                                      const struct timespec* timeFinish,
                                       struct X11GetImageInfo* info) {
     static int timesCalled = 0;
     if (timesCalled <= 4) {
@@ -1365,7 +1369,12 @@ static jboolean shouldUseRealGetImage(int workaroundPropertyValue,
         return True;
     }
 
-    const jboolean considerWorkaround = (workaroundPropertyValue == WORKAROUND_USE);
+    // NB: local X server time varies between 0 (most of the time) and 40ms (rarely). Remote X server times naturally
+    // vary wildly.
+    const long long timeMillis = (timeFinish->tv_sec - timeStart->tv_sec)*1000
+                                 + (timeFinish->tv_nsec - timeStart->tv_nsec)/1000000;
+
+    const jboolean considerWorkaround = (workaroundPropertyValue == WORKAROUND_USE || timeMillis > 20);
     if (considerWorkaround) {
         if (img != NULL && img->data != NULL && img->width > 3 && img->height > 3) {
             unsigned long px1 = XGetPixel(img, 0, 0);
@@ -1379,6 +1388,9 @@ static jboolean shouldUseRealGetImage(int workaroundPropertyValue,
                 if (workaroundPropertyValue == WORKAROUND_USE) {
                     fprintf(stderr, "[JetBrains Runtime] Switched off alpha compositing of images because "
                                     "-D" WORKAROUND_PROPERTY_NAME "=true was specified.\n");
+                } else {
+                    fprintf(stderr, "[JetBrains Runtime] Detected slow X11, switched off alpha compositing of images. "
+                                    "Control with -D" WORKAROUND_PROPERTY_NAME "={true|false|auto}.\n");
                 }
                 return False;
             }
@@ -1412,7 +1424,7 @@ static XImage * X11SD_GetImage(JNIEnv *env, X11SDOps *xsdo,
     if (isFirstTime) {
         isFirstTime = False;
         workaroundPropertyValue = getRemoteX11WorkaroundProperty();
-        if (isDisplayLocal()) {
+        if (workaroundPropertyValue != WORKAROUND_USE && isDisplayLocal()) {
             // Even if we detect XGetImage() slowness, switching to a fake one will not improve the performance of a
             // local X11 connection. Switch to "don't use" for the local one unless we are forced to use by
             // the VM property.
@@ -1422,12 +1434,15 @@ static XImage * X11SD_GetImage(JNIEnv *env, X11SDOps *xsdo,
 
     XImage *resImg = NULL;
     if (useRealGetImage) {
+        struct timespec timeStart, timeFinish;
         jboolean usedXGetImage = False;
 
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &timeStart);
         resImg = X11SD_GetImageReal(env, xsdo, bounds, lockFlags, &usedXGetImage);
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &timeFinish);
 
         if (workaroundPropertyValue != WORKAROUND_DONT_USE && usedXGetImage) {
-            useRealGetImage = shouldUseRealGetImage(workaroundPropertyValue, resImg, &info);
+            useRealGetImage = shouldUseRealGetImage(workaroundPropertyValue, resImg, &timeStart, &timeFinish, &info);
         }
     } else {
         const jint fakeLockFlags = 0; // forces creation of a new image instead of fetching it with XGetImage()
@@ -1457,6 +1472,7 @@ void X11SD_DisposeXImage(XImage * image) {
 #ifdef MITSHM
         if (image->obdata != NULL) {
             X11SD_DropSharedSegment((XShmSegmentInfo*)image->obdata);
+            free(image->obdata);
             image->obdata = NULL;
         }
 #endif /* MITSHM */

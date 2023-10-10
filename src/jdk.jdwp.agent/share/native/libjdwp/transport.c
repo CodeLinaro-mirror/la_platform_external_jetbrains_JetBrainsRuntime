@@ -49,6 +49,15 @@ typedef struct TransportInfo {
 
 static struct jdwpTransportCallback callback = {jvmtiAllocate, jvmtiDeallocate};
 
+static void freeTransportInfo(TransportInfo *info) {
+    if (info) {
+        jvmtiDeallocate(info->name);
+        jvmtiDeallocate(info->address);
+        jvmtiDeallocate(info->allowed_peers);
+        jvmtiDeallocate(info);
+    }
+}
+
 /*
  * Print the last transport error
  */
@@ -345,12 +354,14 @@ acceptThread(jvmtiEnv* jvmti_env, JNIEnv* jni_env, void* arg)
 
     LOG_MISC(("Begin accept thread"));
 
-    info = (TransportInfo*)(void*)arg;
+    info = (TransportInfo*)arg;
     t = info->transport;
     rc = (*t)->Accept(t, info->timeout, 0);
 
     /* System property no longer needed */
     setTransportProperty(jni_env, NULL);
+    /* TransportInfo data no longer needed */
+    freeTransportInfo(info);
 
     if (rc != JDWPTRANSPORT_ERROR_NONE) {
         /*
@@ -371,10 +382,14 @@ acceptThread(jvmtiEnv* jvmti_env, JNIEnv* jni_env, void* arg)
 static void JNICALL
 attachThread(jvmtiEnv* jvmti_env, JNIEnv* jni_env, void* arg)
 {
-    TransportInfo *info = (TransportInfo*)(void*)arg;
+    TransportInfo *info = (TransportInfo*)arg;
+    jdwpTransportEnv *t = info->transport;
+
+    /* TransportInfo data no longer needed */
+    freeTransportInfo(info);
 
     LOG_MISC(("Begin attach thread"));
-    connectionInitiated(info->transport);
+    connectionInitiated(t);
     LOG_MISC(("End attach thread"));
 }
 
@@ -484,7 +499,7 @@ transport_startTransport(jboolean isServer, char *name, char *address,
     if (info->transport == NULL) {
         serror = loadTransport(name, info);
         if (serror != JDWP_ERROR(NONE)) {
-            jvmtiDeallocate(info);
+            freeTransportInfo(info);
             return serror;
         }
     }
@@ -493,7 +508,7 @@ transport_startTransport(jboolean isServer, char *name, char *address,
     trans = info->transport;
 
     if (isServer) {
-        char *retAddress;
+        char *retAddress = NULL;
         char *launchCommand;
         jvmtiError error;
         int len;
@@ -577,6 +592,9 @@ transport_startTransport(jboolean isServer, char *name, char *address,
             goto handleError;
         }
 
+        /* reset info - it will be deallocated by acceptThread */
+        info = NULL;
+
         launchCommand = debugInit_launchOnInit();
         if (launchCommand != NULL) {
             serror = launch(launchCommand, name, retAddress);
@@ -589,13 +607,14 @@ transport_startTransport(jboolean isServer, char *name, char *address,
                     name, retAddress));
             }
         }
+        jvmtiDeallocate(retAddress);
         return JDWP_ERROR(NONE);
 
 handleError:
-        jvmtiDeallocate(info->name);
-        jvmtiDeallocate(info->address);
-        jvmtiDeallocate(info->allowed_peers);
-        jvmtiDeallocate(info);
+        if (retAddress != NULL) {
+            jvmtiDeallocate(retAddress);
+        }
+        freeTransportInfo(info);
     } else {
         /*
          * Note that we don't attempt to do a launch here. Launching
@@ -614,7 +633,7 @@ handleError:
              /* The name, address and allowed_peers fields in 'info'
               * are not allocated in the non-server case so
               * they do not need to be freed. */
-             jvmtiDeallocate(info);
+             freeTransportInfo(info);
              return serror;
          }
 

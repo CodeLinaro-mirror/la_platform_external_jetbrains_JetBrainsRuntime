@@ -31,10 +31,11 @@ import java.util.Map;
 import java.util.Optional;
 
 import javax.naming.NamingException;
+import javax.naming.ldap.spi.LdapDnsProviderResult;
 
 public class DefaultLdapDnsProvider {
 
-    public Optional<LdapDnsProviderResultInternal> lookupEndpoints(String url,
+    public Optional<LdapDnsProviderResult> lookupEndpoints(String url,
                                                            Map<?,?> env)
             throws NamingException
     {
@@ -74,7 +75,7 @@ public class DefaultLdapDnsProvider {
             endpoints.add(url);
         }
 
-        LdapDnsProviderResultInternal res = new LdapDnsProviderResultInternal(domainName, endpoints);
+        LdapDnsProviderResult res = new LdapDnsProviderResult(domainName, endpoints);
         if (res.getEndpoints().isEmpty() && res.getDomainName().isEmpty()) {
             return Optional.empty();
         } else {

@@ -102,15 +102,9 @@ public class rmiURLContext extends GenericURLContext {
             }
 
             switch (mode) {
-                case STRICT:
-                    parseStrict();
-                    break;
-                case COMPAT:
-                    parseCompat();
-                    break;
-                case LEGACY:
-                    parseLegacy();
-                    break;
+                case STRICT -> parseStrict();
+                case COMPAT -> parseCompat();
+                case LEGACY -> parseLegacy();
             }
 
         }

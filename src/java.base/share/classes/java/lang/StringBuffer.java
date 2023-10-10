@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,9 +29,10 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.ObjectStreamField;
+import java.io.Serial;
 import java.io.Serializable;
 import java.io.StreamCorruptedException;
-import jdk.internal.HotSpotIntrinsicCandidate;
+import jdk.internal.vm.annotation.IntrinsicCandidate;
 
 /**
  * A thread-safe, mutable sequence of characters.
@@ -110,7 +111,7 @@ import jdk.internal.HotSpotIntrinsicCandidate;
  */
  public final class StringBuffer
     extends AbstractStringBuilder
-    implements Serializable, Comparable<StringBuffer>, CharSequence
+    implements Appendable, Serializable, Comparable<StringBuffer>, CharSequence
 {
 
     /**
@@ -120,13 +121,14 @@ import jdk.internal.HotSpotIntrinsicCandidate;
     private transient String toStringCache;
 
     /** use serialVersionUID from JDK 1.0.2 for interoperability */
+    @Serial
     static final long serialVersionUID = 3388685877147921107L;
 
     /**
      * Constructs a string buffer with no characters in it and an
      * initial capacity of 16 characters.
      */
-    @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     public StringBuffer() {
         super(16);
     }
@@ -139,7 +141,7 @@ import jdk.internal.HotSpotIntrinsicCandidate;
      * @throws     NegativeArraySizeException  if the {@code capacity}
      *             argument is less than {@code 0}.
      */
-    @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     public StringBuffer(int capacity) {
         super(capacity);
     }
@@ -151,10 +153,9 @@ import jdk.internal.HotSpotIntrinsicCandidate;
      *
      * @param   str   the initial contents of the buffer.
      */
-    @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     public StringBuffer(String str) {
-        super(str.length() + 16);
-        append(str);
+        super(str);
     }
 
     /**
@@ -162,17 +163,12 @@ import jdk.internal.HotSpotIntrinsicCandidate;
      * as the specified {@code CharSequence}. The initial capacity of
      * the string buffer is {@code 16} plus the length of the
      * {@code CharSequence} argument.
-     * <p>
-     * If the length of the specified {@code CharSequence} is
-     * less than or equal to zero, then an empty buffer of capacity
-     * {@code 16} is returned.
      *
      * @param      seq   the sequence to copy.
      * @since 1.5
      */
     public StringBuffer(CharSequence seq) {
-        this(seq.length() + 16);
-        append(seq);
+        super(seq);
     }
 
     /**
@@ -311,7 +307,7 @@ import jdk.internal.HotSpotIntrinsicCandidate;
     }
 
     @Override
-    @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     public synchronized StringBuffer append(String str) {
         toStringCache = null;
         super.append(str);
@@ -423,7 +419,7 @@ import jdk.internal.HotSpotIntrinsicCandidate;
     }
 
     @Override
-    @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     public synchronized StringBuffer append(char c) {
         toStringCache = null;
         super.append(c);
@@ -431,7 +427,7 @@ import jdk.internal.HotSpotIntrinsicCandidate;
     }
 
     @Override
-    @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     public synchronized StringBuffer append(int i) {
         toStringCache = null;
         super.append(i);
@@ -712,13 +708,33 @@ import jdk.internal.HotSpotIntrinsicCandidate;
         return this;
     }
 
+    /**
+     * @throws IllegalArgumentException {@inheritDoc}
+     *
+     * @since 21
+     */
     @Override
-    @HotSpotIntrinsicCandidate
+    public synchronized StringBuffer repeat(int codePoint, int count) {
+        super.repeat(codePoint, count);
+        return this;
+    }
+
+    /**
+     * @throws IllegalArgumentException {@inheritDoc}
+     *
+     * @since 21
+     */
+    @Override
+    public synchronized StringBuffer repeat(CharSequence cs, int count) {
+        super.repeat(cs, count);
+        return this;
+    }
+
+    @Override
+    @IntrinsicCandidate
     public synchronized String toString() {
         if (toStringCache == null) {
-            return toStringCache =
-                    isLatin1() ? StringLatin1.newString(value, 0, count)
-                               : StringUTF16.newString(value, 0, count);
+            return toStringCache = new String(this, null);
         }
         return new String(toStringCache);
     }
@@ -734,6 +750,7 @@ import jdk.internal.HotSpotIntrinsicCandidate;
      *              A flag indicating whether the backing array is shared.
      *              The value is ignored upon deserialization.
      */
+    @Serial
     private static final ObjectStreamField[] serialPersistentFields =
     {
         new ObjectStreamField("value", char[].class),
@@ -744,9 +761,13 @@ import jdk.internal.HotSpotIntrinsicCandidate;
     /**
      * The {@code writeObject} method is called to write the state of the
      * {@code StringBuffer} to a stream.
+     *
+     * @param  s the {@code ObjectOutputStream} to which data is written
+     * @throws IOException if an I/O error occurs
      */
+    @Serial
     private synchronized void writeObject(ObjectOutputStream s)
-        throws IOException {
+            throws IOException {
         ObjectOutputStream.PutField fields = s.putFields();
         char[] val = new char[capacity()];
         if (isLatin1()) {
@@ -763,10 +784,16 @@ import jdk.internal.HotSpotIntrinsicCandidate;
     /**
      * The {@code readObject} method is called to restore the state of the
      * {@code StringBuffer} from a stream.
+     *
+     * @param  s the {@code ObjectInputStream} from which data is read
+     * @throws IOException if an I/O error occurs
+     * @throws ClassNotFoundException if a serialized class cannot be loaded
      */
+    @Serial
     private void readObject(ObjectInputStream s)
         throws IOException, ClassNotFoundException {
         ObjectInputStream.GetField fields = s.readFields();
+
         char[] val = (char[])fields.get("value", null);
         int c = fields.get("count", 0);
         if (c < 0 || c > val.length) {
@@ -777,7 +804,7 @@ import jdk.internal.HotSpotIntrinsicCandidate;
         // ignore shared field
     }
 
-    synchronized void getBytes(byte dst[], int dstBegin, byte coder) {
+    synchronized void getBytes(byte[] dst, int dstBegin, byte coder) {
         super.getBytes(dst, dstBegin, coder);
     }
 }

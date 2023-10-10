@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,12 +23,11 @@
  * questions.
  */
 
-#include <comdef.h>
+#include "awt_ole.h"
 #include "awt.h"
 #include "awt_FileDialog.h"
 #include "awt_Dialog.h"
 #include "awt_Toolkit.h"
-#include "awt_ole.h"
 #include "ComCtl32Util.h"
 #include "com_jetbrains_desktop_JBRFileDialog.h"
 #include <commdlg.h>
@@ -444,7 +443,7 @@ HRESULT GetSelectedResults(FileDialogData *data) {
     OLE_TRY
 
     IFileOpenDialogPtr fileOpenDialog;
-    UINT currentOffset = 0;
+    size_t currentOffset = 0;
     IShellItemArrayPtr psia;
     DWORD itemsCount;
 
@@ -619,13 +618,13 @@ public:
                 size_t filePathLength = _tcslen(filePath);
                 data->result.Attach(new TCHAR[filePathLength + 1]);
                 _tcscpy_s(data->result, filePathLength + 1, filePath);
-                data->resultSize = filePathLength + 1;
+                data->resultSize = (UINT)(filePathLength + 1);
 
                 CoTaskStringHolder fileName;
                 OLE_HRT(fileDialog->GetFileName(&fileName));
                 data->lastIgnoredFileName = fileName;
 
-                OLE_HRT(fileDialog->SetOkButtonLabel(data->selectFolderButtonText ? data->selectFolderButtonText : L"Select Folder"));
+                OLE_HRT(fileDialog->SetOkButtonLabel(data->selectFolderButtonText));
                 data->forceUseContainerFolder = TRUE;
             }
         OLE_CATCH
@@ -949,8 +948,7 @@ AwtFileDialog::Show(void *p)
             {
                 IShellItemPtr directoryItem;
                 OLE_TRY
-                OLE_HRT(CreateShellItem((LPWSTR) ((LPARAM) directoryBuffer),
-                                        directoryItem));
+                OLE_HRT(CreateShellItem(const_cast<LPTSTR>(static_cast<LPCTSTR>(directoryBuffer)), directoryItem));
                 OLE_HRT(pfd->SetFolder(directoryItem));
                 OLE_CATCH
             }
@@ -980,7 +978,7 @@ AwtFileDialog::Show(void *p)
                     CoTaskStringHolder filePath;
                     OLE_HRT(psiResult->GetDisplayName(SIGDN_FILESYSPATH, &filePath));
                     size_t filePathLength = _tcslen(filePath);
-                    data.resultSize = filePathLength;
+                    data.resultSize = (UINT)filePathLength;
                     data.result.Attach(new TCHAR[filePathLength + 1]);
                     _tcscpy_s(data.result, filePathLength + 1, filePath);
                     OLE_CATCH

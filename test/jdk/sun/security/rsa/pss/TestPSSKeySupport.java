@@ -23,7 +23,7 @@
 
 /**
  * @test
- * @bug 8146293 8242556 8254717
+ * @bug 8146293 8242556 8172366 8254717
  * @summary Test RSASSA-PSS Key related support such as KeyPairGenerator
  * and KeyFactory of the SunRsaSign provider
  */
@@ -146,11 +146,18 @@ public class TestPSSKeySupport {
         KeyPair kp2 = kpg.generateKeyPair();
         checkKeyPair(kp2);
 
+        params = new PSSParameterSpec("SHA3-256", "MGF1",
+            new MGF1ParameterSpec("SHA3-256"), 32, 1);
+        kpg.initialize(new RSAKeyGenParameterSpec(2048, pubExp, params));
+        KeyPair kp3 = kpg.generateKeyPair();
+        checkKeyPair(kp3);
+
         KeyFactory kf = KeyFactory.getInstance(ALGO, "SunRsaSign");
         test(kf, kp.getPublic());
         test(kf, kp.getPrivate());
         test(kf, kp2.getPublic());
         test(kf, kp2.getPrivate());
-
+        test(kf, kp3.getPublic());
+        test(kf, kp3.getPrivate());
     }
 }

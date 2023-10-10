@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,8 +35,9 @@ import java.awt.event.MouseEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.event.KeyEvent;
-import java.util.Arrays;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Translates NSEvents/NPCocoaEvents into AWT events.
@@ -101,6 +102,18 @@ final class CPlatformResponder {
         }
 
         int jmodifiers = NSEvent.nsToJavaModifiers(modifierFlags);
+        if (jbuttonNumber > MouseEvent.NOBUTTON) {
+            if ( (jeventType == MouseEvent.MOUSE_PRESSED) || (Jbr5762Fix.isEnabled && (jeventType == MouseEvent.MOUSE_DRAGGED)) ) {
+                // 8294426: NSEvent.nsToJavaModifiers returns 0 on M2 MacBooks if the event is generated
+                //  via tapping (not pressing) on a trackpad
+                //  (System Preferences -> Trackpad -> Tap to click must be turned on).
+                // So let's set the modifiers manually.
+                //
+                // JBR-5762: enforce modifiers for the pressed button of MOUSE_DRAGGED events as well.
+                jmodifiers |= MouseEvent.getMaskForButton(jbuttonNumber);
+            }
+        }
+
         boolean jpopupTrigger = NSEvent.isPopupTrigger(jmodifiers);
 
         eventNotifier.notifyMouseEvent(jeventType, System.currentTimeMillis(), jbuttonNumber,
@@ -161,19 +174,107 @@ final class CPlatformResponder {
                                             -roundDelta, -delta, null);
     }
 
-    private static final String [] cyrillicKeyboardLayouts = new String [] {
-            "com.apple.keylayout.Russian",
-            "com.apple.keylayout.RussianWin",
-            "com.apple.keylayout.Russian-Phonetic",
-            "com.apple.keylayout.Byelorussian",
-            "com.apple.keylayout.Ukrainian",
-            "com.apple.keylayout.UkrainianWin",
-            "com.apple.keylayout.Bulgarian",
-            "com.apple.keylayout.Serbian"
-    };
+    /**
+     * Handles key events.
+     *
+     * @param eventType macOS event type ID: keyDown, keyUp or flagsChanged
+     * @param modifierFlags macOS modifier flags mask (NSEventModifierFlags)
+     * @param chars NSEvent's characters property
+     * @param actualChars If non-null, then this key should generate KEY_TYPED events
+     *                    corresponding to characters in this string. Only valid for keyDown events.
+     * @param keyCode macOS virtual key code of the key being pressed or released
+     * @param needsKeyTyped post KEY_TYPED events?
+     * @param needsKeyReleased post KEY_RELEASED events?
+     */
+    void handleKeyEvent(int eventType, int modifierFlags, String chars, String actualChars,
+                        short keyCode, boolean needsKeyTyped, boolean needsKeyReleased) {
+        boolean isFlagsChangedEvent =
+            isNpapiCallback ? (eventType == CocoaConstants.NPCocoaEventFlagsChanged) :
+                              (eventType == CocoaConstants.NSEventTypeFlagsChanged);
 
-    private static boolean isCyrillicKeyboardLayout() {
-        return Arrays.stream(cyrillicKeyboardLayouts).anyMatch(l -> l.equals(LWCToolkit.getKeyboardLayoutId()));
+        int jeventType = KeyEvent.KEY_PRESSED;
+        int jkeyCode = KeyEvent.VK_UNDEFINED;
+        int jkeyLocation = KeyEvent.KEY_LOCATION_UNKNOWN;
+        boolean spaceKeyTyped = false;
+
+        char testChar = KeyEvent.CHAR_UNDEFINED;
+
+        if (isFlagsChangedEvent) {
+            int[] in = new int[] {modifierFlags, keyCode};
+            int[] out = new int[3]; // [jkeyCode, jkeyLocation, jkeyType]
+
+            NSEvent.nsKeyModifiersToJavaKeyInfo(in, out);
+
+            jkeyCode = out[0];
+            jkeyLocation = out[1];
+            jeventType = out[2];
+        } else {
+            if (chars != null && chars.length() > 0) {
+                // `chars` might contain more than one character, so why are we using the last one?
+                // It doesn't really matter actually! If the string contains more than one character,
+                // the only way that this character will be used is to construct the keyChar field of the KeyEvent object.
+                // That field is only guaranteed to be meaningful for KEY_TYPED events, so let's not overthink it.
+                // Please note: this character is NOT used to construct extended key codes, that happens
+                // inside the NSEvent.nsToJavaKeyInfo function.
+                testChar = chars.charAt(chars.length() - 1);
+
+                // Check if String chars contains SPACE character.
+                if (chars.trim().isEmpty()) {
+                    spaceKeyTyped = true;
+                }
+            }
+
+            int[] in = new int[] {keyCode, KeyEventProcessing.useNationalLayouts ? 1 : 0, KeyEventProcessing.reportDeadKeysAsNormal ? 1 : 0};
+            int[] out = new int[2]; // [jkeyCode, jkeyLocation]
+
+            NSEvent.nsToJavaKeyInfo(in, out);
+
+            jkeyCode = out[0];
+            jkeyLocation = out[1];
+            jeventType = isNpapiCallback ? NSEvent.npToJavaEventType(eventType) :
+                                           NSEvent.nsToJavaEventType(eventType);
+        }
+
+        char javaChar = (testChar == KeyEvent.CHAR_UNDEFINED) ? KeyEvent.CHAR_UNDEFINED :
+                NSEvent.nsToJavaChar(testChar, modifierFlags, spaceKeyTyped);
+
+        int jmodifiers = NSEvent.nsToJavaModifiers(modifierFlags);
+        long when = System.currentTimeMillis();
+
+        if (jeventType == KeyEvent.KEY_PRESSED) {
+            lastKeyPressCode = jkeyCode;
+        }
+        eventNotifier.notifyKeyEvent(jeventType, when, jmodifiers,
+                jkeyCode, javaChar, jkeyLocation);
+
+        // That's the reaction on the PRESSED (not RELEASED) event as it comes to
+        // appear in MacOSX.
+        // Modifier keys (shift, etc) don't want to send TYPED events.
+        // On the other hand we don't want to generate keyTyped events
+        // for clipboard related shortcuts like Meta + [CVX]
+        if (jeventType == KeyEvent.KEY_PRESSED && needsKeyTyped && javaChar != KeyEvent.CHAR_UNDEFINED &&
+                (jmodifiers & KeyEvent.META_DOWN_MASK) == 0) {
+            if (actualChars == null) {
+                // Either macOS didn't send us anything in insertText: to type,
+                // or this event was not generated in AWTView.m. Let's fall back to using javaChar
+                // since we still need to generate KEY_TYPED events, for instance for Ctrl+ combinations.
+                // javaChar is guaranteed to be a valid character, since postsTyped is true.
+                actualChars = String.valueOf(javaChar);
+            }
+
+            for (char ch : actualChars.toCharArray()) {
+                eventNotifier.notifyKeyEvent(KeyEvent.KEY_TYPED, when, jmodifiers,
+                        KeyEvent.VK_UNDEFINED, ch,
+                        KeyEvent.KEY_LOCATION_UNKNOWN);
+            }
+
+            // If events come from Firefox, released events should also be generated.
+            if (needsKeyReleased) {
+                eventNotifier.notifyKeyEvent(KeyEvent.KEY_RELEASED, when, jmodifiers,
+                        jkeyCode, javaChar,
+                        KeyEvent.KEY_LOCATION_UNKNOWN);
+            }
+        }
     }
 
     void handleInputEvent(String text) {
@@ -192,136 +293,6 @@ final class CPlatformResponder {
                     System.currentTimeMillis(),
                     0, lastKeyPressCode, c,
                     KeyEvent.KEY_LOCATION_UNKNOWN);
-        }
-    }
-
-    /**
-     * Handles key events.
-     */
-    void handleKeyEvent(int eventType, int modifierFlags, String chars,
-                        String charsIgnoringModifiers, String charsIgnoringModifiersAndShift,
-                        short keyCode, boolean needsKeyTyped, boolean needsKeyReleased) {
-        boolean isFlagsChangedEvent =
-                isNpapiCallback ? (eventType == CocoaConstants.NPCocoaEventFlagsChanged) :
-                        (eventType == CocoaConstants.NSFlagsChanged);
-
-        int jeventType = KeyEvent.KEY_PRESSED;
-        int jkeyCode = KeyEvent.VK_UNDEFINED;
-        int jkeyLocation = KeyEvent.KEY_LOCATION_UNKNOWN;
-        boolean postsTyped = false;
-        boolean spaceKeyTyped = false;
-
-        int jmodifiers = NSEvent.nsToJavaModifiers(modifierFlags);
-
-        char testChar = KeyEvent.CHAR_UNDEFINED;
-        boolean isDeadChar = (chars!= null && chars.length() == 0);
-
-        if (isFlagsChangedEvent) {
-            int[] in = new int[] {modifierFlags, keyCode};
-            int[] out = new int[3]; // [jkeyCode, jkeyLocation, jkeyType]
-
-            NSEvent.nsKeyModifiersToJavaKeyInfo(in, out);
-
-            jkeyCode = out[0];
-            jkeyLocation = out[1];
-            jeventType = out[2];
-        } else {
-            if (chars != null && chars.length() > 0) {
-                testChar = chars.charAt(0);
-
-                //Check if String chars contains SPACE character.
-                if (chars.trim().isEmpty()) {
-                    spaceKeyTyped = true;
-                }
-            }
-
-            // Workaround for JBR-2981
-            int metaAltCtrlMods = KeyEvent.META_DOWN_MASK | KeyEvent.ALT_DOWN_MASK | KeyEvent.CTRL_DOWN_MASK;
-            boolean metaAltCtrlAreNotPressed = (jmodifiers & metaAltCtrlMods) == 0;
-            boolean useShiftedCharacter = ((jmodifiers & KeyEvent.SHIFT_DOWN_MASK) == KeyEvent.SHIFT_DOWN_MASK) && metaAltCtrlAreNotPressed;
-
-            char testCharIgnoringModifiers = charsIgnoringModifiers != null && charsIgnoringModifiers.length() > 0 ?
-                    charsIgnoringModifiers.charAt(0) : KeyEvent.CHAR_UNDEFINED;
-            if (!useShiftedCharacter && charsIgnoringModifiersAndShift != null && charsIgnoringModifiersAndShift.length() > 0) {
-                testCharIgnoringModifiers = charsIgnoringModifiersAndShift.charAt(0);
-            }
-
-            int useNationalLayouts = (KeyEventProcessing.useNationalLayouts && !isCyrillicKeyboardLayout()) ? 1 : 0;
-            int[] in = new int[] {testCharIgnoringModifiers, isDeadChar ? 1 : 0, modifierFlags, keyCode, useNationalLayouts};
-            int[] out = new int[3]; // [jkeyCode, jkeyLocation, deadChar]
-
-            postsTyped = NSEvent.nsToJavaKeyInfo(in, out);
-            if (!postsTyped) {
-                testChar = KeyEvent.CHAR_UNDEFINED;
-            }
-
-            if(isDeadChar){
-                testChar = (char) out[2];
-                jkeyCode = out[0];
-                if(testChar == 0 && jkeyCode == KeyEvent.VK_UNDEFINED){
-                    return;
-                }
-            }
-
-            // If Pinyin Simplified input method is selected, CAPS_LOCK key is supposed to switch
-            // input to latin letters.
-            // It is necessary to use testCharIgnoringModifiers instead of testChar for event
-            // generation in such case to avoid uppercase letters in text components.
-            LWCToolkit lwcToolkit = (LWCToolkit)Toolkit.getDefaultToolkit();
-            if ((lwcToolkit.getLockingKeyState(KeyEvent.VK_CAPS_LOCK) &&
-                    Locale.SIMPLIFIED_CHINESE.equals(lwcToolkit.getDefaultKeyboardLocale())) ||
-                ((testChar != testCharIgnoringModifiers) &&
-                    LWCToolkit.isCharModifierKeyInLocale(lwcToolkit.getDefaultKeyboardLocale(), testChar))) {
-                testChar = testCharIgnoringModifiers;
-            }
-
-            jkeyCode = out[0];
-            jkeyLocation = out[1];
-            jeventType = isNpapiCallback ? NSEvent.npToJavaEventType(eventType) :
-                    NSEvent.nsToJavaEventType(eventType);
-        }
-
-        char javaChar = NSEvent.nsToJavaChar(testChar, modifierFlags, spaceKeyTyped);
-        // Some keys may generate a KEY_TYPED, but we can't determine
-        // what that character is. That's likely a bug, but for now we
-        // just check for CHAR_UNDEFINED.
-        if (javaChar == KeyEvent.CHAR_UNDEFINED) {
-            postsTyped = false;
-        }
-
-        long when = System.currentTimeMillis();
-
-        if (jeventType == KeyEvent.KEY_PRESSED) {
-            lastKeyPressCode = jkeyCode;
-        }
-        eventNotifier.notifyKeyEvent(jeventType, when, jmodifiers,
-                jkeyCode, javaChar, jkeyLocation);
-
-        // Current browser may be sending input events, so don't
-        // post the KEY_TYPED here.
-        postsTyped &= needsKeyTyped;
-
-        // That's the reaction on the PRESSED (not RELEASED) event as it comes to
-        // appear in MacOSX.
-        // Modifier keys (shift, etc) don't want to send TYPED events.
-        // On the other hand we don't want to generate keyTyped events
-        // for clipboard related shortcuts like Meta + [CVX]
-        if (jeventType == KeyEvent.KEY_PRESSED && postsTyped &&
-                (jmodifiers & KeyEvent.META_DOWN_MASK) == 0) {
-            // Enter and Space keys finish the input method processing,
-            // KEY_TYPED and KEY_RELEASED events for them are synthesized in handleInputEvent.
-            if (needsKeyReleased && (jkeyCode == KeyEvent.VK_ENTER || jkeyCode == KeyEvent.VK_SPACE)) {
-                return;
-            }
-            eventNotifier.notifyKeyEvent(KeyEvent.KEY_TYPED, when, jmodifiers,
-                    KeyEvent.VK_UNDEFINED, javaChar,
-                    KeyEvent.KEY_LOCATION_UNKNOWN);
-            //If events come from Firefox, released events should also be generated.
-            if (needsKeyReleased) {
-                eventNotifier.notifyKeyEvent(KeyEvent.KEY_RELEASED, when, jmodifiers,
-                        jkeyCode, javaChar,
-                        KeyEvent.KEY_LOCATION_UNKNOWN);
-            }
         }
     }
 
@@ -365,6 +336,21 @@ final class CPlatformResponder {
             }
 
             return roundDelta;
+        }
+    }
+
+    static class Jbr5762Fix {
+        static final boolean isEnabled;
+
+        static {
+            boolean isEnabledLocal = false;
+
+            try {
+                isEnabledLocal = Boolean.parseBoolean(System.getProperty("awt.mac.enforceMouseModifiersForMouseDragged", "true"));
+            } catch (Exception ignored) {
+            }
+
+            isEnabled = isEnabledLocal;
         }
     }
 }

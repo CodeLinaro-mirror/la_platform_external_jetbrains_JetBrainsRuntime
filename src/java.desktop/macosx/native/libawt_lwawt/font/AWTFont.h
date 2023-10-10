@@ -42,3 +42,5 @@
 + (NSFont *) nsFontForJavaFont:(jobject)javaFont env:(JNIEnv *)env;
 
 @end
+
+bool IsEmojiFont(CTFontRef font);

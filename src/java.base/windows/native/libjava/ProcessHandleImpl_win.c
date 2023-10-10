@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2014, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -198,7 +198,7 @@ Java_java_lang_ProcessHandleImpl_parent0(JNIEnv *env,
     } else {
         JNU_ThrowByName(env,
             "java/lang/RuntimeException", "snapshot not available");
-        return -1;
+        ppid = (DWORD)-1;
     }
     CloseHandle(hProcessSnap); // Ignore return code
     return (jlong)ppid;
@@ -267,13 +267,13 @@ Java_java_lang_ProcessHandleImpl_getProcessPids0(JNIEnv *env,
                 break;
             }
             if (jparentArray != NULL) {
-                ppids  = (*env)->GetLongArrayElements(env, jparentArray, NULL);
+                ppids = (*env)->GetLongArrayElements(env, jparentArray, NULL);
                 if (ppids == NULL) {
                     break;
                 }
             }
             if (jstimesArray != NULL) {
-                stimes  = (*env)->GetLongArrayElements(env, jstimesArray, NULL);
+                stimes = (*env)->GetLongArrayElements(env, jstimesArray, NULL);
                 if (stimes == NULL) {
                     break;
                 }
@@ -315,7 +315,7 @@ Java_java_lang_ProcessHandleImpl_getProcessPids0(JNIEnv *env,
     } else {
         JNU_ThrowByName(env,
             "java/lang/RuntimeException", "snapshot not available");
-        return 0;
+        count = 0;
     }
     CloseHandle(hProcessSnap);
     // If more pids than array had size for;  count will be greater than array size
@@ -417,7 +417,6 @@ Java_java_lang_ProcessHandleImpl_00024Info_info0(JNIEnv *env,
                                                  jobject jinfo,
                                                  jlong jpid) {
     DWORD pid = (DWORD)jpid;
-    int ret = 0;
     HANDLE handle =
         OpenProcess(THREAD_QUERY_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION,
                     FALSE, pid);

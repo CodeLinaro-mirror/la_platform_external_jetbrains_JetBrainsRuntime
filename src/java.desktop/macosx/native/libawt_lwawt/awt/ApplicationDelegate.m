@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -201,11 +201,11 @@ AWT_ASSERT_APPKIT_THREAD;
 
     self.fPreferencesMenu = (NSMenuItem*)[appMenu itemWithTag:PREFERENCES_TAG];
     self.fAboutMenu = (NSMenuItem*)[appMenu itemAtIndex:0];
-    
+
     NSDockTile *dockTile = [NSApp dockTile];
     self.fProgressIndicator = [[NSProgressIndicator alloc]
                                 initWithFrame:NSMakeRect(3.f, 0.f, dockTile.size.width - 6.f, 20.f)];
-    
+
     [fProgressIndicator setStyle:NSProgressIndicatorBarStyle];
     [fProgressIndicator setIndeterminate:NO];
     [[dockTile contentView] addSubview:fProgressIndicator];
@@ -259,7 +259,6 @@ AWT_ASSERT_APPKIT_THREAD;
     [ctr addObserver:clz selector:@selector(_appDidHide) name:NSApplicationDidHideNotification object:nil];
     [ctr addObserver:clz selector:@selector(_appDidUnhide) name:NSApplicationDidUnhideNotification object:nil];
     [ctr addObserver:clz selector:@selector(_didChangeScreenParameters) name:NSApplicationDidChangeScreenParametersNotification object:nil];
-
     [[[NSWorkspace sharedWorkspace] notificationCenter] addObserver:[AWTWindow class]
                                                            selector:@selector(activeSpaceDidChange)
                                                                name:NSWorkspaceActiveSpaceDidChangeNotification

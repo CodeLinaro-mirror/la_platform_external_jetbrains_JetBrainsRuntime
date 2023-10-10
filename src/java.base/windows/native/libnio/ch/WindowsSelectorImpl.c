@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -99,8 +99,7 @@ Java_sun_nio_ch_WindowsSelectorImpl_00024SubSelector_poll0(JNIEnv *env, jobject 
            readfds->fd_array[read_count] = fds[i].fd;
            read_count++;
         }
-        if (fds[i].events & (POLLOUT | POLLCONN))
-        {
+        if (fds[i].events & POLLOUT) {
            writefds->fd_array[write_count] = fds[i].fd;
            write_count++;
         }
@@ -115,52 +114,8 @@ Java_sun_nio_ch_WindowsSelectorImpl_00024SubSelector_poll0(JNIEnv *env, jobject 
     /* Call select */
     if ((result = select(0 , readfds, writefds, exceptfds, tv))
                                                              == SOCKET_ERROR) {
-        /* Bad error - this should not happen frequently */
-        /* Iterate over sockets and call select() on each separately */
-        FD_SET *errreadfds = (FD_SET *) jlong_to_ptr(fdsBuffer + sizeof(FD_SET) * 3);
-        FD_SET *errwritefds = (FD_SET *) jlong_to_ptr(fdsBuffer + sizeof(FD_SET) * 4);
-        FD_SET *errexceptfds = (FD_SET *) jlong_to_ptr(fdsBuffer + sizeof(FD_SET) * 5);
-        readfds->fd_count = 0;
-        writefds->fd_count = 0;
-        exceptfds->fd_count = 0;
-        for (i = 0; i < numfds; i++) {
-            /* prepare select structures for the i-th socket */
-            errreadfds->fd_count = 0;
-            errwritefds->fd_count = 0;
-            if (fds[i].events & POLLIN) {
-               errreadfds->fd_array[0] = fds[i].fd;
-               errreadfds->fd_count = 1;
-            }
-            if (fds[i].events & (POLLOUT | POLLCONN))
-            {
-                errwritefds->fd_array[0] = fds[i].fd;
-                errwritefds->fd_count = 1;
-            }
-            errexceptfds->fd_array[0] = fds[i].fd;
-            errexceptfds->fd_count = 1;
-
-            /* call select on the i-th socket */
-            if (select(0, errreadfds, errwritefds, errexceptfds, &zerotime)
-                                                             == SOCKET_ERROR) {
-                /* This socket causes an error. Add it to exceptfds set */
-                exceptfds->fd_array[exceptfds->fd_count] = fds[i].fd;
-                exceptfds->fd_count++;
-            } else {
-                /* This socket does not cause an error. Process result */
-                if (errreadfds->fd_count == 1) {
-                    readfds->fd_array[readfds->fd_count] = fds[i].fd;
-                    readfds->fd_count++;
-                }
-                if (errwritefds->fd_count == 1) {
-                    writefds->fd_array[writefds->fd_count] = fds[i].fd;
-                    writefds->fd_count++;
-                }
-                if (errexceptfds->fd_count == 1) {
-                    exceptfds->fd_array[exceptfds->fd_count] = fds[i].fd;
-                    exceptfds->fd_count++;
-                }
-            }
-        }
+        JNU_ThrowIOExceptionWithLastError(env, "Select failed");
+        return IOS_THROWN;
     }
 
     /* Return selected sockets. */
@@ -233,20 +188,4 @@ Java_sun_nio_ch_WindowsSelectorImpl_resetWakeupSocket0(JNIEnv *env, jclass this,
     } else {
         recv(scinFd, bytes, WAKEUP_SOCKET_BUF_SIZE, 0);
     }
-}
-
-JNIEXPORT jboolean JNICALL
-Java_sun_nio_ch_WindowsSelectorImpl_discardUrgentData(JNIEnv* env, jobject this,
-                                                      jint s)
-{
-    char data[8];
-    jboolean discarded = JNI_FALSE;
-    int n;
-    do {
-        n = recv(s, (char*)&data, sizeof(data), MSG_OOB);
-        if (n > 0) {
-            discarded = JNI_TRUE;
-        }
-    } while (n > 0);
-    return discarded;
 }

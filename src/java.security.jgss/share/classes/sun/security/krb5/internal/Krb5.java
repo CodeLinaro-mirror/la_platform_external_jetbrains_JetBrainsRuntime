@@ -31,6 +31,8 @@
 
 package sun.security.krb5.internal;
 
+import sun.security.action.GetBooleanAction;
+
 import java.util.Hashtable;
 
 // Constants and other defined values from RFC 4120
@@ -248,6 +250,7 @@ public class Krb5 {
     public static final int KDC_ERR_KEY_EXPIRED          = 23;   //Password has expired - change password to reset
     public static final int KDC_ERR_PREAUTH_FAILED       = 24;   //Pre-authentication information was invalid
     public static final int KDC_ERR_PREAUTH_REQUIRED     = 25;   //Additional pre-authentication required
+    public static final int KDC_ERR_SVC_UNAVAILABLE      = 29;   //A service is not available
     public static final int KRB_AP_ERR_BAD_INTEGRITY     = 31;   //Integrity check on decrypted field failed
     public static final int KRB_AP_ERR_TKT_EXPIRED       = 32;   //Ticket expired
     public static final int KRB_AP_ERR_TKT_NYV           = 33;   //Ticket not yet valid
@@ -308,10 +311,10 @@ public class Krb5 {
         return errMsgList.get(i);
     }
 
+    // Warning: used by NativeCreds.c
+    public static final boolean DEBUG = GetBooleanAction
+            .privilegedGetProperty("sun.security.krb5.debug");
 
-    public static final boolean DEBUG =
-        java.security.AccessController.doPrivileged(
-              new sun.security.action.GetBooleanAction("sun.security.krb5.debug"));
     public static final sun.security.util.HexDumpEncoder hexDumper =
         new sun.security.util.HexDumpEncoder();
 

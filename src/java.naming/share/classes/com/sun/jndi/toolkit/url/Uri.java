@@ -226,15 +226,9 @@ public class Uri {
 
     private void parse(String uri, ParseMode mode) throws MalformedURLException {
         switch (mode) {
-            case STRICT:
-                parseStrict(uri);
-                break;
-            case COMPAT:
-                parseCompat(uri);
-                break;
-            case LEGACY:
-                parseLegacy(uri);
-                break;
+            case STRICT -> parseStrict(uri);
+            case COMPAT -> parseCompat(uri);
+            case LEGACY -> parseLegacy(uri);
         }
     }
 
@@ -370,7 +364,8 @@ public class Uri {
                             + (port == -1?"":(":" + port));
                     if (!auth.equals(hostport)) {
                         // throw if we have user info or regname
-                        throw new MalformedURLException("unsupported authority: " + auth);
+                        throw new MalformedURLException("Authority component is not server-based, " +
+                                              "or contains user info. Unsupported authority: " + auth);
                     }
                 } catch (URISyntaxException e) {
                     var mue = new MalformedURLException(e.getMessage());

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,6 +42,8 @@ import jdk.test.lib.process.StreamPumper;
 public class Jdb implements AutoCloseable {
     public Jdb(String... args) {
         ProcessBuilder pb = new ProcessBuilder(JDKToolFinder.getTestJDKTool("jdb"));
+        pb.command().add("-J-Duser.language=en");
+        pb.command().add("-J-Duser.country=US");
         pb.command().addAll(Arrays.asList(args));
         try {
             jdb = pb.start();
@@ -121,6 +123,9 @@ public class Jdb implements AutoCloseable {
         # to appear in the last line of jdb output.  Normally, the prompt is
         #
         # 1) ^main[89] @
+        # or
+        # 1) ^[89] @
+        # for virtual threads
         #
         # where ^ means start of line, and @ means end of file with no end of line
         # and 89 is the current command counter. But we have complications e.g.,
@@ -147,13 +152,14 @@ public class Jdb implements AutoCloseable {
         #
         # 5) ^main[89] > @
         #
-        # i.e., the > prompt comes out AFTER the prompt we we need to wait for.
+        # i.e., the > prompt comes out AFTER the prompt we need to wait for.
     */
     // compile regexp once
-    private final String promptPattern = "[a-zA-Z0-9_-][a-zA-Z0-9_-]*\\[[1-9][0-9]*\\] [ >]*$";
-    private final Pattern promptRegexp = Pattern.compile(promptPattern);
+    private final static String promptPattern = "<?[a-zA-Z0-9_-]*>?\\[[1-9][0-9]*\\] [ >]*$";
+    final static Pattern PROMPT_REGEXP = Pattern.compile(promptPattern);
+
     public List<String> waitForPrompt(int lines, boolean allowExit) {
-        return waitForPrompt(lines, allowExit, promptRegexp);
+        return waitForPrompt(lines, allowExit, PROMPT_REGEXP);
     }
 
     // jdb prompt when debuggee is not started and is not suspended after breakpoint
@@ -183,10 +189,18 @@ public class Jdb implements AutoCloseable {
                 }
             }
             List<String> reply = outputHandler.get();
-            for (String line: reply.subList(Math.max(0, reply.size() - lines), reply.size())) {
-                if (promptRegexp.matcher(line).find()) {
+            if ((promptRegexp.flags() & Pattern.MULTILINE) > 0) {
+                String replyString = reply.stream().collect(Collectors.joining(lineSeparator));
+                if (promptRegexp.matcher(replyString).find()) {
                     logJdb(reply);
                     return outputHandler.reset();
+                }
+            } else {
+                for (String line : reply.subList(Math.max(0, reply.size() - lines), reply.size())) {
+                    if (promptRegexp.matcher(line).find()) {
+                        logJdb(reply);
+                        return outputHandler.reset();
+                    }
                 }
             }
             if (!jdb.isAlive()) {
@@ -195,7 +209,7 @@ public class Jdb implements AutoCloseable {
                 logJdb(reply);
                 if (!allowExit) {
                     throw new RuntimeException("waitForPrompt timed out after " + (timeout/1000)
-                            + " seconds, looking for '" + promptPattern + "', in " + lines + " lines");
+                            + " seconds, looking for '" + promptRegexp.pattern() + "', in " + lines + " lines");
                 }
                 return reply;
             }
@@ -203,7 +217,7 @@ public class Jdb implements AutoCloseable {
         // timeout
         logJdb(outputHandler.get());
         throw new RuntimeException("waitForPrompt timed out after " + (timeout/1000)
-                + " seconds, looking for '" + promptPattern + "', in " + lines + " lines");
+                + " seconds, looking for '" + promptRegexp.pattern() + "', in " + lines + " lines");
     }
 
     public List<String> command(JdbCommand cmd) {
@@ -223,7 +237,7 @@ public class Jdb implements AutoCloseable {
             throw new RuntimeException("Unexpected IO error while writing command '" + cmd.cmd + "' to jdb stdin stream");
         }
 
-        return waitForPrompt(1, cmd.allowExit);
+        return waitForPrompt(1, cmd.allowExit, cmd.waitForPattern);
     }
 
     public List<String> command(String cmd) {
@@ -251,7 +265,7 @@ public class Jdb implements AutoCloseable {
         command(JdbCommand.quit());
     }
 
-    void log(String s) {
+    private void log(String s) {
         System.out.println(s);
     }
 
@@ -316,4 +330,3 @@ public class Jdb implements AutoCloseable {
         }
     }
 }
-

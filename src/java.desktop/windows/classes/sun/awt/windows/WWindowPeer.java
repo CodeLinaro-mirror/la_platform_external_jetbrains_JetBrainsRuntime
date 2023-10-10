@@ -48,21 +48,18 @@ import java.awt.event.FocusEvent;
 import java.awt.event.WindowEvent;
 import java.awt.event.WindowListener;
 import java.awt.geom.AffineTransform;
-import java.awt.event.MouseListener;
-import java.awt.event.MouseMotionListener;
-import java.awt.event.MouseEvent;
+import java.awt.geom.AffineTransform;
 import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.DataBufferInt;
 import java.awt.peer.WindowPeer;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
-import java.lang.reflect.Field;
-import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
+
+import javax.swing.JRootPane;
+import javax.swing.RootPaneContainer;
 
 import sun.awt.AWTAccessor;
 import sun.awt.AppContext;
@@ -85,6 +82,8 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
 
     private static final PlatformLogger log = PlatformLogger.getLogger("sun.awt.windows.WWindowPeer");
     private static final PlatformLogger screenLog = PlatformLogger.getLogger("sun.awt.windows.screen.WWindowPeer");
+
+    public static final String WINDOW_CORNER_RADIUS = "apple.awt.windowCornerRadius";
 
     // we can't use WDialogPeer as blocker may be an instance of WPrintDialogPeer that
     // extends WWindowPeer, not WDialogPeer
@@ -120,8 +119,6 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
      * WindowStateEvent is posted to the EventQueue.
      */
     private WindowListener windowListener;
-    private MouseMotionListener mouseMotionListener;
-    private MouseListener mouseListener;
 
     private Insets sysInsets; // set from native updateInsets
 
@@ -213,8 +210,6 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
 
     WWindowPeer(Window target) {
         super(target);
-        // update GC based on the current bounds
-        updateGC();
     }
 
     @Override
@@ -260,6 +255,13 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
             this.isOpaque = true;
             setOpaque(((Window)target).isOpaque());
         }
+        
+        if (target instanceof RootPaneContainer) {
+            JRootPane rootpane = ((RootPaneContainer)target).getRootPane();
+            if (rootpane != null) {
+                setRoundedCornersImpl(rootpane.getClientProperty(WINDOW_CORNER_RADIUS));
+            }
+        }
     }
 
     native void createAwtWindow(WComponentPeer parent);
@@ -284,7 +286,7 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
         return (WComponentPeer) WToolkit.targetToPeer(owner);
     }
 
-    // should be overriden in WDialogPeer
+    // should be overridden in WDialogPeer
     protected void realShow() {
         super.show();
     }
@@ -412,38 +414,6 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
                         break;
                 }
             }
-        } else if (event instanceof MouseEvent) {
-            MouseListener _mouseListener = mouseListener;
-            if (_mouseListener != null) {
-                switch (event.getID()) {
-                    case MouseEvent.MOUSE_CLICKED:
-                        _mouseListener.mouseClicked((MouseEvent) event);
-                        break;
-                    case MouseEvent.MOUSE_PRESSED:
-                        _mouseListener.mousePressed((MouseEvent) event);
-                        break;
-                    case MouseEvent.MOUSE_RELEASED:
-                        _mouseListener.mouseReleased((MouseEvent) event);
-                        break;
-                    case MouseEvent.MOUSE_ENTERED:
-                        _mouseListener.mouseEntered((MouseEvent) event);
-                        break;
-                    case MouseEvent.MOUSE_EXITED:
-                        _mouseListener.mouseExited((MouseEvent) event);
-                        break;
-                }
-            }
-            MouseMotionListener _mouseMotionListener = mouseMotionListener;
-            if (_mouseMotionListener != null) {
-                switch (event.getID()) {
-                    case MouseEvent.MOUSE_DRAGGED:
-                        _mouseMotionListener.mouseDragged((MouseEvent)event);
-                        break;
-                    case MouseEvent.MOUSE_MOVED:
-                        _mouseMotionListener.mouseMoved((MouseEvent)event);
-                        break;
-                }
-            }
         }
     }
 
@@ -479,22 +449,6 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
         postEvent(new TimedWindowEvent((Window) target,
                 WindowEvent.WINDOW_STATE_CHANGED, null, oldState, newState,
                 System.currentTimeMillis()));
-    }
-
-    synchronized void addMouseListener(MouseListener l) {
-        mouseListener = AWTEventMulticaster.add(mouseListener, l);
-    }
-
-    synchronized void removeMouseListener(MouseListener l) {
-        mouseListener = AWTEventMulticaster.remove(mouseListener, l);
-    }
-
-    synchronized void addMouseMotionListener(MouseMotionListener l) {
-        mouseMotionListener = AWTEventMulticaster.add(mouseMotionListener, l);
-    }
-
-    synchronized void removeMouseMotionListener(MouseMotionListener l) {
-        mouseMotionListener = AWTEventMulticaster.remove(mouseMotionListener, l);
     }
 
     synchronized void addWindowListener(WindowListener l) {
@@ -643,7 +597,7 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
         Win32GraphicsDevice oldDev = winGraphicsConfig.getDevice();
 
         Win32GraphicsDevice newDev;
-        GraphicsDevice devs[] = GraphicsEnvironment
+        GraphicsDevice[] devs = GraphicsEnvironment
             .getLocalGraphicsEnvironment()
             .getScreenDevices();
         // Occasionally during device addition/removal getScreenImOn can return
@@ -669,6 +623,10 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
         if (oldDev != newDev) {
             oldDev.removeDisplayChangedListener(this);
             newDev.addDisplayChangedListener(this);
+        }
+
+        if (((Window)target).isVisible()) {
+            updateIconImages();
         }
 
         AWTAccessor.getComponentAccessor().
@@ -873,6 +831,35 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
         }
     }
 
+    // JBR API internals
+    private static void setRoundedCorners(Window window, Object params) {
+        Object peer = AWTAccessor.getComponentAccessor().getPeer(window);
+        if (peer instanceof WWindowPeer) {
+            ((WWindowPeer)peer).setRoundedCornersImpl(params);
+        } else if (window instanceof RootPaneContainer) {
+            JRootPane rootpane = ((RootPaneContainer)window).getRootPane();
+            if (rootpane != null) {
+                rootpane.putClientProperty(WINDOW_CORNER_RADIUS, params);
+            }
+        }
+    }
+
+    private void setRoundedCornersImpl(Object params) {
+        if (params instanceof String) {
+            int type = 0; // default
+            if ("none".equals(params)) {
+                type = 1;
+            } else if ("full".equals(params)) {
+                type = 2;
+            } else if ("small".equals(params)) {
+                type = 3;
+            }
+            setRoundedCorners(type);
+        }
+    }
+
+    private native void setRoundedCorners(int type);
+
     native void updateWindowImpl(int[] data, int width, int height);
 
     @Override
@@ -1046,31 +1033,5 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
             }
         }
         return err;
-    }
-
-    // called from client via reflection
-    @Deprecated
-    private void setCustomDecorationHitTestSpots(List<Rectangle> hitTestSpots) {
-        List<Map.Entry<Shape, Integer>> spots = new ArrayList<>();
-        for (Rectangle spot : hitTestSpots) spots.add(Map.entry(spot, 1));
-        try {
-            Field f = Window.class.getDeclaredField("customDecorHitTestSpots");
-            f.setAccessible(true);
-            f.set(target, spots);
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            throw new Error(e);
-        }
-    }
-
-    // called from client via reflection
-    @Deprecated
-    private void setCustomDecorationTitleBarHeight(int height) {
-        try {
-            Field f = Window.class.getDeclaredField("customDecorTitleBarHeight");
-            f.setAccessible(true);
-            f.set(target, height);
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            throw new Error(e);
-        }
     }
 }

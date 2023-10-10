@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2023, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2014, 2020, Red Hat Inc. All rights reserved.
  * Copyright (c) 2021, Azul Systems, Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
@@ -30,7 +30,6 @@
 #include "interpreter/interpreter.hpp"
 #include "interpreter/interpreterRuntime.hpp"
 #include "memory/allocation.inline.hpp"
-#include "memory/universe.hpp"
 #include "oops/method.hpp"
 #include "oops/oop.inline.hpp"
 #include "runtime/handles.inline.hpp"
@@ -170,7 +169,7 @@ void InterpreterRuntime::SignatureHandlerGenerator::pass_object() {
     __ cbnz(temp(), L);
     __ mov(r0, zr);
     __ bind(L);
-    STATIC_ASSERT(sizeof(jobject) == wordSize);
+    static_assert(sizeof(jobject) == wordSize, "");
     __ str(r0, Address(to(), next_stack_offset(sizeof(jobject))));
   }
 }
@@ -268,7 +267,7 @@ class SlowSignatureHandler
 
   virtual void pass_object() {
     intptr_t* addr = single_slot_addr();
-    intptr_t value = *addr == 0 ? NULL : (intptr_t)addr;
+    intptr_t value = *addr == 0 ? (intptr_t)0 : (intptr_t)addr;
     if (pass_gpr(value) < 0) {
       pass_stack<>(value);
     }
@@ -309,12 +308,12 @@ class SlowSignatureHandler
 };
 
 
-IRT_ENTRY(address,
-          InterpreterRuntime::slow_signature_handler(JavaThread* thread,
+JRT_ENTRY(address,
+          InterpreterRuntime::slow_signature_handler(JavaThread* current,
                                                      Method* method,
                                                      intptr_t* from,
                                                      intptr_t* to))
-  methodHandle m(thread, (Method*)method);
+  methodHandle m(current, (Method*)method);
   assert(m->is_native(), "sanity check");
 
   // handle arguments
@@ -323,4 +322,4 @@ IRT_ENTRY(address,
 
   // return result handler
   return Interpreter::result_handler(m->result_type());
-IRT_END
+JRT_END

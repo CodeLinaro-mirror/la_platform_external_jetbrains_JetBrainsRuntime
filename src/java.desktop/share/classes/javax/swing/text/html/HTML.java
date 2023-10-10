@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,10 +22,15 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+
 package javax.swing.text.html;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.Serial;
+import java.io.Serializable;
 import java.util.Hashtable;
+
 import javax.swing.text.AttributeSet;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.StyleContext;
@@ -41,6 +46,11 @@ import javax.swing.text.StyleContext;
 public class HTML {
 
     /**
+     * Constructs a {@code HTML}.
+     */
+    public HTML() {}
+
+    /**
      * Typesafe enumeration for an HTML tag.  Although the
      * set of HTML tags is a closed set, we have left the
      * set open so that people can add their own tag types
@@ -49,7 +59,11 @@ public class HTML {
      */
     public static class Tag {
 
-        /** @since 1.3 */
+        /**
+         * Constructs a {@code Tag}.
+         *
+         * @since 1.3
+         */
         public Tag() {}
 
         /**
@@ -553,7 +567,7 @@ public class HTML {
          */
         public static final Tag COMMENT = new Tag("comment");
 
-        static final Tag allTags[]  = {
+        static final Tag[] allTags  = {
             A, ADDRESS, APPLET, AREA, B, BASE, BASEFONT, BIG,
             BLOCKQUOTE, BODY, BR, CAPTION, CENTER, CITE, CODE,
             DD, DFN, DIR, DIV, DL, DT, EM, FONT, FORM, FRAME,
@@ -613,6 +627,7 @@ public class HTML {
             return false;
         }
 
+        @Serial
         private void writeObject(java.io.ObjectOutputStream s)
                      throws IOException {
             s.defaultWriteObject();
@@ -622,6 +637,7 @@ public class HTML {
             s.writeObject(name);
         }
 
+        @Serial
         private void readObject(ObjectInputStream s)
             throws ClassNotFoundException, IOException {
             s.defaultReadObject();
@@ -1060,7 +1076,7 @@ public class HTML {
         public static final Attribute COMMENT = new Attribute("comment");
         static final Attribute MEDIA = new Attribute("media");
 
-        static final Attribute allAttributes[] = {
+        static final Attribute[] allAttributes = {
             FACE,
             COMMENT,
             SIZE,
@@ -1250,7 +1266,7 @@ public class HTML {
         String istr = (String) attr.getAttribute(key);
         if (istr != null) {
             try {
-                value = Integer.valueOf(istr).intValue();
+                value = Integer.parseInt(istr);
             } catch (NumberFormatException e) {
                 value = def;
             }

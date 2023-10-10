@@ -237,7 +237,7 @@ static BOOL                sNeedsEnter;
     jobject    transferer = [self dataTransferer:env];
     jbyteArray data = nil;
 
-    if (transferer != NULL) {
+    if (transferer != NULL && fComponent != NULL) {
         GET_DT_CLASS_RETURN(NULL);
         DECLARE_METHOD_RETURN(convertDataMethod, DataTransfererClass, "convertData", "(Ljava/lang/Object;Ljava/awt/datatransfer/Transferable;JLjava/util/Map;Z)[B", NULL);
         data = (*env)->CallObjectMethod(env, transferer, convertDataMethod, fComponent, fTransferable, format, fFormatMap, (jboolean) TRUE);
@@ -556,7 +556,7 @@ static BOOL                sNeedsEnter;
         // Convert drag operation to Java:
         jint dragOp = [DnDUtilities mapNSDragOperationToJava:sDragOperation];
 
-        // Drag success must acount for DragOperationNone:
+        // Drag success must account for DragOperationNone:
         jboolean success = (dragOp != java_awt_dnd_DnDConstants_ACTION_NONE);
 
         // We have a problem here... we don't send DragSource dragEnter/Exit messages outside of our own process

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,9 +25,7 @@
 
 package sun.awt;
 
-import sun.font.FcFontConfiguration;
-import sun.font.FontConfigManager;
-import sun.font.SunFontManager;
+import sun.font.*;
 
 /**
  * A {@link sun.font.FontManager} that uses fontconfig to find system fonts.
@@ -43,6 +41,13 @@ public class FcFontManager extends SunFontManager {
         }
 
         return fcManager;
+    }
+
+    @Override
+    protected String getSystemFontVersion(TrueTypeFont bundledFont) {
+        String query = bundledFont.getTypographicFamilyName() + ":style=" + bundledFont.getTypographicSubfamilyName();
+        String systemFont = FontConfigManager.getFontProperty(query, "%{file}");
+        return systemFont != null ? getTrueTypeVersion(systemFont) : "0";
     }
 
     @Override
@@ -77,7 +82,7 @@ public class FcFontManager extends SunFontManager {
             for (int i=0; i<fontConfigFonts.length; i++) {
                 if ("sans".equals(fontConfigFonts[i].fcFamily) &&
                     0 == fontConfigFonts[i].style) {
-                    info[0] = fontConfigFonts[i].firstFont.familyName;
+                    info[0] = fontConfigFonts[i].firstFont.fullName;
                     info[1] = fontConfigFonts[i].firstFont.fontFile;
                     break;
                 }
@@ -89,8 +94,9 @@ public class FcFontManager extends SunFontManager {
          */
         if (info[0] == null) {
             if (fontConfigFonts != null && fontConfigFonts.length > 0 &&
-                fontConfigFonts[0].firstFont.fontFile != null) {
-                info[0] = fontConfigFonts[0].firstFont.familyName;
+                fontConfigFonts[0].firstFont.fontFile != null &&
+                fontConfigFonts[0].firstFont.fullName != null) {
+                info[0] = fontConfigFonts[0].firstFont.fullName;
                 info[1] = fontConfigFonts[0].firstFont.fontFile;
             } else {
                 info[0] = "Dialog";

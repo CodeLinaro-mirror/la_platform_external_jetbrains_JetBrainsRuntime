@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,19 +27,26 @@
  * @bug 6596966
  * @summary Some JFileChooser mnemonics do not work with sticky keys
  * @library ../../regtesthelpers
- * @library ../../../../lib/testlibrary
- * @build Util jdk.testlibrary.OSInfo
+ * @library /test/lib
+ * @build Util jdk.test.lib.Platform
  * @run main bug6596966
  * @author Pavel Porvatov
  */
 
-import java.awt.*;
+import java.awt.EventQueue;
+import java.awt.Robot;
+import java.awt.Toolkit;
 import java.awt.event.KeyEvent;
 import java.awt.event.InputEvent;
 import java.util.ArrayList;
-import javax.swing.*;
+import javax.swing.JFrame;
+import javax.swing.JButton;
+import javax.swing.JComboBox;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
 
-import jdk.testlibrary.OSInfo;
+import jdk.test.lib.Platform;
 
 public class bug6596966 {
     private static JFrame frame;
@@ -51,6 +58,7 @@ public class bug6596966 {
     public static void main(String[] args) throws Exception {
         try {
             Robot robot = new Robot();
+            robot.setAutoDelay(100);
 
             SwingUtilities.invokeAndWait(new Runnable() {
                 public void run() {
@@ -76,10 +84,10 @@ public class bug6596966 {
             });
 
             robot.waitForIdle();
-
+            robot.delay(1000);
 
             int keyMask = InputEvent.ALT_MASK;
-            if (OSInfo.getOSType() == OSInfo.OSType.MACOSX) {
+            if (Platform.isOSX()) {
                 keyMask = InputEvent.CTRL_MASK | InputEvent.ALT_MASK;
             }
             ArrayList<Integer> keys = Util.getKeyCodesFromKeyMask(keyMask);

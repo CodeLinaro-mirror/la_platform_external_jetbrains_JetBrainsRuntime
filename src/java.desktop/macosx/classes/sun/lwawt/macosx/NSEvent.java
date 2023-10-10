@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,8 +38,6 @@ final class NSEvent {
     static final int SCROLL_PHASE_CONTINUED = 3;
     static final int SCROLL_PHASE_MOMENTUM_BEGAN = 4;
     static final int SCROLL_PHASE_ENDED = 5;
-    private boolean hasDeadKey;
-    private int deadKeyCode;
 
     private int type;
     private int modifierFlags;
@@ -58,34 +56,15 @@ final class NSEvent {
     // Key event information
     private short keyCode;
     private String characters;
-    private String charactersIgnoringModifiers;
-    private String oldCharacters;
-    private String oldCharactersIgnoringModifiers;
-    private String charactersIgnoringModifiersAndShift;
-
-    public boolean isHasDeadKey() {
-        return hasDeadKey;
-    }
-
-    public int getDeadKeyCode() {
-        return deadKeyCode;
-    }
+    private String actualCharacters;
 
     // Called from native
-    NSEvent(int type, int modifierFlags, short keyCode, String characters, String charactersIgnoringModifiers,
-            String charactersIgnoringModifiersAndShift, boolean hasDeadKey, int deadKeyCode,
-            String oldCharacters, String oldCharactersIgnoringModifiers) {
+    NSEvent(int type, int modifierFlags, short keyCode, String characters, String actualCharacters) {
         this.type = type;
         this.modifierFlags = modifierFlags;
-
         this.keyCode = keyCode;
         this.characters = characters;
-        this.charactersIgnoringModifiers = charactersIgnoringModifiers;
-        this.charactersIgnoringModifiersAndShift = charactersIgnoringModifiersAndShift;
-        this.hasDeadKey = hasDeadKey;
-        this.deadKeyCode = deadKeyCode;
-        this.oldCharacters = oldCharacters;
-        this.oldCharactersIgnoringModifiers = oldCharactersIgnoringModifiers;
+        this.actualCharacters = actualCharacters;
     }
 
     // Called from native
@@ -153,22 +132,12 @@ final class NSEvent {
         return keyCode;
     }
 
-    String getCharactersIgnoringModifiers() {
-        return charactersIgnoringModifiers;
-    }
-
-    String getCharactersIgnoringModifiersAndShift() {return charactersIgnoringModifiersAndShift;}
-
     String getCharacters() {
         return characters;
     }
 
-    String getOldCharactersIgnoringModifiers() {
-        return oldCharactersIgnoringModifiers;
-    }
-
-    String getOldCharacters() {
-        return oldCharacters;
+    String getActualCharacters() {
+        return actualCharacters;
     }
 
     @Override
@@ -176,7 +145,7 @@ final class NSEvent {
         return "NSEvent[" + getType() + " ," + getModifierFlags() + " ,"
                 + getClickCount() + " ," + getButtonNumber() + " ," + getX() + " ,"
                 + getY() + " ," + getAbsX() + " ," + getAbsY()+ " ," + getKeyCode() + " ,"
-                + getCharacters() + " ," + getCharactersIgnoringModifiers() + " ," + getCharactersIgnoringModifiersAndShift() + "]";
+                + getCharacters() + " ," + getActualCharacters() + "]";
     }
 
     /*
@@ -238,37 +207,37 @@ final class NSEvent {
     static int nsToJavaEventType(int nsEventType) {
         int jeventType = 0;
         switch (nsEventType) {
-            case CocoaConstants.NSLeftMouseDown:
-            case CocoaConstants.NSRightMouseDown:
-            case CocoaConstants.NSOtherMouseDown:
+            case CocoaConstants.NSEventTypeLeftMouseDown:
+            case CocoaConstants.NSEventTypeRightMouseDown:
+            case CocoaConstants.NSEventTypeOtherMouseDown:
                 jeventType = MouseEvent.MOUSE_PRESSED;
                 break;
-            case CocoaConstants.NSLeftMouseUp:
-            case CocoaConstants.NSRightMouseUp:
-            case CocoaConstants.NSOtherMouseUp:
+            case CocoaConstants.NSEventTypeLeftMouseUp:
+            case CocoaConstants.NSEventTypeRightMouseUp:
+            case CocoaConstants.NSEventTypeOtherMouseUp:
                 jeventType = MouseEvent.MOUSE_RELEASED;
                 break;
-            case CocoaConstants.NSMouseMoved:
+            case CocoaConstants.NSEventTypeMouseMoved:
                 jeventType = MouseEvent.MOUSE_MOVED;
                 break;
-            case CocoaConstants.NSLeftMouseDragged:
-            case CocoaConstants.NSRightMouseDragged:
-            case CocoaConstants.NSOtherMouseDragged:
+            case CocoaConstants.NSEventTypeLeftMouseDragged:
+            case CocoaConstants.NSEventTypeRightMouseDragged:
+            case CocoaConstants.NSEventTypeOtherMouseDragged:
                 jeventType = MouseEvent.MOUSE_DRAGGED;
                 break;
-            case CocoaConstants.NSMouseEntered:
+            case CocoaConstants.NSEventTypeMouseEntered:
                 jeventType = MouseEvent.MOUSE_ENTERED;
                 break;
-            case CocoaConstants.NSMouseExited:
+            case CocoaConstants.NSEventTypeMouseExited:
                 jeventType = MouseEvent.MOUSE_EXITED;
                 break;
-            case CocoaConstants.NSScrollWheel:
+            case CocoaConstants.NSEventTypeScrollWheel:
                 jeventType = MouseEvent.MOUSE_WHEEL;
                 break;
-            case CocoaConstants.NSKeyDown:
+            case CocoaConstants.NSEventTypeKeyDown:
                 jeventType = KeyEvent.KEY_PRESSED;
                 break;
-            case CocoaConstants.NSKeyUp:
+            case CocoaConstants.NSEventTypeKeyUp:
                 jeventType = KeyEvent.KEY_RELEASED;
                 break;
         }
@@ -287,7 +256,7 @@ final class NSEvent {
     /*
      * Converts NSEvent key info to AWT key info.
      */
-    static native boolean nsToJavaKeyInfo(int[] in, int[] out);
+    static native void nsToJavaKeyInfo(int[] in, int[] out);
 
     /*
      * Converts NSEvent key modifiers to AWT key info.

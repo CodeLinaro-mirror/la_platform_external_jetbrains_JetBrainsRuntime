@@ -160,7 +160,6 @@ public class AllKeyCode extends Frame {
             KeyEvent.VK_F18,
             KeyEvent.VK_F19,
             KeyEvent.VK_F20,
-            KeyEvent.VK_ALT_GRAPH
         };
 
         keyPressed = -1;

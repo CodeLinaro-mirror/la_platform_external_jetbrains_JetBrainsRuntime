@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,37 +23,44 @@
  */
 
 #include "precompiled.hpp"
-#include "classfile/symbolTable.hpp"
+#include "classfile/classLoaderDataGraph.hpp"
 #include "classfile/vmSymbols.hpp"
+#include "classfile/symbolTable.hpp"
 #include "code/codeCache.hpp"
 #include "compiler/compileBroker.hpp"
+#include "gc/shared/collectedHeap.hpp"
 #include "gc/shared/isGCActiveMark.hpp"
 #include "logging/log.hpp"
 #include "logging/logStream.hpp"
+#include "logging/logConfiguration.hpp"
 #include "memory/heapInspection.hpp"
+#include "memory/metaspace/metaspaceReporter.hpp"
 #include "memory/resourceArea.hpp"
+#include "memory/universe.hpp"
 #include "oops/symbol.hpp"
+#include "oops/symbolHandle.hpp"
 #include "runtime/arguments.hpp"
 #include "runtime/deoptimization.hpp"
 #include "runtime/frame.inline.hpp"
 #include "runtime/interfaceSupport.inline.hpp"
-#include "runtime/sweeper.hpp"
-#include "runtime/thread.inline.hpp"
+#include "runtime/javaThread.inline.hpp"
+#include "runtime/jniHandles.hpp"
+#include "runtime/stackFrameStream.inline.hpp"
+#include "runtime/synchronizer.hpp"
+#include "runtime/threads.hpp"
 #include "runtime/threadSMR.inline.hpp"
 #include "runtime/vmOperations.hpp"
 #include "services/threadService.hpp"
+#include "javaCalls.hpp"
 
 #define VM_OP_NAME_INITIALIZE(name) #name,
 
 const char* VM_Operation::_names[VM_Operation::VMOp_Terminating] = \
   { VM_OPS_DO(VM_OP_NAME_INITIALIZE) };
 
-void VM_Operation::set_calling_thread(Thread* thread, ThreadPriority priority) {
+void VM_Operation::set_calling_thread(Thread* thread) {
   _calling_thread = thread;
-  assert(MinPriority <= priority && priority <= MaxPriority, "sanity check");
-  _priority = priority;
 }
-
 
 void VM_Operation::evaluate() {
   ResourceMark rm;
@@ -73,62 +80,28 @@ void VM_Operation::evaluate() {
   }
 }
 
-const char* VM_Operation::mode_to_string(Mode mode) {
-  switch(mode) {
-    case _safepoint      : return "safepoint";
-    case _no_safepoint   : return "no safepoint";
-    case _concurrent     : return "concurrent";
-    case _async_safepoint: return "async safepoint";
-    default              : return "unknown";
-  }
-}
 // Called by fatal error handler.
 void VM_Operation::print_on_error(outputStream* st) const {
   st->print("VM_Operation (" PTR_FORMAT "): ", p2i(this));
   st->print("%s", name());
 
-  const char* mode = mode_to_string(evaluation_mode());
-  st->print(", mode: %s", mode);
+  st->print(", mode: %s", evaluate_at_safepoint() ? "safepoint" : "no safepoint");
 
   if (calling_thread()) {
     st->print(", requested by thread " PTR_FORMAT, p2i(calling_thread()));
   }
 }
 
-void VM_ThreadStop::doit() {
-  assert(SafepointSynchronize::is_at_safepoint(), "must be at a safepoint");
-  ThreadsListHandle tlh;
-  JavaThread* target = java_lang_Thread::thread(target_thread());
-  // Note that this now allows multiple ThreadDeath exceptions to be
-  // thrown at a thread.
-  if (target != NULL && (!EnableThreadSMRExtraValidityChecks || tlh.includes(target))) {
-    // The target thread has run and has not exited yet.
-    target->send_thread_stop(throwable());
-  }
-}
-
 void VM_ClearICs::doit() {
   if (_preserve_static_stubs) {
-    CodeCache::cleanup_inline_caches();
+    CodeCache::cleanup_inline_caches_whitebox();
   } else {
     CodeCache::clear_inline_caches();
   }
 }
 
-void VM_Deoptimize::doit() {
-  // We do not want any GCs to happen while we are in the middle of this VM operation
-  ResourceMark rm;
-  DeoptimizationMarker dm;
-
-  // Deoptimize all activations depending on marked nmethods
-  Deoptimization::deoptimize_dependents();
-
-  // Make the dependent methods not entrant
-  CodeCache::make_marked_nmethods_not_entrant();
-}
-
-void VM_MarkActiveNMethods::doit() {
-  NMethodSweeper::mark_active_nmethods();
+void VM_CleanClassLoaderDataMetaspaces::doit() {
+  ClassLoaderDataGraph::walk_metadata_and_clean_metaspaces();
 }
 
 VM_DeoptimizeFrame::VM_DeoptimizeFrame(JavaThread* thread, intptr_t* id, int reason) {
@@ -147,7 +120,6 @@ void VM_DeoptimizeFrame::doit() {
 #ifndef PRODUCT
 
 void VM_DeoptimizeAll::doit() {
-  DeoptimizationMarker dm;
   JavaThreadIteratorWithHandle jtiwh;
   // deoptimize all java threads in the system
   if (DeoptimizeALot) {
@@ -168,12 +140,11 @@ void VM_DeoptimizeAll::doit() {
         tcount = 0;
           int fcount = 0;
           // Deoptimize some selected frames.
-          // Biased llocking wants a updated register map
-          for(StackFrameStream fst(thread, UseBiasedLocking); !fst.is_done(); fst.next()) {
+          for(StackFrameStream fst(thread, false /* update */, true /* process_frames */); !fst.is_done(); fst.next()) {
             if (fst.current()->can_be_deoptimized()) {
               if (fcount++ == fnum) {
                 fcount = 0;
-                Deoptimization::deoptimize(thread, *fst.current(), fst.register_map());
+                Deoptimization::deoptimize(thread, *fst.current());
               }
             }
           }
@@ -185,17 +156,40 @@ void VM_DeoptimizeAll::doit() {
 
 
 void VM_ZombieAll::doit() {
-  JavaThread *thread = (JavaThread *)calling_thread();
-  assert(thread->is_Java_thread(), "must be a Java thread");
-  thread->make_zombies();
+  JavaThread::cast(calling_thread())->make_zombies();
 }
 
 #endif // !PRODUCT
 
-void VM_UnlinkSymbols::doit() {
-  JavaThread *thread = (JavaThread *)calling_thread();
-  assert(thread->is_Java_thread(), "must be a Java thread");
-  SymbolTable::unlink();
+
+// Prints out additional information supplied by the application
+// through the use of JBR API. The data in the form of a String
+// are obtained from Throwable.$$jb$getAdditionalInfoForJstack()
+// and, not not null, are included into the output.
+void VM_PrintThreads::print_additional_info() {
+  JavaThread *THREAD = JavaThread::current();
+  HandleMark hm(THREAD);
+  ResourceMark rm;
+
+  InstanceKlass *klass = vmClasses::Throwable_klass();
+  if (klass != NULL) {
+    TempNewSymbol method_name = SymbolTable::new_symbol("$$jb$getAdditionalInfoForJstack");
+    Symbol *signature = vmSymbols::void_string_signature();
+    Method *method = klass->find_method(method_name, signature);
+    if (method != NULL) {
+      JavaValue result(T_OBJECT);
+      JavaCalls::call_static(&result, klass,
+                             method_name, signature, THREAD);
+      oop dump_oop = result.get_oop();
+      if (dump_oop != NULL) {
+        // convert Java String to utf8 string
+        char *s = java_lang_String::as_utf8_string(dump_oop);
+        _out->cr();
+        _out->print_raw_cr(s);
+        _out->cr();
+      }
+    }
+  }
 }
 
 bool VM_PrintThreads::doit_prologue() {
@@ -208,6 +202,10 @@ bool VM_PrintThreads::doit_prologue() {
 
 void VM_PrintThreads::doit() {
   Threads::print_on(_out, true, false, _print_concurrent_locks, _print_extended_info);
+  if (_print_jni_handle_info) {
+    JNIHandles::print_on(_out);
+    JNIHandles::print_memory_usage_on(_out);
+  }
 }
 
 void VM_PrintThreads::doit_epilogue() {
@@ -215,20 +213,23 @@ void VM_PrintThreads::doit_epilogue() {
     // Release Heap_lock
     Heap_lock->unlock();
   }
-}
 
-void VM_PrintJNI::doit() {
-  JNIHandles::print_on(_out);
+  // We should be on the "signal handler" thread, which is a JavaThread
+  if (Thread::current()->is_Java_thread()) {
+      // .. but best play it safe as we're going to need to make
+      // Java calls on the current thread.
+    print_additional_info();
+  }
 }
 
 void VM_PrintMetadata::doit() {
-  MetaspaceUtils::print_report(_out, _scale, _flags);
+  metaspace::MetaspaceReporter::print_report(_out, _scale, _flags);
 }
 
 VM_FindDeadlocks::~VM_FindDeadlocks() {
-  if (_deadlocks != NULL) {
+  if (_deadlocks != nullptr) {
     DeadlockCycle* cycle = _deadlocks;
-    while (cycle != NULL) {
+    while (cycle != nullptr) {
       DeadlockCycle* d = cycle;
       cycle = cycle->next();
       delete d;
@@ -245,9 +246,9 @@ void VM_FindDeadlocks::doit() {
   _setter.set();
 
   _deadlocks = ThreadService::find_deadlocks_at_safepoint(_setter.list(), _concurrent_locks);
-  if (_out != NULL) {
+  if (_out != nullptr) {
     int num_deadlocks = 0;
-    for (DeadlockCycle* cycle = _deadlocks; cycle != NULL; cycle = cycle->next()) {
+    for (DeadlockCycle* cycle = _deadlocks; cycle != nullptr; cycle = cycle->next()) {
       num_deadlocks++;
       cycle->print_on_with(_setter.list(), _out);
     }
@@ -268,7 +269,7 @@ VM_ThreadDump::VM_ThreadDump(ThreadDumpResult* result,
                              bool with_locked_synchronizers) {
   _result = result;
   _num_threads = 0; // 0 indicates all threads
-  _threads = NULL;
+  _threads = nullptr;
   _result = result;
   _max_depth = max_depth;
   _with_locked_monitors = with_locked_monitors;
@@ -320,6 +321,18 @@ void VM_ThreadDump::doit() {
     concurrent_locks.dump_at_safepoint();
   }
 
+  ObjectMonitorsHashtable table;
+  ObjectMonitorsHashtable* tablep = nullptr;
+  if (_with_locked_monitors) {
+    // The caller wants locked monitor information and that's expensive to gather
+    // when there are a lot of inflated monitors. So we deflate idle monitors and
+    // gather information about owned monitors at the same time.
+    tablep = &table;
+    while (ObjectSynchronizer::deflate_idle_monitors(tablep) > 0) {
+      ; /* empty */
+    }
+  }
+
   if (_num_threads == 0) {
     // Snapshot all live threads
 
@@ -330,11 +343,11 @@ void VM_ThreadDump::doit() {
         // skip terminating threads and hidden threads
         continue;
       }
-      ThreadConcurrentLocks* tcl = NULL;
+      ThreadConcurrentLocks* tcl = nullptr;
       if (_with_locked_synchronizers) {
         tcl = concurrent_locks.thread_concurrent_locks(jt);
       }
-      snapshot_thread(jt, tcl);
+      snapshot_thread(jt, tcl, tablep);
     }
   } else {
     // Snapshot threads in the given _threads array
@@ -342,7 +355,7 @@ void VM_ThreadDump::doit() {
 
     for (int i = 0; i < _num_threads; i++) {
       instanceHandle th = _threads->at(i);
-      if (th() == NULL) {
+      if (th() == nullptr) {
         // skip if the thread doesn't exist
         // Add a dummy snapshot
         _result->add_thread_snapshot();
@@ -352,36 +365,37 @@ void VM_ThreadDump::doit() {
       // Dump thread stack only if the thread is alive and not exiting
       // and not VM internal thread.
       JavaThread* jt = java_lang_Thread::thread(th());
-      if (jt != NULL && !_result->t_list()->includes(jt)) {
+      if (jt != nullptr && !_result->t_list()->includes(jt)) {
         // _threads[i] doesn't refer to a valid JavaThread; this check
         // is primarily for JVM_DumpThreads() which doesn't have a good
         // way to validate the _threads array.
-        jt = NULL;
+        jt = nullptr;
       }
-      if (jt == NULL || /* thread not alive */
+      if (jt == nullptr || /* thread not alive */
           jt->is_exiting() ||
           jt->is_hidden_from_external_view())  {
-        // add a NULL snapshot if skipped
+        // add a null snapshot if skipped
         _result->add_thread_snapshot();
         continue;
       }
-      ThreadConcurrentLocks* tcl = NULL;
+      ThreadConcurrentLocks* tcl = nullptr;
       if (_with_locked_synchronizers) {
         tcl = concurrent_locks.thread_concurrent_locks(jt);
       }
-      snapshot_thread(jt, tcl);
+      snapshot_thread(jt, tcl, tablep);
     }
   }
 }
 
-void VM_ThreadDump::snapshot_thread(JavaThread* java_thread, ThreadConcurrentLocks* tcl) {
+void VM_ThreadDump::snapshot_thread(JavaThread* java_thread, ThreadConcurrentLocks* tcl,
+                                    ObjectMonitorsHashtable* table) {
   ThreadSnapshot* snapshot = _result->add_thread_snapshot(java_thread);
-  snapshot->dump_stack_at_safepoint(_max_depth, _with_locked_monitors);
+  snapshot->dump_stack_at_safepoint(_max_depth, _with_locked_monitors, table, false);
   snapshot->set_concurrent_locks(tcl);
 }
 
 volatile bool VM_Exit::_vm_exited = false;
-Thread * volatile VM_Exit::_shutdown_thread = NULL;
+Thread * volatile VM_Exit::_shutdown_thread = nullptr;
 
 int VM_Exit::set_vm_exited() {
 
@@ -394,7 +408,7 @@ int VM_Exit::set_vm_exited() {
   _shutdown_thread = thr_cur;
   _vm_exited = true;                                // global flag
   for (JavaThreadIteratorWithHandle jtiwh; JavaThread *thr = jtiwh.next(); ) {
-    if (thr!=thr_cur && thr->thread_state() == _thread_in_native) {
+    if (thr != thr_cur && thr->thread_state() == _thread_in_native) {
       ++num_active;
       thr->set_terminated(JavaThread::_vm_exited);  // per-thread flag
     }
@@ -409,8 +423,7 @@ int VM_Exit::wait_for_threads_in_native_to_block() {
   assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint already");
 
   Thread * thr_cur = Thread::current();
-  Monitor timer(Mutex::leaf, "VM_Exit timer", true,
-                Monitor::_safepoint_check_never);
+  Monitor timer(Mutex::nosafepoint, "VM_ExitTimer_lock");
 
   // Compiler threads need longer wait because they can access VM data directly
   // while in native. If they are active and some structures being used are
@@ -436,7 +449,20 @@ int VM_Exit::wait_for_threads_in_native_to_block() {
       if (thr!=thr_cur && thr->thread_state() == _thread_in_native) {
         num_active++;
         if (thr->is_Compiler_thread()) {
+#if INCLUDE_JVMCI
+          CompilerThread* ct = (CompilerThread*) thr;
+          if (ct->compiler() == nullptr || !ct->compiler()->is_jvmci()) {
+            num_active_compiler_thread++;
+          } else {
+            // A JVMCI compiler thread never accesses VM data structures
+            // while in _thread_in_native state so there's no need to wait
+            // for it and potentially add a 300 millisecond delay to VM
+            // shutdown.
+            num_active--;
+          }
+#else
           num_active_compiler_thread++;
+#endif
         }
       }
     }
@@ -451,12 +477,22 @@ int VM_Exit::wait_for_threads_in_native_to_block() {
 
     attempts++;
 
-    MutexLockerEx ml(&timer, Mutex::_no_safepoint_check_flag);
-    timer.wait(Mutex::_no_safepoint_check_flag, 10);
+    MonitorLocker ml(&timer, Mutex::_no_safepoint_check_flag);
+    ml.wait(10);
   }
 }
 
 void VM_Exit::doit() {
+
+  if (VerifyBeforeExit) {
+    HandleMark hm(VMThread::vm_thread());
+    // Among other things, this ensures that Eden top is correct.
+    Universe::heap()->prepare_for_verify();
+    // Silent verification so as not to pollute normal output,
+    // unless we really asked for it.
+    Universe::verify();
+  }
+
   CompileBroker::set_should_block();
 
   // Wait for a short period for threads in native to block. Any thread
@@ -468,13 +504,24 @@ void VM_Exit::doit() {
 
   set_vm_exited();
 
+  // The ObjectMonitor subsystem uses perf counters so do this before
+  // we call exit_globals() so we don't run afoul of perfMemory_exit().
+  ObjectSynchronizer::do_final_audit_and_print_stats();
+
+  // We'd like to call IdealGraphPrinter::clean_up() to finalize the
+  // XML logging, but we can't safely do that here. The logic to make
+  // XML termination logging safe is tied to the termination of the
+  // VMThread, and it doesn't terminate on this exit path. See 8222534.
+
   // cleanup globals resources before exiting. exit_globals() currently
   // cleans up outputStream resources and PerfMemory resources.
   exit_globals();
 
+  LogConfiguration::finalize();
+
   // Check for exit hook
   exit_hook_t exit_hook = Arguments::exit_hook();
-  if (exit_hook != NULL) {
+  if (exit_hook != nullptr) {
     // exit hook should exit.
     exit_hook(_exit_code);
     // ... but if it didn't, we must do it here
@@ -489,8 +536,8 @@ void VM_Exit::wait_if_vm_exited() {
   if (_vm_exited &&
       Thread::current_or_null() != _shutdown_thread) {
     // _vm_exited is set at safepoint, and the Threads_lock is never released
-    // we will block here until the process dies
-    Threads_lock->lock_without_safepoint_check();
+    // so we will block here until the process dies.
+    Threads_lock->lock();
     ShouldNotReachHere();
   }
 }

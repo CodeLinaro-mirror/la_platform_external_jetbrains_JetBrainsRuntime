@@ -1,4 +1,5 @@
 /*
+s
  * Copyright (c) 2003, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -51,12 +52,12 @@
 extern "C" {
 
 
-#define JVMTI_ERROR_CHECK(str,res) if ( res != JVMTI_ERROR_NONE) { printf(str); printf(" %d\n",res); return res;}
-#define JVMTI_ERROR_CHECK_EXPECTED_ERROR(str,res,err) if ( res != err) { printf(str); printf(" unexpected error %d\n",res); return res;}
+#define JVMTI_ERROR_CHECK(str,res) if (res != JVMTI_ERROR_NONE) { printf(str); printf(" %d\n",res); return res; }
+#define JVMTI_ERROR_CHECK_EXPECTED_ERROR(str,res,err) if (res != err) { printf(str); printf(" unexpected error %d\n",res); return res; }
 
-#define JVMTI_ERROR_CHECK_VOID(str,res) if ( res != JVMTI_ERROR_NONE) { printf(str); printf(" %d\n",res); iGlobalStatus = 2; }
+#define JVMTI_ERROR_CHECK_VOID(str,res) if (res != JVMTI_ERROR_NONE) { printf(str); printf(" %d\n",res); iGlobalStatus = 2; }
 
-#define JVMTI_ERROR_CHECK_EXPECTED_ERROR_VOID(str,res,err) if ( res != err) { printf(str); printf(" unexpected error %d\n",res); iGlobalStatus = 2; }
+#define JVMTI_ERROR_CHECK_EXPECTED_ERROR_VOID(str,res,err) if (res != err) { printf(str); printf(" unexpected error %d\n",res); iGlobalStatus = 2; }
 
 #define THREADS_LIMIT 8
 
@@ -291,7 +292,7 @@ Java_nsk_jvmti_unit_functions_rawmonitor_CreateRawMonitor(JNIEnv * env, jclass k
     jvmtiError ret;
     char sz[128];
 
-    sprintf(sz, "Rawmonitor-%d",i);
+    snprintf(sz, sizeof(sz), "Rawmonitor-%d",i);
     debug_printf("jvmti create raw monitor \n");
     ret = jvmti->CreateRawMonitor(sz, &jraw_monitor[i]);
 

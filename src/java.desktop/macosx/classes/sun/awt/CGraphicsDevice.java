@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,16 +34,21 @@ import java.awt.Rectangle;
 import java.awt.Window;
 import java.awt.geom.Rectangle2D;
 import java.awt.peer.WindowPeer;
+import java.util.Arrays;
 import java.util.Objects;
 
 import sun.java2d.SunGraphicsEnvironment;
+import sun.java2d.MacOSFlags;
+import sun.java2d.metal.MTLGraphicsConfig;
 import sun.java2d.opengl.CGLGraphicsConfig;
+import sun.util.logging.PlatformLogger;
 
 import static java.awt.peer.ComponentPeer.SET_BOUNDS;
 
 public final class CGraphicsDevice extends GraphicsDevice
-        implements DisplayChangedListener {
+        implements DisplayChangedListener, DisplayParametersChangedListener {
 
+    private static final PlatformLogger logger = PlatformLogger.getLogger(CGraphicsDevice.class.getName());
     /**
      * CoreGraphics display ID. This identifier can become non-valid at any time
      * therefore methods, which is using this id should be ready to it.
@@ -55,22 +60,38 @@ public final class CGraphicsDevice extends GraphicsDevice
     private volatile int scale;
     private volatile Insets screenInsets;
 
-    // Array of all GraphicsConfig instances for this device
-    private final GraphicsConfiguration[] configs;
+    private GraphicsConfiguration config;
 
-    // Default config (temporarily hard coded)
-    private final int DEFAULT_CONFIG = 0;
 
     private static AWTPermission fullScreenExclusivePermission;
 
     // Save/restore DisplayMode for the Full Screen mode
     private DisplayMode originalMode;
+    private DisplayMode initialMode;
 
     public CGraphicsDevice(final int displayID) {
         this.displayID = displayID;
-        configs = new GraphicsConfiguration[] {
-            CGLGraphicsConfig.getConfig(this, displayID, 0)
-        };
+        this.initialMode = getDisplayMode();
+        StringBuilder errorMessage = new StringBuilder();
+
+        this.config = CGraphicsEnvironment.usingMetalPipeline() ?
+                MTLGraphicsConfig.getConfig(this, displayID, errorMessage) :
+                CGLGraphicsConfig.getConfig(this);
+
+        if (this.config == null) {
+            if (MacOSFlags.isMetalVerbose() || MacOSFlags.isOGLVerbose()) {
+                System.out.println(MacOSFlags.getRenderPipelineName() +
+                        " rendering pipeline initialization failed");
+            }
+            throw new IllegalStateException("Error - unable to initialize " +
+                    MacOSFlags.getRenderPipelineName());
+        } else {
+            if (MacOSFlags.isMetalVerbose() || MacOSFlags.isOGLVerbose()) {
+                System.out.println(MacOSFlags.getRenderPipelineName() +
+                        " pipeline enabled on screen " + displayID);
+            }
+        }
+
         // initializes default device state, might be redundant step since we
         // call "displayChanged()" later anyway, but we do not want to leave the
         // device in an inconsistent state after construction
@@ -82,7 +103,7 @@ public final class CGraphicsDevice extends GraphicsDevice
      */
     @Override
     public GraphicsConfiguration[] getConfigurations() {
-        return configs.clone();
+        return new GraphicsConfiguration[]{config};
     }
 
     /**
@@ -90,7 +111,7 @@ public final class CGraphicsDevice extends GraphicsDevice
      */
     @Override
     public GraphicsConfiguration getDefaultConfiguration() {
-        return configs[DEFAULT_CONFIG];
+        return config;
     }
 
     /**
@@ -140,6 +161,7 @@ public final class CGraphicsDevice extends GraphicsDevice
     public void invalidate(CGraphicsDevice device) {
         //TODO do we need to restore the full-screen window/modes on old device?
         displayID = device.displayID;
+        initialMode = device.initialMode;
     }
 
     @Override
@@ -153,6 +175,20 @@ public final class CGraphicsDevice extends GraphicsDevice
         //TODO configs?
     }
 
+    public void displayParametersChanged() {
+        Insets newScreenInsets = nativeGetScreenInsets(displayID);
+        if (!newScreenInsets.equals(screenInsets)) {
+            if (logger.isLoggable(PlatformLogger.Level.FINE)) {
+                logger.fine("Screen insets for display(" + displayID + ") changed " +
+                        "[top="  + screenInsets.top + ",left=" + screenInsets.left +
+                        ",bottom=" + screenInsets.bottom + ",right=" + screenInsets.right +
+                        "]->[top="  + newScreenInsets.top + ",left=" + newScreenInsets.left +
+                        ",bottom=" + newScreenInsets.bottom + ",right=" + newScreenInsets.right +
+                        "]");
+            }
+            screenInsets = newScreenInsets;
+        }
+    }
     @Override
     public void paletteChanged() {
         // devices do not need to react to this event.
@@ -200,6 +236,7 @@ public final class CGraphicsDevice extends GraphicsDevice
     }
 
     private static boolean isFSExclusiveModeAllowed() {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             if (fullScreenExclusivePermission == null) {
@@ -246,14 +283,47 @@ public final class CGraphicsDevice extends GraphicsDevice
         return true;
     }
 
+    /* If the modes are the same or the only difference is that
+     * the new mode will match any refresh rate, no need to change.
+     */
+    private boolean isSameMode(final DisplayMode newMode,
+                               final DisplayMode oldMode) {
+
+        return (Objects.equals(newMode, oldMode) ||
+                (newMode.getRefreshRate() == DisplayMode.REFRESH_RATE_UNKNOWN &&
+                 newMode.getWidth() == oldMode.getWidth() &&
+                 newMode.getHeight() == oldMode.getHeight() &&
+                 newMode.getBitDepth() == oldMode.getBitDepth()));
+    }
+
     @Override
     public void setDisplayMode(final DisplayMode dm) {
         if (dm == null) {
             throw new IllegalArgumentException("Invalid display mode");
         }
-        if (!Objects.equals(dm, getDisplayMode())) {
-            nativeSetDisplayMode(displayID, dm.getWidth(), dm.getHeight(),
-                                 dm.getBitDepth(), dm.getRefreshRate());
+        if (!isSameMode(dm, getDisplayMode())) {
+            try {
+                nativeSetDisplayMode(displayID, dm.getWidth(), dm.getHeight(),
+                                    dm.getBitDepth(), dm.getRefreshRate());
+            } catch (Throwable t) {
+                /* In some cases macOS doesn't report the initial mode
+                 * in the list of supported modes.
+                 * If trying to reset to that mode causes an exception
+                 * try one more time to reset using a different API.
+                 * This does not fix everything, such as it doesn't make
+                 * that mode reported and it restores all devices, but
+                 * this seems a better compromise than failing to restore
+                 */
+                if (isSameMode(dm, initialMode)) {
+                    nativeResetDisplayMode();
+                    if (!isSameMode(initialMode, getDisplayMode())) {
+                        throw new IllegalArgumentException(
+                            "Could not reset to initial mode");
+                    }
+                } else {
+                   throw t;
+                }
+            }
         }
     }
 
@@ -264,10 +334,26 @@ public final class CGraphicsDevice extends GraphicsDevice
 
     @Override
     public DisplayMode[] getDisplayModes() {
-        return nativeGetDisplayModes(displayID);
+        DisplayMode[] nativeModes = nativeGetDisplayModes(displayID);
+        boolean match = false;
+        for (DisplayMode mode : nativeModes) {
+            if (initialMode.equals(mode)) {
+                match = true;
+                break;
+            }
+        }
+        if (match) {
+            return nativeModes;
+        } else {
+          int len = nativeModes.length;
+          DisplayMode[] modes = Arrays.copyOf(nativeModes, len+1, DisplayMode[].class);
+          modes[len] = initialMode;
+          return modes;
+        }
     }
 
     private void initScaleFactor() {
+        int _scale = scale;
         if (SunGraphicsEnvironment.isUIScaleEnabled()) {
             double debugScale = SunGraphicsEnvironment.getDebugScale();
             scale = (int) (debugScale >= 1
@@ -276,9 +362,14 @@ public final class CGraphicsDevice extends GraphicsDevice
         } else {
             scale = 1;
         }
+        if (_scale != scale && logger.isLoggable(PlatformLogger.Level.FINE)) {
+            logger.fine("current scale = " + _scale + ", new scale = " + scale + " (" + this + ")");
+        }
     }
 
     private static native double nativeGetScaleFactor(int displayID);
+
+    private static native void nativeResetDisplayMode();
 
     private static native void nativeSetDisplayMode(int displayID, int w, int h, int bpp, int refrate);
 

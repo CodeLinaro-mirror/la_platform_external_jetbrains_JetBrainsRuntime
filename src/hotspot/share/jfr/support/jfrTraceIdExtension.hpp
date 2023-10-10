@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2012, 2018, Oracle and/or its affiliates. All rights reserved.
+* Copyright (c) 2012, 2020, Oracle and/or its affiliates. All rights reserved.
 * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 *
 * This code is free software; you can redistribute it and/or modify it
@@ -22,8 +22,8 @@
 *
 */
 
-#ifndef SHARE_VM_JFR_SUPPORT_JFRTRACEIDEXTENSION_HPP
-#define SHARE_VM_JFR_SUPPORT_JFRTRACEIDEXTENSION_HPP
+#ifndef SHARE_JFR_SUPPORT_JFRTRACEIDEXTENSION_HPP
+#define SHARE_JFR_SUPPORT_JFRTRACEIDEXTENSION_HPP
 
 #include "jfr/recorder/checkpoint/types/traceid/jfrTraceId.hpp"
 #include "utilities/macros.hpp"
@@ -41,6 +41,7 @@
 #define INIT_ID(data) JfrTraceId::assign(data)
 #define ASSIGN_PRIMITIVE_CLASS_ID(data) JfrTraceId::assign_primitive_klass_id()
 #define REMOVE_ID(k) JfrTraceId::remove(k);
+#define REMOVE_METHOD_ID(method) JfrTraceId::remove(method);
 #define RESTORE_ID(k) JfrTraceId::restore(k);
 
 class JfrTraceFlag {
@@ -70,7 +71,7 @@ class JfrTraceFlag {
 
   jbyte* meta_addr() const {
 #ifdef VM_LITTLE_ENDIAN
-    return (jbyte*)(&_flags) + 1;
+    return ((jbyte*)&_flags) + 1;
 #else
     return (jbyte*)&_flags;
 #endif
@@ -96,4 +97,4 @@ class JfrTraceFlag {
     return _trace_flags.meta_addr();               \
   }
 
-#endif // SHARE_VM_JFR_SUPPORT_JFRTRACEIDEXTENSION_HPP
+#endif // SHARE_JFR_SUPPORT_JFRTRACEIDEXTENSION_HPP

@@ -189,7 +189,7 @@ public class J2DBench {
         System.exit(exitcode);
     }
 
-    public static void main(String argv[]) {
+    public static void main(String[] argv) {
         init();
         TestEnvironment.init();
         Result.init();
@@ -312,8 +312,8 @@ public class J2DBench {
 
                 if (argv[i].indexOf(":") >= 0) {
 
-                    String values[] = argv[i].split(":");
-                    int intVals[] = new int[3];
+                    String[] values = argv[i].split(":");
+                    int[] intVals = new int[3];
 
                     for(int j=0; j<values.length; j++) {
                         try {

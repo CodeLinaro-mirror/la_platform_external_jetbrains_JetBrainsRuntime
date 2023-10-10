@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,20 +24,22 @@
  */
 package sun.security.ssl;
 
-import javax.crypto.spec.DHParameterSpec;
-import javax.net.ssl.SSLException;
 import java.io.IOException;
 import java.security.*;
-import java.security.spec.*;
+import java.security.spec.AlgorithmParameterSpec;
+import java.security.spec.ECParameterSpec;
+import java.security.spec.InvalidParameterSpecException;
+import java.security.spec.NamedParameterSpec;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Set;
 import javax.crypto.KeyAgreement;
-import sun.security.ssl.DHKeyExchange.DHEPossession;
+import javax.crypto.spec.DHParameterSpec;
 import sun.security.ssl.ECDHKeyExchange.ECDHEPossession;
 import sun.security.util.CurveDB;
-
+import sun.security.action.GetPropertyAction;
 
 /**
  * An enum containing all known named groups for use in TLS.
@@ -51,164 +53,164 @@ enum NamedGroup {
     // See sun.security.util.CurveDB for the OIDs
     // NIST K-163
 
-    SECT163_K1(0x0001, "sect163k1", true,
+    SECT163_K1(0x0001, "sect163k1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("sect163k1")),
-    SECT163_R1(0x0002, "sect163r1", false,
+    SECT163_R1(0x0002, "sect163r1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("sect163r1")),
 
     // NIST B-163
-    SECT163_R2(0x0003, "sect163r2", true,
+    SECT163_R2(0x0003, "sect163r2",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("sect163r2")),
-    SECT193_R1(0x0004, "sect193r1", false,
+    SECT193_R1(0x0004, "sect193r1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("sect193r1")),
-    SECT193_R2(0x0005, "sect193r2", false,
+    SECT193_R2(0x0005, "sect193r2",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("sect193r2")),
 
     // NIST K-233
-    SECT233_K1(0x0006, "sect233k1", true,
+    SECT233_K1(0x0006, "sect233k1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("sect233k1")),
 
     // NIST B-233
-    SECT233_R1(0x0007, "sect233r1", true,
+    SECT233_R1(0x0007, "sect233r1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("sect233r1")),
-    SECT239_K1(0x0008, "sect239k1", false,
+    SECT239_K1(0x0008, "sect239k1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("sect239k1")),
 
     // NIST K-283
-    SECT283_K1(0x0009, "sect283k1", true,
+    SECT283_K1(0x0009, "sect283k1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("sect283k1")),
 
     // NIST B-283
-    SECT283_R1(0x000A, "sect283r1", true,
+    SECT283_R1(0x000A, "sect283r1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("sect283r1")),
 
     // NIST K-409
-    SECT409_K1(0x000B, "sect409k1", true,
+    SECT409_K1(0x000B, "sect409k1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("sect409k1")),
 
     // NIST B-409
-    SECT409_R1(0x000C, "sect409r1", true,
+    SECT409_R1(0x000C, "sect409r1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("sect409r1")),
 
     // NIST K-571
-    SECT571_K1(0x000D, "sect571k1", true,
+    SECT571_K1(0x000D, "sect571k1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("sect571k1")),
 
     // NIST B-571
-    SECT571_R1(0x000E, "sect571r1", true,
+    SECT571_R1(0x000E, "sect571r1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("sect571r1")),
-    SECP160_K1(0x000F, "secp160k1", false,
+    SECP160_K1(0x000F, "secp160k1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("secp160k1")),
-    SECP160_R1(0x0010, "secp160r1", false,
+    SECP160_R1(0x0010, "secp160r1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("secp160r1")),
-    SECP160_R2(0x0011, "secp160r2", false,
+    SECP160_R2(0x0011, "secp160r2",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("secp160r2")),
-    SECP192_K1(0x0012, "secp192k1", false,
+    SECP192_K1(0x0012, "secp192k1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("secp192k1")),
 
     // NIST P-192
-    SECP192_R1(0x0013, "secp192r1", true,
+    SECP192_R1(0x0013, "secp192r1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("secp192r1")),
-    SECP224_K1(0x0014, "secp224k1", false,
+    SECP224_K1(0x0014, "secp224k1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("secp224k1")),
 
     // NIST P-224
-    SECP224_R1(0x0015, "secp224r1", true,
+    SECP224_R1(0x0015, "secp224r1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("secp224r1")),
-    SECP256_K1(0x0016, "secp256k1", false,
+    SECP256_K1(0x0016, "secp256k1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_12,
             CurveDB.lookup("secp256k1")),
 
     // NIST P-256
-    SECP256_R1(0x0017, "secp256r1", true,
+    SECP256_R1(0x0017, "secp256r1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_13,
             CurveDB.lookup("secp256r1")),
 
     // NIST P-384
-    SECP384_R1(0x0018, "secp384r1", true,
+    SECP384_R1(0x0018, "secp384r1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_13,
             CurveDB.lookup("secp384r1")),
 
     // NIST P-521
-    SECP521_R1(0x0019, "secp521r1", true,
+    SECP521_R1(0x0019, "secp521r1",
             NamedGroupSpec.NAMED_GROUP_ECDHE,
             ProtocolVersion.PROTOCOLS_TO_13,
             CurveDB.lookup("secp521r1")),
 
     // x25519 and x448 (RFC 8422/8446)
-    X25519(0x001D, "x25519", true,
+    X25519(0x001D, "x25519",
             NamedGroupSpec.NAMED_GROUP_XDH,
             ProtocolVersion.PROTOCOLS_TO_13,
             NamedParameterSpec.X25519),
-    X448(0x001E, "x448", true,
+    X448(0x001E, "x448",
             NamedGroupSpec.NAMED_GROUP_XDH,
             ProtocolVersion.PROTOCOLS_TO_13,
             NamedParameterSpec.X448),
 
     // Finite Field Diffie-Hellman Ephemeral Parameters (RFC 7919)
-    FFDHE_2048(0x0100, "ffdhe2048", true,
+    FFDHE_2048(0x0100, "ffdhe2048",
             NamedGroupSpec.NAMED_GROUP_FFDHE,
             ProtocolVersion.PROTOCOLS_TO_13,
             PredefinedDHParameterSpecs.ffdheParams.get(2048)),
 
-    FFDHE_3072(0x0101, "ffdhe3072", true,
+    FFDHE_3072(0x0101, "ffdhe3072",
             NamedGroupSpec.NAMED_GROUP_FFDHE,
             ProtocolVersion.PROTOCOLS_TO_13,
             PredefinedDHParameterSpecs.ffdheParams.get(3072)),
-    FFDHE_4096(0x0102, "ffdhe4096", true,
+    FFDHE_4096(0x0102, "ffdhe4096",
             NamedGroupSpec.NAMED_GROUP_FFDHE,
             ProtocolVersion.PROTOCOLS_TO_13,
             PredefinedDHParameterSpecs.ffdheParams.get(4096)),
-    FFDHE_6144(0x0103, "ffdhe6144", true,
+    FFDHE_6144(0x0103, "ffdhe6144",
             NamedGroupSpec.NAMED_GROUP_FFDHE,
             ProtocolVersion.PROTOCOLS_TO_13,
             PredefinedDHParameterSpecs.ffdheParams.get(6144)),
-    FFDHE_8192(0x0104, "ffdhe8192", true,
+    FFDHE_8192(0x0104, "ffdhe8192",
             NamedGroupSpec.NAMED_GROUP_FFDHE,
             ProtocolVersion.PROTOCOLS_TO_13,
             PredefinedDHParameterSpecs.ffdheParams.get(8192)),
@@ -216,18 +218,17 @@ enum NamedGroup {
     // Elliptic Curves (RFC 4492)
     //
     // arbitrary prime and characteristic-2 curves
-    ARBITRARY_PRIME(0xFF01, "arbitrary_explicit_prime_curves", false,
+    ARBITRARY_PRIME(0xFF01, "arbitrary_explicit_prime_curves",
             NamedGroupSpec.NAMED_GROUP_ARBITRARY,
             ProtocolVersion.PROTOCOLS_TO_12,
             null),
-    ARBITRARY_CHAR2(0xFF02, "arbitrary_explicit_char2_curves", false,
+    ARBITRARY_CHAR2(0xFF02, "arbitrary_explicit_char2_curves",
             NamedGroupSpec.NAMED_GROUP_ARBITRARY,
             ProtocolVersion.PROTOCOLS_TO_12,
             null);
 
     final int id;               // hash + signature
     final String name;          // literal name
-    final boolean isFips;       // can be used in FIPS mode?
     final NamedGroupSpec spec;  // group type
     final ProtocolVersion[] supportedProtocols;
     final String algorithm;     // key exchange algorithm
@@ -240,20 +241,30 @@ enum NamedGroup {
         Collections.unmodifiableSet(EnumSet.of(CryptoPrimitive.KEY_AGREEMENT));
 
     // Constructor used for all NamedGroup types
-    private NamedGroup(int id, String name, boolean isFips,
+    NamedGroup(int id, String name,
             NamedGroupSpec namedGroupSpec,
             ProtocolVersion[] supportedProtocols,
             AlgorithmParameterSpec keAlgParamSpec) {
         this.id = id;
         this.name = name;
-        this.isFips = isFips;
         this.spec = namedGroupSpec;
         this.algorithm = namedGroupSpec.algorithm;
         this.supportedProtocols = supportedProtocols;
         this.keAlgParamSpec = keAlgParamSpec;
 
+        // Check if it is a supported named group.
         AlgorithmParameters algParams = null;
         boolean mediator = (keAlgParamSpec != null);
+
+        // An EC provider, for example the SunEC provider, may support
+        // AlgorithmParameters but not KeyPairGenerator or KeyAgreement.
+        //
+        // Note: Please be careful if removing this block!
+        if (mediator && (namedGroupSpec == NamedGroupSpec.NAMED_GROUP_ECDHE)) {
+            mediator = JsseJce.isEcAvailable();
+        }
+
+        // Check the specific algorithm parameters.
         if (mediator) {
             try {
                 algParams =
@@ -268,10 +279,10 @@ enum NamedGroup {
                             "No AlgorithmParameters for " + name, exp);
                     }
                 } else {
-                    // HACK CODE
-                    //
                     // Please remove the following code if the XDH/X25519/X448
                     // AlgorithmParameters algorithms are supported in JDK.
+                    //
+                    // Note: Please be careful if removing this block!
                     algParams = null;
                     try {
                         KeyAgreement.getInstance(name);
@@ -341,7 +352,7 @@ enum NamedGroup {
 
     static NamedGroup nameOf(String name) {
         for (NamedGroup group : NamedGroup.values()) {
-            if (group.name.equals(name)) {
+            if (group.name.equalsIgnoreCase(name)) {
                 return group;
             }
         }
@@ -357,6 +368,126 @@ enum NamedGroup {
         }
 
         return "UNDEFINED-NAMED-GROUP(" + id + ")";
+    }
+
+    public static List<NamedGroup> namesOf(String[] namedGroups) {
+        if (namedGroups == null) {
+            return null;
+        }
+
+        if (namedGroups.length == 0) {
+            return List.of();
+        }
+
+        List<NamedGroup> ngs = new ArrayList<>(namedGroups.length);
+        for (String ss : namedGroups) {
+            NamedGroup ng = NamedGroup.nameOf(ss);
+            if (ng == null || !ng.isAvailable) {
+                if (SSLLogger.isOn &&
+                        SSLLogger.isOn("ssl,handshake,verbose")) {
+                    SSLLogger.finest(
+                            "Ignore the named group (" + ss
+                                    + "), unsupported or unavailable");
+                }
+
+                continue;
+            }
+
+            ngs.add(ng);
+        }
+
+        return Collections.unmodifiableList(ngs);
+    }
+
+    // Is there any supported group permitted by the constraints?
+    static boolean isActivatable(SSLConfiguration sslConfig,
+            AlgorithmConstraints constraints, NamedGroupSpec type) {
+
+        boolean hasFFDHEGroups = false;
+        for (String ng : sslConfig.namedGroups) {
+            NamedGroup namedGroup = NamedGroup.nameOf(ng);
+            if (namedGroup != null &&
+                namedGroup.isAvailable && namedGroup.spec == type) {
+                if (namedGroup.isPermitted(constraints)) {
+                    return true;
+                }
+
+                if (!hasFFDHEGroups &&
+                        (type == NamedGroupSpec.NAMED_GROUP_FFDHE)) {
+                    hasFFDHEGroups = true;
+                }
+            }
+        }
+
+        // For compatibility, if no FFDHE groups are defined, the non-FFDHE
+        // compatible mode (using DHE cipher suite without FFDHE extension)
+        // is allowed.
+        //
+        // Note that the constraints checking on DHE parameters will be
+        // performed during key exchanging in a handshake.
+        return !hasFFDHEGroups && type == NamedGroupSpec.NAMED_GROUP_FFDHE;
+    }
+
+    // Is the named group permitted by the constraints?
+    static boolean isActivatable(
+            SSLConfiguration sslConfig,
+            AlgorithmConstraints constraints, NamedGroup namedGroup) {
+        if (!namedGroup.isAvailable || !isEnabled(sslConfig, namedGroup)) {
+            return false;
+        }
+
+        return namedGroup.isPermitted(constraints);
+    }
+
+    // Is the named group supported?
+    static boolean isEnabled(SSLConfiguration sslConfig,
+                             NamedGroup namedGroup) {
+        for (String ng : sslConfig.namedGroups) {
+            if (namedGroup.name.equalsIgnoreCase(ng)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Get preferred named group from the configured named groups for the
+    // negotiated protocol and named group types.
+    static NamedGroup getPreferredGroup(
+            SSLConfiguration sslConfig,
+            ProtocolVersion negotiatedProtocol,
+            AlgorithmConstraints constraints, NamedGroupSpec[] types) {
+        for (String name : sslConfig.namedGroups) {
+            NamedGroup ng = NamedGroup.nameOf(name);
+            if (ng != null && ng.isAvailable &&
+                    (NamedGroupSpec.arrayContains(types, ng.spec)) &&
+                    ng.isAvailable(negotiatedProtocol) &&
+                    ng.isPermitted(constraints)) {
+                return ng;
+            }
+        }
+
+        return null;
+    }
+
+    // Get preferred named group from the requested and configured named
+    // groups for the negotiated protocol and named group types.
+    static NamedGroup getPreferredGroup(
+            SSLConfiguration sslConfig,
+            ProtocolVersion negotiatedProtocol,
+            AlgorithmConstraints constraints, NamedGroupSpec[] types,
+            List<NamedGroup> requestedNamedGroups) {
+        for (NamedGroup namedGroup : requestedNamedGroups) {
+            if ((namedGroup.isAvailable &&
+                    NamedGroupSpec.arrayContains(types, namedGroup.spec)) &&
+                    namedGroup.isAvailable(negotiatedProtocol) &&
+                    isEnabled(sslConfig, namedGroup) &&
+                    namedGroup.isPermitted(constraints)) {
+                return namedGroup;
+            }
+        }
+
+        return null;
     }
 
     // Is the NamedGroup available for the protocols desired?
@@ -457,7 +588,7 @@ enum NamedGroup {
         private final String algorithm;     // key exchange name
         private final NamedGroupScheme scheme;  // named group operations
 
-        private NamedGroupSpec(String algorithm, NamedGroupScheme scheme) {
+        NamedGroupSpec(String algorithm, NamedGroupScheme scheme) {
             this.algorithm = algorithm;
             this.scheme = scheme;
         }
@@ -531,7 +662,7 @@ enum NamedGroup {
         @Override
         public byte[] encodePossessionPublicKey(
                 NamedGroupPossession namedGroupPossession) {
-            return ((DHEPossession)namedGroupPossession).encode();
+            return namedGroupPossession.encode();
         }
 
         @Override
@@ -606,6 +737,88 @@ enum NamedGroup {
         public SSLKeyDerivation createKeyDerivation(
                 HandshakeContext hc) throws IOException {
             return XDHKeyExchange.xdheKAGenerator.createKeyDerivation(hc);
+        }
+    }
+
+    static final class SupportedGroups {
+        // the supported named groups, non-null immutable list
+        static final String[] namedGroups;
+
+        static {
+            // The value of the System Property defines a list of enabled named
+            // groups in preference order, separated with comma.  For example:
+            //
+            //      jdk.tls.namedGroups="secp521r1, secp256r1, ffdhe2048"
+            //
+            // If the System Property is not defined or the value is empty, the
+            // default groups and preferences will be used.
+            String property = GetPropertyAction
+                    .privilegedGetProperty("jdk.tls.namedGroups");
+            if (property != null && !property.isEmpty()) {
+                // remove double quote marks from beginning/end of the property
+                if (property.length() > 1 && property.charAt(0) == '"' &&
+                        property.charAt(property.length() - 1) == '"') {
+                    property = property.substring(1, property.length() - 1);
+                }
+            }
+
+            ArrayList<String> groupList;
+            if (property != null && !property.isEmpty()) {
+                String[] groups = property.split(",");
+                groupList = new ArrayList<>(groups.length);
+                for (String group : groups) {
+                    group = group.trim();
+                    if (!group.isEmpty()) {
+                        NamedGroup namedGroup = nameOf(group);
+                        if (namedGroup != null) {
+                            if (namedGroup.isAvailable) {
+                                groupList.add(namedGroup.name);
+                            }
+                        }   // ignore unknown groups
+                    }
+                }
+
+                if (groupList.isEmpty()) {
+                    throw new IllegalArgumentException(
+                            "System property jdk.tls.namedGroups(" +
+                            property + ") contains no supported named groups");
+                }
+            } else {        // default groups
+                NamedGroup[] groups = new NamedGroup[] {
+
+                        // Primary XDH (RFC 7748) curves
+                        X25519,
+
+                        // Primary NIST Suite B curves
+                        SECP256_R1,
+                        SECP384_R1,
+                        SECP521_R1,
+
+                        // Secondary XDH curves
+                        X448,
+
+                        // FFDHE (RFC 7919)
+                        FFDHE_2048,
+                        FFDHE_3072,
+                        FFDHE_4096,
+                        FFDHE_6144,
+                        FFDHE_8192,
+                    };
+
+                groupList = new ArrayList<>(groups.length);
+                for (NamedGroup group : groups) {
+                    if (group.isAvailable) {
+                        groupList.add(group.name);
+                    }
+                }
+
+                if (groupList.isEmpty() &&
+                        SSLLogger.isOn && SSLLogger.isOn("ssl")) {
+                    SSLLogger.warning("No default named groups");
+                }
+            }
+
+            namedGroups = groupList.toArray(new String[0]);
         }
     }
 }

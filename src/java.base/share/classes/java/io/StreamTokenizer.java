@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -68,7 +68,7 @@ public class StreamTokenizer {
     private Reader reader = null;
     private InputStream input = null;
 
-    private char buf[] = new char[20];
+    private char[] buf = new char[20];
 
     /**
      * The next character to be considered by the nextToken method.  May also
@@ -91,7 +91,7 @@ public class StreamTokenizer {
     private boolean slashSlashCommentsP = false;
     private boolean slashStarCommentsP = false;
 
-    private byte ctype[] = new byte[256];
+    private final byte[] ctype = new byte[256];
     private static final byte CT_WHITESPACE = 1;
     private static final byte CT_DIGIT = 2;
     private static final byte CT_ALPHA = 4;
@@ -217,10 +217,10 @@ public class StreamTokenizer {
      *
      * @deprecated As of JDK version 1.1, the preferred way to tokenize an
      * input stream is to convert it into a character stream, for example:
-     * <blockquote><pre>
-     *   Reader r = new BufferedReader(new InputStreamReader(is));
-     *   StreamTokenizer st = new StreamTokenizer(r);
-     * </pre></blockquote>
+     * {@snippet lang=java :
+     *     Reader r = new BufferedReader(new InputStreamReader(is));
+     *     StreamTokenizer st = new StreamTokenizer(r);
+     * }
      *
      * @param      is        an input stream.
      * @see        java.io.BufferedReader
@@ -264,7 +264,7 @@ public class StreamTokenizer {
 
     /**
      * Specifies that all characters <i>c</i> in the range
-     * <code>low&nbsp;&lt;=&nbsp;<i>c</i>&nbsp;&lt;=&nbsp;high</code>
+     * {@code low <= c <= high}
      * are word constituents. A word token consists of a word constituent
      * followed by zero or more word constituents or number constituents.
      *
@@ -282,7 +282,7 @@ public class StreamTokenizer {
 
     /**
      * Specifies that all characters <i>c</i> in the range
-     * <code>low&nbsp;&lt;=&nbsp;<i>c</i>&nbsp;&lt;=&nbsp;high</code>
+     * {@code low <= c <= high}
      * are white space characters. White space characters serve only to
      * separate tokens in the input stream.
      *
@@ -303,7 +303,7 @@ public class StreamTokenizer {
 
     /**
      * Specifies that all characters <i>c</i> in the range
-     * <code>low&nbsp;&lt;=&nbsp;<i>c</i>&nbsp;&lt;=&nbsp;high</code>
+     * {@code low <= c <= high}
      * are "ordinary" in this tokenizer. See the
      * {@code ordinaryChar} method for more information on a
      * character being ordinary.
@@ -391,7 +391,7 @@ public class StreamTokenizer {
      * syntax table of this tokenizer is modified so that each of the twelve
      * characters:
      * <blockquote><pre>
-     *      0 1 2 3 4 5 6 7 8 9 . -
+     *     0 1 2 3 4 5 6 7 8 9 . -
      * </pre></blockquote>
      * <p>
      * has the "numeric" attribute.
@@ -517,7 +517,7 @@ public class StreamTokenizer {
      * is returned.
      *
      * @return     the value of the {@code ttype} field.
-     * @exception  IOException  if an I/O error occurs.
+     * @throws     IOException  if an I/O error occurs.
      * @see        java.io.StreamTokenizer#nval
      * @see        java.io.StreamTokenizer#sval
      * @see        java.io.StreamTokenizer#ttype
@@ -658,29 +658,16 @@ public class StreamTokenizer {
                         } else
                           d = c2;
                     } else {
-                        switch (c) {
-                        case 'a':
-                            c = 0x7;
-                            break;
-                        case 'b':
-                            c = '\b';
-                            break;
-                        case 'f':
-                            c = 0xC;
-                            break;
-                        case 'n':
-                            c = '\n';
-                            break;
-                        case 'r':
-                            c = '\r';
-                            break;
-                        case 't':
-                            c = '\t';
-                            break;
-                        case 'v':
-                            c = 0xB;
-                            break;
-                        }
+                        c = switch (c) {
+                            case 'a' -> 0x7;
+                            case 'b' -> '\b';
+                            case 'f' -> 0xC;
+                            case 'n' -> '\n';
+                            case 'r' -> '\r';
+                            case 't' -> '\t';
+                            case 'v' -> 0xB;
+                            default  -> c;
+                        };
                         d = read();
                     }
                 } else {
@@ -783,7 +770,9 @@ public class StreamTokenizer {
      * <p>The precise string returned is unspecified, although the following
      * example can be considered typical:
      *
-     * <blockquote><pre>Token['a'], line 10</pre></blockquote>
+     * <blockquote><pre>
+     *         Token['a'], line 10
+     * </pre></blockquote>
      *
      * @return  a string representation of the token
      * @see     java.io.StreamTokenizer#nval
@@ -791,43 +780,28 @@ public class StreamTokenizer {
      * @see     java.io.StreamTokenizer#ttype
      */
     public String toString() {
-        String ret;
-        switch (ttype) {
-          case TT_EOF:
-            ret = "EOF";
-            break;
-          case TT_EOL:
-            ret = "EOL";
-            break;
-          case TT_WORD:
-            ret = sval;
-            break;
-          case TT_NUMBER:
-            ret = "n=" + nval;
-            break;
-          case TT_NOTHING:
-            ret = "NOTHING";
-            break;
-          default: {
+        String ret = switch (ttype) {
+            case TT_EOF     -> "EOF";
+            case TT_EOL     -> "EOL";
+            case TT_WORD    -> sval;
+            case TT_NUMBER  -> "n=" + nval;
+            case TT_NOTHING -> "NOTHING";
+            default         -> {
                 /*
                  * ttype is the first character of either a quoted string or
                  * is an ordinary character. ttype can definitely not be less
                  * than 0, since those are reserved values used in the previous
                  * case statements
                  */
-                if (ttype < 256 &&
-                    ((ctype[ttype] & CT_QUOTE) != 0)) {
-                    ret = sval;
-                    break;
+                if (ttype < 256 && ((ctype[ttype] & CT_QUOTE) != 0)) {
+                    yield sval;
                 }
-
                 char s[] = new char[3];
                 s[0] = s[2] = '\'';
                 s[1] = (char) ttype;
-                ret = new String(s);
-                break;
+                yield new String(s);
             }
-        }
+        };
         return "Token[" + ret + "], line " + LINENO;
     }
 

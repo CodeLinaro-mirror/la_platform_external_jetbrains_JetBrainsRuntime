@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2014, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,15 +41,15 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import jdk.internal.misc.VM;
+import jdk.internal.misc.CDS;
 import jdk.internal.module.ModuleReferenceImpl;
 import jdk.internal.module.ModuleTarget;
 import jdk.internal.vm.annotation.Stable;
 
 /**
  * A configuration that is the result of <a href="package-summary.html#resolution">
- * resolution</a> or resolution with
- * <a href="{@docRoot}/java.base/java/lang/module/Configuration.html#service-binding">service binding</a>.
+ * resolution</a> or resolution with {@linkplain
+ * Configuration##service-binding service binding}.
  *
  * <p> A configuration encapsulates the <em>readability graph</em> that is the
  * output of resolution. A readability graph is a directed graph whose vertices
@@ -75,7 +75,7 @@ import jdk.internal.vm.annotation.Stable;
  * ModuleLayer.boot().configuration()}. The configuration for the boot layer
  * will often be the parent when creating new configurations. </p>
  *
- * <h3> Example </h3>
+ * <h2> Example </h2>
  *
  * <p> The following example uses the {@link
  * #resolve(ModuleFinder,ModuleFinder,Collection) resolve} method to resolve a
@@ -83,11 +83,10 @@ import jdk.internal.vm.annotation.Stable;
  * parent configuration. It prints the name of each resolved module and the
  * names of the modules that each module reads. </p>
  *
- * <pre>{@code
+ * {@snippet :
+ *    Path dir1 = ..., dir2 = ..., dir3 = ...;
  *    ModuleFinder finder = ModuleFinder.of(dir1, dir2, dir3);
- *
  *    Configuration parent = ModuleLayer.boot().configuration();
- *
  *    Configuration cf = parent.resolve(finder, ModuleFinder.of(), Set.of("myapp"));
  *    cf.modules().forEach(m -> {
  *        System.out.format("%s -> %s%n",
@@ -96,10 +95,9 @@ import jdk.internal.vm.annotation.Stable;
  *                .map(ResolvedModule::name)
  *                .collect(Collectors.joining(", ")));
  *    });
- * }</pre>
+ * }
  *
  * @since 9
- * @spec JPMS
  * @see java.lang.ModuleLayer
  */
 public final class Configuration {
@@ -110,7 +108,7 @@ public final class Configuration {
 
     static {
         // Initialize EMPTY_CONFIGURATION from the archive.
-        VM.initializeFromArchive(Configuration.class);
+        CDS.initializeFromArchive(Configuration.class);
         // Create a new empty Configuration if there is no archived version.
         if (EMPTY_CONFIGURATION == null) {
             EMPTY_CONFIGURATION = new Configuration();
@@ -312,7 +310,7 @@ public final class Configuration {
     {
         List<Configuration> parents = List.of(empty());
         Resolver resolver = new Resolver(finder, parents, ModuleFinder.of(), traceOutput);
-        resolver.resolve(roots).bind();
+        resolver.resolve(roots).bind(/*bindIncubatorModules*/false);
         return new Configuration(parents, resolver);
     }
 
@@ -509,7 +507,7 @@ public final class Configuration {
 
     /**
      * Returns an unmodifiable list of this configuration's parents, in search
-     * order. If this is the {@linkplain #empty empty configuration} then an
+     * order. If this is the {@linkplain #empty() empty configuration} then an
      * empty list is returned.
      *
      * @return A possibly-empty unmodifiable list of this parent configurations
@@ -520,7 +518,7 @@ public final class Configuration {
 
 
     /**
-     * Returns an immutable set of the resolved modules in this configuration.
+     * Returns an unmodifiable set of the resolved modules in this configuration.
      *
      * @return A possibly-empty unmodifiable set of the resolved modules
      *         in this configuration
@@ -575,7 +573,8 @@ public final class Configuration {
     }
 
     Set<ResolvedModule> reads(ResolvedModule m) {
-        return Collections.unmodifiableSet(graph.get(m));
+        // The sets stored in the graph are already immutable sets
+        return Set.copyOf(graph.get(m));
     }
 
     /**
@@ -601,8 +600,7 @@ public final class Configuration {
                 // push in reverse order
                 for (int i = layer.parents.size() - 1; i >= 0; i--) {
                     Configuration parent = layer.parents.get(i);
-                    if (!visited.contains(parent)) {
-                        visited.add(parent);
+                    if (visited.add(parent)) {
                         stack.push(parent);
                     }
                 }

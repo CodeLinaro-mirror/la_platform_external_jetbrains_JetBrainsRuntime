@@ -25,8 +25,8 @@
 
 package sun.java2d.pipe;
 
-import java.util.ArrayList;
-
+import java.util.HashSet;
+import java.util.Set;
 import sun.awt.SunToolkit;
 
 /**
@@ -81,10 +81,10 @@ public abstract class RenderQueue {
      * A Set containing hard references to Objects that must stay alive until
      * the queue has been completely flushed.
      */
-    protected ArrayList refList;
+    protected Set<Object> refSet;
 
     protected RenderQueue() {
-        refList = new ArrayList();
+        refSet = new HashSet<>();
         buf = RenderBuffer.allocate(BUFFER_SIZE);
     }
 
@@ -140,7 +140,7 @@ public abstract class RenderQueue {
      * after the queue is flushed each time.
      */
     public final void addReference(Object ref) {
-        refList.add(ref);
+        refSet.add(ref);
     }
 
     /**

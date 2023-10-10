@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,17 +23,19 @@
 
 /*
  * @test
- * @bug 8217375
+ * @bug 8217375 8260286 8267319
  * @summary This test is used to verify the compatibility of jarsigner across
  *     different JDK releases. It also can be used to check jar signing (w/
  *     and w/o TSA) and to verify some specific signing and digest algorithms.
  *     Note that this is a manual test. For more details about the test and
  *     its usages, please look through the README.
  *
- * @library /test/lib /lib/testlibrary ../warnings
- * @compile -source 1.6 -target 1.6 JdkUtils.java
+ * @library /test/lib ../warnings
+ * @compile -source 1.8 -target 1.8 JdkUtils.java
  * @run main/manual/othervm Compatibility
  */
+
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -43,12 +45,12 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintStream;
-import java.nio.file.Path;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
-import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashMap;
@@ -57,18 +59,17 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.jar.Manifest;
 import java.util.jar.Attributes.Name;
-import java.util.concurrent.TimeUnit;
+import java.util.jar.Manifest;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import jdk.testlibrary.OutputAnalyzer;
-import jdk.testlibrary.ProcessTools;
-import jdk.test.lib.util.JarUtils;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
+import jdk.test.lib.process.OutputAnalyzer;
+import jdk.test.lib.process.ProcessTools;
+import jdk.test.lib.util.JarUtils;
 
 public class Compatibility {
 
@@ -179,7 +180,7 @@ public class Compatibility {
         List<SignItem> signItems =
                 test(jdkInfoList, tsaList, certList, createJars());
 
-        boolean failed = generateReport(tsaList, signItems);
+        boolean failed = generateReport(jdkInfoList, tsaList, signItems);
 
         // Restores the original stdout and stderr.
         System.setOut(origStdOut);
@@ -415,11 +416,15 @@ public class Compatibility {
         }
 
         List<JdkInfo> jdkInfoList = new ArrayList<>();
+        int index = 0;
         for (String jdkPath : jdkList) {
             JdkInfo jdkInfo = "TEST_JDK".equalsIgnoreCase(jdkPath) ?
                     TEST_JDK_INFO : new JdkInfo(jdkPath);
             // The JDK version must be unique.
             if (!jdkInfoList.contains(jdkInfo)) {
+                jdkInfo.index = index++;
+                jdkInfo.version = String.format(
+                        "%s(%d)", jdkInfo.version, jdkInfo.index);
                 jdkInfoList.add(jdkInfo);
             } else {
                 System.out.println("The JDK version is duplicate: " + jdkPath);
@@ -454,7 +459,7 @@ public class Compatibility {
         if (RSA.equals(keyAlgorithm) || DSA.equals(keyAlgorithm)) {
             return new int[] { 1024, 2048, 0 }; // 0 is no keysize specified
         } else if (EC.equals(keyAlgorithm)) {
-            return new int[] { 384, 571, 0 }; // 0 is no keysize specified
+            return new int[] { 384, 521, 0 }; // 0 is no keysize specified
         } else {
             throw new RuntimeException("problem determining key sizes");
         }
@@ -709,12 +714,13 @@ public class Compatibility {
         Status verifyingStatus = verifyingStatus(signItem, verifyItem, verifyOA);
 
         try {
-            String match = "^  (("
+            String match = "^  ("
                     + "  Signature algorithm: " + signItem.certInfo.
-                            expectedSigalg() + ", " + signItem.certInfo.
+                            expectedSigalg(signItem) + ", " + signItem.certInfo.
                             expectedKeySize() + "-bit key"
                     + ")|("
                     + "  Digest algorithm: " + signItem.expectedDigestAlg()
+                    + (isWeakAlg(signItem.expectedDigestAlg()) ? " \\(weak\\)" : "")
                     + (signItem.tsaIndex < 0 ? "" :
                       ")|("
                     + "Timestamped by \".+\" on .*"
@@ -724,7 +730,7 @@ public class Compatibility {
                     + ")|("
                     + "  Timestamp signature algorithm: .*"
                       )
-                    + "))$";
+                    + ")$";
             verifyOA.stdoutShouldMatchByLine(
                     "^- Signed by \"CN=" +  signItem.certInfo.toString()
                             .replaceAll("[.]", "[.]") + "\"$",
@@ -800,7 +806,12 @@ public class Compatibility {
         boolean warning = false;
         for (String line : outputAnalyzer.getOutput().lines()
                 .toArray(String[]::new)) {
-            if (line.isBlank()) continue;
+            if (line.isBlank()) {
+                // If line is blank and warning flag is true, it is the end of warnings section
+                // This is needed when some info is added after warnings, such as timestamp expiration date
+                if (warning) warning = false;
+                continue;
+            }
             if (Test.JAR_VERIFIED.equals(line)) continue;
             if (line.matches(Test.ERROR + " ?") && expectedExitCode == 0) {
                 System.out.println("verifyingStatus: error: line.matches(" + Test.ERROR + "\" ?\"): " + line);
@@ -830,6 +841,10 @@ public class Compatibility {
                     + "not be able to validate this jar after the signer "
                     + "certificate's expiration date \\([^\\)]+\\) or after "
                     + "any future revocation date[.]") && !tsa) continue;
+
+            if (isWeakAlg(signItem.expectedDigestAlg())
+                    && line.contains(Test.WEAK_ALGORITHM_WARNING)) continue;
+            if (line.contains(Test.WEAK_KEY_WARNING)) continue;
             if (Test.CERTIFICATE_SELF_SIGNED.equals(line)) continue;
             if (Test.HAS_EXPIRED_CERT_VERIFYING_WARNING.equals(line)
                     && signItem.certInfo.expired) continue;
@@ -837,6 +852,10 @@ public class Compatibility {
             return Status.ERROR; // treat unexpected warnings as error
         }
         return warning ? Status.WARNING : Status.NORMAL;
+    }
+
+    private static boolean isWeakAlg(String alg) {
+        return SHA1.equals(alg);
     }
 
     // Using specified jarsigner to sign the pre-created jar with specified
@@ -908,13 +927,22 @@ public class Compatibility {
     }
 
     // Generates the test result report.
-    private static boolean generateReport(List<TsaInfo> tsaList,
+    private static boolean generateReport(List<JdkInfo> jdkList, List<TsaInfo> tsaList,
             List<SignItem> signItems) throws IOException {
         System.out.println("Report is being generated...");
 
         StringBuilder report = new StringBuilder();
         report.append(HtmlHelper.startHtml());
         report.append(HtmlHelper.startPre());
+
+        // Generates JDK list
+        report.append("JDK list:\n");
+        for(JdkInfo jdkInfo : jdkList) {
+            report.append(String.format("%d=%s%n",
+                    jdkInfo.index,
+                    jdkInfo.runtimeVersion));
+        }
+
         // Generates TSA URLs
         report.append("TSA list:\n");
         for(TsaInfo tsaInfo : tsaList) {
@@ -1007,13 +1035,13 @@ public class Compatibility {
             throws Throwable {
         long start = System.currentTimeMillis();
         try {
+            String[] cmd;
 
-            String[] cmd = new String[args.length + 4];
+            cmd = new String[args.length + 3];
+            System.arraycopy(args, 0, cmd, 3, args.length);
             cmd[0] = toolPath;
             cmd[1] = "-J-Duser.language=en";
             cmd[2] = "-J-Duser.country=US";
-            cmd[3] = "-J-Djava.security.egd=file:/dev/./urandom";
-            System.arraycopy(args, 0, cmd, 4, args.length);
             return ProcessTools.executeCommand(cmd);
 
         } finally {
@@ -1024,9 +1052,11 @@ public class Compatibility {
 
     private static class JdkInfo {
 
+        private int index;
         private final String jdkPath;
         private final String jarsignerPath;
-        private final String version;
+        private final String runtimeVersion;
+        private String version;
         private final int majorVersion;
         private final boolean supportsTsadigestalg;
 
@@ -1034,14 +1064,15 @@ public class Compatibility {
 
         private JdkInfo(String jdkPath) throws Throwable {
             this.jdkPath = jdkPath;
-            version = execJdkUtils(jdkPath, JdkUtils.M_JAVA_RUNTIME_VERSION);
-            if (version == null || version.isBlank()) {
+            jarsignerPath = jarsignerPath(jdkPath);
+            runtimeVersion = execJdkUtils(jdkPath, JdkUtils.M_JAVA_RUNTIME_VERSION);
+            if (runtimeVersion == null || runtimeVersion.isBlank()) {
                 throw new RuntimeException(
                         "Cannot determine the JDK version: " + jdkPath);
             }
-            majorVersion = Integer.parseInt((version.matches("^1[.].*") ?
-                 version.substring(2) : version).replaceAll("[^0-9].*$", ""));
-            jarsignerPath = jarsignerPath(jdkPath);
+            version = execJdkUtils(jdkPath, JdkUtils.M_JAVA_VERSION);
+            majorVersion = Integer.parseInt((runtimeVersion.matches("^1[.].*") ?
+                    runtimeVersion.substring(2) : runtimeVersion).replaceAll("[^0-9].*$", ""));
             supportsTsadigestalg = execTool(jarsignerPath, "-help")
                     .getOutput().contains("-tsadigestalg");
         }
@@ -1073,7 +1104,7 @@ public class Compatibility {
             final int prime = 31;
             int result = 1;
             result = prime * result
-                    + ((version == null) ? 0 : version.hashCode());
+                    + ((runtimeVersion == null) ? 0 : runtimeVersion.hashCode());
             return result;
         }
 
@@ -1086,17 +1117,17 @@ public class Compatibility {
             if (getClass() != obj.getClass())
                 return false;
             JdkInfo other = (JdkInfo) obj;
-            if (version == null) {
-                if (other.version != null)
+            if (runtimeVersion == null) {
+                if (other.runtimeVersion != null)
                     return false;
-            } else if (!version.equals(other.version))
+            } else if (!runtimeVersion.equals(other.runtimeVersion))
                 return false;
             return true;
         }
 
         @Override
         public String toString() {
-            return "JdkInfo[" + version + ", " + jdkPath + "]";
+            return "JdkInfo[" + runtimeVersion + ", " + jdkPath + "]";
         }
     }
 
@@ -1152,19 +1183,56 @@ public class Compatibility {
         }
 
         private String expectedSigalg() {
-            return (DEFAULT.equals(this.digestAlgorithm) ? this.digestAlgorithm
-                    : "SHA-256").replace("-", "") + "with" +
-                    keyAlgorithm + (EC.equals(keyAlgorithm) ? "DSA" : "");
+            return "SHA256with" + keyAlgorithm + (EC.equals(keyAlgorithm) ? "DSA" : "");
+        }
+
+        private String expectedSigalg(SignItem signer) {
+            if (!DEFAULT.equals(digestAlgorithm)) {
+                return "SHA256with" + keyAlgorithm + (EC.equals(keyAlgorithm) ? "DSA" : "");
+
+            } else {
+                // default algorithms documented for jarsigner here:
+                // https://docs.oracle.com/en/java/javase/17/docs/specs/man/jarsigner.html#supported-algorithms
+                // https://docs.oracle.com/en/java/javase/20/docs/specs/man/jarsigner.html#supported-algorithms
+                int expectedKeySize = expectedKeySize();
+                switch (keyAlgorithm) {
+                    case DSA:
+                        return "SHA256withDSA";
+                    case RSA: {
+                        if ((signer.jdkInfo.majorVersion >= 20 && expectedKeySize < 624)
+                                || (signer.jdkInfo.majorVersion < 20 && expectedKeySize <= 3072)) {
+                            return "SHA256withRSA";
+                        } else if (expectedKeySize <= 7680) {
+                            return "SHA384withRSA";
+                        } else {
+                            return "SHA512withRSA";
+                        }
+                    }
+                    case EC: {
+                        if (signer.jdkInfo.majorVersion < 20 && expectedKeySize < 384) {
+                            return "SHA256withECDSA";
+                        } else if (expectedKeySize < 512) {
+                            return "SHA384withECDSA";
+                        } else {
+                            return "SHA512withECDSA";
+                        }
+                    }
+                    default:
+                        throw new RuntimeException("Unsupported/expected key algorithm: " + keyAlgorithm);
+                }
+            }
         }
 
         private int expectedKeySize() {
             if (keySize != 0) return keySize;
 
             // defaults
-            if (RSA.equals(keyAlgorithm) || DSA.equals(keyAlgorithm)) {
+            if (RSA.equals(keyAlgorithm)) {
+                return jdkInfo.majorVersion >= 20 ? 3072 : 2048;
+            } else if (DSA.equals(keyAlgorithm)) {
                 return 2048;
             } else if (EC.equals(keyAlgorithm)) {
-                return 256;
+                return jdkInfo.majorVersion >= 20 ? 384 : 256;
             } else {
                 throw new RuntimeException("problem determining key size");
             }
@@ -1360,7 +1428,9 @@ public class Compatibility {
         }
 
         String expectedDigestAlg() {
-            return digestAlgorithm != null ? digestAlgorithm : "SHA-256";
+            return digestAlgorithm != null
+                    ? digestAlgorithm
+                    : jdkInfo.majorVersion >= 20 ? "SHA-384" : "SHA-256";
         }
 
         private SignItem tsaDigestAlgorithm(String tsaDigestAlgorithm) {
@@ -1509,7 +1579,7 @@ public class Compatibility {
         s_values_add.accept(i -> i.unsignedJar + " -> " + i.signedJar);
         s_values_add.accept(i -> i.certInfo.toString());
         s_values_add.accept(i -> i.jdkInfo.version);
-        s_values_add.accept(i -> i.certInfo.expectedSigalg());
+        s_values_add.accept(i -> i.certInfo.expectedSigalg(i));
         s_values_add.accept(i ->
                 null2Default(i.digestAlgorithm, i.expectedDigestAlg()));
         s_values_add.accept(i -> i.tsaIndex == -1 ? "" :

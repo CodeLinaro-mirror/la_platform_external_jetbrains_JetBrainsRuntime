@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,6 +26,7 @@
 package sun.lwawt.macosx;
 
 import java.awt.AWTError;
+import java.awt.AWTException;
 import java.awt.CheckboxMenuItem;
 import java.awt.Color;
 import java.awt.Component;
@@ -49,7 +50,6 @@ import java.awt.MenuItem;
 import java.awt.Point;
 import java.awt.PopupMenu;
 import java.awt.RenderingHints;
-import java.awt.Robot;
 import java.awt.SystemTray;
 import java.awt.Taskbar;
 import java.awt.Toolkit;
@@ -85,19 +85,15 @@ import java.awt.peer.TaskbarPeer;
 import java.awt.peer.TrayIconPeer;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.UndeclaredThrowableException;
-import java.net.MalformedURLException;
 import java.net.URL;
-import java.security.AccessController;
-import java.security.PrivilegedAction;
+import java.security.*;
+import java.util.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.Callable;
-import java.util.HashMap;
-import java.util.Locale;
-import java.util.Map;
-import java.util.MissingResourceException;
-import java.util.Objects;
-import java.util.ResourceBundle;
+import java.util.concurrent.atomic.AtomicReference;
+import java.net.MalformedURLException;
 import javax.swing.UIManager;
 
 import com.apple.laf.AquaMenuBarUI;
@@ -105,6 +101,7 @@ import sun.awt.*;
 import sun.awt.datatransfer.DataTransferer;
 import sun.awt.dnd.SunDragSourceContextPeer;
 import sun.awt.util.ThreadGroupUtils;
+import sun.java2d.metal.MTLRenderQueue;
 import sun.java2d.opengl.OGLRenderQueue;
 import sun.lwawt.LWComponentPeer;
 import sun.lwawt.LWCursorManager;
@@ -138,15 +135,72 @@ public final class LWCToolkit extends LWToolkit {
 
     private static native void initIDs();
     private static native void initAppkit(ThreadGroup appKitThreadGroup, boolean headless);
-    private static native void switchKeyboardLayoutNative(String layoutName);
-
-    static native String getKeyboardLayoutNativeId();
-
     private static CInputMethodDescriptor sInputMethodDescriptor;
+
+    private static native boolean switchKeyboardLayoutNative(String layoutName);
+
+    private static native String getKeyboardLayoutNativeId();
+
+    private static native String[] getKeyboardLayoutListNative(boolean includeAll);
+
+    private static native boolean enableKeyboardLayoutNative(String layoutName);
+
+    private static native boolean disableKeyboardLayoutNative(String layoutName);
+
+    public static void switchKeyboardLayout (String layoutName) {
+        if (layoutName == null || layoutName.isEmpty()) {
+            throw new RuntimeException("A valid layout ID is expected. Found:  " + layoutName);
+        }
+        if (!switchKeyboardLayoutNative(layoutName)) {
+            throw new RuntimeException("Couldn't switch layout to " + layoutName);
+        }
+    }
+
+    public static String getKeyboardLayoutId () {
+        return getKeyboardLayoutNativeId();
+    }
+
+    public static List<String> getKeyboardLayoutList(boolean includeAll) {
+        String[] result = getKeyboardLayoutListNative(includeAll);
+        if (result == null) {
+            return new ArrayList<>();
+        }
+        return Arrays.asList(result);
+    }
+
+    public static void enableKeyboardLayout(String layoutName) {
+        if (layoutName == null || layoutName.isEmpty()) {
+            throw new RuntimeException("A valid layout ID is expected. Found:  " + layoutName);
+        }
+        if (!enableKeyboardLayoutNative(layoutName)) {
+            throw new RuntimeException("Couldn't enable layout " + layoutName);
+        }
+    }
+
+    public static void disableKeyboardLayout(String layoutName) {
+        if (layoutName == null || layoutName.isEmpty()) {
+            throw new RuntimeException("A valid layout ID is expected. Found:  " + layoutName);
+        }
+        if (!disableKeyboardLayoutNative(layoutName)) {
+            throw new RuntimeException("Couldn't disable layout " + layoutName);
+        }
+    }
+
+    public static boolean isKeyboardLayoutEnabled(String layoutName) {
+        return getKeyboardLayoutList(false).contains(layoutName);
+    }
+
+    // Listens to EDT state in invokeAndWait() and disposes the invocation event
+    // when EDT becomes free but the invocation event is not yet dispatched (considered lost).
+    // This prevents a deadlock and makes the invocation return some default result.
+    @SuppressWarnings("removal")
+    private static final boolean DISPOSE_INVOCATION_ON_EDT_FREE =
+        AccessController.doPrivileged(new GetBooleanAction("sun.lwawt.macosx.LWCToolkit.invokeAndWait.disposeOnEDTFree"));
 
     static {
         System.err.flush();
 
+        @SuppressWarnings("removal")
         ResourceBundle platformResources = java.security.AccessController.doPrivileged(
                 new java.security.PrivilegedAction<ResourceBundle>() {
             @Override
@@ -165,7 +219,9 @@ public final class LWCToolkit extends LWToolkit {
             }
         });
 
-        if (!GraphicsEnvironment.isHeadless() && !isInAquaSession()) {
+        if (!GraphicsEnvironment.isHeadless() &&
+            !PlatformGraphicsInfo.isInAquaSession())
+        {
             throw new AWTError("WindowServer is not available");
         }
 
@@ -174,42 +230,54 @@ public final class LWCToolkit extends LWToolkit {
         if (!GraphicsEnvironment.isHeadless()) {
             initIDs();
         }
-        inAWT = AccessController.doPrivileged(new PrivilegedAction<Boolean>() {
-            @Override
-            public Boolean run() {
-                return !Boolean.parseBoolean(System.getProperty("javafx.embed.singleThread", "false"));
-            }
-        });
     }
 
     /*
      * If true  we operate in normal mode and nested runloop is executed in JavaRunLoopMode
      * If false we operate in singleThreaded FX/AWT interop mode and nested loop uses NSDefaultRunLoopMode
      */
-    private static final boolean inAWT;
+    @SuppressWarnings("removal")
+    private static final boolean inAWT
+            = AccessController.doPrivileged(new PrivilegedAction<Boolean>() {
+        @Override
+        public Boolean run() {
+            return !Boolean.parseBoolean(
+                    System.getProperty("javafx.embed.singleThread", "false"));
+        }
+    });
 
     private static final PlatformLogger log = PlatformLogger.getLogger(LWCToolkit.class.getName());
 
+    @SuppressWarnings("removal")
     public LWCToolkit() {
-        areExtraMouseButtonsEnabled = Boolean.parseBoolean(System.getProperty("sun.awt.enableExtraMouseButtons", "true"));
-        //set system property if not yet assigned
-        System.setProperty("sun.awt.enableExtraMouseButtons", ""+areExtraMouseButtonsEnabled);
-        initAppkit(ThreadGroupUtils.getRootThreadGroup(), GraphicsEnvironment.isHeadless());
+        final String extraButtons = "sun.awt.enableExtraMouseButtons";
+        AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
+            areExtraMouseButtonsEnabled =
+                 Boolean.parseBoolean(System.getProperty(extraButtons, "true"));
+            //set system property if not yet assigned
+            System.setProperty(extraButtons, ""+areExtraMouseButtonsEnabled);
+            initAppkit(ThreadGroupUtils.getRootThreadGroup(),
+                       GraphicsEnvironment.isHeadless());
+            return null;
+        });
     }
 
     /*
      * System colors with default initial values, overwritten by toolkit if system values differ and are available.
      */
-    private static final int NUM_APPLE_COLORS = 4;
+    private static final int NUM_APPLE_COLORS = 5;
     public static final int KEYBOARD_FOCUS_COLOR = 0;
     public static final int INACTIVE_SELECTION_BACKGROUND_COLOR = 1;
     public static final int INACTIVE_SELECTION_FOREGROUND_COLOR = 2;
     public static final int SELECTED_CONTROL_TEXT_COLOR = 3;
+    public static final int CELL_HIGHLIGHT_COLOR = 4;
+
     private static int[] appleColors = {
         0xFF808080, // keyboardFocusColor = Color.gray;
         0xFFC0C0C0, // secondarySelectedControlColor
         0xFF303030, // controlDarkShadowColor
         0xFFFFFFFF, // controlTextColor
+        0xFF808080, // cellHighlightColor = Color.gray;
     };
 
     private native void loadNativeColors(final int[] systemColors, final int[] appleColors);
@@ -242,6 +310,7 @@ public final class LWCToolkit extends LWToolkit {
     }
 
     // This is only called from native code.
+    @SuppressWarnings("removal")
     static void systemColorsChanged() {
         EventQueue.invokeLater(() -> {
             AccessController.doPrivileged( (PrivilegedAction<Object>) () -> {
@@ -416,8 +485,7 @@ public final class LWCToolkit extends LWToolkit {
         // TODO Auto-generated method stub
     }
 
-    class OSXPlatformFont extends sun.awt.PlatformFont
-    {
+    static class OSXPlatformFont extends sun.awt.PlatformFont {
         OSXPlatformFont(String name, int style)
         {
             super(name, style);
@@ -441,9 +509,10 @@ public final class LWCToolkit extends LWToolkit {
         fontHints.put(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB);
         desktopProperties.put(SunToolkit.DESKTOPFONTHINTS, fontHints);
         desktopProperties.put("awt.mouse.numButtons", BUTTONS);
+        desktopProperties.put("awt.multiClickInterval", getMultiClickTime());
 
         // These DnD properties must be set, otherwise Swing ends up spewing NPEs
-        // all over the place. The values came straight off of MToolkit.
+        // all over the place. The values came straight off of XToolkit.
         desktopProperties.put("DnD.Autoscroll.initialDelay", Integer.valueOf(50));
         desktopProperties.put("DnD.Autoscroll.interval", Integer.valueOf(50));
         desktopProperties.put("DnD.Autoscroll.cursorHysteresis", Integer.valueOf(5));
@@ -488,7 +557,7 @@ public final class LWCToolkit extends LWToolkit {
     public Insets getScreenInsets(final GraphicsConfiguration gc) {
         GraphicsDevice gd = gc.getDevice();
         if (!(gd instanceof CGraphicsDevice)) {
-            return super.getScreenInsets(gc);
+            return AWTThreading.executeWaitToolkit(() -> super.getScreenInsets(gc));
         }
         CGraphicsDevice cgd = (CGraphicsDevice) gd;
         return cgd.getScreenInsets();
@@ -496,19 +565,28 @@ public final class LWCToolkit extends LWToolkit {
 
     @Override
     public void sync() {
-        // flush the OGL pipeline (this is a no-op if OGL is not enabled)
-        OGLRenderQueue.sync();
+        // flush the rendering pipeline
+        if (CGraphicsEnvironment.usingMetalPipeline()) {
+            MTLRenderQueue.sync();
+        } else {
+            OGLRenderQueue.sync();
+        }
         // setNeedsDisplay() selector was sent to the appropriate CALayer so now
         // we have to flush the native selectors queue.
         flushNativeSelectors();
     }
 
     @Override
-    public RobotPeer createRobot(Robot target, GraphicsDevice screen) {
-        return new CRobot(target, (CGraphicsDevice)screen);
+    public RobotPeer createRobot(GraphicsDevice screen) throws AWTException {
+        if (screen instanceof CGraphicsDevice) {
+            return new CRobot((CGraphicsDevice) screen);
+        }
+        return super.createRobot(screen);
     }
 
     private native boolean isCapsLockOn();
+
+    private static native boolean setCapsLockState(boolean on);
 
     /*
      * NOTE: Among the keys this method is supposed to check,
@@ -536,6 +614,25 @@ public final class LWCToolkit extends LWToolkit {
         }
     }
 
+    @Override
+    public void setLockingKeyState(int keyCode, boolean on) throws UnsupportedOperationException {
+        switch (keyCode) {
+            case KeyEvent.VK_NUM_LOCK:
+            case KeyEvent.VK_SCROLL_LOCK:
+            case KeyEvent.VK_KANA_LOCK:
+                throw new UnsupportedOperationException("Toolkit.setLockingKeyState");
+
+            case KeyEvent.VK_CAPS_LOCK:
+                if (!setCapsLockState(on)) {
+                    throw new RuntimeException("failed to set caps lock state");
+                }
+                break;
+
+            default:
+                throw new IllegalArgumentException("invalid key for Toolkit.setLockingKeyState");
+        }
+    }
+
     //Is it allowed to generate events assigned to extra mouse buttons.
     //Set to true by default.
     private static boolean areExtraMouseButtonsEnabled = true;
@@ -549,6 +646,11 @@ public final class LWCToolkit extends LWToolkit {
     public int getNumberOfButtons(){
         return BUTTONS;
     }
+
+    /**
+     * Returns the double-click time interval in ms.
+     */
+    private static native int getMultiClickTime();
 
     @Override
     public boolean isTraySupported() {
@@ -568,6 +670,7 @@ public final class LWCToolkit extends LWToolkit {
     private static final String APPKIT_THREAD_NAME = "AppKit Thread";
 
     // Intended to be called from the LWCToolkit.m only.
+    @SuppressWarnings("removal")
     private static void installToolkitThreadInJava() {
         Thread.currentThread().setName(APPKIT_THREAD_NAME);
         AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
@@ -659,28 +762,10 @@ public final class LWCToolkit extends LWToolkit {
         return invokeAndWait(callable, component, -1);
     }
 
-    static <T> T invokeAndWait(final Callable<T> callable, Component component, int timeoutSeconds) throws Exception {
+    public static <T> T invokeAndWait(final Callable<T> callable, Component component, int timeoutSeconds) throws Exception {
         final CallableWrapper<T> wrapper = new CallableWrapper<>(callable);
-        invokeAndWait(wrapper, component, false, timeoutSeconds);
+        invokeAndWait(wrapper, component, timeoutSeconds);
         return wrapper.getResult();
-    }
-
-    static final class CancelableRunnable implements Runnable {
-        volatile Runnable runnable;
-
-        public CancelableRunnable(Runnable runnable) {
-            this.runnable = runnable;
-        }
-
-        @Override
-        public void run() {
-            Runnable r = runnable;
-            if (r != null) r.run();
-        }
-
-        public void cancel() {
-            runnable = null;
-        }
     }
 
     static final class CallableWrapper<T> implements Runnable {
@@ -712,32 +797,8 @@ public final class LWCToolkit extends LWToolkit {
         }
     }
 
-    private static final AtomicInteger blockingRunLoopCounter = new AtomicInteger(0);
-    private static final AtomicBoolean priorityInvocationPending = new AtomicBoolean(false);
-
-    @Override
-    public void unsafeNonblockingExecute(Runnable runnable) {
-        if (!EventQueue.isDispatchThread()) {
-            throw new Error("the method must be called on the Event Dispatching thread");
-        }
-        if (runnable == null) return;
-
-        synchronized (priorityInvocationPending) {
-            priorityInvocationPending.set(true);
-        }
-        AWTAccessor.getEventQueueAccessor().createSecondaryLoop(
-            getSystemEventQueue(),
-            () -> blockingRunLoopCounter.get() > 0).enter();
-
-        try {
-            runnable.run();
-        } finally {
-            priorityInvocationPending.set(false);
-        }
-    }
-
     /**
-     * Kicks an event over to the appropriate event queue and waits for it to
+     * Kicks an event over to the appropriate eventqueue and waits for it to
      * finish To avoid deadlocking, we manually run the NSRunLoop while waiting
      * Any selector invoked using ThreadUtilities performOnMainThread will be
      * processed in doAWTRunLoop The InvocationEvent will call
@@ -747,20 +808,16 @@ public final class LWCToolkit extends LWToolkit {
     public static void invokeAndWait(Runnable runnable, Component component)
             throws InvocationTargetException
     {
-        invokeAndWait(runnable, component, false);
+        invokeAndWait(runnable, component, -1);
     }
 
-    /**
-     * Submit event to the event queue as the method above
-     * @param processEvents if <code>true<code/>  always process system events
-     */
-    public static void invokeAndWait(Runnable runnable, Component component, boolean processEvents)
+    public static void invokeAndWait(Runnable runnable, Component component, int timeoutSeconds)
             throws InvocationTargetException
     {
         invokeAndWait(runnable, component, false, -1);
     }
 
-    static void invokeAndWait(Runnable runnable, Component component, boolean processEvents, int timeoutSeconds)
+    public static void invokeAndWait(Runnable runnable, Component component, boolean processEvents, int timeoutSeconds)
             throws InvocationTargetException
     {
         if (log.isLoggable(PlatformLogger.Level.FINE)) {
@@ -771,36 +828,21 @@ public final class LWCToolkit extends LWToolkit {
             String msg = "invokeAndWait is discarded as the EventDispatch thread is currently blocked";
             if (log.isLoggable(PlatformLogger.Level.FINE)) {
                 log.fine(msg, new Throwable());
+                log.fine(AWTThreading.getInstance(component).printEventDispatchThreadStackTrace().toString());
             } else if (log.isLoggable(PlatformLogger.Level.INFO)) {
-                log.info(msg);
+                StackTraceElement[] stack = new Throwable().getStackTrace();
+                log.info(msg + ". Originated at " + stack[stack.length - 1]);
+                Thread dispatchThread = AWTThreading.getInstance(component).getEventDispatchThread();
+                log.info(dispatchThread.getName() + " at: " + dispatchThread.getStackTrace()[0].toString());
             }
             return;
         }
 
-        boolean nonBlockingRunLoop;
-        CancelableRunnable cancelableRunnable = new CancelableRunnable(runnable);
+        AWTThreading.TrackedInvocationEvent invocationEvent =
+            AWTThreading.createAndTrackInvocationEvent(component, runnable, true);
 
-        if (!processEvents) {
-            synchronized (priorityInvocationPending) {
-                nonBlockingRunLoop = priorityInvocationPending.get();
-                if (!nonBlockingRunLoop) blockingRunLoopCounter.incrementAndGet();
-            }
-        }
-        else {
-            nonBlockingRunLoop = true;
-        }
-
-        final long mediator = createAWTRunLoopMediator();
-
-        InvocationEvent invocationEvent =
-                AWTThreading.createAndTrackInvocationEvent(component,
-                        cancelableRunnable,
-                        () -> {
-                            if (mediator != 0) {
-                                stopAWTRunLoop(mediator);
-                            }
-                        },
-                        true);
+        long mediator = createAWTRunLoopMediator();
+        invocationEvent.onDone(() -> stopAWTRunLoop(mediator));
 
         if (component != null) {
             AppContext appContext = SunToolkit.targetToAppContext(component);
@@ -814,11 +856,21 @@ public final class LWCToolkit extends LWToolkit {
             ((LWCToolkit)Toolkit.getDefaultToolkit()).getSystemEventQueueForInvokeAndWait().postEvent(invocationEvent);
         }
 
-        if (!doAWTRunLoop(mediator, nonBlockingRunLoop, timeoutSeconds)) {
-            new Throwable("Invocation timed out (" + timeoutSeconds + "sec)").printStackTrace();
-            cancelableRunnable.cancel();
+        if (DISPOSE_INVOCATION_ON_EDT_FREE) {
+            CompletableFuture<Void> eventDispatchThreadFreeFuture =
+              AWTThreading.getInstance(component).onEventDispatchThreadFree(() -> {
+                  if (!invocationEvent.isCompleted(true)) {
+                      // EventQueue is now empty but the posted InvocationEvent is still not dispatched,
+                      // consider it lost then.
+                      invocationEvent.dispose("InvocationEvent was lost");
+                  }
+              });
+            invocationEvent.onDone(() -> eventDispatchThreadFreeFuture.cancel(false));
         }
-        if (!nonBlockingRunLoop) blockingRunLoopCounter.decrementAndGet();
+
+        if (!doAWTRunLoop(mediator, processEvents, timeoutSeconds)) {
+            invocationEvent.dispose("InvocationEvent has timed out");
+        }
 
         if (log.isLoggable(PlatformLogger.Level.FINE)) {
             log.fine("invokeAndWait finished: " + runnable);
@@ -930,10 +982,6 @@ public final class LWCToolkit extends LWToolkit {
         return locale;
     }
 
-    public static boolean isCharModifierKeyInLocale(Locale locale, char ch) {
-        return KeyboardCombiningCharacters.isCharacterCombiningInKeyboardLocale(ch, locale);
-    }
-
     @Override
     public InputMethodDescriptor getInputMethodAdapterDescriptor() {
         if (sInputMethodDescriptor == null)
@@ -984,20 +1032,6 @@ public final class LWCToolkit extends LWToolkit {
         return false;
     }
 
-    private static Boolean sunAwtDisableCALayers = null;
-
-    /**
-     * Returns the value of "sun.awt.disableCALayers" property. Default
-     * value is {@code false}.
-     */
-    public static synchronized boolean getSunAwtDisableCALayers() {
-        if (sunAwtDisableCALayers == null) {
-            sunAwtDisableCALayers = AccessController.doPrivileged(
-                new GetBooleanAction("sun.awt.disableCALayers"));
-        }
-        return sunAwtDisableCALayers;
-    }
-
     /*
      * Returns true if the application (one of its windows) owns keyboard focus.
      */
@@ -1009,13 +1043,6 @@ public final class LWCToolkit extends LWToolkit {
      * @return true if AWT toolkit is embedded, false otherwise
      */
     public static native boolean isEmbedded();
-
-    /**
-     * Returns true if the WindowServer is available, false otherwise.
-     *
-     * @return true if the WindowServer is available, false otherwise
-     */
-    private static native boolean isInAquaSession();
 
     /*
      * Activates application ignoring other apps.
@@ -1110,8 +1137,10 @@ public final class LWCToolkit extends LWToolkit {
     private static URL getScaledImageURL(URL url) {
         try {
             String scaledImagePath = getScaledImageName(url.getPath());
-            return scaledImagePath == null ? null : new URL(url.getProtocol(),
+            @SuppressWarnings("deprecation")
+            var result = scaledImagePath == null ? null : new URL(url.getProtocol(),
                     url.getHost(), url.getPort(), scaledImagePath);
+            return result;
         } catch (MalformedURLException e) {
             return null;
         }
@@ -1142,17 +1171,6 @@ public final class LWCToolkit extends LWToolkit {
                 !path.endsWith(".");
     }
 
-    public static void switchKeyboardLayout (String layoutName) {
-        if (layoutName == null || layoutName.isEmpty()) {
-            throw new RuntimeException("A valid layout ID is expected. Found:  " + layoutName);
-        }
-        switchKeyboardLayoutNative(layoutName);
-    }
-
-    public static String getKeyboardLayoutId () {
-        return getKeyboardLayoutNativeId();
-    }
-
     @Override
     protected PlatformWindow getPlatformWindowUnderMouse() {
         return CPlatformWindow.nativeGetTopmostPlatformWindowUnderMouse();
@@ -1165,263 +1183,5 @@ public final class LWCToolkit extends LWToolkit {
         } else {
             UIManager.put("MenuBarUI", null);
         }
-    }
-}
-
-
-final class KeyboardCombiningCharacters {
-    @SuppressWarnings("ConstantConditions")
-    public static boolean isCharacterCombiningInKeyboardLocale(final char ch, final Locale locale) {
-        if (locale == null) {
-            return false;
-        }
-
-        final String localeStr = locale.toString();
-        if (localeStr == null) {
-            return false;
-        }
-
-        final char[] localeCombiningChars = keyboardCombiningCharacters.get(localeStr);
-        if (localeCombiningChars == null) {
-            return false;
-        }
-
-        for (final char combiningChar : localeCombiningChars) {
-            if (ch == combiningChar) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-
-    private static final Map<String, char[]> keyboardCombiningCharacters;
-
-    static {
-        /*
-         * All arrays the map contains MUST be sorted into ASCENDING order (for binary search).
-         * (UPD: the binary search proved to be slower than linear on the such small arrays so the linear is used now)
-         *
-         * Also, the syntax '<backslash>u<hex-digits>' is not used to avoid the traps about
-         *  early parsing of the unicode sequences.
-         */
-
-        // [U+0027 ('''), U+0060 ('`'), U+02c6, U+0022 ('"'), U+02dc, U+00b4, U+00a8]
-        final char[] ENGLISH_US_INTERNATIONAL_PC =
-            {(char)0x0022, (char)0x0027, (char)0x0060, (char)0x00A8,
-             (char)0x00B4, (char)0x02C6, (char)0x02DC};
-
-
-        // [U+0027 ('''), U+00a8, U+00b0, U+005e ('^'), U+02c7,
-        //  U+002c (','), U+002d ('-'), U+0022 ('"'), U+007e ('~')]
-        final char[] CZECH_CZECH =
-            {(char)0x0022, (char)0x0027, (char)0x002C, (char)0x002D,
-             (char)0x005E, (char)0x007E, (char)0x00A8, (char)0x00B0, (char)0x02C7};
-
-        // [U+0027 ('''), U+00a8, U+02c7, U+00b0, U+005e ('^'),
-        //  U+002c (','), U+002d ('-'), U+0022 ('"'), U+007e ('~')]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] CZECH_CZECH_QWERTY = CZECH_CZECH;
-
-
-        // [U+00b4, U+00a8, U+0060 ('`'), U+005e ('^'), U+007e ('~')]
-        final char[] DANISH_DANISH =
-            {(char)0x005E, (char)0x0060, (char)0x007E, (char)0x00A8, (char)0x00B4};
-
-
-        // [U+0060 ('`'), U+00b4, U+00a8, U+005e ('^'), U+007e ('~')]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] DUTCH_DUTCH = DANISH_DANISH;
-
-        // [U+005e ('^'), U+0060 ('`'), U+00a8, U+007e ('~'), U+00b4]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] DUTCH_BELGIAN = DUTCH_DUTCH;
-
-
-        // [U+00b4, U+00a8, U+0060 ('`'), U+005e ('^'), U+007e ('~')]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] FINNISH_FINNISH = DANISH_DANISH;
-
-        // [U+00b4, U+00a8, U+0060 ('`'), U+02c6, U+2038, U+02dd, U+002c (','),
-        //  U+02c7, U+02d8, U+02c0, U+02bc, U+02d9, U+02da, U+00af, U+002e ('.'),
-        //  U+02db, U+00a0, U+0330, U+02dc, U+002d ('-'), U+02cd, U+00b8, U+2116, U+0294]
-        final char[] FINNISH_FINNISH_EXTENDED =
-            {(char)0x002C, (char)0x002D, (char)0x002E, (char)0x0060,
-             (char)0x00A0, (char)0x00A8, (char)0x00AF, (char)0x00B4, (char)0x00B8,
-             (char)0x0294, (char)0x02BC, (char)0x02C0, (char)0x02C6,
-             (char)0x02C7, (char)0x02CD, (char)0x02D8, (char)0x02D9,
-             (char)0x02DA, (char)0x02DB, (char)0x02DC, (char)0x02DD,
-             (char)0x0330, (char)0x2038, (char)0x2116};
-
-        // [U+00b4, U+00a8, U+0060 ('`'), U+02c6, U+2038, U+02dd, U+002c (','),
-        //  U+02c7, U+02d8, U+02c0, U+02d9, U+02da, U+02db, U+00a0, U+0330, U+002d ('-'), U+02cd]
-        final char[] FINNISH_SAMI_PC =
-            {(char)0x002C, (char)0x002D, (char)0x0060, (char)0x00A0, (char)0x00A8, (char)0x00B4,
-             (char)0x02C0, (char)0x02C6, (char)0x02C7, (char)0x02CD,
-             (char)0x02D8, (char)0x02D9, (char)0x02DA, (char)0x02DB, (char)0x02DD,
-             (char)0x0330, (char)0x2038};
-
-
-        // [U+005e ('^'), U+0060 ('`'), U+00a8, U+007e ('~'), U+00b4]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] FRENCH_ABC_AZERTY = DANISH_DANISH;
-
-        // [U+005e ('^'), U+00a8, U+0060 ('`'), U+007e ('~'), U+00b4]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] FRENCH_CANADIAN_FRENCH_CSA = FRENCH_ABC_AZERTY;
-
-        // [U+005e ('^'), U+0060 ('`'), U+00a8, U+007e ('~'), U+00b4]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] FRENCH_FRENCH = FRENCH_ABC_AZERTY;
-
-        // [U+005e ('^'), U+0060 ('`'), U+00a8, U+007e ('~'), U+00b4]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] FRENCH_FRENCH_NUMERICAL = FRENCH_ABC_AZERTY;
-
-        // [U+005e ('^'), U+00a8, U+007e ('~'), U+0060 ('`'), U+00b4]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] FRENCH_FRENCH_PC = FRENCH_ABC_AZERTY;
-
-        // [U+005e ('^'), U+00a8, U+0060 ('`'), U+00b4, U+007e ('~')]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] FRENCH_SWISS_FRENCH = FRENCH_ABC_AZERTY;
-
-
-        // [U+00b4, U+0060 ('`'), U+00a8, U+007e ('~'), U+005e ('^')]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] GERMAN_ABC_QWERTZ = DANISH_DANISH;
-
-        // [U+00b4, U+0060 ('`'), U+00a8, U+007e ('~'), U+005e ('^')]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] GERMAN_AUSTRIAN = GERMAN_ABC_QWERTZ;
-
-        // [U+00b4, U+0060 ('`'), U+00a8, U+007e ('~'), U+005e ('^')]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] GERMAN_GERMAN = GERMAN_ABC_QWERTZ;
-
-        // [U+00b4, U+0060 ('`'), U+02d9, U+02c7, U+02dd, U+007e ('~'),
-        //  U+00a8, U+02d8, U+00af, U+02da, U+02c0, U+02bc,
-        //  U+02cd, U+00b8, U+002c (','), U+02db, U+002e ('.'), U+002d ('-')]
-        final char[] GERMAN_GERMAN_STANDARD =
-            {(char)0x002C, (char)0x002D, (char)0x002E, (char)0x0060, (char)0x007E,
-             (char)0x00A8, (char)0x00AF, (char)0x00B4, (char)0x00B8,
-             (char)0x02BC, (char)0x02C0, (char)0x02C7, (char)0x02CD,
-             (char)0x02D8, (char)0x02D9, (char)0x02DA, (char)0x02DB, (char)0x02DD};
-
-        // [U+005e ('^'), U+00a8, U+0060 ('`'), U+00b4, U+007e ('~')]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] GERMAN_SWISS_GERMAN = GERMAN_ABC_QWERTZ;
-
-
-        // [U+00b4, U+00a8, U+0060 ('`'), U+005e ('^'), U+007e ('~')]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] NORWEGIAN_BOKMAL_NORWEGIAN = DANISH_DANISH;
-
-        // [U+00b4, U+00a8, U+0060 ('`'), U+02c6, U+2038, U+02dd, U+002c (','), U+02c7,
-        //  U+02d8, U+02c0, U+02bc, U+02d9, U+02da, U+00af, U+002e ('.'), U+02db, U+00a0,
-        //  U+0330, U+02dc, U+002d ('-'), U+02cd, U+00b8, U+2116, U+0294]
-        final char[] NORWEGIAN_BOKMAL_NORWEGIAN_EXTENDED =
-            {(char)0x002C, (char)0x002D, (char)0x002E,
-             (char)0x0060, (char)0x00A0, (char)0x00A8, (char)0x00AF, (char)0x00B4, (char)0x00B8,
-             (char)0x0294, (char)0x02BC, (char)0x02C0, (char)0x02C6, (char)0x02C7, (char)0x02CD,
-             (char)0x02D8, (char)0x02D9, (char)0x02DA, (char)0x02DB, (char)0x02DC, (char)0x02DD,
-             (char)0x0330, (char)0x2038, (char)0x2116};
-
-        // [U+00b4, U+00a8, U+0060 ('`'), U+02c6, U+2038, U+02dd, U+002c (','), U+02c7,
-        //  U+02d8, U+02c0, U+02d9, U+02da, U+02db, U+00a0, U+0330, U+002d ('-'), U+02cd]
-        final char[] NORWEGIAN_BOKMAL_NORWEGIAN_PC =
-            {(char)0x002C, (char)0x002D,
-             (char)0x0060, (char)0x00A0, (char)0x00A8, (char)0x00B4,
-             (char)0x02C0, (char)0x02C6, (char)0x02C7, (char)0x02CD,
-             (char)0x02D8, (char)0x02D9, (char)0x02DA, (char)0x02DB, (char)0x02DD,
-             (char)0x0330, (char)0x2038};
-
-
-        // [U+00b4, U+007e ('~'), U+00a8, U+0060 ('`'), U+005e ('^')]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] PORTUGUESE_BRAZILIAN_ABNT2 = DANISH_DANISH;
-
-        // [U+0060 ('`'), U+0027 ('''), U+02dc, U+02c6, U+0022 ('"'), U+00b4, U+00a8]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] PORTUGUESE_BRAZILIAN_PRO = ENGLISH_US_INTERNATIONAL_PC;
-
-
-        // [U+00b4, U+00a8, U+007e ('~'), U+0060 ('`'), U+005e ('^')]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] SPANISH_LATIN_AMERICA = DANISH_DANISH;
-
-        // [U+00b4, U+0060 ('`'), U+00a8, U+005e ('^'), U+007e ('~')]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] SPANISH_SPANISH = SPANISH_LATIN_AMERICA;
-
-        // [U+0060 ('`'), U+00b4, U+005e ('^'), U+00a8, U+007e ('~')]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] SPANISH_SPANISH_ISO = SPANISH_LATIN_AMERICA;
-
-
-        // [U+00b4, U+00a8, U+0060 ('`'), U+005e ('^'), U+007e ('~')]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] SWEDISH_SWEDISH = DANISH_DANISH;
-
-        // [U+00b4, U+00a8, U+0060 ('`'), U+005e ('^'), U+007e ('~')]
-        @SuppressWarnings("UnnecessaryLocalVariable")
-        final char[] SWEDISH_SWEDISH_PRO = SWEDISH_SWEDISH;
-
-        // [U+00b4, U+00a8, U+0060 ('`'), U+02c6, U+2038, U+02dd, U+002c (','), U+02c7,
-        //  U+02d8, U+02c0, U+02d9, U+02da, U+02db, <U+00a0, U+0330>, U+002d ('-'), U+02cd]
-        final char[] SWEDISH_SWEDISH_SAMI_PC =
-            {(char)0x002C, (char)0x002D, (char)0x0060, (char)0x00A0, (char)0x00A8, (char)0x00B4,
-             (char)0x02C0, (char)0x02C6, (char)0x02C7, (char)0x02CD,
-             (char)0x02D8, (char)0x02D9, (char)0x02DA, (char)0x02DB, (char)0x02DD,
-             (char)0x0330, (char)0x2038};
-
-
-        final Map<String, char[]> keyboardCombiningCharactersInitializer = new HashMap<>();
-
-        keyboardCombiningCharactersInitializer.put( "_US_UserDefined_15000", ENGLISH_US_INTERNATIONAL_PC);
-
-        keyboardCombiningCharactersInitializer.put(                    "cs", CZECH_CZECH);
-        keyboardCombiningCharactersInitializer.put(            "cs__QWERTY", CZECH_CZECH_QWERTY);
-
-        keyboardCombiningCharactersInitializer.put(                    "da", DANISH_DANISH);
-
-        keyboardCombiningCharactersInitializer.put(                 "nl_BE", DUTCH_BELGIAN);
-        keyboardCombiningCharactersInitializer.put(                    "nl", DUTCH_DUTCH);
-
-        keyboardCombiningCharactersInitializer.put(                    "fi", FINNISH_FINNISH);
-        keyboardCombiningCharactersInitializer.put(          "fi__Extended", FINNISH_FINNISH_EXTENDED);
-        keyboardCombiningCharactersInitializer.put(   "_US_UserDefined_-18", FINNISH_SAMI_PC);
-
-        keyboardCombiningCharactersInitializer.put(   "_US_UserDefined_251", FRENCH_ABC_AZERTY);
-        keyboardCombiningCharactersInitializer.put(                 "fr_CA", FRENCH_CANADIAN_FRENCH_CSA);
-        keyboardCombiningCharactersInitializer.put(                    "fr", FRENCH_FRENCH);
-        keyboardCombiningCharactersInitializer.put(         "fr__numerical", FRENCH_FRENCH_NUMERICAL);
-        keyboardCombiningCharactersInitializer.put(    "_US_UserDefined_60", FRENCH_FRENCH_PC);
-        keyboardCombiningCharactersInitializer.put(                 "fr_CH", FRENCH_SWISS_FRENCH);
-
-        keyboardCombiningCharactersInitializer.put(   "_US_UserDefined_253", GERMAN_ABC_QWERTZ);
-        keyboardCombiningCharactersInitializer.put(                 "de_AT", GERMAN_AUSTRIAN);
-        keyboardCombiningCharactersInitializer.put(                    "de", GERMAN_GERMAN);
-        keyboardCombiningCharactersInitializer.put("_US_UserDefined_-18133", GERMAN_GERMAN_STANDARD);
-        keyboardCombiningCharactersInitializer.put(                 "de_CH", GERMAN_SWISS_GERMAN);
-
-        keyboardCombiningCharactersInitializer.put(                    "no", NORWEGIAN_BOKMAL_NORWEGIAN);
-        keyboardCombiningCharactersInitializer.put(          "no__Extended", NORWEGIAN_BOKMAL_NORWEGIAN_EXTENDED);
-        keyboardCombiningCharactersInitializer.put(   "_US_UserDefined_-13", NORWEGIAN_BOKMAL_NORWEGIAN_PC);
-
-        keyboardCombiningCharactersInitializer.put(   "_US_UserDefined_128", PORTUGUESE_BRAZILIAN_ABNT2);
-        keyboardCombiningCharactersInitializer.put(    "_US_UserDefined_72", PORTUGUESE_BRAZILIAN_PRO);
-
-        keyboardCombiningCharactersInitializer.put(    "_US_UserDefined_89", SPANISH_LATIN_AMERICA);
-        keyboardCombiningCharactersInitializer.put(                    "es", SPANISH_SPANISH);
-        keyboardCombiningCharactersInitializer.put(               "es__ISO", SPANISH_SPANISH_ISO);
-
-        keyboardCombiningCharactersInitializer.put(                    "sv", SWEDISH_SWEDISH);
-        keyboardCombiningCharactersInitializer.put(               "sv__Pro", SWEDISH_SWEDISH_PRO);
-        keyboardCombiningCharactersInitializer.put(   "_US_UserDefined_-15", SWEDISH_SWEDISH_SAMI_PC);
-
-
-        keyboardCombiningCharacters = keyboardCombiningCharactersInitializer;
     }
 }

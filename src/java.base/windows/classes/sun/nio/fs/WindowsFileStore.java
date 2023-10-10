@@ -92,7 +92,12 @@ class WindowsFileStore
             try {
                 return createFromPath(target);
             } catch (WindowsException e) {
-                if (e.lastError() != ERROR_DIR_NOT_ROOT)
+                // GetVolumePathName might return the following error codes
+                // when the drives were created using `subst`.
+                // Try expanding the path again in such cases.
+                if (e.lastError() != ERROR_DIR_NOT_ROOT &&
+                    e.lastError() != ERROR_INVALID_PARAMETER &&
+                    e.lastError() != ERROR_DIRECTORY)
                     throw e;
                 target = WindowsLinkSupport.getFinalPath(file);
                 if (target == null)
@@ -155,21 +160,25 @@ class WindowsFileStore
 
     @Override
     public long getTotalSpace() throws IOException {
-        return readDiskFreeSpaceEx().totalNumberOfBytes();
+        long space = readDiskFreeSpaceEx().totalNumberOfBytes();
+        return space >= 0 ? space : Long.MAX_VALUE;
     }
 
     @Override
     public long getUsableSpace() throws IOException {
-        return readDiskFreeSpaceEx().freeBytesAvailable();
-    }
-
-    public long getBlockSize() throws IOException {
-        return readDiskFreeSpace().bytesPerSector();
+        long space = readDiskFreeSpaceEx().freeBytesAvailable();
+        return space >= 0 ? space : Long.MAX_VALUE;
     }
 
     @Override
     public long getUnallocatedSpace() throws IOException {
-        return readDiskFreeSpaceEx().freeBytesAvailable();
+        long space = readDiskFreeSpaceEx().freeBytesAvailable();
+        return space >= 0 ? space : Long.MAX_VALUE;
+    }
+
+    @Override
+    public long getBlockSize() throws IOException {
+        return readDiskFreeSpace().bytesPerSector();
     }
 
     @Override
@@ -230,23 +239,24 @@ class WindowsFileStore
     public boolean equals(Object ob) {
         if (ob == this)
             return true;
-        if (!(ob instanceof WindowsFileStore))
-            return false;
-        WindowsFileStore other = (WindowsFileStore)ob;
-        if (root.equals(other.root))
-            return true;
-        if (volType == DRIVE_FIXED && other.volumeType() == DRIVE_FIXED)
-            return root.equalsIgnoreCase(other.root);
+        if (ob instanceof WindowsFileStore other) {
+            if (root.equals(other.root))
+                return true;
+            if (volType == DRIVE_FIXED && other.volumeType() == DRIVE_FIXED)
+                return root.equalsIgnoreCase(other.root);
+        }
         return false;
     }
 
     @Override
     public int hashCode() {
-        if (hashCode == 0) { // Don't care about race
-            hashCode = (volType == DRIVE_FIXED) ?
+        int hc = hashCode;
+        if (hc == 0) {
+            hc = (volType == DRIVE_FIXED) ?
                 root.toLowerCase(Locale.ROOT).hashCode() : root.hashCode();
+            hashCode = hc;
         }
-        return hashCode;
+        return hc;
     }
 
     @Override

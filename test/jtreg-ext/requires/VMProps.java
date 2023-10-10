@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2016, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -20,31 +20,40 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+
 package requires;
 
 import java.io.BufferedInputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.File;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import sun.hotspot.code.Compiler;
-import sun.hotspot.cpuinfo.CPUInfo;
-import sun.hotspot.gc.GC;
-import sun.hotspot.WhiteBox;
+import jdk.internal.foreign.CABI;
+
+import jdk.test.whitebox.code.Compiler;
+import jdk.test.whitebox.cpuinfo.CPUInfo;
+import jdk.test.whitebox.gc.GC;
+import jdk.test.whitebox.WhiteBox;
 import jdk.test.lib.Platform;
 import jdk.test.lib.Container;
 
@@ -84,6 +93,7 @@ public class VMProps implements Callable<Map<String, String>> {
      */
     @Override
     public Map<String, String> call() {
+        log("Entering call()");
         SafeMap map = new SafeMap();
         map.put("vm.flavor", this::vmFlavor);
         map.put("vm.compMode", this::vmCompMode);
@@ -96,32 +106,37 @@ public class VMProps implements Callable<Map<String, String>> {
         // vm.hasSA is "true" if the VM contains the serviceability agent
         // and jhsdb.
         map.put("vm.hasSA", this::vmHasSA);
-        // vm.hasSAandCanAttach is "true" if the VM contains the serviceability agent
-        // and jhsdb and it can attach to the VM.
-        map.put("vm.hasSAandCanAttach", this::vmHasSAandCanAttach);
         // vm.hasJFR is "true" if JFR is included in the build of the VM and
         // so tests can be executed.
         map.put("vm.hasJFR", this::vmHasJFR);
+        map.put("vm.hasDTrace", this::vmHasDTrace);
+        map.put("vm.jvmti", this::vmHasJVMTI);
         map.put("vm.cpu.features", this::cpuFeatures);
+        map.put("vm.pageSize", this::vmPageSize);
         map.put("vm.rtm.cpu", this::vmRTMCPU);
         map.put("vm.rtm.compiler", this::vmRTMCompiler);
-        map.put("vm.aot", this::vmAOT);
-        map.put("vm.aot.enabled", this::vmAotEnabled);
         // vm.cds is true if the VM is compiled with cds support.
         map.put("vm.cds", this::vmCDS);
         map.put("vm.cds.custom.loaders", this::vmCDSForCustomLoaders);
-        map.put("vm.cds.archived.java.heap", this::vmCDSForArchivedJavaHeap);
+        map.put("vm.cds.write.archived.java.heap", this::vmCDSCanWriteArchivedJavaHeap);
+        map.put("vm.continuations", this::vmContinuations);
         // vm.graal.enabled is true if Graal is used as JIT
         map.put("vm.graal.enabled", this::isGraalEnabled);
         map.put("vm.compiler1.enabled", this::isCompiler1Enabled);
         map.put("vm.compiler2.enabled", this::isCompiler2Enabled);
         map.put("docker.support", this::dockerSupport);
+        map.put("vm.musl", this::isMusl);
         map.put("release.implementor", this::implementor);
+        map.put("jdk.containerized", this::jdkContainerized);
+        map.put("vm.flagless", this::isFlagless);
+        map.put("jdk.foreign.linker", this::jdkForeignLinker);
         map.put("display.XWayland", this::displayXWayland);
         vmGC(map); // vm.gc.X = true/false
+        vmGCforCDS(map); // may set vm.gc
         vmOptFinalFlags(map);
 
         dump(map.map);
+        log("Leaving call()");
         return map.map;
     }
 
@@ -239,18 +254,17 @@ public class VMProps implements Callable<Map<String, String>> {
             return "false";
         }
 
-        switch (GC.selected()) {
-            case Serial:
-            case Parallel:
-            case G1:
-                // These GCs are supported with JVMCI
-                return "true";
-            default:
-                break;
+        // Not all GCs have full JVMCI support
+        if (!WB.isJVMCISupportedByGC()) {
+          return "false";
         }
 
-        // Every other GC is not supported
-        return "false";
+        // Interpreted mode cannot enable JVMCI
+        if (vmCompMode().equals("Xint")) {
+          return "false";
+        }
+
+        return "true";
     }
 
     /**
@@ -276,14 +290,56 @@ public class VMProps implements Callable<Map<String, String>> {
      * Example vm.gc.G1=true means:
      *    VM supports G1
      *    User either set G1 explicitely (-XX:+UseG1GC) or did not set any GC
+     *    G1 can be selected, i.e. it doesn't conflict with other VM flags
      *
      * @param map - property-value pairs
      */
     protected void vmGC(SafeMap map) {
+        var isJVMCIEnabled = Compiler.isJVMCIEnabled();
+        Predicate<GC> vmGCProperty = (GC gc) -> (gc.isSupported()
+                                        && (!isJVMCIEnabled || gc.isSupportedByJVMCICompiler())
+                                        && (gc.isSelected() || GC.isSelectedErgonomically()));
         for (GC gc: GC.values()) {
-            map.put("vm.gc." + gc.name(),
-                    () -> "" + (gc.isSupported()
-                            && (gc.isSelected() || GC.isSelectedErgonomically())));
+            map.put("vm.gc." + gc.name(), () -> "" + vmGCProperty.test(gc));
+        }
+
+        // Special handling for ZGC modes
+        var vmGCZ = vmGCProperty.test(GC.Z);
+        var genZ = WB.getBooleanVMFlag("ZGenerational");
+        var genZIsDefault = WB.isDefaultVMFlag("ZGenerational");
+        // vm.gc.ZGenerational=true means:
+        //    vm.gc.Z is true and ZGenerational is either explicitly true, or default
+        map.put("vm.gc.ZGenerational", () -> "" + (vmGCZ && (genZ || genZIsDefault)));
+        // vm.gc.ZSinglegen=true means:
+        //    vm.gc.Z is true and ZGenerational is either explicitly false, or default
+        map.put("vm.gc.ZSinglegen", () -> "" + (vmGCZ && (!genZ || genZIsDefault)));
+    }
+
+    /**
+     * "jtreg -vmoptions:-Dtest.cds.runtime.options=..." can be used to specify
+     * the GC type to be used when running with a CDS archive. Set "vm.gc" accordingly,
+     * so that tests that need to explicitly choose the GC type can be excluded
+     * with "@requires vm.gc == null".
+     *
+     * @param map - property-value pairs
+     */
+    protected void vmGCforCDS(SafeMap map) {
+        if (!GC.isSelectedErgonomically()) {
+            // The GC has been explicitly specified on the command line, so
+            // jtreg will set the "vm.gc" property. Let's not interfere with it.
+            return;
+        }
+
+        String GC_PREFIX  = "-XX:+Use";
+        String GC_SUFFIX  = "GC";
+        String jtropts = System.getProperty("test.cds.runtime.options");
+        if (jtropts != null) {
+            for (String opt : jtropts.split(",")) {
+                if (opt.startsWith(GC_PREFIX) && opt.endsWith(GC_SUFFIX)) {
+                    String gc = opt.substring(GC_PREFIX.length(), opt.length() - GC_SUFFIX.length());
+                    map.put("vm.gc", () -> gc);
+                }
+            }
         }
     }
 
@@ -305,9 +361,14 @@ public class VMProps implements Callable<Map<String, String>> {
      */
     protected void vmOptFinalFlags(SafeMap map) {
         vmOptFinalFlag(map, "ClassUnloading");
-        vmOptFinalFlag(map, "UseCompressedOops");
+        vmOptFinalFlag(map, "ClassUnloadingWithConcurrentMark");
+        vmOptFinalFlag(map, "CriticalJNINatives");
         vmOptFinalFlag(map, "EnableJVMCI");
         vmOptFinalFlag(map, "EliminateAllocations");
+        vmOptFinalFlag(map, "UseCompressedOops");
+        vmOptFinalFlag(map, "UseVectorizedMismatchIntrinsic");
+        vmOptFinalFlag(map, "UseVtableBasedCHA");
+        vmOptFinalFlag(map, "ZGenerational");
     }
 
     /**
@@ -318,24 +379,25 @@ public class VMProps implements Callable<Map<String, String>> {
     }
 
     /**
-     * @return "true" if VM has a serviceability agent and it can
-     * attach to the VM.
-     */
-    protected String vmHasSAandCanAttach() {
-        try {
-            return "" + Platform.shouldSAAttach();
-        } catch (IOException e) {
-            e.printStackTrace();
-            return errorWithMessage("Checking whether SA can attach to the VM failed.:" + e);
-        }
-    }
-
-    /**
      * @return "true" if the VM is compiled with Java Flight Recorder (JFR)
      * support.
      */
     protected String vmHasJFR() {
-        return "" + WB.isJFRIncludedInVmBuild();
+        return "" + WB.isJFRIncluded();
+    }
+
+    /**
+     * @return "true" if the VM is compiled with JVMTI
+     */
+    protected String vmHasJVMTI() {
+        return "" + WB.isJVMTIIncluded();
+    }
+
+    /**
+     * @return "true" if the VM is compiled with DTrace
+     */
+    protected String vmHasDTrace() {
+        return "" + WB.isDTraceIncluded();
     }
 
     /**
@@ -359,57 +421,12 @@ public class VMProps implements Callable<Map<String, String>> {
     }
 
     /**
-     * @return true if VM supports AOT and false otherwise
-     */
-    protected String vmAOT() {
-        // builds with aot have jaotc in <JDK>/bin
-        Path bin = Paths.get(System.getProperty("java.home"))
-                        .resolve("bin");
-        Path jaotc;
-        if (Platform.isWindows()) {
-            jaotc = bin.resolve("jaotc.exe");
-        } else {
-            jaotc = bin.resolve("jaotc");
-        }
-
-        if (!Files.exists(jaotc)) {
-            // No jaotc => no AOT
-            return "false";
-        }
-
-        if (WB.getBooleanVMFlag("VerifyOops")) {
-            // Should be enabled when JDK-8209961 is fixed
-            return "false";
-        }
-
-        switch (GC.selected()) {
-            case Serial:
-            case Parallel:
-            case G1:
-                // These GCs are supported with AOT
-                return "true";
-            default:
-                break;
-        }
-
-        // Every other GC is not supported
-        return "false";
-    }
-
-    /*
-     * @return true if there is at least one loaded AOT'ed library.
-     */
-    protected String vmAotEnabled() {
-        return "" + (WB.aotLibrariesCount() > 0);
-    }
-
-    /**
      * Check for CDS support.
      *
      * @return true if CDS is supported by the VM to be tested.
      */
     protected String vmCDS() {
-        return "" + WB.isCDSIncludedInVmBuild();
+        return "" + WB.isCDSIncluded();
     }
 
     /**
@@ -422,12 +439,28 @@ public class VMProps implements Callable<Map<String, String>> {
     }
 
     /**
-     * Check for CDS support for archived Java heap regions.
-     *
-     * @return true if CDS provides support for archive Java heap regions in the VM to be tested.
+     * @return true if this VM can write Java heap objects into the CDS archive
      */
-    protected String vmCDSForArchivedJavaHeap() {
-        return "" + ("true".equals(vmCDS()) && WB.isJavaHeapArchiveSupported());
+    protected String vmCDSCanWriteArchivedJavaHeap() {
+        return "" + ("true".equals(vmCDS()) && WB.canWriteJavaHeapArchive());
+    }
+
+    /**
+     * @return "true" if this VM supports continuations.
+     */
+    protected String vmContinuations() {
+        if (WB.getBooleanVMFlag("VMContinuations")) {
+            return "true";
+        } else {
+            return "false";
+        }
+    }
+
+    /**
+     * @return System page size in bytes.
+     */
+    protected String vmPageSize() {
+        return "" + WB.getVMPageSize();
     }
 
     /**
@@ -457,13 +490,15 @@ public class VMProps implements Callable<Map<String, String>> {
         return "" + Compiler.isC2Enabled();
     }
 
-   /**
+    /**
      * A simple check for docker support
      *
      * @return true if docker is supported in a given environment
      */
     protected String dockerSupport() {
-        boolean isSupported = true;
+        log("Entering dockerSupport()");
+
+        boolean isSupported = false;
         if (Platform.isLinux()) {
            // currently docker testing is only supported for Linux,
            // on certain platforms
@@ -481,6 +516,8 @@ public class VMProps implements Callable<Map<String, String>> {
            }
         }
 
+        log("dockerSupport(): platform check: isSupported = " + isSupported);
+
         if (isSupported) {
            try {
               isSupported = checkDockerSupport();
@@ -489,15 +526,68 @@ public class VMProps implements Callable<Map<String, String>> {
            }
          }
 
+        log("dockerSupport(): returning isSupported = " + isSupported);
         return "" + isSupported;
     }
 
+    // Configures process builder to redirect process stdout and stderr to a file.
+    // Returns file names for stdout and stderr.
+    private Map<String, String> redirectOutputToLogFile(String msg, ProcessBuilder pb, String fileNameBase) {
+        Map<String, String> result = new HashMap<>();
+        String timeStamp = Instant.now().toString().replace(":", "-").replace(".", "-");
+
+        String stdoutFileName = String.format("./%s-stdout--%s.log", fileNameBase, timeStamp);
+        pb.redirectOutput(new File(stdoutFileName));
+        log(msg + ": child process stdout redirected to " + stdoutFileName);
+        result.put("stdout", stdoutFileName);
+
+        String stderrFileName = String.format("./%s-stderr--%s.log", fileNameBase, timeStamp);
+        pb.redirectError(new File(stderrFileName));
+        log(msg + ": child process stderr redirected to " + stderrFileName);
+        result.put("stderr", stderrFileName);
+
+        return result;
+    }
+
+    private void printLogfileContent(Map<String, String> logFileNames) {
+        logFileNames.entrySet().stream()
+            .forEach(entry ->
+                {
+                    log("------------- " + entry.getKey());
+                    try {
+                        Files.lines(Path.of(entry.getValue()))
+                            .forEach(line -> log(line));
+                    } catch (IOException ie) {
+                        log("Exception while reading file: " + ie);
+                    }
+                    log("-------------");
+                });
+    }
+
     private boolean checkDockerSupport() throws IOException, InterruptedException {
+        log("checkDockerSupport(): entering");
         ProcessBuilder pb = new ProcessBuilder(Container.ENGINE_COMMAND, "ps");
+        Map<String, String> logFileNames = redirectOutputToLogFile("checkDockerSupport(): <container> ps",
+                                                      pb, "container-ps");
         Process p = pb.start();
         p.waitFor(10, TimeUnit.SECONDS);
+        int exitValue = p.exitValue();
 
-        return (p.exitValue() == 0);
+        log(String.format("checkDockerSupport(): exitValue = %s, pid = %s", exitValue, p.pid()));
+        if (exitValue != 0) {
+            printLogfileContent(logFileNames);
+        }
+
+        return (exitValue == 0);
+    }
+
+    /**
+     * Checks musl libc.
+     *
+     * @return true if musl libc is used.
+     */
+    protected String isMusl() {
+        return Boolean.toString(WB.getLibcName().contains("musl"));
     }
 
     private String implementor() {
@@ -516,9 +606,84 @@ public class VMProps implements Callable<Map<String, String>> {
         }
     }
 
+    private String jdkContainerized() {
+        String isEnabled = System.getenv("TEST_JDK_CONTAINERIZED");
+        return "" + "true".equalsIgnoreCase(isEnabled);
+    }
+
+    /**
+     * Checks if we are in <i>almost</i> out-of-box configuration, i.e. the flags
+     * which JVM is started with don't affect its behavior "significantly".
+     * {@code TEST_VM_FLAGLESS} enviroment variable can be used to force this
+     * method to return true and allow any flags.
+     *
+     * @return true if there are no JVM flags
+     */
+    private String isFlagless() {
+        boolean result = true;
+        if (System.getenv("TEST_VM_FLAGLESS") != null) {
+            return "" + result;
+        }
+
+        List<String> allFlags = new ArrayList<String>();
+        Collections.addAll(allFlags, System.getProperty("test.vm.opts", "").trim().split("\\s+"));
+        Collections.addAll(allFlags, System.getProperty("test.java.opts", "").trim().split("\\s+"));
+
+        // check -XX flags
+        var ignoredXXFlags = Set.of(
+                // added by run-test framework
+                "MaxRAMPercentage",
+                // added by test environment
+                "CreateCoredumpOnCrash"
+        );
+        result &= allFlags.stream()
+                          .filter(s -> s.startsWith("-XX:"))
+                          // map to names:
+                              // remove -XX:
+                              .map(s -> s.substring(4))
+                              // remove +/- from bool flags
+                              .map(s -> s.charAt(0) == '+' || s.charAt(0) == '-' ? s.substring(1) : s)
+                              // remove =.* from others
+                              .map(s -> s.contains("=") ? s.substring(0, s.indexOf('=')) : s)
+                          // skip known-to-be-there flags
+                          .filter(s -> !ignoredXXFlags.contains(s))
+                          .findAny()
+                          .isEmpty();
+
+        // check -X flags
+        var ignoredXFlags = Set.of(
+                // default, yet still seen to be explicitly set
+                "mixed"
+        );
+        result &= allFlags.stream()
+                          .filter(s -> s.startsWith("-X") && !s.startsWith("-XX:"))
+                          // map to names:
+                              // remove -X
+                              .map(s -> s.substring(2))
+                              // remove :.* from flags with values
+                              .map(s -> s.contains(":") ? s.substring(0, s.indexOf(':')) : s)
+                          // skip known-to-be-there flags
+                          .filter(s -> !ignoredXFlags.contains(s))
+                          .findAny()
+                          .isEmpty();
+
+        return "" + result;
+    }
+
+    /*
+     * A string indicating the foreign linker that is currently being used. See jdk.internal.foreign.CABI
+     * for valid values.
+     *
+     * "FALLBACK" and "UNSUPPORTED" are special values. The former indicates the fallback linker is
+     * being used. The latter indicates an unsupported platform.
+     */
+    private String jdkForeignLinker() {
+        return String.valueOf(CABI.current());
+    }
+
     protected String displayXWayland() {
         final boolean isXWayland =  (System.getenv("WAYLAND_DISPLAY") != null)
-                                 && (System.getenv("DISPLAY") != null); 
+                                 && (System.getenv("DISPLAY") != null);
 
         return String.valueOf(isXWayland);
     }
@@ -543,6 +708,40 @@ public class VMProps implements Callable<Map<String, String>> {
         } catch (IOException e) {
             throw new RuntimeException("Failed to dump properties into '"
                     + dumpFileName + "'", e);
+        }
+    }
+
+    /**
+     * Log diagnostic message.
+     *
+     * @param msg
+     */
+    protected static void log(String msg) {
+        // Always log to a file.
+        logToFile(msg);
+
+        // Also log to stderr; guarded by property to avoid excessive verbosity.
+        // By jtreg design stderr produced here will be visible
+        // in the output of a parent process. Note: stdout should not be used
+        // for logging as jtreg parses that output directly and only echoes it
+        // in the event of a failure.
+        if (Boolean.getBoolean("jtreg.log.vmprops")) {
+            System.err.println("VMProps: " + msg);
+        }
+    }
+
+    /**
+     * Log diagnostic message to a file.
+     *
+     * @param msg
+     */
+    protected static void logToFile(String msg) {
+        String fileName = "./vmprops.log";
+        try {
+            Files.writeString(Paths.get(fileName), msg + "\n", Charset.forName("ISO-8859-1"),
+                    StandardOpenOption.APPEND, StandardOpenOption.CREATE);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to log into '" + fileName + "'", e);
         }
     }
 

@@ -301,9 +301,6 @@ _hb_jdk_get_font_funcs (void)
 static void _do_nothing(void) {
 }
 
-static void _free_nothing(void*) {
-}
-
 struct Font2DPtr {
     JavaVM* vmPtr;
     jweak font2DRef;
@@ -416,8 +413,22 @@ static hb_font_t* _hb_jdk_font_create(hb_face_t* face,
   return font;
 }
 
+#ifdef MACOSX
+static hb_font_t* _hb_jdk_ct_font_create(hb_face_t* face,
+                   JDKFontInfo *jdkFontInfo) {
+
+    hb_font_t *font = NULL;
+    font = hb_font_create(face);
+    hb_font_set_scale(font,
+                     HBFloatToFixed(jdkFontInfo->ptSize),
+                     HBFloatToFixed(jdkFontInfo->ptSize));
+    return font;
+}
+#endif
+
 hb_font_t* hb_jdk_font_create(hb_face_t* hbFace,
                              JDKFontInfo *jdkFontInfo,
                              hb_destroy_func_t destroy) {
+
     return _hb_jdk_font_create(hbFace, jdkFontInfo, destroy);
 }

@@ -21,7 +21,6 @@
 package com.sun.org.apache.xalan.internal.xsltc.compiler;
 
 import com.sun.org.apache.bcel.internal.classfile.JavaClass;
-import com.sun.org.apache.xalan.internal.XalanConstants;
 import com.sun.org.apache.xalan.internal.xsltc.compiler.util.ErrorMsg;
 import com.sun.org.apache.xalan.internal.xsltc.compiler.util.Util;
 import com.sun.org.apache.xml.internal.dtm.DTM;
@@ -45,8 +44,8 @@ import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
 import javax.xml.XMLConstants;
 import javax.xml.catalog.CatalogFeatures;
+import jdk.xml.internal.JdkConstants;
 import jdk.xml.internal.JdkXmlFeatures;
-import jdk.xml.internal.JdkXmlUtils;
 import jdk.xml.internal.SecuritySupport;
 import jdk.xml.internal.XMLSecurityManager;
 import org.xml.sax.InputSource;
@@ -140,11 +139,11 @@ public final class XSLTC {
     /**
      * protocols allowed for external references set by the stylesheet processing instruction, Import and Include element.
      */
-    private String _accessExternalStylesheet = XalanConstants.EXTERNAL_ACCESS_DEFAULT;
+    private String _accessExternalStylesheet = JdkConstants.EXTERNAL_ACCESS_DEFAULT;
      /**
      * protocols allowed for external DTD references in source file and/or stylesheet.
      */
-    private String _accessExternalDTD = XalanConstants.EXTERNAL_ACCESS_DEFAULT;
+    private String _accessExternalDTD = JdkConstants.EXTERNAL_ACCESS_DEFAULT;
 
     private XMLSecurityManager _xmlSecurityManager;
 
@@ -175,10 +174,10 @@ public final class XSLTC {
     /**
      * XSLTC compiler constructor
      */
-    public XSLTC(JdkXmlFeatures featureManager) {
+    public XSLTC(JdkXmlFeatures featureManager, boolean hasListener) {
         _overrideDefaultParser = featureManager.getFeature(
                 JdkXmlFeatures.XmlFeature.JDK_OVERRIDE_PARSER);
-        _parser = new Parser(this, _overrideDefaultParser);
+        _parser = new Parser(this, _overrideDefaultParser, hasListener);
         _xmlFeatures = featureManager;
         _extensionClassLoader = null;
         _externalExtensionFunctions = new HashMap<>();
@@ -218,13 +217,13 @@ public final class XSLTC {
         }
         else if (name.equals(XMLConstants.ACCESS_EXTERNAL_DTD)) {
             return _accessExternalDTD;
-        } else if (name.equals(XalanConstants.SECURITY_MANAGER)) {
+        } else if (name.equals(JdkConstants.SECURITY_MANAGER)) {
             return _xmlSecurityManager;
-        } else if (name.equals(XalanConstants.JDK_EXTENSION_CLASSLOADER)) {
+        } else if (name.equals(JdkConstants.JDK_EXT_CLASSLOADER)) {
             return _extensionClassLoader;
         } else if (JdkXmlFeatures.CATALOG_FEATURES.equals(name)) {
             return _catalogFeatures;
-        } else if (JdkXmlUtils.CDATA_CHUNK_SIZE.equals(name)) {
+        } else if (JdkConstants.CDATA_CHUNK_SIZE.equals(name)) {
             return _cdataChunkSize;
         }
         return null;
@@ -241,16 +240,16 @@ public final class XSLTC {
         }
         else if (name.equals(XMLConstants.ACCESS_EXTERNAL_DTD)) {
             _accessExternalDTD = (String)value;
-        } else if (name.equals(XalanConstants.SECURITY_MANAGER)) {
+        } else if (name.equals(JdkConstants.SECURITY_MANAGER)) {
             _xmlSecurityManager = (XMLSecurityManager)value;
-        } else if (name.equals(XalanConstants.JDK_EXTENSION_CLASSLOADER)) {
+        } else if (name.equals(JdkConstants.JDK_EXT_CLASSLOADER)) {
             _extensionClassLoader = (ClassLoader) value;
             /* Clear the external extension functions HashMap if extension class
                loader was changed */
             _externalExtensionFunctions.clear();
         } else if (JdkXmlFeatures.CATALOG_FEATURES.equals(name)) {
             _catalogFeatures = (CatalogFeatures)value;
-        } else if (JdkXmlUtils.CDATA_CHUNK_SIZE.equals(name)) {
+        } else if (JdkConstants.CDATA_CHUNK_SIZE.equals(name)) {
             _cdataChunkSize = Integer.parseInt((String)value);
         }
     }
@@ -460,8 +459,11 @@ public final class XSLTC {
                 if (name != null) {
                     setClassName(name);
                 }
-                else if (systemId != null && !systemId.equals("")) {
-                    setClassName(Util.baseName(systemId));
+                else if (systemId != null && !systemId.isEmpty()) {
+                    String clsName = Util.baseName(systemId);
+                    if (clsName != null && !clsName.isEmpty()) {
+                        setClassName(clsName);
+                    }
                 }
 
                 // Ensure we have a non-empty class name at this point

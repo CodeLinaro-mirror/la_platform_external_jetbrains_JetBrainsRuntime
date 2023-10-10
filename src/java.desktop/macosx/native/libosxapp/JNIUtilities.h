@@ -242,19 +242,6 @@
     [pool drain]; \
  };
 
-/* Initiate a try block to catch any exception */
-#define JNI_COCOA_DURING(env) \
- @try {
-
-/* Don't allow NSExceptions to escape to Java.
- * If there is a Java exception that has been thrown that should escape.
- */
-#define JNI_COCOA_HANDLE(env) \
- } \
- @catch (NSException *e) { \
-     NSLog(@"%@", [e callStackSymbols]); \
- };
-
 /********        STRING CONVERSION SUPPORT    *********/
 
 JNIEXPORT NSString* JavaStringToNSString(JNIEnv *env, jstring jstr);
@@ -264,8 +251,6 @@ JNIEXPORT jstring NSStringToJavaString(JNIEnv* env, NSString *str);
 JNIEXPORT NSString* NormalizedPathNSStringFromJavaString(JNIEnv *env, jstring pathStr);
 
 JNIEXPORT jstring NormalizedPathJavaStringFromNSString(JNIEnv* env, NSString *str);
-
-JNIEXPORT NSString* JNIObjectToNSString(JNIEnv *env, jobject obj);
 
 JNIEXPORT NSString *ThrowableToNSString(JNIEnv *env, jthrowable exc);
 

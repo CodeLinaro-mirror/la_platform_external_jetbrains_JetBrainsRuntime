@@ -43,6 +43,7 @@ import java.util.logging.LoggingPermission;
  * JDBC concrete classes
  */
 public class TestPolicy extends Policy {
+    static final Policy DEFAULT_POLICY = Policy.getPolicy();
 
     final PermissionCollection permissions = new Permissions();
 
@@ -144,6 +145,6 @@ public class TestPolicy extends Policy {
 
     @Override
     public boolean implies(ProtectionDomain domain, Permission perm) {
-        return permissions.implies(perm);
+        return permissions.implies(perm) || DEFAULT_POLICY.implies(domain, perm);
     }
 }

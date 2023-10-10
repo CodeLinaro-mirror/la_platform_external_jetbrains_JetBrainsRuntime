@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,11 +31,11 @@ import java.awt.Frame;
 import java.awt.GraphicsConfiguration;
 import java.awt.MenuBar;
 import java.awt.Rectangle;
+import java.awt.peer.ComponentPeer;
 import java.awt.peer.FramePeer;
 import java.security.AccessController;
 
 import sun.awt.AWTAccessor;
-import sun.awt.SunToolkit;
 import sun.awt.im.InputMethodManager;
 import sun.security.action.GetPropertyAction;
 
@@ -71,6 +71,7 @@ class WFramePeer extends WWindowPeer implements FramePeer {
     private native void setMaximizedBounds(int x, int y, int w, int h);
     private native void clearMaximizedBounds();
 
+    @SuppressWarnings("removal")
     private static final boolean keepOnMinimize = "true".equals(
         AccessController.doPrivileged(
             new GetPropertyAction(
@@ -101,7 +102,6 @@ class WFramePeer extends WWindowPeer implements FramePeer {
     private Rectangle adjustMaximizedBounds(Rectangle bounds) {
         // All calculations should be done in the device space
         bounds = toDeviceSpaceAbs(bounds);
-
         GraphicsConfiguration gc = getGraphicsConfiguration();
         Rectangle currentDevBounds = getGCDeviceBounds(gc);
         // Prepare data for WM_GETMINMAXINFO message.
@@ -127,7 +127,7 @@ class WFramePeer extends WWindowPeer implements FramePeer {
     @Override
     public void displayChanged() {
         super.displayChanged();
-        SunToolkit.executeOnEventHandlerThread(target, this::updateIcon);
+        updateIcon();
     }
 
     private native void updateIcon();
@@ -164,7 +164,7 @@ class WFramePeer extends WWindowPeer implements FramePeer {
         if (!((Frame)target).isUndecorated()) {
             d.setSize(toUserSpace(gc, getSysMinWidth(), getSysMinHeight()));
         }
-        if (((Frame)target).getMenuBar() != null) {
+        if (((Frame) target).getMenuBar() != null) {
             d.height += toUserSpace(gc, 0, getSysMenuHeight()).height;
         }
         return d;
@@ -254,4 +254,32 @@ class WFramePeer extends WWindowPeer implements FramePeer {
     }
 
     private native void synthesizeWmActivate(boolean activate);
+
+    // JBR API internals
+    private static void updateCustomTitleBar(ComponentPeer peer) {
+        // In native code AwtDialog is actually a descendant of AwtFrame,
+        // so we don't distinguish between WFramePeer and WDialogPeer here,
+        // just treat WFramePeer like a base class.
+        if (peer instanceof WFramePeer || peer instanceof WDialogPeer) {
+            updateCustomTitleBar((WWindowPeer) peer);
+        }
+    }
+    private static native void updateCustomTitleBar(WWindowPeer peer);
+
+    @SuppressWarnings("removal")
+    private static boolean isWin11OrNewer() {
+        String osName = AccessController.doPrivileged(new GetPropertyAction("os.name"));
+        String osVersion = AccessController.doPrivileged(new GetPropertyAction("os.version"));
+        if ("Windows 10".equals(osName)) {
+            return false;
+        } else {
+            int version = 10;
+            try {
+                version = (int) Double.parseDouble(osVersion);
+            } catch (NullPointerException | NumberFormatException ignored) {}
+            return version >= 10;
+        }
+    }
+    // Used from native
+    private static final boolean WIN11_OR_NEWER = isWin11OrNewer();
 }

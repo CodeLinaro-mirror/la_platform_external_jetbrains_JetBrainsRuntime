@@ -43,7 +43,7 @@ static void TransferFailed(JNIEnv *env, jobject jthis, jlong jdroptarget, jlong 
     AWT_ASSERT_NOT_APPKIT_THREAD;
     GET_DTCP_CLASS();
     DECLARE_METHOD(transferFailedMethod, jc_CDropTargetContextPeer, "transferFailed", "(J)V");
-    (*env)->CallVoidMethod(env, jthis, transferFailedMethod, jformat);
+    (*env)->CallVoidMethod(env, jthis, transferFailedMethod, jformat); // AWT_THREADING Safe (!appKit)
     CHECK_EXCEPTION();
 }
 
@@ -101,7 +101,7 @@ JNI_COCOA_ENTER(env);
 
     // Pass the data to drop target:
     @try {
-        (*env)->CallVoidMethod(env, jthis, newDataMethod, jformat, jdropdata);
+        (*env)->CallVoidMethod(env, jthis, newDataMethod, jformat, jdropdata); // AWT_THREADING Safe (!appKit)
     } @catch (NSException *ex) {
         DLog2(@"[CDropTargetContextPeer startTransfer]: exception in newData() for %d.\n", (NSInteger) jdroptarget);
         (*env)->DeleteGlobalRef(env, jdropdata);

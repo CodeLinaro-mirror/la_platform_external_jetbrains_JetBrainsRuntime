@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2018, 2019, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -27,7 +28,10 @@
 #include "gc/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc/shenandoah/shenandoahPacer.hpp"
 #include "gc/shenandoah/shenandoahPhaseTimings.hpp"
+#include "runtime/atomic.hpp"
+#include "runtime/javaThread.inline.hpp"
 #include "runtime/mutexLocker.hpp"
+#include "runtime/threadSMR.hpp"
 
 /*
  * In normal concurrent cycle, we have to pace the application to let GC finish.
@@ -151,16 +155,6 @@ void ShenandoahPacer::setup_for_idle() {
  * the allocators unnecessarily, allow them to run unimpeded.
  */
 
-void ShenandoahPacer::setup_for_preclean() {
-  assert(ShenandoahPacing, "Only be here when pacing is enabled");
-
-  size_t initial = _heap->max_capacity();
-  restart_with(initial, 1.0);
-
-  log_info(gc, ergo)("Pacer for Precleaning. Non-Taxable: " SIZE_FORMAT "%s",
-                     byte_size_in_proper_unit(initial), proper_unit_for_byte_size(initial));
-}
-
 void ShenandoahPacer::setup_for_reset() {
   assert(ShenandoahPacing, "Only be here when pacing is enabled");
 
@@ -174,12 +168,12 @@ void ShenandoahPacer::setup_for_reset() {
 size_t ShenandoahPacer::update_and_get_progress_history() {
   if (_progress == -1) {
     // First initialization, report some prior
-    Atomic::store((intptr_t)PACING_PROGRESS_ZERO, &_progress);
+    Atomic::store(&_progress, (intptr_t)PACING_PROGRESS_ZERO);
     return (size_t) (_heap->max_capacity() * 0.1);
   } else {
     // Record history, and reply historical data
     _progress_history->add(_progress);
-    Atomic::store((intptr_t)PACING_PROGRESS_ZERO, &_progress);
+    Atomic::store(&_progress, (intptr_t)PACING_PROGRESS_ZERO);
     return (size_t) (_progress_history->avg() * HeapWordSize);
   }
 }
@@ -187,8 +181,8 @@ size_t ShenandoahPacer::update_and_get_progress_history() {
 void ShenandoahPacer::restart_with(size_t non_taxable_bytes, double tax_rate) {
   size_t initial = (size_t)(non_taxable_bytes * tax_rate) >> LogHeapWordSize;
   STATIC_ASSERT(sizeof(size_t) <= sizeof(intptr_t));
-  Atomic::xchg((intptr_t)initial, &_budget, memory_order_relaxed);
-  Atomic::store(tax_rate, &_tax_rate);
+  Atomic::xchg(&_budget, (intptr_t)initial, memory_order_relaxed);
+  Atomic::store(&_tax_rate, tax_rate);
   Atomic::inc(&_epoch);
 
   // Shake up stalled waiters after budget update.
@@ -209,7 +203,7 @@ bool ShenandoahPacer::claim_for_alloc(size_t words, bool force) {
       return false;
     }
     new_val = cur - tax;
-  } while (Atomic::cmpxchg(new_val, &_budget, cur, memory_order_relaxed) != cur);
+  } while (Atomic::cmpxchg(&_budget, cur, new_val, memory_order_relaxed) != cur);
   return true;
 }
 
@@ -248,7 +242,13 @@ void ShenandoahPacer::pace_for_alloc(size_t words) {
   // Threads that are attaching should not block at all: they are not
   // fully initialized yet. Blocking them would be awkward.
   // This is probably the path that allocates the thread oop itself.
-  if (JavaThread::current()->is_attaching_via_jni()) {
+  //
+  // Thread which is not an active Java thread should also not block.
+  // This can happen during VM init when main thread is still not an
+  // active Java thread.
+  JavaThread* current = JavaThread::current();
+  if (current->is_attaching_via_jni() ||
+      !current->is_active_Java_thread()) {
     return;
   }
 
@@ -282,13 +282,13 @@ void ShenandoahPacer::wait(size_t time_ms) {
   // the thread interruptible status. MonitorLocker also checks for safepoints.
   assert(time_ms > 0, "Should not call this with zero argument, as it would stall until notify");
   assert(time_ms <= LONG_MAX, "Sanity");
-  MonitorLockerEx locker(_wait_monitor);
-  _wait_monitor->wait(!Mutex::_no_safepoint_check_flag, (long)time_ms);
+  MonitorLocker locker(_wait_monitor);
+  _wait_monitor->wait((long)time_ms);
 }
 
 void ShenandoahPacer::notify_waiters() {
   if (_need_notify_waiters.try_unset()) {
-    MonitorLockerEx locker(_wait_monitor);
+    MonitorLocker locker(_wait_monitor);
     _wait_monitor->notify_all();
   }
 }

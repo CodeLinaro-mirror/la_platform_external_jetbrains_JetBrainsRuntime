@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,22 +26,25 @@
  * @bug      8182108
  * @summary  Verify that grand parent interface types are correct, and
  *           various interface related sections are correctly generated.
- * @library  ../lib
+ * @library  ../../lib
  * @modules jdk.javadoc/jdk.javadoc.internal.tool
- * @build    JavadocTester
+ * @build    javadoc.tester.*
  * @run main TestGrandParentTypes
  */
+
+import javadoc.tester.JavadocTester;
 
 public class TestGrandParentTypes extends JavadocTester {
 
     public static void main(String... args) throws Exception {
-        TestGrandParentTypes tester = new TestGrandParentTypes();
+        var tester = new TestGrandParentTypes();
         tester.runTests();
     }
 
     @Test
-    void test1() {
+    public void test1() {
         javadoc("-d", "out-1",
+                "--no-platform-links",
                 "-package",
                 "-sourcepath", testSrc,
                 "pkg1");

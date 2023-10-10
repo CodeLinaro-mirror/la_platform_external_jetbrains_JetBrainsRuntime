@@ -34,14 +34,14 @@ import jdk.test.lib.security.SecurityUtils;
  *          /test/lib
  * @summary Test TLS ciphersuites order set through System properties
  * @run main/othervm
- *      -Djdk.tls.client.cipherSuites=TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384
- *      -Djdk.tls.server.cipherSuites=TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256
+ *      -Djdk.tls.client.cipherSuites=TLS_CHACHA20_POLY1305_SHA256,TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384
+ *      -Djdk.tls.server.cipherSuites=TLS_AES_256_GCM_SHA384,TLS_CHACHA20_POLY1305_SHA256,TLS_AES_128_GCM_SHA256
  *      SystemPropCipherSuitesOrder TLSv1.3
  * @run main/othervm
- *      -Djdk.tls.client.cipherSuites=TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384
+ *      -Djdk.tls.client.cipherSuites=TLS_CHACHA20_POLY1305_SHA256,TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384
  *      SystemPropCipherSuitesOrder TLSv1.3
  * @run main/othervm
- *      -Djdk.tls.server.cipherSuites=TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384
+ *      -Djdk.tls.server.cipherSuites=TLS_AES_128_GCM_SHA256,TLS_CHACHA20_POLY1305_SHA256,TLS_AES_256_GCM_SHA384
  *      SystemPropCipherSuitesOrder TLSv1.3
  * @run main/othervm
  *      -Djdk.tls.client.cipherSuites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384

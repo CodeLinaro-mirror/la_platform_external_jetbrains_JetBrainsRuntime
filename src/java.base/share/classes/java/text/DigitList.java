@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -92,7 +92,7 @@ final class DigitList implements Cloneable {
      * f is a value 0.1 <= f < 1 arrived at by placing the digits in Digits to
      * the right of the decimal.
      *
-     * DigitList is normalized, so if it is non-zero, figits[0] is non-zero.  We
+     * DigitList is normalized, so if it is non-zero, digits[0] is non-zero.  We
      * don't allow denormalized numbers because our exponent is effectively of
      * unlimited magnitude.  The count value contains the number of significant
      * digits present in digits[].
@@ -153,25 +153,26 @@ final class DigitList implements Cloneable {
 
     /**
      * Utility routine to get the value of the digit list
-     * If (count == 0) this throws a NumberFormatException, which
-     * mimics Long.parseLong().
+     * If (count == 0) this returns 0.0,
+     * unlike Double.parseDouble("") which throws NumberFormatException.
      */
     public final double getDouble() {
         if (count == 0) {
             return 0.0;
         }
 
-        StringBuffer temp = getStringBuffer();
-        temp.append('.');
-        temp.append(digits, 0, count);
-        temp.append('E');
-        temp.append(decimalAt);
-        return Double.parseDouble(temp.toString());
+        return Double.parseDouble(getStringBuilder()
+                .append('.')
+                .append(digits, 0, count)
+                .append('E')
+                .append(decimalAt)
+                .toString());
     }
 
     /**
      * Utility routine to get the value of the digit list.
-     * If (count == 0) this returns 0, unlike Long.parseLong().
+     * If (count == 0) this returns 0,
+     * unlike Long.parseLong("") which throws NumberFormatException.
      */
     public final long getLong() {
         // for now, simple implementation; later, do proper IEEE native stuff
@@ -187,7 +188,7 @@ final class DigitList implements Cloneable {
             return Long.MIN_VALUE;
         }
 
-        StringBuffer temp = getStringBuffer();
+        StringBuilder temp = getStringBuilder();
         temp.append(digits, 0, count);
         for (int i = count; i < decimalAt; ++i) {
             temp.append('0');
@@ -195,6 +196,11 @@ final class DigitList implements Cloneable {
         return Long.parseLong(temp.toString());
     }
 
+    /**
+     * Utility routine to get the value of the digit list.
+     * If (count == 0) this does not throw a NumberFormatException,
+     * unlike BigDecimal("").
+     */
     public final BigDecimal getBigDecimal() {
         if (count == 0) {
             if (decimalAt == 0) {
@@ -439,15 +445,15 @@ final class DigitList implements Cloneable {
      * java.math.RoundingMode class.
      * [bnf]
      * @param maximumDigits the number of digits to keep, from 0 to
-     * <code>count-1</code>.  If 0, then all digits are rounded away, and
+     * {@code count-1}.  If 0, then all digits are rounded away, and
      * this method returns true if a one should be generated (e.g., formatting
      * 0.09 with "#.#").
      * @param alreadyRounded whether or not rounding up has already happened.
      * @param valueExactAsDecimal whether or not collected digits provide
      * an exact decimal representation of the value.
-     * @exception ArithmeticException if rounding is needed with rounding
+     * @throws    ArithmeticException if rounding is needed with rounding
      *            mode being set to RoundingMode.UNNECESSARY
-     * @return true if digit <code>maximumDigits-1</code> should be
+     * @return true if digit {@code maximumDigits-1} should be
      * incremented
      */
     private boolean shouldRoundUp(int maximumDigits,
@@ -461,7 +467,7 @@ final class DigitList implements Cloneable {
              * rounding done, is needed in this class.
              *
              * - For the  HALF_DOWN, HALF_EVEN, HALF_UP rounding rules below:
-             *   In the case of formating float or double, We must take into
+             *   In the case of formatting float or double, We must take into
              *   account what FloatingDecimal has done in the binary to decimal
              *   conversion.
              *
@@ -469,7 +475,7 @@ final class DigitList implements Cloneable {
              *   value (returning decimal digits equal to tie when it is below),
              *   or "truncate" the value to the tie while value is above it,
              *   or provide the exact decimal digits when the binary value can be
-             *   converted exactly to its decimal representation given formating
+             *   converted exactly to its decimal representation given formatting
              *   rules of FloatingDecimal ( we have thus an exact decimal
              *   representation of the binary value).
              *
@@ -702,9 +708,8 @@ final class DigitList implements Cloneable {
     public boolean equals(Object obj) {
         if (this == obj)                      // quick check
             return true;
-        if (!(obj instanceof DigitList))         // (1) same object?
+        if (!(obj instanceof DigitList other))         // (1) same object?
             return false;
-        DigitList other = (DigitList) obj;
         if (count != other.count ||
         decimalAt != other.decimalAt)
             return false;
@@ -737,7 +742,7 @@ final class DigitList implements Cloneable {
             char[] newDigits = new char[digits.length];
             System.arraycopy(digits, 0, newDigits, 0, digits.length);
             other.digits = newDigits;
-            other.tempBuffer = null;
+            other.tempBuilder = null;
             return other;
         } catch (CloneNotSupportedException e) {
             throw new InternalError(e);
@@ -789,23 +794,24 @@ final class DigitList implements Cloneable {
         if (isZero()) {
             return "0";
         }
-        StringBuffer buf = getStringBuffer();
-        buf.append("0.");
-        buf.append(digits, 0, count);
-        buf.append("x10^");
-        buf.append(decimalAt);
-        return buf.toString();
+
+        return getStringBuilder()
+                .append("0.")
+                .append(digits, 0, count)
+                .append("x10^")
+                .append(decimalAt)
+                .toString();
     }
 
-    private StringBuffer tempBuffer;
+    private StringBuilder tempBuilder;
 
-    private StringBuffer getStringBuffer() {
-        if (tempBuffer == null) {
-            tempBuffer = new StringBuffer(MAX_COUNT);
+    private StringBuilder getStringBuilder() {
+        if (tempBuilder == null) {
+            tempBuilder = new StringBuilder(MAX_COUNT);
         } else {
-            tempBuffer.setLength(0);
+            tempBuilder.setLength(0);
         }
-        return tempBuffer;
+        return tempBuilder;
     }
 
     private void extendDigits(int len) {

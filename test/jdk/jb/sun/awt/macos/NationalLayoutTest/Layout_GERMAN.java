@@ -1,17 +1,24 @@
 /*
- * Copyright 2000-2019 JetBrains s.r.o.
+ * Copyright 2000-2023 JetBrains s.r.o.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
  */
 
 /**
@@ -19,17 +26,18 @@
  * @summary Regression test for IDEA-165950: National keyboard layouts support
  * @requires (jdk.version.major >= 8 & os.family == "mac")
  * @modules java.desktop/sun.lwawt.macosx
- * @run main NationalLayoutTest GERMAN
+ * @run main/othervm -Dcom.sun.awt.reportDeadKeysAsNormal=false NationalLayoutTest GERMAN
+ * @run main/othervm -Dcom.sun.awt.reportDeadKeysAsNormal=true NationalLayoutTest nodead GERMAN
  */
 
 /*
  * Enumerates keys under test for com.apple.keylayout.German (macOS 10.14.5)
  */
 public enum Layout_GERMAN implements LayoutKey {
-
     // Enum name must be the same as KeyEvent.VK_ constant name corresponding to the key on US keyboard layout
     // Note that '\u0000' may be used if no char is mapped to a key + modifier or if one wants to skip its testing
 
+    VK_SECTION       (KeyChar.dead('^'), KeyChar.ch('„'), KeyChar.ch('°'), KeyChar.ch('“'), KeyChar.ch('\u001E')),
     //  Eszett
     VK_MINUS         ('ß', '¿', '?', '˙', 'ß'),
     VK_EQUALS        (KeyChar.dead('´'), KeyChar.ch('\''), KeyChar.dead('`'), KeyChar.ch('˚'), KeyChar.ch('´')),

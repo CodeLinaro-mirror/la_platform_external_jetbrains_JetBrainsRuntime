@@ -40,7 +40,7 @@ import org.testng.annotations.Test;
 
 /*
  * @test
- * @run testng/othervm PermissionTest
+ * @run testng/othervm -Djava.security.manager=allow PermissionTest
  * @summary Test Permissions to access Info
  */
 
@@ -187,6 +187,9 @@ public class PermissionTest {
 }
 
 class TestPolicy extends Policy {
+
+    static final Policy DEFAULT_POLICY = Policy.getPolicy();
+
     private final PermissionCollection permissions = new Permissions();
 
     public TestPolicy() {
@@ -237,6 +240,6 @@ class TestPolicy extends Policy {
 
     @Override
     public boolean implies(ProtectionDomain domain, Permission perm) {
-        return permissions.implies(perm);
+        return permissions.implies(perm) || DEFAULT_POLICY.implies(domain, perm);
     }
 }

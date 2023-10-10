@@ -41,9 +41,9 @@ public class CloseRegisteredChannel {
         //System.out.println ("listening on port " + port);
 
         SocketChannel client = SocketChannel.open ();
-        client.connect (new InetSocketAddress ("127.0.0.1", port));
-        SocketChannel peer = server.accept ();
-        peer.configureBlocking (true);
+        client.connect (new InetSocketAddress (InetAddress.getLoopbackAddress(), port));
+        SocketChannel peer = server.accept();
+        peer.configureBlocking(true);
 
         Selector selector = Selector.open ();
         client.configureBlocking (false);

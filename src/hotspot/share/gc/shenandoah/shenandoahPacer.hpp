@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2018, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2018, 2019, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -21,8 +22,8 @@
  *
  */
 
-#ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHPACER_HPP
-#define SHARE_VM_GC_SHENANDOAH_SHENANDOAHPACER_HPP
+#ifndef SHARE_GC_SHENANDOAH_SHENANDOAHPACER_HPP
+#define SHARE_GC_SHENANDOAH_SHENANDOAHPACER_HPP
 
 #include "gc/shenandoah/shenandoahNumberSeq.hpp"
 #include "gc/shenandoah/shenandoahPadding.hpp"
@@ -66,7 +67,7 @@ public:
           _heap(heap),
           _last_time(os::elapsedTime()),
           _progress_history(new TruncatedSeq(5)),
-          _wait_monitor(new Monitor(Mutex::leaf, "_wait_monitor", true, Monitor::_safepoint_check_always)),
+          _wait_monitor(new Monitor(Mutex::safepoint-1, "ShenandoahWaitMonitor_lock", true)),
           _epoch(0),
           _tax_rate(1),
           _budget(0),
@@ -78,7 +79,6 @@ public:
   void setup_for_updaterefs();
 
   void setup_for_reset();
-  void setup_for_preclean();
 
   inline void report_mark(size_t words);
   inline void report_evac(size_t words);
@@ -109,4 +109,4 @@ private:
   void wait(size_t time_ms);
 };
 
-#endif //SHARE_VM_GC_SHENANDOAH_SHENANDOAHPACER_HPP
+#endif // SHARE_GC_SHENANDOAH_SHENANDOAHPACER_HPP

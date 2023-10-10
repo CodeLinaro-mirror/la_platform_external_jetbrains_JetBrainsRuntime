@@ -55,7 +55,6 @@ import java.awt.dnd.DropTargetDropEvent;
 import java.awt.dnd.DropTargetEvent;
 import java.awt.dnd.DropTargetListener;
 import java.awt.event.InputEvent;
-
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.CountDownLatch;
@@ -65,7 +64,6 @@ import javax.swing.JFrame;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
-
 
 /**
  * If dragGestureRecognized() takes a while to complete and if user performs a drag quickly,
@@ -115,7 +113,6 @@ public class bug8024061 {
         content.add(panel2);
 
         frame.pack();
-
         frame.setLocationRelativeTo(null);
         DropObject drop = new DropObject();
         drop.place(panel1, new Point(10, 10));

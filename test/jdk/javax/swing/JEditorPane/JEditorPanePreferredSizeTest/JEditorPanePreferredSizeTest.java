@@ -4,7 +4,7 @@ import java.lang.reflect.InvocationTargetException;
 
 /* @test
  * bug JRE-934
- * @summary Diff viewer errors are not visible on HiDPI Linux
+ * @summary Diff viewer errors are not visible on HiDPI Linux (fixed by JDK-8231084)
  * @run main JEditorPanePreferredSizeTest
  */
 public class JEditorPanePreferredSizeTest {

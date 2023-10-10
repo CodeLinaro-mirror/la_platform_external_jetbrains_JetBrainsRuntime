@@ -21,30 +21,38 @@
  * questions.
  */
 
+package gc.epsilon;
+
 /**
  * @test TestAlignment
- * @key gc
- * @requires vm.gc.Epsilon & !vm.graal.enabled
+ * @requires vm.gc.Epsilon
  * @summary Check Epsilon runs fine with (un)usual alignments
  * @bug 8212005
  *
  * @run main/othervm -Xmx64m -XX:+UseTLAB
  *                   -XX:+UnlockExperimentalVMOptions -XX:+UseEpsilonGC
- *                   TestAlignment
+ *                   gc.epsilon.TestAlignment
  *
  * @run main/othervm -Xmx64m -XX:-UseTLAB
  *                   -XX:+UnlockExperimentalVMOptions -XX:+UseEpsilonGC
- *                   TestAlignment
- *
+ *                   gc.epsilon.TestAlignment
+ */
+
+/**
+ * @test TestAlignment
+ * @requires vm.gc.Epsilon
+ * @requires vm.bits == "64"
+ * @summary Check Epsilon TLAB options with unusual object alignment
+ * @bug 8212177
  * @run main/othervm -Xmx64m -XX:+UseTLAB
  *                   -XX:+UnlockExperimentalVMOptions -XX:+UseEpsilonGC
- *                   -XX:+IgnoreUnrecognizedVMOptions -XX:ObjectAlignmentInBytes=16
- *                   TestAlignment
+ *                   -XX:ObjectAlignmentInBytes=16
+ *                   gc.epsilon.TestAlignment
  *
  * @run main/othervm -Xmx64m -XX:-UseTLAB
  *                   -XX:+UnlockExperimentalVMOptions -XX:+UseEpsilonGC
- *                   -XX:+IgnoreUnrecognizedVMOptions -XX:ObjectAlignmentInBytes=16
- *                   TestAlignment
+ *                   -XX:ObjectAlignmentInBytes=16
+ *                   gc.epsilon.TestAlignment
  */
 
 public class TestAlignment {

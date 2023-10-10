@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,11 +36,6 @@
     GLenum target;
     float textureWidth;
     float textureHeight;
-#ifdef REMOTELAYER
-    CGLLayer *parentLayer;
-    CGLLayer *remoteLayer;
-    NSObject<JRSRemoteLayer> *jrsRemoteLayer;
-#endif /* REMOTELAYER */
 }
 
 @property (nonatomic) jobject javaLayer;
@@ -48,12 +43,6 @@
 @property (readwrite, assign) GLenum target;
 @property (readwrite, assign) float textureWidth;
 @property (readwrite, assign) float textureHeight;
-
-#ifdef REMOTELAYER
-@property (nonatomic, retain) CGLLayer *parentLayer;
-@property (nonatomic, retain) CGLLayer *remoteLayer;
-@property (nonatomic, retain) NSObject<JRSRemoteLayer> *jrsRemoteLayer;
-#endif
 
 - (id) initWithJavaLayer:(jobject)javaLayer;
 - (void) blitTexture;

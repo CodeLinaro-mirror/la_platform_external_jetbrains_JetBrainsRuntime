@@ -27,7 +27,6 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
@@ -63,8 +62,7 @@ public class CRCWriteTest {
         String[] msg = {"Hello ", "Tennis Anyone", "!!!!"};
         Entry e0 = Entry.of("Entry-0", ZipEntry.DEFLATED, String.join("",msg));
 
-        try (FileSystem zipfs = FileSystems.newFileSystem(
-                new URI("jar", JAR_FILE.toUri().toString(), null),
+        try (FileSystem zipfs = FileSystems.newFileSystem(JAR_FILE,
                 Map.of("create", "true"))) {
 
             // Write to the Jar file using the various OutputStream write methods
@@ -144,7 +142,7 @@ public class CRCWriteTest {
         }
 
         // Check entries with FileSystem API
-        try (FileSystem fs = FileSystems.newFileSystem(zipfile, null)) {
+        try (FileSystem fs = FileSystems.newFileSystem(zipfile)) {
             // check entry count
             Path top = fs.getPath("/");
             long count = Files.find(top, Integer.MAX_VALUE,

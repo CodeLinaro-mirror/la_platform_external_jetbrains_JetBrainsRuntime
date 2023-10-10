@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -422,12 +422,7 @@ public class GenModuleInfoSource {
                     Statement statement = getStatement(keyword, name);
                     switch (keyword) {
                         case "exports":
-                            /* JBR patch: Allow duplicate exports for module-info.java.extra files
-                             * This fixes failing builds when building with JFX
-                             * See https://bugs.openjdk.java.net/browse/JDK-8167314?focusedCommentId=14025789
-                             * and https://bugs.openjdk.java.net/browse/JDK-8195798
-                             */
-                            if (exports.containsKey(name) && !extraFile) {
+                            if (exports.containsKey(name)) {
                                 throw parser.newError("multiple " + keyword + " " + name);
                             }
                             exports.put(name, statement);
@@ -444,14 +439,12 @@ public class GenModuleInfoSource {
                             }
                             uses.put(name, statement);
                             break;
-                        /*  Disable this check until jdk.internal.vm.compiler generated file is fixed.
                         case "provides":
                             if (provides.containsKey(name)) {
                                 throw parser.newError("multiple " + keyword + " " + name);
                             }
                             provides.put(name, statement);
                             break;
-                        */
                     }
                     String lookAhead = lookAhead(parser);
                     if (lookAhead.equals(statement.qualifier)) {

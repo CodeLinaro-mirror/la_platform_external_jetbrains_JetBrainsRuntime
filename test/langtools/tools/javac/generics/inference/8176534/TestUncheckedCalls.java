@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,10 +35,7 @@ import java.util.stream.Stream;
  * @summary Missing check against target-type during applicability inference
  * @library /tools/javac/lib
  * @modules jdk.compiler/com.sun.tools.javac.api
- *          jdk.compiler/com.sun.tools.javac.code
- *          jdk.compiler/com.sun.tools.javac.comp
- *          jdk.compiler/com.sun.tools.javac.main
- *          jdk.compiler/com.sun.tools.javac.tree
+ *          jdk.compiler/com.sun.tools.javac.file
  *          jdk.compiler/com.sun.tools.javac.util
  * @build combo.ComboTestHelper
  *
@@ -221,7 +218,7 @@ public class TestUncheckedCalls extends ComboInstance<TestUncheckedCalls> {
         return Stream.of(decls)
                 .filter(d -> d.hasKind(DeclKind.NONE))
                 .flatMap(d -> Stream.of(d.returnKind(), d.argumentsKind(), d.typeVarsKind()))
-                .noneMatch(tk -> tk.ordinal() != 0);
+                .noneMatch((Enum<? extends Enum<?>> tk) -> tk.ordinal() != 0);
     }
 
     boolean tvarFilter() {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2016, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,6 +26,7 @@
 #import "JNIUtilities.h"
 
 #import <ApplicationServices/ApplicationServices.h>
+#import <Carbon/Carbon.h>
 
 #import "CRobotKeyCode.h"
 #import "LWCToolkit.h"
@@ -46,10 +47,6 @@
 #define ROBOT_EVENT_NUMBER_START 32000
 
 #define k_JAVA_ROBOT_WHEEL_COUNT 1
-
-#if !defined(kCGBitmapByteOrder32Host)
-#define kCGBitmapByteOrder32Host 0
-#endif
 
 // In OS X, left and right mouse button share the same click count.
 // That is, if one starts clicking the left button rapidly and then
@@ -328,7 +325,33 @@ Java_sun_lwawt_macosx_CRobot_keyEvent
     autoDelay(NO);
     [ThreadUtilities performOnMainThreadWaiting:YES block:^(){
         CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
-        CGKeyCode keyCode = GetCGKeyCode(javaKeyCode);
+        CGKeyCode keyCode;
+
+        if (javaKeyCode & 0x2000000) {
+            // This is a dirty, dirty hack and is only used in tests.
+            // This allows us to send macOS virtual key code directly, without first looking up a Java key code.
+            // It also allows the caller to set the physical keyboard layout directly.
+            // The key code that should be passed to Robot in this case is the following:
+            //   0x2000000 | keyCode | (physicalLayout << 8)
+            // where physicalLayout is:
+            //   0 - ANSI
+            //   1 - ISO
+            //   2 - JIS
+
+            UInt32 physicalLayout = (javaKeyCode >> 8) & 0xff;
+            UInt32 keyboardType;
+            if (physicalLayout == 1) {
+                keyboardType = 41; // ISO
+            } else if (physicalLayout == 2) {
+                keyboardType = 42; // JIS
+            } else {
+                keyboardType = 40; // ANSI
+            }
+            CGEventSourceSetKeyboardType(source, keyboardType);
+            keyCode = javaKeyCode & 0xff;
+        } else {
+            keyCode = GetCGKeyCode(javaKeyCode);
+        }
         CGEventRef event = CGEventCreateKeyboardEvent(source, keyCode, keyPressed);
         if (event != NULL) {
              // this assumes Robot isn't used to generate Fn key presses
@@ -360,6 +383,11 @@ Java_sun_lwawt_macosx_CRobot_nativeGetScreenPixels
     jint picY = y;
     jint picWidth = width;
     jint picHeight = height;
+    jsize size = (*env)->GetArrayLength(env, pixels);
+    if (size < (long) picWidth * picHeight || picWidth < 0 || picHeight < 0) {
+        JNU_ThrowInternalError(env, "Invalid arguments to get screen pixels");
+        return;
+    }
 
     CGRect screenRect = CGRectMake(picX / scale, picY / scale,
                                 picWidth / scale, picHeight / scale);
@@ -384,7 +412,7 @@ Java_sun_lwawt_macosx_CRobot_nativeGetScreenPixels
                                             8, picWidth * sizeof(jint),
                                             picColorSpace,
                                             kCGBitmapByteOrder32Host |
-                                            kCGImageAlphaPremultipliedFirst);
+                                            kCGImageAlphaNoneSkipFirst);
 
     CGColorSpaceRelease(picColorSpace);
 

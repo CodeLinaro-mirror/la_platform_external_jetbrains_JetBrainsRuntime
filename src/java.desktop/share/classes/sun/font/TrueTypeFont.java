@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,7 +27,6 @@ package sun.font;
 
 import java.awt.Font;
 import java.awt.FontFormatException;
-import java.awt.GraphicsEnvironment;
 import java.awt.geom.Point2D;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -42,16 +41,18 @@ import java.nio.channels.FileChannel;
 import java.security.AccessController;
 import java.security.PrivilegedActionException;
 import java.security.PrivilegedExceptionAction;
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Map.Entry;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import sun.java2d.Disposer;
 import sun.java2d.DisposerRecord;
+import sun.security.action.GetPropertyAction;
 
 /**
  * TrueTypeFont is not called SFntFont because it is not expected
@@ -60,10 +61,10 @@ import sun.java2d.DisposerRecord;
  * create an SFnt superclass. Eg to handle sfnt-housed postscript fonts.
  * OpenType fonts are handled by this class, and possibly should be
  * represented by a subclass.
- * An instance stores some information from the font file to faciliate
+ * An instance stores some information from the font file to facilitate
  * faster access. File size, the table directory and the names of the font
  * are the most important of these. It amounts to approx 400 bytes
- * for a typical font. Systems with mutiple locales sometimes have up to 400
+ * for a typical font. Systems with multiple locales sometimes have up to 400
  * font files, and an app which loads all font files would need around
  * 160Kbytes. So storing any more info than this would be expensive.
  */
@@ -114,6 +115,7 @@ public class TrueTypeFont extends FileFont {
     public static final int SUBFAMILY_NAME_ID = 2;
     // public static final int STYLE_WEIGHT_ID = 2; // currently unused.
     public static final int FULL_NAME_ID = 4;
+    public static final int VERSION_NAME_ID = 5;
     public static final int POSTSCRIPT_NAME_ID = 6;
     public static final int TYPOGRAPHIC_FAMILY_NAME_ID = 16;
     public static final int TYPOGRAPHIC_SUBFAMILY_NAME_ID = 17;
@@ -188,6 +190,8 @@ public class TrueTypeFont extends FileFont {
     private String localeFullName;
     private String typographicFamilyName;
     private String typographicSubfamilyName;
+    private String version;
+    private String postScriptName;
 
     private Byte supportedCharset;
 
@@ -239,84 +243,9 @@ public class TrueTypeFont extends FileFont {
         Disposer.addObjectRecord(this, disposerRecord);
     }
 
-    /* Enable natives just for fonts picked up from the platform that
-     * may have external bitmaps on Solaris. Could do this just for
-     * the fonts that are specified in font configuration files which
-     * would lighten the burden (think about that).
-     * The EBLCTag is used to skip natives for fonts that contain embedded
-     * bitmaps as there's no need to use X11 for those fonts.
-     * Skip all the latin fonts as they don't need this treatment.
-     * Further refine this to fonts that are natively accessible (ie
-     * as PCF bitmap fonts on the X11 font path).
-     * This method is called when creating the first strike for this font.
-     */
-    @Override
-    protected boolean checkUseNatives() {
-        if (checkedNatives) {
-            return useNatives;
-        }
-        if (!FontUtilities.isSolaris || useJavaRasterizer ||
-            FontUtilities.useJDKScaler || nativeNames == null ||
-            getDirectoryEntry(EBLCTag) != null ||
-            GraphicsEnvironment.isHeadless()) {
-            checkedNatives = true;
-            return false; /* useNatives is false */
-        } else if (nativeNames instanceof String) {
-            String name = (String)nativeNames;
-            /* Don't do this for Latin fonts */
-            if (name.indexOf("8859") > 0) {
-                checkedNatives = true;
-                return false;
-            } else if (NativeFont.hasExternalBitmaps(name)) {
-                nativeFonts = new NativeFont[1];
-                try {
-                    nativeFonts[0] = new NativeFont(name, true);
-                    /* If reach here we have an non-latin font that has
-                     * external bitmaps and we successfully created it.
-                     */
-                    useNatives = true;
-                } catch (FontFormatException e) {
-                    nativeFonts = null;
-                }
-            }
-        } else if (nativeNames instanceof String[]) {
-            String[] natNames = (String[])nativeNames;
-            int numNames = natNames.length;
-            boolean externalBitmaps = false;
-            for (int nn = 0; nn < numNames; nn++) {
-                if (natNames[nn].indexOf("8859") > 0) {
-                    checkedNatives = true;
-                    return false;
-                } else if (NativeFont.hasExternalBitmaps(natNames[nn])) {
-                    externalBitmaps = true;
-                }
-            }
-            if (!externalBitmaps) {
-                checkedNatives = true;
-                return false;
-            }
-            useNatives = true;
-            nativeFonts = new NativeFont[numNames];
-            for (int nn = 0; nn < numNames; nn++) {
-                try {
-                    nativeFonts[nn] = new NativeFont(natNames[nn], true);
-                } catch (FontFormatException e) {
-                    useNatives = false;
-                    nativeFonts = null;
-                }
-            }
-        }
-        if (useNatives) {
-            glyphToCharMap = new char[getMapper().getNumGlyphs()];
-        }
-        checkedNatives = true;
-        return useNatives;
-    }
-
-
     private synchronized FileChannel open() throws FontFormatException {
         return open(true);
-     }
+    }
 
     /* This is intended to be called, and the returned value used,
      * from within a block synchronized on this font object.
@@ -329,9 +258,10 @@ public class TrueTypeFont extends FileFont {
                                      throws FontFormatException {
         if (disposerRecord.channel == null) {
             if (FontUtilities.isLogging()) {
-                FontUtilities.getLogger().info("open TTF: " + platName);
+                FontUtilities.logInfo("open TTF: " + platName);
             }
             try {
+                @SuppressWarnings("removal")
                 RandomAccessFile raf = AccessController.doPrivileged(
                     new PrivilegedExceptionAction<RandomAccessFile>() {
                         public RandomAccessFile run() throws FileNotFoundException {
@@ -395,9 +325,9 @@ public class TrueTypeFont extends FileFont {
                          */
                         if (FontUtilities.isLogging()) {
                             String msg = "Read offset is " + offset +
-                                " file size is " + fileSize+
-                                " file is " + platName;
-                            FontUtilities.getLogger().severe(msg);
+                                    " file size is " + fileSize+
+                                    " file is " + platName;
+                            FontUtilities.logSevere(msg);
                         }
                         return -1;
                     } else {
@@ -416,7 +346,7 @@ public class TrueTypeFont extends FileFont {
                                 " and now is " + currSize;
                         }
                         if (FontUtilities.isLogging()) {
-                            FontUtilities.getLogger().severe(msg);
+                            FontUtilities.logSevere(msg);
                         }
                         // We could still flip() the buffer here because
                         // it's possible that we did read some data in
@@ -431,9 +361,8 @@ public class TrueTypeFont extends FileFont {
                         if (bread > length/2 || bread > 16384) {
                             buffer.flip();
                             if (FontUtilities.isLogging()) {
-                                msg = "Returning " + bread +
-                                    " bytes instead of " + length;
-                                FontUtilities.getLogger().severe(msg);
+                                msg = "Returning " + bread + " bytes instead of " + length;
+                                FontUtilities.logSevere(msg);
                             }
                         } else {
                             bread = -1;
@@ -449,8 +378,7 @@ public class TrueTypeFont extends FileFont {
             }
         } catch (FontFormatException e) {
             if (FontUtilities.isLogging()) {
-                FontUtilities.getLogger().severe(
-                                       "While reading " + platName, e);
+                FontUtilities.getLogger().severe("While reading " + platName, e);
             }
             bread = -1; // signal EOF
             deregisterFontAndClearStrikeCache();
@@ -470,8 +398,7 @@ public class TrueTypeFont extends FileFont {
              * file are handled as a FontFormatException.
              */
             if (FontUtilities.isLogging()) {
-                FontUtilities.getLogger().severe(
-                                       "While reading " + platName, e);
+                FontUtilities.getLogger().severe("While reading " + platName, e);
             }
             if (bread == 0) {
                 bread = -1; // signal EOF
@@ -500,8 +427,6 @@ public class TrueTypeFont extends FileFont {
                 disposerRecord.channel.read(buffer);
                 buffer.flip();
             }
-        } catch (FontFormatException e) {
-            return null;
         } catch (ClosedChannelException e) {
             /* NIO I/O is interruptible, recurse to retry operation.
              * Clear interrupts before recursing in case NIO didn't.
@@ -509,7 +434,7 @@ public class TrueTypeFont extends FileFont {
             Thread.interrupted();
             close();
             readBlock(buffer, offset, length);
-        } catch (IOException e) {
+        } catch (FontFormatException | IOException e) {
             return null;
         }
         return buffer;
@@ -614,7 +539,7 @@ public class TrueTypeFont extends FileFont {
             initNames();
         } catch (Exception e) {
             if (FontUtilities.isLogging()) {
-                FontUtilities.getLogger().severe(e.toString());
+                FontUtilities.logSevere(e.toString());
             }
             if (e instanceof FontFormatException) {
                 throw (FontFormatException)e;
@@ -641,7 +566,7 @@ public class TrueTypeFont extends FileFont {
      * the windows encodings we expect as the default encoding in
      * supported locales, so we only map the first of these fields.
      */
-    static final String encoding_mapping[] = {
+    static final String[] encoding_mapping = {
         "cp1252",    /*  0:Latin 1  */
         "cp1250",    /*  1:Latin 2  */
         "cp1251",    /*  2:Cyrillic */
@@ -689,7 +614,7 @@ public class TrueTypeFont extends FileFont {
      * from needing to map to this small and incomplete set of Windows
      * code pages which looks odd on non-Windows platforms.
      */
-    private static final String languages[][] = {
+    private static final String[][] languages = {
 
         /* cp1252/Latin 1 */
         { "en", "ca", "da", "de", "es", "fi", "fr", "is", "it",
@@ -736,7 +661,7 @@ public class TrueTypeFont extends FileFont {
         { "ko" },
     };
 
-    private static final String codePages[] = {
+    private static final String[] codePages = {
         "cp1252",
         "cp1250",
         "cp1251",
@@ -754,6 +679,7 @@ public class TrueTypeFont extends FileFont {
     };
 
     private static String defaultCodePage = null;
+    @SuppressWarnings("removal")
     static String getCodePage() {
 
         if (defaultCodePage != null) {
@@ -762,8 +688,7 @@ public class TrueTypeFont extends FileFont {
 
         if (FontUtilities.isWindows) {
             defaultCodePage =
-                java.security.AccessController.doPrivileged(
-                   new sun.security.action.GetPropertyAction("file.encoding"));
+                AccessController.doPrivileged(new GetPropertyAction("file.encoding"));
         } else {
             if (languages.length != codePages.length) {
                 throw new InternalError("wrong code pages array length");
@@ -828,15 +753,15 @@ public class TrueTypeFont extends FileFont {
         }
 
         int range1 = buffer.getInt(78); /* ulCodePageRange1 */
-        int range2 = buffer.getInt(82); /* ulCodePageRange2 */
+        // int range2 = buffer.getInt(82); /* ulCodePageRange2 */
 
         /* This test is too stringent for Arial on Solaris (and perhaps
          * other fonts). Arial has at least one reserved bit set for an
          * unknown reason.
          */
-//         if (((range1 & reserved_bits1) | (range2 & reserved_bits2)) != 0) {
-//             return false;
-//         }
+        // if (((range1 & reserved_bits1) | (range2 & reserved_bits2)) != 0) {
+        //     return false;
+        // }
 
         for (int em=0; em<encoding_mapping.length; em++) {
             if (encoding_mapping[em].equals(encoding)) {
@@ -912,9 +837,7 @@ public class TrueTypeFont extends FileFont {
                 Thread.interrupted();
                 close();
                 return getTableBuffer(tag);
-            } catch (IOException e) {
-                return null;
-            } catch (FontFormatException e) {
+            } catch (IOException | FontFormatException e) {
                 return null;
             }
 
@@ -1073,14 +996,7 @@ public class TrueTypeFont extends FileFont {
             style = Font.ITALIC;
             break;
         case fsSelectionBoldBit:
-            if (FontUtilities.isSolaris && platName.endsWith("HG-GothicB.ttf")) {
-                /* Workaround for Solaris's use of a JA font that's marked as
-                 * being designed bold, but is used as a PLAIN font.
-                 */
-                style = Font.PLAIN;
-            } else {
-                style = Font.BOLD;
-            }
+            style = Font.BOLD;
             break;
         case fsSelectionBoldBit|fsSelectionItalicBit:
             style = Font.BOLD|Font.ITALIC;
@@ -1194,12 +1110,28 @@ public class TrueTypeFont extends FileFont {
             return new String(bytes, 0, len, charset);
         } catch (UnsupportedEncodingException e) {
             if (FontUtilities.isLogging()) {
-                FontUtilities.getLogger().warning(e + " EncodingID=" + encoding);
+                FontUtilities.logWarning(e + " EncodingID=" + encoding);
             }
             return new String(bytes, 0, len);
         } catch (Throwable t) {
             return null;
         }
+    }
+
+    public static String parseVersion(String str) {
+        // get first part sequence of digits and dots
+        Matcher matcher = Pattern.compile("\\d(\\p{XDigit}|\\.)*").matcher(str);
+        if (!matcher.find()) {
+            return "0";
+        }
+        // removing leading zeros and hex parts from version e.g. 00010.002.0ab12.300.040 -> 10.2.300.40
+        String res = Arrays.stream(matcher.group().split("\\.")).filter(s -> s.matches("\\d+")).
+                map(s -> (s.replaceFirst("^0*", ""))).map(s -> s.isEmpty() ? "0" : s).collect(Collectors.joining("."));
+        return !res.isEmpty() ? res : "0";
+    }
+
+    public String getVersion() {
+        return version;
     }
 
     protected void initNames() {
@@ -1311,6 +1243,22 @@ public class TrueTypeFont extends FileFont {
                     }
                     break;
 
+                case VERSION_NAME_ID:
+                    if (version == null || langID == ENGLISH_LOCALE_ID) {
+                        buffer.position(namePtr);
+                        buffer.get(name, 0, nameLen);
+                        version = parseVersion(makeString(name, nameLen, platformID, encodingID));
+                    }
+                    break;
+
+                case POSTSCRIPT_NAME_ID:
+                    if (postScriptName == null || langID == ENGLISH_LOCALE_ID) {
+                        buffer.position(namePtr);
+                        buffer.get(name, 0, nameLen);
+                        postScriptName = makeString(name, nameLen, platformID, encodingID);
+                    }
+                    break;
+
                 case TYPOGRAPHIC_FAMILY_NAME_ID:
                     if (typographicFamilyName == null || langID == ENGLISH_LOCALE_ID) {
                         buffer.position(namePtr);
@@ -1336,6 +1284,12 @@ public class TrueTypeFont extends FileFont {
             }
             if (typographicSubfamilyName == null) {
                 typographicSubfamilyName = subfamilyName;
+            }
+            if (version == null) {
+                version = "0";
+            }
+            if (postScriptName == null) {
+                postScriptName = fullName;
             }
         }
     }
@@ -1409,12 +1363,7 @@ public class TrueTypeFont extends FileFont {
      */
     @Override
     public String getPostscriptName() {
-        String name = lookupName(ENGLISH_LOCALE_ID, POSTSCRIPT_NAME_ID);
-        if (name == null) {
-            return fullName;
-        } else {
-            return name;
-        }
+        return postScriptName;
     }
 
     @Override
@@ -1457,7 +1406,7 @@ public class TrueTypeFont extends FileFont {
             return;
         }
 
-        Map<String, Short> map = new HashMap<String, Short>(200);
+        Map<String, Short> map = new HashMap<>(200);
 
         // the following statements are derived from the langIDMap
         // in src/windows/native/java/lang/java_props_md.c using the following
@@ -1695,7 +1644,6 @@ public class TrueTypeFont extends FileFont {
      * needed.
      */
     protected void initAllNames(int requestedID, HashSet<String> names) {
-
         byte[] name = new byte[256];
         ByteBuffer buffer = getTableBuffer(nameTag);
 
@@ -1717,7 +1665,7 @@ public class TrueTypeFont extends FileFont {
                     continue; // skip over this record.
                 }
                 short encodingID = sbuffer.get();
-                short langID     = sbuffer.get();
+                /* short langID = */ sbuffer.get();
                 short nameID     = sbuffer.get();
                 int   nameLen    = ((int) sbuffer.get()) & 0xffff;
                 int   namePtr    = (((int) sbuffer.get()) & 0xffff) + stringPtr;
@@ -1859,7 +1807,7 @@ public class TrueTypeFont extends FileFont {
             }
         }
         if (FontUtilities.isLogging()) {
-            FontUtilities.getLogger().info(fullName + " supported charset: " + (charset.intValue() & 0xFF));
+            FontUtilities.logInfo(fullName + " supported charset: " + (charset.intValue() & 0xFF));
         }
         return (supportedCharset = charset);
     }

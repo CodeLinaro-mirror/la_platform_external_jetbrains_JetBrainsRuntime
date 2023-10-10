@@ -85,8 +85,6 @@ public class TestHelper {
             System.getProperty("sun.arch.data.model").equals("64");
     static final boolean is32Bit =
             System.getProperty("sun.arch.data.model").equals("32");
-    static final boolean isSolaris =
-            System.getProperty("os.name", "unknown").startsWith("SunOS");
     static final boolean isLinux =
             System.getProperty("os.name", "unknown").startsWith("Linux");
     static final boolean isAIX =
@@ -94,8 +92,6 @@ public class TestHelper {
     static final String LIBJVM = isWindows
                         ? "jvm.dll"
                         : "libjvm" + (isMacOSX ? ".dylib" : ".so");
-
-    static final boolean isSparc = System.getProperty("os.arch").startsWith("sparc");
 
     // make a note of the golden default locale
     static final Locale DefaultLocale = Locale.getDefault();
@@ -500,6 +496,40 @@ public class TestHelper {
 
     static boolean isEnglishLocale() {
         return Locale.getDefault().getLanguage().equals("en");
+    }
+
+    /**
+     * Helper method to initialize a simple module that just prints the passed in arguments
+     */
+    static void createEchoArgumentsModule(File modulesDir) throws IOException {
+        if (modulesDir.exists()) {
+            recursiveDelete(modulesDir);
+        }
+
+        modulesDir.mkdirs();
+
+        File srcDir = new File(modulesDir, "src");
+        File modsDir = new File(modulesDir, "mods");
+        File testDir = new File(srcDir, "test");
+        File launcherTestDir = new File(testDir, "launcher");
+        srcDir.mkdir();
+        modsDir.mkdir();
+        testDir.mkdir();
+        launcherTestDir.mkdir();
+
+        String[] moduleInfoCode = { "module test {}" };
+        createFile(new File(testDir, "module-info.java"), Arrays.asList(moduleInfoCode));
+
+        String[] moduleCode = {
+            "package launcher;",
+            "import java.util.Arrays;",
+            "public class Main {",
+            "public static void main(String[] args) {",
+            "System.out.println(Arrays.toString(args));",
+            "}",
+            "}"
+        };
+        createFile(new File(launcherTestDir, "Main.java"), Arrays.asList(moduleCode));
     }
 
     static class ToolFilter implements FileFilter {

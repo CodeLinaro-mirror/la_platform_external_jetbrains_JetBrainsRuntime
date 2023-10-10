@@ -25,7 +25,6 @@ import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.io.IOException;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
@@ -50,7 +49,6 @@ import static org.testng.Assert.assertTrue;
 public class HasDotDotTest {
     // Zip file to be created
     private static final Path ZIPFILE = Path.of("zipfsDotDotTest.zip");
-    private static final URI zipURI = URI.create("jar:" + ZIPFILE.toUri());
     // Data for Zip entries
     private static final byte[] ENTRY_DATA =
             "Tennis Anyone".getBytes(StandardCharsets.UTF_8);
@@ -121,7 +119,7 @@ public class HasDotDotTest {
         Files.deleteIfExists(ZIPFILE);
         createZip(ZIPFILE, path);
         assertThrows(IOException.class, () ->
-                FileSystems.newFileSystem(zipURI, Map.of()));
+                FileSystems.newFileSystem(ZIPFILE, Map.of()));
         Files.deleteIfExists(ZIPFILE);
     }
 
@@ -137,7 +135,7 @@ public class HasDotDotTest {
         /*
           Walk through the Zip file and collect the Zip FS entries
          */
-        try (FileSystem zipfs = FileSystems.newFileSystem(zipURI, Map.of())) {
+        try (FileSystem zipfs = FileSystems.newFileSystem(ZIPFILE)) {
             Path zipRoot = zipfs.getPath("/");
             try (Stream<Path> files = Files.walk(zipRoot, Integer.MAX_VALUE)) {
                 var entries = files.map(Path::toString)

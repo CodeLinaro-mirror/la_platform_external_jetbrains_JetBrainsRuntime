@@ -35,32 +35,67 @@ import jdk.test.lib.dcmd.PidJcmdExecutor;
 import jdk.test.lib.process.OutputAnalyzer;
 
 /*
- * @test
- * @summary Test of diagnostic command GC.heap_dump with gzipped output (Serial, Parallel and G1)
+ * @test id=Serial
+ * @requires vm.gc.Serial
+ * @summary Test of diagnostic command GC.heap_dump with gzipped output (Serial GC)
  * @library /test/lib
  * @modules java.base/jdk.internal.misc
  *          java.compiler
  *          java.management
  *          jdk.internal.jvmstat/sun.jvmstat.monitor
  * @run main/othervm -XX:+UseSerialGC HeapDumpCompressedTest
+ */
+
+/*
+ * @test id=Parallel
+ * @requires vm.gc.Parallel
+ * @summary Test of diagnostic command GC.heap_dump with gzipped output (Parallel GC)
+ * @library /test/lib
+ * @modules java.base/jdk.internal.misc
+ *          java.compiler
+ *          java.management
+ *          jdk.internal.jvmstat/sun.jvmstat.monitor
  * @run main/othervm -XX:+UseParallelGC HeapDumpCompressedTest
+ */
+
+/*
+ * @test id=G1
+ * @requires vm.gc.G1
+ * @summary Test of diagnostic command GC.heap_dump with gzipped output (G1 GC)
+ * @library /test/lib
+ * @modules java.base/jdk.internal.misc
+ *          java.compiler
+ *          java.management
+ *          jdk.internal.jvmstat/sun.jvmstat.monitor
  * @run main/othervm -XX:+UseG1GC HeapDumpCompressedTest
  */
 
 /*
- * @test
- * @requires vm.gc.Z
+ * @test id=ZSinglegen
+ * @requires vm.gc.ZSinglegen
  * @summary Test of diagnostic command GC.heap_dump with gzipped output (Z GC)
  * @library /test/lib
  * @modules java.base/jdk.internal.misc
  *          java.compiler
  *          java.management
  *          jdk.internal.jvmstat/sun.jvmstat.monitor
- * @run main/othervm -XX:+UnlockExperimentalVMOptions -XX:+UseZGC HeapDumpCompressedTest
+ * @run main/othervm -XX:+UseZGC -XX:-ZGenerational HeapDumpCompressedTest
  */
 
 /*
- * @test
+ * @test id=ZGenerational
+ * @requires vm.gc.ZGenerational
+ * @summary Test of diagnostic command GC.heap_dump with gzipped output (Z GC)
+ * @library /test/lib
+ * @modules java.base/jdk.internal.misc
+ *          java.compiler
+ *          java.management
+ *          jdk.internal.jvmstat/sun.jvmstat.monitor
+ * @run main/othervm -XX:+UseZGC -XX:+ZGenerational HeapDumpCompressedTest
+ */
+
+/*
+ * @test id=Shenandoah
  * @requires vm.gc.Shenandoah
  * @summary Test of diagnostic command GC.heap_dump with gzipped output (Shenandoah GC)
  * @library /test/lib
@@ -68,11 +103,11 @@ import jdk.test.lib.process.OutputAnalyzer;
  *          java.compiler
  *          java.management
  *          jdk.internal.jvmstat/sun.jvmstat.monitor
- * @run main/othervm -XX:+UnlockExperimentalVMOptions -XX:+UseShenandoahGC HeapDumpCompressedTest
+ * @run main/othervm -XX:+UseShenandoahGC HeapDumpCompressedTest
  */
 
 /*
- * @test
+ * @test id=Epsilon
  * @requires vm.gc.Epsilon
  * @summary Test of diagnostic command GC.heap_dump with gzipped output (Epsilon GC)
  * @library /test/lib
@@ -136,4 +171,3 @@ public class HeapDumpCompressedTest {
         }
     }
 }
-

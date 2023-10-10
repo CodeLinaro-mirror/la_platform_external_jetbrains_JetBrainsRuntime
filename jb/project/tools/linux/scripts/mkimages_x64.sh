@@ -1,177 +1,164 @@
-#!/bin/bash -x
+#!/bin/bash
+
+set -euo pipefail
+set -x
 
 # The following parameters must be specified:
-#   JBSDK_VERSION    - specifies major version of OpenJDK e.g. 11_0_6 (instead of dots '.' underbars "_" are used)
-#   JDK_BUILD_NUMBER - specifies update release of OpenJDK build or the value of --with-version-build argument to configure
-#   build_number     - specifies the number of JetBrainsRuntime build
-#   bundle_type      - specifies bundle to be built; possible values:
-#                        jcef - the release bundles with jcef
-#                        dcevm - the release bundles with dcevm patches
-#                        nomod - the release bundles without any additional modules (jcef)
-#                        fd - the fastdebug bundles which also include the jcef module
+#   build_number - specifies the number of JetBrainsRuntime build
+#   bundle_type  - specifies bundle to be built;possible values:
+#               <empty> or nomod - the release bundles without any additional modules (jcef)
+#               jcef - the release bundles with jcef
+#               fd - the fastdebug bundles which also include the jcef module
 #
-# jbrsdk-${JBSDK_VERSION}-osx-x64-b${build_number}.tar.gz
-# jbr-${JBSDK_VERSION}-osx-x64-b${build_number}.tar.gz
-#
-# $ ./java --version
-# openjdk 11.0.6 2020-01-14
-# OpenJDK Runtime Environment (build 11.0.6+${JDK_BUILD_NUMBER}-b${build_number})
-# OpenJDK 64-Bit Server VM (build 11.0.6+${JDK_BUILD_NUMBER}-b${build_number}, mixed mode)
+# This script makes test-image along with JDK images when bundle_type is set to "jcef".
+# If the character 't' is added at the end of bundle_type then it also makes test-image along with JDK images.
 #
 # Environment variables:
-#   MODULAR_SDK_PATH - specifies the path to the directory where imported modules are located.
-#               By default imported modules should be located in ./jcef_linux_x64/modular-sdk
+#   JDK_BUILD_NUMBER - specifies update release of OpenJDK build or the value of --with-version-build argument
+#               to configure
+#               By default JDK_BUILD_NUMBER is set zero
 #   JCEF_PATH - specifies the path to the directory with JCEF binaries.
 #               By default JCEF binaries should be located in ./jcef_linux_x64
 
-while getopts ":i?" o; do
-    case "${o}" in
-        i)
-            i="incremental build"
-            INC_BUILD=1
-            ;;
-    esac
-done
-shift $((OPTIND-1))
+source jb/project/tools/common/scripts/common.sh
 
-JBSDK_VERSION=$1
-JDK_BUILD_NUMBER=$2
-build_number=$3
-bundle_type=$4
-JBSDK_VERSION_WITH_DOTS=$(echo $JBSDK_VERSION | sed 's/_/\./g')
 JCEF_PATH=${JCEF_PATH:=./jcef_linux_x64}
-WITH_IMPORT_MODULES="--with-import-modules=${MODULAR_SDK_PATH:=${JCEF_PATH}/modular-sdk}"
-
-source jb/project/tools/common.sh
 
 function do_configure {
   sh configure \
-    --disable-warnings-as-errors \
     $WITH_DEBUG_LEVEL \
-    --with-vendor-name="${VENDOR_NAME}" \
-    --with-vendor-version-string="${VENDOR_VERSION_STRING}" \
+    --with-vendor-name="$VENDOR_NAME" \
+    --with-vendor-version-string="$VENDOR_VERSION_STRING" \
     --with-jvm-features=shenandoahgc \
     --with-version-pre= \
-    --with-version-build=${JDK_BUILD_NUMBER} \
-    --with-version-opt=b${build_number} \
-    --with-boot-jdk=${BOOT_JDK} \
-    $WITH_IMPORT_MODULES \
+    --with-version-build="$JDK_BUILD_NUMBER" \
+    --with-version-opt=b"$build_number" \
+    --with-boot-jdk="$BOOT_JDK" \
+    --enable-cds=yes \
+    $STATIC_CONF_ARGS \
+    $REPRODUCIBLE_BUILD_OPTS \
     $WITH_ZIPPED_NATIVE_DEBUG_SYMBOLS \
-    --enable-cds=yes || do_exit $?
+    || do_exit $?
 }
 
-function create_jbr {
+function is_musl {
+  libc=$(ldd /bin/ls | grep 'musl' | head -1 | cut -d ' ' -f1)
+  if [ -z $libc ]; then
+    # This is not Musl, return 1 == false
+    return 1
+  fi
+  return 0
+}
 
-  JBR_BUNDLE=jbr_${bundle_type}
+function create_image_bundle {
+  __bundle_name=$1
+  __arch_name=$2
+  __modules_path=$3
+  __modules=$4
 
-  case "${bundle_type}" in
-  "jcef" | "dcevm" | "nomod" | "fd")
-    JBR_BASE_NAME=jbr_${bundle_type}-${JBSDK_VERSION}
-    ;;
-  *)
-    echo "***ERR*** bundle was not specified" && do_exit 1
-    ;;
-  esac
-  cat jb/project/tools/common/modules.list > modules_tmp.list
-  rm -rf ${BASE_DIR}/${JBR_BUNDLE}
+  libc_type_suffix=''
+  fastdebug_infix=''
 
-  JBR=${JBR_BASE_NAME}-linux-x64-b${build_number}
+  if is_musl; then libc_type_suffix='musl-' ; fi
+
+  [ "$bundle_type" == "fd" ] && [ "$__arch_name" == "$JBRSDK_BUNDLE" ] && __bundle_name=$__arch_name && fastdebug_infix="fastdebug-"
+  JBR=${__bundle_name}-${JBSDK_VERSION}-linux-${libc_type_suffix}x64-${fastdebug_infix}b${build_number}
+  __root_dir=${__bundle_name}-${JBSDK_VERSION}-linux-${libc_type_suffix}x64-${fastdebug_infix:-}b${build_number}
 
   echo Running jlink....
+  [ -d "$IMAGES_DIR"/"$__root_dir" ] && rm -rf "${IMAGES_DIR:?}"/"$__root_dir"
   $JSDK/bin/jlink \
-    --module-path $JSDK/jmods --no-man-pages --compress=2 \
-    --add-modules $(xargs < modules_tmp.list | sed s/" "//g) --output $BASE_DIR/$JBR_BUNDLE  || do_exit $?
+    --module-path "$__modules_path" --no-man-pages --compress=2 \
+    --add-modules "$__modules" --output "$IMAGES_DIR"/"$__root_dir"
 
-  if [[ "${bundle_type}" == *jcef* ]] || [[ "${bundle_type}" == *dcevm* ]] || [[ "${bundle_type}" == fd ]]; then
-    cp -R $BASE_DIR/$JBR_BUNDLE $BASE_DIR/jbr
-    rsync -av ${JCEF_PATH}/ $BASE_DIR/$JBR_BUNDLE/lib --exclude="modular-sdk" || do_exit $?
+  grep -v "^JAVA_VERSION" "$JSDK"/release | grep -v "^MODULES" >> "$IMAGES_DIR"/"$__root_dir"/release
+  if [ "$__arch_name" == "$JBRSDK_BUNDLE" ]; then
+    sed 's/JBR/JBRSDK/g' "$IMAGES_DIR"/"$__root_dir"/release > release
+    mv release "$IMAGES_DIR"/"$__root_dir"/release
+    cp $IMAGES_DIR/jdk/lib/src.zip "$IMAGES_DIR"/"$__root_dir"/lib
+    copy_jmods "$__modules" "$__modules_path" "$IMAGES_DIR"/"$__root_dir"/jmods
+    zip_native_debug_symbols $IMAGES_DIR/jdk "${JBR}_diz"
   fi
-  grep -v "^JAVA_VERSION" $JSDK/release | grep -v "^MODULES" >> $BASE_DIR/$JBR_BUNDLE/release
 
-  echo Creating ${JBR}.tar.gz ...
-  rm -rf ${BASE_DIR}/jbr
-  cp -R ${BASE_DIR}/${JBR_BUNDLE} ${BASE_DIR}/jbr
-  tar -pcf ${JBR}.tar -C ${BASE_DIR} jbr || do_exit $?
-  gzip -f ${JBR}.tar || do_exit $?
-  rm -rf ${BASE_DIR}/${JBR_BUNDLE}
+  # jmod does not preserve file permissions (JDK-8173610)
+  [ -f "$IMAGES_DIR"/"$__root_dir"/lib/jcef_helper ] && chmod a+x "$IMAGES_DIR"/"$__root_dir"/lib/jcef_helper
+
+  echo Creating "$JBR".tar.gz ...
+
+  (cd "$IMAGES_DIR" &&
+    find "$__root_dir" -print0 | LC_ALL=C sort -z | \
+    tar $REPRODUCIBLE_TAR_OPTS \
+      --no-recursion --null -T - -cf "$JBR".tar) || do_exit $?
+  mv "$IMAGES_DIR"/"$JBR".tar ./"$JBR".tar
+  [ -f "$JBR".tar.gz ] && rm "$JBR.tar.gz"
+  touch -c -d "@$SOURCE_DATE_EPOCH" "$JBR".tar
+  gzip "$JBR".tar || do_exit $?
+  #rm -rf "${IMAGES_DIR:?}"/"$__root_dir"
 }
 
-JBRSDK_BASE_NAME=jbrsdk_${bundle_type}-${JBSDK_VERSION}
 WITH_DEBUG_LEVEL="--with-debug-level=release"
-RELEASE_NAME=linux-x86_64-normal-server-release
-JBSDK=${JBRSDK_BASE_NAME}-linux-x64-b${build_number}
+RELEASE_NAME=linux-x86_64-server-release
+
 case "$bundle_type" in
   "jcef")
-    git apply -p0 < jb/project/tools/patches/add_jcef_module.patch || do_exit $?
     do_reset_changes=1
+    do_maketest=1
     ;;
-  "dcevm")
-    HEAD_REVISION=$(git rev-parse HEAD)
-    git am jb/project/tools/patches/dcevm/*.patch || do_exit $?
-    do_reset_dcevm=1
-    git apply -p0 < jb/project/tools/patches/add_jcef_module.patch || do_exit $?
-    do_reset_changes=1
-    ;;
-  "nomod")
-    WITH_IMPORT_MODULES=""
+  "nomod" | "")
+    bundle_type=""
     ;;
   "fd")
-    git apply -p0 < jb/project/tools/patches/add_jcef_module.patch || do_exit $?
     do_reset_changes=1
     WITH_DEBUG_LEVEL="--with-debug-level=fastdebug"
-    RELEASE_NAME=linux-x86_64-normal-server-fastdebug
-    JBSDK=jbrsdk-${JBSDK_VERSION}-linux-x64-fastdebug-b${build_number}
-    ;;
-  *)
-    echo "***ERR*** bundle was not specified" && do_exit 1
+    RELEASE_NAME=linux-x86_64-server-fastdebug
     ;;
 esac
 
-if [ -z "$INC_BUILD" ]; then
+if [ -z "${INC_BUILD:-}" ]; then
   do_configure || do_exit $?
   make clean CONF=$RELEASE_NAME || do_exit $?
 fi
 make images CONF=$RELEASE_NAME || do_exit $?
 
-JSDK=build/${RELEASE_NAME}/images/jdk
+IMAGES_DIR=build/$RELEASE_NAME/images
+JSDK=$IMAGES_DIR/jdk
+JSDK_MODS_DIR=$IMAGES_DIR/jmods
+JBRSDK_BUNDLE=jbrsdk
 
 echo Fixing permissions
 chmod -R a+r $JSDK
 
-BASE_DIR=build/${RELEASE_NAME}/images
-if [ "${bundle_type}" == "dcevm" ] || [ "${bundle_type}" == "jcef" ]; then
-  JBRSDK_BUNDLE=jbrsdk_${bundle_type}
+if [ "$bundle_type" == "jcef" ] || [ "$bundle_type" == "fd" ]; then
+  git apply -p0 < jb/project/tools/patches/add_jcef_module.patch || do_exit $?
+  update_jsdk_mods $JSDK $JCEF_PATH/jmods $JSDK/jmods $JSDK_MODS_DIR || do_exit $?
+  cp $JCEF_PATH/jmods/* $JSDK_MODS_DIR # $JSDK/jmods is not changed
+
+  jbr_name_postfix="_${bundle_type}"
+  cat $JCEF_PATH/jcef.version >> $JSDK/release
 else
-  JBRSDK_BUNDLE=jbrsdk
+  jbr_name_postfix=""
 fi
 
-rm -rf ${BASE_DIR}/${JBRSDK_BUNDLE}
-cp -r $JSDK $BASE_DIR/$JBRSDK_BUNDLE || do_exit $?
+# create runtime image bundle
+modules=$(xargs < jb/project/tools/common/modules.list | sed s/" "//g) || do_exit $?
+create_image_bundle "jbr${jbr_name_postfix}" "jbr" $JSDK_MODS_DIR "$modules" || do_exit $?
 
-if [[ "${bundle_type}" == *jcef* ]] || [[ "${bundle_type}" == *dcevm* ]] || [[ "${bundle_type}" == fd ]]; then
-  rsync -av ${JCEF_PATH}/ $BASE_DIR/$JBRSDK_BUNDLE/lib --exclude="modular-sdk" || do_exit $?
+# create sdk image bundle
+modules=$(cat $JSDK/release | grep MODULES | sed s/MODULES=//g | sed s/' '/','/g | sed s/\"//g | sed s/\\n//g) || do_exit $?
+if [ "$bundle_type" == "jcef" ] || [ "$bundle_type" == "fd" ] || [ "$bundle_type" == "$JBRSDK_BUNDLE" ]; then
+  modules=${modules},$(get_mods_list "$JCEF_PATH"/jmods)
 fi
+create_image_bundle "$JBRSDK_BUNDLE${jbr_name_postfix}" $JBRSDK_BUNDLE $JSDK_MODS_DIR "$modules" || do_exit $?
 
-echo Creating $JBSDK.tar.gz ...
-sed 's/JBR/JBRSDK/g' ${BASE_DIR}/${JBRSDK_BUNDLE}/release > release
-mv release ${BASE_DIR}/${JBRSDK_BUNDLE}/release
-
-tar -pcf ${JBSDK}.tar --exclude=*.debuginfo --exclude=demo --exclude=sample --exclude=man \
-  -C ${BASE_DIR} ${JBRSDK_BUNDLE} || do_exit $?
-gzip -f ${JBSDK}.tar || do_exit $?
-
-zip_native_debug_symbols ${BASE_DIR}/jdk "${JBSDK}_diz"
-
-create_jbr || do_exit $?
-
-if [ "$bundle_type" == "dcevm" ]; then
-  make test-image CONF=$RELEASE_NAME || do_exit $?
-
-  JBRSDK_TEST=jbrsdk-${JBSDK_VERSION}-linux-test-x64-b$build_number
-
-  echo Creating $JBSDK_TEST.tar.gz ...
-  tar -pcf ${JBRSDK_TEST}.tar -C ${BASE_DIR} --exclude='test/jdk/demos' test || do_exit $?
-  gzip -f ${JBRSDK_TEST}.tar || do_exit $?
+if [ $do_maketest -eq 1 ]; then
+    JBRSDK_TEST=${JBRSDK_BUNDLE}-${JBSDK_VERSION}-linux-${libc_type_suffix}test-x64-b${build_number}
+    echo Creating "$JBRSDK_TEST" ...
+    [ $do_reset_changes -eq 1 ] && git checkout HEAD jb/project/tools/common/modules.list src/java.desktop/share/classes/module-info.java
+    make test-image jbr-api CONF=$RELEASE_NAME JBR_API_JBR_VERSION=TEST || do_exit $?
+    cp "build/${RELEASE_NAME}/jbr-api/jbr-api.jar" "${IMAGES_DIR}/test"
+    tar -pcf "$JBRSDK_TEST".tar -C $IMAGES_DIR --exclude='test/jdk/demos' test || do_exit $?
+    [ -f "$JBRSDK_TEST.tar.gz" ] && rm "$JBRSDK_TEST.tar.gz"
+    gzip "$JBRSDK_TEST".tar || do_exit $?
 fi
 
 do_exit 0

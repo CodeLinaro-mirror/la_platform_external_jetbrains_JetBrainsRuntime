@@ -24,8 +24,8 @@
  *
  */
 
-#ifndef CPU_AARCH64_VM_INTERPRETERRT_AARCH64_HPP
-#define CPU_AARCH64_VM_INTERPRETERRT_AARCH64_HPP
+#ifndef CPU_AARCH64_INTERPRETERRT_AARCH64_HPP
+#define CPU_AARCH64_INTERPRETERRT_AARCH64_HPP
 
 // This is included in the middle of class Interpreter.
 // Do not include files here.
@@ -64,4 +64,4 @@ class SignatureHandlerGenerator: public NativeSignatureIterator {
   static Register temp();
 };
 
-#endif // CPU_AARCH64_VM_INTERPRETERRT_AARCH64_HPP
+#endif // CPU_AARCH64_INTERPRETERRT_AARCH64_HPP

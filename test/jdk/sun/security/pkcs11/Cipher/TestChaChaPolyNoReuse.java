@@ -66,8 +66,9 @@ public class TestChaChaPolyNoReuse extends PKCS11Test {
         public TestData(String name, String keyStr, String nonceStr, int ctr,
                 int dir, String inputStr, String aadStr, String outStr) {
             testName = Objects.requireNonNull(name);
-            key = HexToBytes(keyStr);
-            nonce = HexToBytes(nonceStr);
+            HexFormat hex = HexFormat.of();
+            key = hex.parseHex(keyStr);
+            nonce = hex.parseHex(nonceStr);
             if ((counter = ctr) < 0) {
                 throw new IllegalArgumentException(
                         "counter must be 0 or greater");
@@ -77,9 +78,9 @@ public class TestChaChaPolyNoReuse extends PKCS11Test {
                 throw new IllegalArgumentException(
                         "Direction must be ENCRYPT_MODE");
             }
-            input = HexToBytes(inputStr);
-            aad = (aadStr != null) ? HexToBytes(aadStr) : null;
-            expOutput = HexToBytes(outStr);
+            input = hex.parseHex(inputStr);
+            aad = (aadStr != null) ? hex.parseHex(aadStr) : null;
+            expOutput = hex.parseHex(outStr);
         }
 
         public final String testName;

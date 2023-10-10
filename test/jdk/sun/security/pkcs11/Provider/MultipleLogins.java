@@ -43,7 +43,6 @@ public class MultipleLogins {
     private static final String KS_TYPE = "PKCS11";
     private static final int NUM_PROVIDERS = 20;
     private static final SunPKCS11[] providers = new SunPKCS11[NUM_PROVIDERS];
-
     static final Policy DEFAULT_POLICY = Policy.getPolicy();
 
     public static void main(String[] args) throws Exception {
@@ -90,10 +89,8 @@ public class MultipleLogins {
             Security.removeProvider(providers[i].getName());
             providers[i] = null;
 
-            ForceGC gc = new ForceGC();
             int finalI = i;
-            gc.await(() -> weakRef[finalI].get() == null);
-            if (weakRef[i].get() != null) {
+            if (!ForceGC.wait(() -> weakRef[finalI].refersTo(null))) {
                 throw new RuntimeException("Expected SunPKCS11 Provider to be GC'ed..");
             }
         }

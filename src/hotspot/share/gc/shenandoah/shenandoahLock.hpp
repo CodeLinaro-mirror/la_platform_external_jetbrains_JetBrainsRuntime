@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2017, 2019, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -26,7 +27,8 @@
 
 #include "gc/shenandoah/shenandoahPadding.hpp"
 #include "memory/allocation.hpp"
-#include "runtime/thread.hpp"
+#include "runtime/javaThread.hpp"
+#include "runtime/safepoint.hpp"
 
 class ShenandoahLock  {
 private:
@@ -39,7 +41,7 @@ private:
   shenandoah_padding(2);
 
 public:
-  ShenandoahLock() : _state(unlocked), _owner(NULL) {};
+  ShenandoahLock() : _state(unlocked), _owner(nullptr) {};
 
   void lock() {
 #ifdef ASSERT
@@ -48,7 +50,7 @@ public:
     Thread::SpinAcquire(&_state, "Shenandoah Heap Lock");
 #ifdef ASSERT
     assert(_state == locked, "must be locked");
-    assert(_owner == NULL, "must not be owned");
+    assert(_owner == nullptr, "must not be owned");
     _owner = Thread::current();
 #endif
   }
@@ -56,7 +58,7 @@ public:
   void unlock() {
 #ifdef ASSERT
     assert (_owner == Thread::current(), "sanity");
-    _owner = NULL;
+    _owner = nullptr;
 #endif
     Thread::SpinRelease(&_state);
   }
@@ -76,16 +78,62 @@ private:
   ShenandoahLock* const _lock;
 public:
   ShenandoahLocker(ShenandoahLock* lock) : _lock(lock) {
-    if (_lock != NULL) {
+    if (_lock != nullptr) {
       _lock->lock();
     }
   }
 
   ~ShenandoahLocker() {
-    if (_lock != NULL) {
+    if (_lock != nullptr) {
       _lock->unlock();
     }
   }
 };
 
-#endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHLOCK_HPP
+class ShenandoahSimpleLock {
+private:
+  PlatformMonitor   _lock; // native lock
+public:
+  ShenandoahSimpleLock();
+
+  virtual void lock();
+  virtual void unlock();
+};
+
+class ShenandoahReentrantLock : public ShenandoahSimpleLock {
+private:
+  Thread* volatile      _owner;
+  uint64_t              _count;
+
+public:
+  ShenandoahReentrantLock();
+  ~ShenandoahReentrantLock();
+
+  virtual void lock();
+  virtual void unlock();
+
+  // If the lock already owned by this thread
+  bool owned_by_self() const ;
+};
+
+class ShenandoahReentrantLocker : public StackObj {
+private:
+  ShenandoahReentrantLock* const _lock;
+
+public:
+  ShenandoahReentrantLocker(ShenandoahReentrantLock* lock) :
+    _lock(lock) {
+    if (_lock != nullptr) {
+      _lock->lock();
+    }
+  }
+
+  ~ShenandoahReentrantLocker() {
+    if (_lock != nullptr) {
+      assert(_lock->owned_by_self(), "Must be owner");
+      _lock->unlock();
+    }
+  }
+};
+
+#endif // SHARE_GC_SHENANDOAH_SHENANDOAHLOCK_HPP

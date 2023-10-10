@@ -28,16 +28,10 @@
 
 #include <jni.h>
 #include "debug_trace.h"
-#include "jni_util.h"
-#ifdef __MACH__
-#include <mach/mach_time.h>
-#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
-extern JavaVM *jvm;
-JNIEXPORT extern jint graphicsPrimitive_traceflags;
 
 /**
  * J2dTrace
@@ -55,8 +49,6 @@ JNIEXPORT extern jint graphicsPrimitive_traceflags;
 #define J2D_TRACE_VERBOSE       4
 #define J2D_TRACE_VERBOSE2      5
 #define J2D_TRACE_MAX           (J2D_TRACE_VERBOSE2+1)
-
-#define J2D_PTRACE_TIME         8
 
 JNIEXPORT void JNICALL
 J2dTraceImpl(int level, jboolean cr, const char *string, ...);
@@ -164,6 +156,15 @@ J2dTraceInit();
 #define J2dRlsTrace5(level, string, arg1, arg2, arg3, arg4, arg5) { \
             J2dTraceImpl(level, JNI_FALSE, string, arg1, arg2, arg3, arg4, arg5); \
         }
+#define J2dRlsTrace6(level, string, arg1, arg2, arg3, arg4, arg5, arg6) { \
+            J2dTraceImpl(level, JNI_FALSE, string, arg1, arg2, arg3, arg4, arg5, arg6); \
+        }
+#define J2dRlsTrace7(level, string, arg1, arg2, arg3, arg4, arg5, arg6, arg7) { \
+            J2dTraceImpl(level, JNI_FALSE, string, arg1, arg2, arg3, arg4, arg5, arg6, arg7); \
+        }
+#define J2dRlsTrace8(level, string, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) { \
+            J2dTraceImpl(level, JNI_FALSE, string, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8); \
+        }
 #define J2dRlsTraceLn(level, string) { \
             J2dTraceImpl(level, JNI_TRUE, string); \
         }
@@ -182,48 +183,18 @@ J2dTraceInit();
 #define J2dRlsTraceLn5(level, string, arg1, arg2, arg3, arg4, arg5) { \
             J2dTraceImpl(level, JNI_TRUE, string, arg1, arg2, arg3, arg4, arg5); \
         }
-
-#define J2dTracePrimitive(string) { \
-        if (graphicsPrimitive_traceflags && jvm) { \
-            void *env; \
-            jstring jstr; \
-            (*jvm)->AttachCurrentThreadAsDaemon(jvm, (void**)&env, NULL); \
-            jstr = (*(JNIEnv*)env)->NewStringUTF(env, string); \
-            JNU_CallStaticMethodByName( \
-                    env, NULL, "sun/java2d/loops/GraphicsPrimitive", \
-                    "tracePrimitive", "(Ljava/lang/Object;)V", jstr); \
-            (*(JNIEnv*)env)->DeleteLocalRef(env, jstr); \
-        } \
-    }
-
-#ifdef __MACH__
-#define J2dTraceNanoTime() (mach_absolute_time())
-
-#define J2dTracePrimitiveTime(string,t0) { \
-        if ((graphicsPrimitive_traceflags & J2D_PTRACE_TIME) && jvm) { \
-            JNIEnv *env; \
-            jstring jstr; \
-            static mach_timebase_info_data_t ti; \
-            jlong t1; \
-            t1 = mach_absolute_time(); \
-            if (ti.denom == 0) { \
-                (void) mach_timebase_info(&ti); \
-            } \
-            (*jvm)->AttachCurrentThreadAsDaemon(jvm, &env, NULL); \
-            jstr = (*env)->NewStringUTF(env, string); \
-            JNU_CallStaticMethodByName(env, NULL, "sun/java2d/loops/GraphicsPrimitive", \
-                                       "tracePrimitiveTime", "(Ljava/lang/Object;J)V", jstr,\
-                                       (((t1-t0)*ti.numer)/ti.denom)); \
-            (*env)->DeleteLocalRef(env, jstr); \
-        } \
-    }
-#else
-#define J2dTracePrimitiveTime(string,t)
-#define J2dTraceNanoTime() (0)
-#endif
+#define J2dRlsTraceLn6(level, string, arg1, arg2, arg3, arg4, arg5, arg6) { \
+            J2dTraceImpl(level, JNI_TRUE, string, arg1, arg2, arg3, arg4, arg5, arg6); \
+        }
+#define J2dRlsTraceLn7(level, string, arg1, arg2, arg3, arg4, arg5, arg6, arg7) { \
+            J2dTraceImpl(level, JNI_TRUE, string, arg1, arg2, arg3, arg4, arg5, arg6, arg7); \
+        }
+#define J2dRlsTraceLn8(level, string, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) { \
+            J2dTraceImpl(level, JNI_TRUE, string, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8); \
+        }
 
 #ifdef __cplusplus
-};
+}
 #endif /* __cplusplus */
 
 #endif /* _Included_Trace */

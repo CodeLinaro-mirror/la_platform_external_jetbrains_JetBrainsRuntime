@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,25 +22,23 @@
  *
  */
 
-#ifndef SHARE_VM_MEMORY_MEMREGION_HPP
-#define SHARE_VM_MEMORY_MEMREGION_HPP
+#ifndef SHARE_MEMORY_MEMREGION_HPP
+#define SHARE_MEMORY_MEMREGION_HPP
 
 #include "memory/allocation.hpp"
 #include "utilities/debug.hpp"
 #include "utilities/globalDefinitions.hpp"
 
-// A very simple data structure representing a contigous region
+// A very simple data structure representing a contiguous region
 // region of address space.
 
-// Note that MemRegions are passed by value, not by reference.
+// Note that MemRegions are typically passed by value, not by reference.
 // The intent is that they remain very small and contain no
 // objects. The copy constructor and destructor must be trivial,
 // to support optimization for pass-by-value.
-// These should never be allocated in heap but we do
-// create MemRegions (in CardTableBarrierSet) in heap so operator
-// new and operator new [] added for this special case.
-
-class MetaWord;
+// These should almost never be allocated in heap but we do
+// create MemRegions (in CardTable and G1CMRootMemRegions) on the heap so operator
+// new and operator new [] were added for these special cases.
 
 class MemRegion {
   friend class VMStructs;
@@ -49,7 +47,7 @@ private:
   size_t    _word_size;
 
 public:
-  MemRegion() : _start(NULL), _word_size(0) {};
+  MemRegion() : _start(nullptr), _word_size(0) {};
   MemRegion(HeapWord* start, size_t word_size) :
     _start(start), _word_size(word_size) {};
   MemRegion(HeapWord* start, HeapWord* end) :
@@ -94,10 +92,10 @@ public:
   size_t word_size() const { return _word_size; }
 
   bool is_empty() const { return word_size() == 0; }
-  void* operator new(size_t size) throw();
-  void* operator new [](size_t size) throw();
-  void  operator delete(void* p);
-  void  operator delete [](void* p);
+
+  // Creates and initializes an array of MemRegions of the given length.
+  static MemRegion* create_array(size_t length, MEMFLAGS flags);
+  static void destroy_array(MemRegion* array, size_t length);
 };
 
 // For iteration over MemRegion's.
@@ -107,21 +105,4 @@ public:
   virtual void do_MemRegion(MemRegion mr) = 0;
 };
 
-// A ResourceObj version of MemRegionClosure
-
-class MemRegionClosureRO: public MemRegionClosure {
-public:
-  void* operator new(size_t size, ResourceObj::allocation_type type, MEMFLAGS flags) throw() {
-        return ResourceObj::operator new(size, type, flags);
-  }
-  void* operator new(size_t size, Arena *arena) throw() {
-        return ResourceObj::operator new(size, arena);
-  }
-  void* operator new(size_t size) throw() {
-        return ResourceObj::operator new(size);
-  }
-
-  void  operator delete(void* p) {} // nothing to do
-};
-
-#endif // SHARE_VM_MEMORY_MEMREGION_HPP
+#endif // SHARE_MEMORY_MEMREGION_HPP

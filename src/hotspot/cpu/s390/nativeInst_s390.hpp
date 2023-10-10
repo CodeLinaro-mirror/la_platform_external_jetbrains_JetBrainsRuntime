@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2016, 2023, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2016 SAP SE. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -25,8 +25,8 @@
 
 // Major contributions by AHa, JL, LS
 
-#ifndef CPU_S390_VM_NATIVEINST_S390_HPP
-#define CPU_S390_VM_NATIVEINST_S390_HPP
+#ifndef CPU_S390_NATIVEINST_S390_HPP
+#define CPU_S390_NATIVEINST_S390_HPP
 
 #include "asm/macroAssembler.hpp"
 #include "runtime/icache.hpp"
@@ -85,8 +85,8 @@ class NativeInstruction {
   // Bcrl is currently the only accepted instruction here.
   bool is_jump();
 
-  // We use an illtrap for marking a method as not_entrant or zombie.
-  bool is_sigill_zombie_not_entrant();
+  // We use an illtrap for marking a method as not_entrant.
+  bool is_sigill_not_entrant();
 
   bool is_safepoint_poll() {
     // Is the current instruction a POTENTIAL read access to the polling page?
@@ -102,12 +102,6 @@ class NativeInstruction {
   uint get_poll_register() {
     // Extract poll register from instruction.
     return MacroAssembler::get_poll_register(addr_at(0));
-  }
-
-  bool is_memory_serialization(JavaThread *thread, void *ucontext) {
-    // Is the current instruction a write access of thread to the
-    // memory serialization page?
-    return MacroAssembler::is_memory_serialization(long_at(0), thread, ucontext);
   }
 
  public:
@@ -142,9 +136,6 @@ class NativeInstruction {
  public:
 
   void verify();
-
-  // unit test stuff
-  static void test() {}                        // Override for testing.
 
   friend NativeInstruction* nativeInstruction_at(address address) {
     NativeInstruction* inst = (NativeInstruction*)address;
@@ -266,7 +257,7 @@ class NativeCall: public NativeInstruction {
 
     ((NativeCall*)iaddr)->print();
     guarantee(false, "Not a NativeCall site");
-    return NULL;
+    return nullptr;
   }
 
   address return_address() const {
@@ -279,9 +270,6 @@ class NativeCall: public NativeInstruction {
 
   void verify_alignment() {} // Yet another real do nothing guy :)
   void verify();
-
-  // unit test stuff
-  static void test();
 
   // Creation.
   friend NativeCall* nativeCall_at(address instr) {
@@ -337,7 +325,7 @@ class NativeCall: public NativeInstruction {
   //    instruction, is always prepended with a NOP. This measure avoids
   //    ambiguities with load_const_from_toc_call.
   friend NativeCall* nativeCall_before(address return_address) {
-    NativeCall *call = NULL;
+    NativeCall *call = nullptr;
 
     // Make sure not to return garbage
     address instp = return_address - MacroAssembler::load_const_call_size();
@@ -449,9 +437,6 @@ class NativeFarCall: public NativeInstruction {
 
   void verify();
 
-  // Unit tests
-  static void test();
-
   // Instantiates a NativeFarCall object starting at the given instruction
   // address and returns the NativeFarCall object.
   inline friend NativeFarCall* nativeFarCall_at(address instr) {
@@ -501,13 +486,10 @@ class NativeMovConstReg: public NativeInstruction {
   // Patch narrow oop constant in code stream.
   void set_narrow_oop(intptr_t data);
   void set_narrow_klass(intptr_t data);
-  void set_pcrel_addr(intptr_t addr, CompiledMethod *nm = NULL);
-  void set_pcrel_data(intptr_t data, CompiledMethod *nm = NULL);
+  void set_pcrel_addr(intptr_t addr, CompiledMethod *nm = nullptr);
+  void set_pcrel_data(intptr_t data, CompiledMethod *nm = nullptr);
 
   void verify();
-
-  // unit test stuff
-  static void test();
 
   // Creation.
   friend NativeMovConstReg* nativeMovConstReg_at(address address) {
@@ -624,9 +606,6 @@ class NativeJump: public NativeInstruction {
 
   void verify();
 
-  // Unit testing stuff
-  static void test();
-
   // Insertion of native jump instruction.
   static void insert(address code_pos, address entry);
 
@@ -675,4 +654,35 @@ class NativeGeneralJump: public NativeInstruction {
   void verify() PRODUCT_RETURN;
 };
 
-#endif // CPU_S390_VM_NATIVEINST_S390_HPP
+class NativePostCallNop: public NativeInstruction {
+public:
+  bool check() const { Unimplemented(); return false; }
+  int displacement() const { return 0; }
+  void patch(jint diff) { Unimplemented(); }
+  void make_deopt() { Unimplemented(); }
+};
+
+inline NativePostCallNop* nativePostCallNop_at(address address) {
+  // Unimplemented();
+  return nullptr;
+}
+
+class NativeDeoptInstruction: public NativeInstruction {
+public:
+  address instruction_address() const       { Unimplemented(); return nullptr; }
+  address next_instruction_address() const  { Unimplemented(); return nullptr; }
+
+  void  verify() { Unimplemented(); }
+
+  static bool is_deopt_at(address instr) {
+    // Unimplemented();
+    return false;
+  }
+
+  // MT-safe patching
+  static void insert(address code_pos) {
+    Unimplemented();
+  }
+};
+
+#endif // CPU_S390_NATIVEINST_S390_HPP

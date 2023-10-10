@@ -33,7 +33,7 @@
 file "I.class" {
   0xCAFEBABE;
   0; // minor version
-  55; // version
+  59; // version
   [7] { // Constant Pool
     ; // first element is empty
     class #2; // #1     at 0x0A
@@ -73,7 +73,7 @@ file "I.class" {
 class CheckedExceptions {
   0xCAFEBABE;
   0; // minor version
-  55; // version
+  59; // version
   [32] { // Constant Pool
     ; // first element is empty
     Method #2 #3; // #1     at 0x0A

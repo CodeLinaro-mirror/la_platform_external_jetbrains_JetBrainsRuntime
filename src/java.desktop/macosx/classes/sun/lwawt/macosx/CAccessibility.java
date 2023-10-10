@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,45 +25,68 @@
 
 package sun.lwawt.macosx;
 
-import sun.lwawt.LWWindowPeer;
-
-import java.awt.*;
-import java.beans.*;
+import java.awt.Component;
+import java.awt.Container;
+import java.awt.Dimension;
+import java.awt.IllegalComponentStateException;
+import java.awt.KeyboardFocusManager;
+import java.awt.Point;
+import java.awt.Window;
+import java.awt.event.KeyEvent;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
 import java.lang.annotation.Native;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.util.*;
+import java.security.PrivilegedAction;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Arrays;
 import java.util.function.Function;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import javax.accessibility.*;
-import javax.swing.*;
+import javax.accessibility.Accessible;
+import javax.accessibility.AccessibleAction;
+import javax.accessibility.AccessibleComponent;
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
+import javax.accessibility.AccessibleSelection;
+import javax.accessibility.AccessibleState;
+import javax.accessibility.AccessibleStateSet;
+import javax.accessibility.AccessibleTable;
+import javax.accessibility.AccessibleText;
+import javax.accessibility.AccessibleValue;
+import javax.swing.Icon;
+import javax.swing.JComponent;
+import javax.swing.JEditorPane;
+import javax.swing.JLabel;
+import javax.swing.JMenuItem;
+import javax.swing.JTextArea;
+import javax.swing.JList;
+import javax.swing.JTree;
+import javax.swing.KeyStroke;
 import javax.swing.tree.TreePath;
 
 import sun.awt.AWTAccessor;
+import sun.lwawt.LWWindowPeer;
+import sun.swing.SwingAccessor;
 
 class CAccessibility implements PropertyChangeListener {
     private static Set<String> ignoredRoles;
-    private static final int INVOKE_TIMEOUT_SECONDS_DEFAULT = 1;
     private static final int INVOKE_TIMEOUT_SECONDS;
 
     static {
-        AtomicInteger invokeTimeoutSecondsRef = new AtomicInteger();
-        // Need to load the native library for this code.
-        java.security.AccessController.doPrivileged(
-            new java.security.PrivilegedAction<Void>() {
-                public Void run() {
-                    System.loadLibrary("awt");
-                    invokeTimeoutSecondsRef.set(
-                            // (-1) for the infinite timeout
-                            Integer.getInteger("sun.lwawt.macosx.CAccessibility.invokeTimeoutSeconds",
-                                    INVOKE_TIMEOUT_SECONDS_DEFAULT));
-                    return null;
-                }
+        // (-1) for the infinite timeout
+        @SuppressWarnings("removal")
+        int value = java.security.AccessController.doPrivileged(
+            (PrivilegedAction<Integer>) () -> {
+                // Need to load the native library for this code.
+                System.loadLibrary("awt");
+                return Integer.getInteger("sun.lwawt.macosx.CAccessibility.invokeTimeoutSeconds", 1);
             });
-        INVOKE_TIMEOUT_SECONDS = invokeTimeoutSecondsRef.get();
+        INVOKE_TIMEOUT_SECONDS = value;
     }
 
     static CAccessibility sAccessibility;
@@ -110,17 +133,21 @@ class CAccessibility implements PropertyChangeListener {
 
     static <T> T invokeAndWait(final Callable<T> callable, final Component c, final T defValue) {
         T value = null;
-        try {
-            value = LWCToolkit.invokeAndWait(callable, c, INVOKE_TIMEOUT_SECONDS);
-        } catch (final Exception e) { e.printStackTrace(); }
+        if (c != null) {
+            try {
+                value = LWCToolkit.invokeAndWait(callable, c, INVOKE_TIMEOUT_SECONDS);
+            } catch (final Exception e) { e.printStackTrace(); }
+        }
 
         return value != null ? value : defValue;
     }
 
     static void invokeLater(final Runnable runnable, final Component c) {
-        try {
-            LWCToolkit.invokeLater(runnable, c);
-        } catch (InvocationTargetException e) { e.printStackTrace(); }
+        if (c != null) {
+            try {
+                LWCToolkit.invokeLater(runnable, c);
+            } catch (InvocationTargetException e) { e.printStackTrace(); }
+        }
     }
 
     public static String getAccessibleActionDescription(final AccessibleAction aa, final int index, final Component c) {
@@ -345,6 +372,10 @@ class CAccessibility implements PropertyChangeListener {
                 if (accessibleName == null) {
                     return ac.getAccessibleDescription();
                 }
+                final String acceleratorText = getAcceleratorText(ac);
+                if (!acceleratorText.isEmpty()) {
+                    return accessibleName +' '+ acceleratorText;
+                }
                 return accessibleName;
             }
         }, c);
@@ -362,6 +393,41 @@ class CAccessibility implements PropertyChangeListener {
                 return accessibleText;
             }
         }, c);
+    }
+
+    /*
+     * Returns the JMenuItem accelerator. Implementation of this method is based
+     * on AccessBridge.getAccelerator(AccessibleContext) to access the KeyStroke
+     * and on AquaMenuPainter.paintMenuItem() to convert it to string.
+     */
+    @SuppressWarnings("deprecation")
+    private static String getAcceleratorText(AccessibleContext ac) {
+        String accText = "";
+        Accessible parent = ac.getAccessibleParent();
+        if (parent != null) {
+            // workaround for getAccessibleKeyBinding not returning the
+            // JMenuItem accelerator
+            int indexInParent = ac.getAccessibleIndexInParent();
+            Accessible child = parent.getAccessibleContext()
+                                     .getAccessibleChild(indexInParent);
+            if (child instanceof JMenuItem) {
+                JMenuItem menuItem = (JMenuItem) child;
+                KeyStroke keyStroke = menuItem.getAccelerator();
+                if (keyStroke != null) {
+                    int modifiers = keyStroke.getModifiers();
+                    if (modifiers > 0) {
+                        accText = KeyEvent.getKeyModifiersText(modifiers);
+                    }
+                    int keyCode = keyStroke.getKeyCode();
+                    if (keyCode != 0) {
+                        accText += KeyEvent.getKeyText(keyCode);
+                    } else {
+                        accText += keyStroke.getKeyChar();
+                    }
+                }
+            }
+        }
+        return accText;
     }
 
     public static String getAccessibleDescription(final Accessible a, final Component c) {
@@ -406,7 +472,16 @@ class CAccessibility implements PropertyChangeListener {
     public static Accessible accessibilityHitTest(final Container parent, final float hitPointX, final float hitPointY) {
         return invokeAndWait(new Callable<Accessible>() {
             public Accessible call() throws Exception {
-                final Point p = parent.getLocationOnScreen();
+                if (parent == null) {
+                    return null;
+                }
+
+                final Point p;
+                try {
+                    p = parent.getLocationOnScreen();
+                } catch (IllegalComponentStateException ice) {
+                    return null;
+                }
 
                 // Make it into local coords
                 final Point localPoint = new Point((int)(hitPointX - p.getX()), (int)(hitPointY - p.getY()));
@@ -446,6 +521,13 @@ class CAccessibility implements PropertyChangeListener {
         }, c);
     }
 
+    // This method is called from the native in CommonComponentAccessibility.m
+    private static int getAccessibleActionCount(final AccessibleAction aa, final Component c) {
+        if (aa == null) return 0;
+
+        return invokeAndWait(aa::getAccessibleActionCount, c);
+    }
+
     public static boolean isEnabled(final Accessible a, final Component c) {
         if (a == null) return false;
 
@@ -479,7 +561,7 @@ class CAccessibility implements PropertyChangeListener {
         }, c);
     }
 
-    public static void requestSelection(final Accessible a, final Component c, final  boolean selected) {
+    public static void requestSelection(final Accessible a, final Component c) {
         if (a == null) return;
         invokeLater(new Runnable() {
             public void run() {
@@ -496,11 +578,7 @@ class CAccessibility implements PropertyChangeListener {
                     ((JList) parent).setSelectedIndex(i);
                     return;
                 }
-                if (selected) {
-                    as.addAccessibleSelection(i);
-                } else {
-                    as.removeAccessibleSelection(i);
-                }
+                as.addAccessibleSelection(i);
             }
         }, c);
     }
@@ -568,8 +646,8 @@ class CAccessibility implements PropertyChangeListener {
         return invokeAndWait(new Callable<Accessible>() {
             public Accessible call() throws Exception {
                 Component c = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-                if (c == null || !(c instanceof Accessible)) return null;
-                return CAccessible.getCAccessible((Accessible)c);
+                if (!(c instanceof Accessible accessible)) return null;
+                return CAccessible.getCAccessible(accessible);
             }
         }, c);
     }
@@ -600,54 +678,9 @@ class CAccessibility implements PropertyChangeListener {
 
     // Duplicated from JavaComponentAccessibility
     // Note that values >=0 are indexes into the child array
-    static final int JAVA_AX_ALL_CHILDREN = -1;
-    static final int JAVA_AX_SELECTED_CHILDREN = -2;
-    static final int JAVA_AX_VISIBLE_CHILDREN = -3;
-
-    // [tav] todo: the visibility detection is incomplete
-    private static int[] getTableVisibleRowRange(Accessible a, Component c) {
-        if (a == null) return null;
-        Integer[] result = invokeAndWait(new Callable<Integer[]>() {
-            public Integer[] call() throws Exception {
-                final AccessibleContext ac = a.getAccessibleContext();
-                if (!(ac instanceof AccessibleComponent) && !(ac instanceof AccessibleTable)) return null;
-
-                Accessible parent = ac.getAccessibleParent();
-                if (parent == null) return null;
-                AccessibleContext parentContext = parent.getAccessibleContext();
-                if (!(parentContext instanceof AccessibleComponent)) return null;
-
-                Rectangle bounds = ((AccessibleComponent) ac).getBounds();
-                Rectangle parentBounds = ((AccessibleComponent) parentContext).getBounds();
-                int y = bounds.y >= 0 ? 0 : -bounds.y;
-                int h = Math.min(bounds.height, parentBounds.height);
-                Point location1 = new Point(0, y);
-                Point location2 = new Point(0, y + h);
-
-                Function<Point, Integer> calcRowIndex = (location) -> {
-                    Accessible rowChild = ((AccessibleComponent) ac).getAccessibleAt(location);
-                    if (rowChild == null) return -1;
-
-                    AccessibleContext rowChildContext = rowChild.getAccessibleContext();
-                    if (rowChildContext == null) return -1;
-
-                    int rowChildIndex = rowChildContext.getAccessibleIndexInParent();
-                    int accessibleColumnCount = ((AccessibleTable) ac).getAccessibleColumnCount();
-                    if (accessibleColumnCount <= 0) return -1;
-                    
-                    return rowChildIndex / accessibleColumnCount;
-                };
-                int firstVisibleRow = calcRowIndex.apply(location1);
-                int lastVisibleRow = calcRowIndex.apply(location2);
-
-                return new Integer[]{firstVisibleRow, lastVisibleRow};
-            }
-        }, c);
-        if (result != null) {
-            return new int[]{result[0], result[1]};
-        }
-        return null;
-    }
+    @Native static final int JAVA_AX_ALL_CHILDREN = -1;
+    @Native static final int JAVA_AX_SELECTED_CHILDREN = -2;
+    @Native static final int JAVA_AX_VISIBLE_CHILDREN = -3;
 
     private static Object[] getTableRowChildrenAndRoles(Accessible a, Component c, int whichChildren, boolean allowIgnored, int tableRowIndex) {
         return invokeGetChildrenAndRoles(a, c, whichChildren, allowIgnored, ChildrenOperations.createForTableRow(tableRowIndex));
@@ -674,13 +707,13 @@ class CAccessibility implements PropertyChangeListener {
         _addChildren(a, whichChildren, allowIgnored, childrenAndRoles, ops);
 
         /* In case of fetching a selection, we need to check if
-         * the active descendant is at the beginning of the list, or
-         * otherwise move it, so that VoiceOver announces it correctly.
-         * The java list is always in order from top to bottom, but when
-         * (1) shift-selecting downward (extending the list) or (2) multi-selecting with
-         * the VO keys (CTRL+ALT+CMD+RETURN) the active descendant
-         * is not at the top of the list in the 1st case and may not be in the 2nd.
-         */
+* the active descendant is at the beginning of the list, or
+* otherwise move it, so that VoiceOver announces it correctly.
+                * The java list is always in order from top to bottom, but when
+                * (1) shift-selecting downward (extending the list) or (2) multi-selecting with
+                * the VO keys (CTRL+ALT+CMD+RETURN) the active descendant
+                * is not at the top of the list in the 1st case and may not be in the 2nd.
+                */
         if (whichChildren == JAVA_AX_SELECTED_CHILDREN) {
             if (!childrenAndRoles.isEmpty()) {
                 AccessibleContext activeDescendantAC =
@@ -850,6 +883,38 @@ class CAccessibility implements PropertyChangeListener {
                 }
 
                 return allChildren.toArray();
+            }
+        }, c);
+    }
+
+    // This method is called from the native in OutlineRowAccessibility.m
+    private static Accessible getAccessibleCurrentAccessible(Accessible a, Component c) {
+        if (a == null) return null;
+        return invokeAndWait(() -> {
+            AccessibleContext ac = a.getAccessibleContext();
+            if (ac != null) {
+                return SwingAccessor.getAccessibleComponentAccessor().getCurrentAccessible(ac);
+            }
+            return null;
+        }, c);
+    }
+
+    // This method is called from the native in ComboBoxAccessibility.m
+    private static Accessible getAccessibleComboboxValue(Accessible a, Component c) {
+        if (a == null) return null;
+
+        return invokeAndWait(new Callable<Accessible>() {
+            @Override
+            public Accessible call() throws Exception {
+                AccessibleContext ac = a.getAccessibleContext();
+                if (ac != null) {
+                    AccessibleSelection as = ac.getAccessibleSelection();
+                    if (as != null) {
+                        return as.getAccessibleSelection(0);
+                    }
+                }
+
+                return null;
             }
         }, c);
     }
@@ -1058,5 +1123,19 @@ class CAccessibility implements PropertyChangeListener {
                 return 0L;
             }
         }, (Component)ax);
+    }
+
+    private static boolean isTreeRootVisible(Accessible a, Component c) {
+        if (a == null) return false;
+
+        return invokeAndWait(new Callable<Boolean>() {
+            public Boolean call() throws Exception {
+                Accessible sa = CAccessible.getSwingAccessible(a);
+                if (sa instanceof JTree) {
+                    return ((JTree) sa).isRootVisible();
+                }
+                return false;
+            }
+        }, c);
     }
 }

@@ -29,7 +29,7 @@ package sun.rmi.registry;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 
-import jdk.internal.misc.SharedSecrets;
+import jdk.internal.access.SharedSecrets;
 import sun.rmi.transport.StreamRemoteCall;
 
 /**

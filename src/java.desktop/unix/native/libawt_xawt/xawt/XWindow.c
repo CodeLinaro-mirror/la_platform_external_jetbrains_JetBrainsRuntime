@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -46,7 +46,8 @@
 
 #include "awt_p.h"
 #include "awt_GraphicsEnv.h"
-#include "awt_AWTEvent.h"
+
+#include "keycode_cache.h"
 
 #define XK_KATAKANA
 #include <X11/keysym.h>     /* standard X keysyms */
@@ -87,7 +88,6 @@ jfieldID graphicsConfigID;
 extern jobject currentX11InputMethodInstance;
 extern Boolean awt_x11inputmethod_lookupString(XKeyPressedEvent *, KeySym *);
 Boolean awt_UseType4Patch = False;
-/* how about HEADLESS */
 Boolean awt_ServerDetected = False;
 Boolean awt_XKBDetected = False;
 Boolean awt_IsXsun = False;
@@ -814,85 +814,7 @@ isXKBenabled(Display *display) {
     return awt_UseXKB;
 }
 
-#define USE_KEYCODE_CACHE 1
-
-#ifdef USE_KEYCODE_CACHE
-
-/**
- * Keeps the KeyCode -> KeySym mapping.
- */
-typedef struct {
-    KeySym* symbols;        // array of KeySym indexed by the key code with min_code corresponding to index 0
-    int     syms_per_code;  // number of elements in 'symbols' corresponding to one key code
-    int     min_code;       // minimum valid key code (typically 8)
-    int     max_code;       // maximum valid key code (typically 255)
-} KeyCodeCache;
-
-static KeyCodeCache keycode_cache = {0};
-
-#ifdef DEBUG
-static void
-dump_keycode_cache(const KeyCodeCache* cache) {
-    fprintf(stderr, "KeyCodeCache dump\n");
-    if (cache->symbols == NULL) {
-        fprintf(stderr, "-- empty --\n");
-    } else {
-        fprintf(stderr, "syms_per_code=%d, min_code=%d, max_code=%d\n",
-                cache->syms_per_code, cache->min_code, cache->max_code);
-        for(int i = cache->min_code; i <= cache->max_code; i++) {
-            fprintf(stderr, "0x%02x --", i);
-            for(int j = 0; j < cache->syms_per_code; j++) {
-                const int sym_index = (i - cache->min_code)*cache->syms_per_code + j;
-                fprintf(stderr, "%04d - ", cache->symbols[sym_index]);
-            }
-            fprintf(stderr, "\n");
-        }
-    }
-}
-#endif // DEBUG
-
-/**
- * Clears the cache and frees memory, if allocated.
- *
- * NB: not thread safe and is supposed to be called only when holding the AWT lock.
- */
-extern void
-resetKeyCodeCache(void) {
-    if (keycode_cache.symbols) {
-        XFree(keycode_cache.symbols);
-    }
-    keycode_cache = (KeyCodeCache){0};
-}
-
-/**
- * Translates the given keycode to the corresponding KeySym at the given index.
- * Caches the mapping for all valid key codes by using just one XGetKeyboardMapping() Xlib call,
- * which greatly reduces delays when working with a remote X server.
- *
- * NB: not thread safe and is supposed to be called only when holding the AWT lock.
- */
-extern KeySym
-keycodeToKeysym(Display* display, KeyCode keycode, int index) {
-    if (!keycode_cache.symbols) {
-        XDisplayKeycodes(display, &keycode_cache.min_code, &keycode_cache.max_code);
-        const int count_all = keycode_cache.max_code - keycode_cache.min_code + 1;
-        keycode_cache.symbols = XGetKeyboardMapping(display, keycode_cache.min_code, count_all, &keycode_cache.syms_per_code);
-        // NB: this may not always get free'ed
-    }
-
-    if (keycode_cache.symbols) {
-        const Boolean code_within_range  = (keycode >= keycode_cache.min_code && keycode <= keycode_cache.max_code);
-        const Boolean index_within_range = (index >= 0 && index < keycode_cache.syms_per_code);
-        if (code_within_range && index_within_range) {
-            const int sym_index = (keycode - keycode_cache.min_code)*keycode_cache.syms_per_code + index;
-            KeySym sym = keycode_cache.symbols[sym_index];
-            return sym;
-        }
-    }
-
-    return NoSymbol;
-}
-#else // USE_KEYCODE_CACHE
+#ifndef USE_KEYCODE_CACHE
 /*
  * Map a keycode to the corresponding keysym.
  * This replaces the deprecated X11 function XKeycodeToKeysym
@@ -987,7 +909,7 @@ handleKeyEventWithNumLockMask(XEvent *event, KeySym *keysym)
 {
     KeySym originalKeysym = *keysym;
 
-#if !defined(__linux__) && !defined(MACOSX)
+#if !defined(__linux__)
     /* The following code on Linux will cause the keypad keys
      * not to echo on JTextField when the NumLock is on. The
      * keysyms will be 0, because the last parameter 2 is not defined.
@@ -1205,24 +1127,11 @@ JNIEXPORT jboolean JNICALL Java_sun_awt_X11_XWindow_x11inputMethodLookupString
 
 extern struct X11GraphicsConfigIDs x11GraphicsConfigIDs;
 
-/*
- * Class:     Java_sun_awt_X11_XWindow_getNativeColor
- * Method:    getNativeColor
- * Signature  (Ljava/awt/Color;Ljava/awt/GraphicsConfiguration;)I
- */
-JNIEXPORT jint JNICALL Java_sun_awt_X11_XWindow_getNativeColor
-(JNIEnv *env, jobject this, jobject color, jobject gc_object) {
-    AwtGraphicsConfigDataPtr adata;
-    /* fire warning because JNU_GetLongFieldAsPtr casts jlong to (void *) */
-    adata = (AwtGraphicsConfigDataPtr) JNU_GetLongFieldAsPtr(env, gc_object, x11GraphicsConfigIDs.aData);
-    return awtJNI_GetColorForVis(env, color, adata);
-}
-
 /* syncTopLevelPos() is necessary to insure that the window manager has in
  * fact moved us to our final position relative to the reParented WM window.
  * We have noted a timing window which our shell has not been moved so we
  * screw up the insets thinking they are 0,0.  Wait (for a limited period of
- * time to let the WM hava a chance to move us
+ * time to let the WM have a chance to move us
  */
 void syncTopLevelPos( Display *d, Window w, XWindowAttributes *winAttr ) {
     int32_t i = 0;
@@ -1243,84 +1152,6 @@ void syncTopLevelPos( Display *d, Window w, XWindowAttributes *winAttr ) {
              XSync(d, False);
          }
     } while (i++ < 50);
-}
-
-static Window getTopWindow(Window win, Window *rootWin)
-{
-    Window root=None, current_window=win, parent=None, *ignore_children=NULL;
-    Window prev_window=None;
-    unsigned int ignore_uint=0;
-    Status status = 0;
-
-    if (win == None) return None;
-    do {
-        status = XQueryTree(awt_display,
-                            current_window,
-                            &root,
-                            &parent,
-                            &ignore_children,
-                            &ignore_uint);
-        XFree(ignore_children);
-        if (status == 0) return None;
-        prev_window = current_window;
-        current_window = parent;
-    } while (parent != root);
-    *rootWin = root;
-    return prev_window;
-}
-
-JNIEXPORT jlong JNICALL Java_sun_awt_X11_XWindow_getTopWindow
-(JNIEnv *env, jclass clazz, jlong win, jlong rootWin) {
-    return getTopWindow((Window) win, (Window*) jlong_to_ptr(rootWin));
-}
-
-static void
-getWMInsets
-(Window window, int *left, int *top, int *right, int *bottom, int *border) {
-    // window is event->xreparent.window
-    Window topWin = None, rootWin = None, containerWindow = None;
-    XWindowAttributes winAttr, topAttr;
-    int screenX, screenY;
-    topWin = getTopWindow(window, &rootWin);
-    syncTopLevelPos(awt_display, topWin, &topAttr);
-    // (screenX, screenY) is (0,0) of the reparented window
-    // converted to screen coordinates.
-    XTranslateCoordinates(awt_display, window, rootWin,
-        0,0, &screenX, &screenY, &containerWindow);
-    *left = screenX - topAttr.x - topAttr.border_width;
-    *top  = screenY - topAttr.y - topAttr.border_width;
-    XGetWindowAttributes(awt_display, window, &winAttr);
-    *right  = topAttr.width  - ((winAttr.width)  + *left);
-    *bottom = topAttr.height - ((winAttr.height) + *top);
-    *border = topAttr.border_width;
-}
-
-JNIEXPORT void JNICALL Java_sun_awt_X11_XWindow_getWMInsets
-(JNIEnv *env, jclass clazz, jlong window, jlong left, jlong top, jlong right, jlong bottom, jlong border) {
-    getWMInsets((Window) window,
-                (int*) jlong_to_ptr(left),
-                (int*) jlong_to_ptr(top),
-                (int*) jlong_to_ptr(right),
-                (int*) jlong_to_ptr(bottom),
-                (int*) jlong_to_ptr(border));
-}
-
-static void
-getWindowBounds
-(Window window, int *x, int *y, int *width, int *height) {
-    XWindowAttributes winAttr;
-    XSync(awt_display, False);
-    XGetWindowAttributes(awt_display, window, &winAttr);
-    *x = winAttr.x;
-    *y = winAttr.y;
-    *width = winAttr.width;
-    *height = winAttr.height;
-}
-
-JNIEXPORT void JNICALL Java_sun_awt_X11_XWindow_getWindowBounds
-(JNIEnv *env, jclass clazz, jlong window, jlong x, jlong y, jlong width, jlong height) {
-    getWindowBounds((Window) window, (int*) jlong_to_ptr(x), (int*) jlong_to_ptr(y),
-                    (int*) jlong_to_ptr(width), (int*) jlong_to_ptr(height));
 }
 
 JNIEXPORT void JNICALL Java_sun_awt_X11_XWindow_setSizeHints

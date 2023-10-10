@@ -1,16 +1,8 @@
-JTwork
-JTreport
-*.class
-.idea/workspace.xml
-.idea/misc.xml
-.idea/modules.xml
-.idea/shelf/
-JetBrainsRuntime.iml
-# Project exclude paths
-/jb/project/java-gradle/.gradle/
 /build/
 /dist/
 /.idea/
+/.vscode/
+/nbproject/
 nbproject/private/
 /webrev
 /.src-rev
@@ -23,4 +15,11 @@ test/nashorn/lib
 NashornProfile.txt
 **/JTreport/**
 **/JTwork/**
-/jb/project/java-gradle/.idea/workspace.xml
+/src/utils/LogCompilation/target/
+/.project/
+/.settings/
+/.project
+/.classpath
+/.cproject
+/compile_commands.json
+/.cache

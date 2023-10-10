@@ -88,7 +88,7 @@ void AwtDialog::FillClassInfo(WNDCLASSEX *lpwc)
 {
     AwtWindow::FillClassInfo(lpwc);
     //Fixed 6280303: REGRESSION: Java cup icon appears in title bar of dialogs
-    // Dialog inherits icon from its owner dinamically
+    // Dialog inherits icon from its owner dynamically
     lpwc->hIcon = NULL;
     lpwc->hIconSm = NULL;
 }
@@ -171,6 +171,8 @@ AwtDialog* AwtDialog::Create(jobject peer, jobject parent)
 
             dialog->RecalcNonClient();
             dialog->UpdateSystemMenu();
+
+            CustomTitleBarControls::Refresh(dialog->customTitleBarControls, dialog->GetHWnd(), target, env);
 
             /*
              * Initialize icon as inherited from parent if it exists
@@ -406,7 +408,7 @@ HICON AwtDialog::GetEffectiveIcon(int iconType)
         hIcon = (smallIcon) ? AwtToolkit::GetInstance().GetAwtIconSm(reinterpret_cast<void*>(this)) :
             AwtToolkit::GetInstance().GetAwtIcon();
     } else if ((hIcon != NULL) && IsIconInherited() && !isResizable) {
-        //Non-resizable dialogs without explicitely set icon
+        //Non-resizable dialogs without explicitly set icon
         //Should have no icon
         hIcon = NULL;
     }

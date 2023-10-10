@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, 2021, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2018, 2022, Red Hat, Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,15 +23,19 @@
  */
 
 #include "precompiled.hpp"
-#include "gc/shared/gcArguments.inline.hpp"
+#include "gc/shared/gcArguments.hpp"
+#include "gc/shared/tlab_globals.hpp"
+#include "gc/shared/workerPolicy.hpp"
 #include "gc/shenandoah/shenandoahArguments.hpp"
 #include "gc/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc/shenandoah/shenandoahHeapRegion.hpp"
+#include "runtime/globals_extension.hpp"
+#include "runtime/java.hpp"
 #include "utilities/defaultStream.hpp"
 
 void ShenandoahArguments::initialize() {
-#if !(defined AARCH64 || defined AMD64 || defined IA32)
+#if !(defined AARCH64 || defined AMD64 || defined IA32 || defined PPC64 || defined RISCV64)
   vm_exit_during_initialization("Shenandoah GC is not supported on this platform.");
 #endif
 
@@ -109,10 +113,6 @@ void ShenandoahArguments::initialize() {
     }
   }
 
-  if (FLAG_IS_DEFAULT(ParallelRefProcEnabled)) {
-    FLAG_SET_DEFAULT(ParallelRefProcEnabled, true);
-  }
-
   if (ShenandoahRegionSampling && FLAG_IS_DEFAULT(PerfDataMemorySize)) {
     // When sampling is enabled, max out the PerfData memory to get more
     // Shenandoah data in, including Matrix.
@@ -144,18 +144,6 @@ void ShenandoahArguments::initialize() {
 #endif // ASSERT
 #endif // COMPILER2
 
-  // Shenandoah C2 optimizations apparently dislike the shape of thread-local handshakes.
-  // Disable it by default, unless we enable it specifically for debugging.
-  if (FLAG_IS_DEFAULT(ThreadLocalHandshakes)) {
-    if (ThreadLocalHandshakes) {
-      FLAG_SET_DEFAULT(ThreadLocalHandshakes, false);
-    }
-  } else {
-    if (ThreadLocalHandshakes) {
-      warning("Thread-local handshakes are not working correctly with Shenandoah at the moment. Enable at your own risk.");
-    }
-  }
-
   // Record more information about previous cycles for improved debugging pleasure
   if (FLAG_IS_DEFAULT(LogEventsBufferEntries)) {
     FLAG_SET_DEFAULT(LogEventsBufferEntries, 250);
@@ -171,14 +159,6 @@ void ShenandoahArguments::initialize() {
     FLAG_SET_DEFAULT(ClassUnloadingWithConcurrentMark, false);
   }
 
-  // AOT is not supported yet
-  if (UseAOT) {
-    if (!FLAG_IS_DEFAULT(UseAOT)) {
-      warning("Shenandoah does not support AOT at this moment, disabling UseAOT");
-    }
-    FLAG_SET_DEFAULT(UseAOT, false);
-  }
-
   // TLAB sizing policy makes resizing decisions before each GC cycle. It averages
   // historical data, assigning more recent data the weight according to TLABAllocationWeight.
   // Current default is good for generational collectors that run frequent young GCs.
@@ -186,14 +166,6 @@ void ShenandoahArguments::initialize() {
   // to converge faster over smaller number of resizing decisions.
   if (FLAG_IS_DEFAULT(TLABAllocationWeight)) {
     FLAG_SET_DEFAULT(TLABAllocationWeight, 90);
-  }
-
-  if (FLAG_IS_DEFAULT(ShenandoahSoftMaxHeapSize)) {
-    FLAG_SET_DEFAULT(ShenandoahSoftMaxHeapSize, MaxHeapSize);
-  } else {
-    if (ShenandoahSoftMaxHeapSize > MaxHeapSize) {
-      vm_exit_during_initialization("ShenandoahSoftMaxHeapSize must be less than or equal to the maximum heap size\n");
-    }
   }
 }
 
@@ -205,6 +177,19 @@ size_t ShenandoahArguments::conservative_max_heap_alignment() {
   return align;
 }
 
+void ShenandoahArguments::initialize_alignments() {
+  // Need to setup sizes early to get correct alignments.
+  MaxHeapSize = ShenandoahHeapRegion::setup_sizes(MaxHeapSize);
+
+  // This is expected by our algorithm for ShenandoahHeap::heap_region_containing().
+  size_t align = ShenandoahHeapRegion::region_size_bytes();
+  if (UseLargePages) {
+    align = MAX2(align, os::large_page_size());
+  }
+  SpaceAlignment = align;
+  HeapAlignment = align;
+}
+
 CollectedHeap* ShenandoahArguments::create_heap() {
-  return create_heap_with_policy<ShenandoahHeap, ShenandoahCollectorPolicy>();
+  return new ShenandoahHeap(new ShenandoahCollectorPolicy());
 }

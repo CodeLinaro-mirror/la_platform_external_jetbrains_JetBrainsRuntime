@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,7 +44,6 @@ import javax.crypto.KeyAgreement;
 import javax.crypto.SecretKey;
 import javax.net.ssl.SSLHandshakeException;
 import sun.security.ssl.NamedGroup.NamedGroupSpec;
-import sun.security.ssl.SupportedGroupsExtension.SupportedGroups;
 import sun.security.ssl.X509Authentication.X509Credentials;
 import sun.security.ssl.X509Authentication.X509Possession;
 import sun.security.ssl.XDHKeyExchange.XDHECredentials;
@@ -98,10 +97,9 @@ final class ECDHKeyExchange {
 
             ECParameterSpec parameters =
                     (ECParameterSpec)namedGroup.keAlgParamSpec;
-
-            ECPoint point = JsseJce.decodePoint(
+            ECPoint point = ECUtil.decodePoint(
                     encodedPoint, parameters.getCurve());
-            KeyFactory factory = JsseJce.getKeyFactory("EC");
+            KeyFactory factory = KeyFactory.getInstance("EC");
             ECPublicKey publicKey = (ECPublicKey)factory.generatePublic(
                     new ECPublicKeySpec(point, parameters));
             return new ECDHECredentials(publicKey, namedGroup);
@@ -115,7 +113,7 @@ final class ECDHKeyExchange {
 
         ECDHEPossession(NamedGroup namedGroup, SecureRandom random) {
             try {
-                KeyPairGenerator kpg = JsseJce.getKeyPairGenerator("EC");
+                KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC");
                 kpg.initialize(namedGroup.keAlgParamSpec, random);
                 KeyPair kp = kpg.generateKeyPair();
                 privateKey = kp.getPrivate();
@@ -131,7 +129,7 @@ final class ECDHKeyExchange {
         ECDHEPossession(ECDHECredentials credentials, SecureRandom random) {
             ECParameterSpec params = credentials.popPublicKey.getParams();
             try {
-                KeyPairGenerator kpg = JsseJce.getKeyPairGenerator("EC");
+                KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC");
                 kpg.initialize(params, random);
                 KeyPair kp = kpg.generateKeyPair();
                 privateKey = kp.getPrivate();
@@ -156,13 +154,12 @@ final class ECDHKeyExchange {
                 PublicKey peerPublicKey) throws SSLHandshakeException {
 
             try {
-                KeyAgreement ka = JsseJce.getKeyAgreement("ECDH");
+                KeyAgreement ka = KeyAgreement.getInstance("ECDH");
                 ka.init(privateKey);
                 ka.doPhase(peerPublicKey, true);
                 return ka.generateSecret("TlsPremasterSecret");
             } catch (GeneralSecurityException e) {
-                throw (SSLHandshakeException) new SSLHandshakeException(
-                    "Could not generate secret").initCause(e);
+                throw new SSLHandshakeException("Could not generate secret", e);
             }
         }
 
@@ -172,14 +169,13 @@ final class ECDHKeyExchange {
             try {
                 ECParameterSpec params = publicKey.getParams();
                 ECPoint point =
-                        JsseJce.decodePoint(encodedPoint, params.getCurve());
-                KeyFactory kf = JsseJce.getKeyFactory("EC");
+                        ECUtil.decodePoint(encodedPoint, params.getCurve());
+                KeyFactory kf = KeyFactory.getInstance("EC");
                 ECPublicKeySpec spec = new ECPublicKeySpec(point, params);
                 PublicKey peerPublicKey = kf.generatePublic(spec);
                 return getAgreedSecret(peerPublicKey);
             } catch (GeneralSecurityException | java.io.IOException e) {
-                throw (SSLHandshakeException) new SSLHandshakeException(
-                    "Could not generate secret").initCause(e);
+                throw new SSLHandshakeException("Could not generate secret", e);
             }
         }
 
@@ -190,10 +186,10 @@ final class ECDHKeyExchange {
 
                 ECParameterSpec params = publicKey.getParams();
                 ECPoint point =
-                        JsseJce.decodePoint(encodedPoint, params.getCurve());
+                        ECUtil.decodePoint(encodedPoint, params.getCurve());
                 ECPublicKeySpec spec = new ECPublicKeySpec(point, params);
 
-                KeyFactory kf = JsseJce.getKeyFactory("EC");
+                KeyFactory kf = KeyFactory.getInstance("EC");
                 ECPublicKey pubKey = (ECPublicKey)kf.generatePublic(spec);
 
                 // check constraints of ECPublicKey
@@ -203,8 +199,8 @@ final class ECDHKeyExchange {
                         "ECPublicKey does not comply to algorithm constraints");
                 }
             } catch (GeneralSecurityException | java.io.IOException e) {
-                throw (SSLHandshakeException) new SSLHandshakeException(
-                        "Could not generate ECPublicKey").initCause(e);
+                throw new SSLHandshakeException(
+                        "Could not generate ECPublicKey", e);
             }
         }
 
@@ -239,7 +235,8 @@ final class ECDHKeyExchange {
             // Find most preferred EC or XEC groups
             if ((context.clientRequestedNamedGroups != null) &&
                     (!context.clientRequestedNamedGroups.isEmpty())) {
-                preferableNamedGroup = SupportedGroups.getPreferredGroup(
+                preferableNamedGroup = NamedGroup.getPreferredGroup(
+                        context.sslConfig,
                         context.negotiatedProtocol,
                         context.algorithmConstraints,
                         new NamedGroupSpec[] {
@@ -247,7 +244,8 @@ final class ECDHKeyExchange {
                             NamedGroupSpec.NAMED_GROUP_XDH },
                         context.clientRequestedNamedGroups);
             } else {
-                preferableNamedGroup = SupportedGroups.getPreferredGroup(
+                preferableNamedGroup = NamedGroup.getPreferredGroup(
+                        context.sslConfig,
                         context.negotiatedProtocol,
                         context.algorithmConstraints,
                         new NamedGroupSpec[] {
@@ -324,7 +322,7 @@ final class ECDHKeyExchange {
                 }
             }
 
-            if (x509Possession == null || ecdheCredentials == null) {
+            if (x509Possession == null) {
                 throw shc.conContext.fatal(Alert.HANDSHAKE_FAILURE,
                     "No sufficient ECDHE key agreement parameters negotiated");
             }
@@ -373,7 +371,7 @@ final class ECDHKeyExchange {
                 }
             }
 
-            if (ecdhePossession == null || x509Credentials == null) {
+            if (ecdhePossession == null) {
                 throw chc.conContext.fatal(Alert.HANDSHAKE_FAILURE,
                     "No sufficient ECDH key agreement parameters negotiated");
             }
@@ -417,7 +415,7 @@ final class ECDHKeyExchange {
                 }
             }
 
-            if (ecdhePossession == null || ecdheCredentials == null) {
+            if (ecdhePossession == null) {
                 throw context.conContext.fatal(Alert.HANDSHAKE_FAILURE,
                     "No sufficient ECDHE key agreement parameters negotiated");
             }
@@ -468,7 +466,7 @@ final class ECDHKeyExchange {
                 }
             }
 
-            if (namedGroupPossession == null || namedGroupCredentials == null) {
+            if (namedGroupPossession == null) {
                 throw context.conContext.fatal(Alert.HANDSHAKE_FAILURE,
                     "No sufficient ECDHE/XDH key agreement " +
                             "parameters negotiated");

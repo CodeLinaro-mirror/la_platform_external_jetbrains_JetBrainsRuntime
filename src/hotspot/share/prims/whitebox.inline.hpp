@@ -22,10 +22,11 @@
  *
  */
 
-#ifndef SHARE_VM_PRIMS_WHITEBOX_INLINE_HPP
-#define SHARE_VM_PRIMS_WHITEBOX_INLINE_HPP
+#ifndef SHARE_PRIMS_WHITEBOX_INLINE_HPP
+#define SHARE_PRIMS_WHITEBOX_INLINE_HPP
 
 #include "prims/whitebox.hpp"
+
 #include "runtime/interfaceSupport.inline.hpp"
 
 // Entry macro to transition from JNI to VM state.
@@ -36,4 +37,4 @@
 
 #define WB_END JNI_END
 
-#endif // SHARE_VM_PRIMS_WHITEBOX_INLINE_HPP
+#endif // SHARE_PRIMS_WHITEBOX_INLINE_HPP

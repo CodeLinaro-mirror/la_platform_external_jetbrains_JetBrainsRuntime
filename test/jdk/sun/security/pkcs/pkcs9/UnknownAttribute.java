@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,17 +25,18 @@
  * @test
  * @bug 8011867 8242151
  * @summary Accept unknown PKCS #9 attributes
+ * @library /test/lib
  * @modules java.base/sun.security.pkcs
  *          java.base/sun.security.util
  */
 
-import java.io.*;
 import java.util.Arrays;
 
-import sun.security.util.HexDumpEncoder;
 import sun.security.pkcs.PKCS9Attribute;
+import sun.security.util.DerOutputStream;
 import sun.security.util.DerValue;
 import sun.security.util.ObjectIdentifier;
+import jdk.test.lib.hexdump.HexPrinter;
 
 public class UnknownAttribute {
 
@@ -56,10 +57,10 @@ public class UnknownAttribute {
         if (p2.isKnown()) {
             throw new Exception();
         }
-        ByteArrayOutputStream bout = new ByteArrayOutputStream();
-        p2.derEncode(bout);
-        new HexDumpEncoder().encodeBuffer(bout.toByteArray(), System.err);
-        if (!Arrays.equals(data, bout.toByteArray())) {
+        DerOutputStream dout = new DerOutputStream();
+        p2.encode(dout);
+        HexPrinter.simple().dest(System.err).format(dout.toByteArray());
+        if (!Arrays.equals(data, dout.toByteArray())) {
             throw new Exception();
         }
         // Unknown attr from value
@@ -74,9 +75,9 @@ public class UnknownAttribute {
         if (p3.isKnown()) {
             throw new Exception();
         }
-        bout = new ByteArrayOutputStream();
-        p3.derEncode(bout);
-        if (!Arrays.equals(data, bout.toByteArray())) {
+        dout = new DerOutputStream();
+        p3.encode(dout);
+        if (!Arrays.equals(data, dout.toByteArray())) {
             throw new Exception();
         }
     }

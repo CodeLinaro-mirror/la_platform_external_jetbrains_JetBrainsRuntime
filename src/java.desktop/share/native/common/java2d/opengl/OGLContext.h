@@ -53,6 +53,16 @@ typedef struct {
 } OGLBlendRule;
 
 /**
+ * Use this hints if gray gamma shader is enabled
+ */
+typedef struct {
+    float light_gamma; // brightness of light text
+    float dark_gamma;  // brightness of dark text
+    float light_exp;   // thickness of light text
+    float dark_exp;    // thickness of dark text
+} GrayRenderHints;
+
+/**
  * The OGLContext structure contains cached state relevant to the native
  * OpenGL context stored within the native ctxInfo field.  Each Java-level
  * OGLContext object is associated with a native-level OGLContext structure.
@@ -85,6 +95,7 @@ typedef struct {
     GLuint     blitTextureID;
     GLint      textureFunction;
     jboolean   vertexCacheEnabled;
+    GrayRenderHints *grayRenderHints;
 } OGLContext;
 
 /**
@@ -161,12 +172,12 @@ typedef struct {
     (((oglc)->caps >> OGLC_VCAP_OFFSET) & OGLC_VCAP_MASK)
 
 /**
- * This value determines the size of the shared tile texture used
+ * This constant determines the size of the shared tile texture used
  * by a number of image rendering methods.  For example, the blit tile texture
- * will have dimensions with width OGLContext_BlitTileSize and height
- * OGLContext_BlitTileSize (the tile will always be square).
+ * will have dimensions with width OGLC_BLIT_TILE_SIZE and height
+ * OGLC_BLIT_TILE_SIZE (the tile will always be square).
  */
-extern int OGLContext_BlitTileSize;
+#define OGLC_BLIT_TILE_SIZE 128
 
 /**
  * Helper macros that update the current texture function state only when
@@ -221,5 +232,6 @@ void OGLContext_GetExtensionInfo(JNIEnv *env, jint *caps);
 jboolean OGLContext_IsVersionSupported(const unsigned char *versionstr);
 
 GLhandleARB OGLContext_CreateFragmentProgram(const char *fragmentShaderSource);
+void OGLContext_InitGrayRenderHints(JNIEnv *env, OGLContext *oglc);
 
 #endif /* OGLContext_h_Included */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,12 +25,13 @@
 #ifndef SHARE_RUNTIME_ABSTRACT_VM_VERSION_HPP
 #define SHARE_RUNTIME_ABSTRACT_VM_VERSION_HPP
 
-#include "memory/allocation.hpp"  // For declaration of class AllStatic
+#include "memory/allStatic.hpp"  // For declaration of class AllStatic
 #include "utilities/globalDefinitions.hpp"
 
 typedef enum {
   NoDetectedVirtualization,
   XenHVM,
+  XenPVHVM, // mix-mode on Linux aarch64
   KVM,
   VMWare,
   HyperV,
@@ -39,6 +40,9 @@ typedef enum {
   PowerFullPartitionMode, // on Linux ppc64(le)
   PowerKVM
 } VirtualizationType;
+
+class outputStream;
+enum class vmIntrinsicID;
 
 // Abstract_VM_Version provides information about the VM.
 
@@ -67,24 +71,19 @@ class Abstract_VM_Version: AllStatic {
   static int          _vm_security_version;
   static int          _vm_patch_version;
   static int          _vm_build_number;
+  static unsigned int _data_cache_line_flush_size;
+
+ public:
 
   static VirtualizationType _detected_virtualization;
 
-  static unsigned int _parallel_worker_threads;
-  static bool         _parallel_worker_threads_initialized;
-
-  static unsigned int nof_parallel_worker_threads(unsigned int num,
-                                                  unsigned int dem,
-                                                  unsigned int switch_pt);
-
-public:
   // Called as part of the runtime services initialization which is
   // called from the management module initialization (via init_globals())
   // after argument parsing and attaching of the main thread has
   // occurred.  Examines a variety of the hardware capabilities of
   // the platform to determine which features can be used to execute the
   // program.
-  static void initialize();
+  static void initialize() { }
 
   // This allows for early initialization of VM_Version information
   // that may be needed later in the initialization sequence but before
@@ -106,7 +105,6 @@ public:
   static const char* vm_info_string();
   static const char* vm_release();
   static const char* vm_platform_string();
-  static const char* vm_build_user();
 
   static int vm_major_version()               { return _vm_major_version; }
   static int vm_minor_version()               { return _vm_minor_version; }
@@ -114,22 +112,17 @@ public:
   static int vm_patch_version()               { return _vm_patch_version; }
   static int vm_build_number()                { return _vm_build_number; }
 
-  // Gets the jvm_version_info.jvm_version defined in jvm.h
+  // Gets the jvm_version_info.jvm_version
   static unsigned int jvm_version();
 
   // Internal version providing additional build information
   static const char* internal_vm_info_string();
-  static const char* jre_release_version();
   static const char* jdk_debug_level();
   static const char* printable_jdk_debug_level();
 
-  static uint64_t features() {
-    return _features;
-  }
-
-  static const char* features_string() {
-    return _features_string;
-  }
+  static uint64_t features()           { return _features; }
+  static const char* features_string() { return _features_string; }
+  static void insert_features_names(char* buf, size_t buflen, const char* features_names[]);
 
   static VirtualizationType get_detected_virtualization() {
     return _detected_virtualization;
@@ -162,28 +155,58 @@ public:
     return _L1_data_cache_line_size;
   }
 
-  // ARCH specific policy for the BiasedLocking
-  static bool use_biased_locking()  { return true; }
+  // the size in bytes of a data cache line flushed by a flush
+  // operation which should be a power of two or zero if cache line
+  // writeback is not supported by the current os_cpu combination
+  static unsigned int data_cache_line_flush_size() {
+    return _data_cache_line_flush_size;
+  }
 
-  // Number of page sizes efficiently supported by the hardware.  Most chips now
-  // support two sizes, thus this default implementation.  Processor-specific
-  // subclasses should define new versions to hide this one as needed.  Note
-  // that the O/S may support more sizes, but at most this many are used.
-  static uint page_size_count() { return 2; }
+  // returns true if and only if cache line writeback is supported
+  static bool supports_data_cache_line_flush() {
+    return _data_cache_line_flush_size != 0;
+  }
 
-  // Returns the number of parallel threads to be used for VM
-  // work.  If that number has not been calculated, do so and
-  // save it.  Returns ParallelGCThreads if it is set on the
-  // command line.
-  static unsigned int parallel_worker_threads();
-  // Calculates and returns the number of parallel threads.  May
-  // be VM version specific.
-  static unsigned int calc_parallel_worker_threads();
+  // Denominator for computing default ParallelGCThreads for machines with
+  // a large number of cores.
+  static uint parallel_worker_threads_denominator() { return 8; }
 
   // Does this CPU support spin wait instruction?
   static bool supports_on_spin_wait() { return false; }
 
+  // Does platform support fast class initialization checks for static methods?
+  static bool supports_fast_class_init_checks() { return false; }
+
+  // Does platform support stack watermark barriers for concurrent stack processing?
+  constexpr static bool supports_stack_watermark_barrier() { return false; }
+
+  // Does platform support float16 instructions?
+  static bool supports_float16() { return false; }
+
+  // Does this CPU support this intrinsic?
+  static bool is_intrinsic_supported(vmIntrinsicID id) { return true; }
+
   static bool print_matching_lines_from_file(const char* filename, outputStream* st, const char* keywords_to_match[]);
+
+ protected:
+  // VM_Version statics
+  static const size_t      CPU_TYPE_DESC_BUF_SIZE = 256;
+  static const size_t      CPU_DETAILED_DESC_BUF_SIZE = 4096;
+
+  static int   _no_of_threads;
+  static int   _no_of_cores;
+  static int   _no_of_sockets;
+  static bool  _initialized;
+  static char  _cpu_name[CPU_TYPE_DESC_BUF_SIZE];
+  static char  _cpu_desc[CPU_DETAILED_DESC_BUF_SIZE];
+
+ public:
+  static int number_of_threads(void);
+  static int number_of_cores(void);
+  static int number_of_sockets(void);
+
+  static const char* cpu_name(void);
+  static const char* cpu_description(void);
 };
 
 #endif // SHARE_RUNTIME_ABSTRACT_VM_VERSION_HPP

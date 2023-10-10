@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,13 +25,10 @@
  * @test TestOnError
  * @bug 8078470
  * @summary Test using -XX:OnError=<cmd>
- * COMMENTS
- *     Macos_aarch64 (unlike macos_intel) doesn't let the java to create
- *     core file with ErrorHandlerTest=12. so need to ignore this test there.
  * @modules java.base/jdk.internal.misc
  * @library /test/lib
- * @requires vm.debug & !(os.arch == "aarch64" & os.family == "mac")
- * @run main TestOnError
+ * @requires vm.debug
+ * @run driver TestOnError
  */
 
 import jdk.test.lib.process.ProcessTools;
@@ -44,9 +41,8 @@ public class TestOnError {
         String msg = "Test Succeeded";
 
         ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(
-           "-XX:-TransmitErrorReport",
            "-XX:-CreateCoredumpOnCrash",
-           "-XX:ErrorHandlerTest=12", // trigger potential SEGV
+           "-XX:ErrorHandlerTest=14", // trigger potential SEGV
            "-XX:OnError=echo " + msg,
            TestOnError.class.getName());
 

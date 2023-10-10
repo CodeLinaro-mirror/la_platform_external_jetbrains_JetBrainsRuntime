@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,7 +41,7 @@ import sun.java2d.loops.FontInfo;
  *
  * Note that this class holds pointers to native data which must be
  * disposed.  It is not marked as finalizable since it is intended
- * to be very lightweight and finalization is a comparitively expensive
+ * to be very lightweight and finalization is a comparatively expensive
  * procedure.  The caller must specifically use try{} finally{} to
  * manually ensure that the object is disposed after use, otherwise
  * native data structures might be leaked.
@@ -52,7 +52,7 @@ import sun.java2d.loops.FontInfo;
  *     GlyphList gl = GlyphList.getInstance();
  *     try {
  *         gl.setFromString(info, str, x, y);
- *         int strbounds[] = gl.getBounds();
+ *         gl.startGlyphIteration();
  *         int numglyphs = gl.getNumGlyphs();
  *         for (int i = 0; i < numglyphs; i++) {
  *             gl.setGlyphIndex(i);
@@ -83,9 +83,8 @@ public final class GlyphList {
     private static final int DEFAULT_LENGTH = 32;
 
     int glyphindex;
-    int metrics[];
-    int bounds[];
-    byte graybits[];
+    int[] metrics;
+    byte[] graybits;
 
     /* A reference to the strike is needed for the case when the GlyphList
      * may be added to a queue for batch processing, (e.g. OpenGL) and we need
@@ -108,10 +107,10 @@ public final class GlyphList {
     int len = 0;
     int maxLen = 0;
     int maxPosLen = 0;
-    int glyphData[];
-    char chData[];
-    long images[];
-    float positions[];
+    int[] glyphData;
+    char[] chData;
+    long[] images;
+    float[] positions;
     float x, y;
     float gposx, gposy;
     boolean usePositions;
@@ -253,7 +252,6 @@ public final class GlyphList {
         }
         info.fontStrike.getGlyphImagePtrs(glyphData, images, len);
         glyphindex = -1;
-        resetBounds();
         return true;
     }
 
@@ -277,20 +275,12 @@ public final class GlyphList {
                                           usePositions ? positions : null,
                                           info.devTx);
         glyphindex = -1;
-        resetBounds();
-    }
-
-    public int[] getBounds() {
-        if (!areBoundsPopulated()) {
-            if (bounds == null) {
-                bounds = new int[4];
-            }
-            fillBounds(bounds);
-        }
-        return bounds;
     }
 
     public void startGlyphIteration() {
+        if (glyphindex >= 0) {
+            throw new InternalError("glyph iteration restarted");
+        }
         if (metrics == null) {
             metrics = new int[5];
         }
@@ -298,6 +288,19 @@ public final class GlyphList {
          * Add 0.5f for consistent rounding to pixel position. */
         gposx = x + 0.5f;
         gposy = y + 0.5f;
+    }
+
+    /*
+     * Must be called after 'startGlyphIteration'.
+     * Returns overall bounds for glyphs starting from the next glyph
+     * in iteration till the glyph with specified index.
+     * The underlying storage for bounds is shared with metrics,
+     * so this method (and the array it returns) shouldn't be used between
+     * 'setGlyphIndex' call and matching 'getMetrics' call.
+     */
+    public int[] getBounds(int endGlyphIndex) {
+        fillBounds(metrics, endGlyphIndex);
+        return metrics;
     }
 
     /* This method now assumes "state", so must be called 0->len
@@ -438,21 +441,10 @@ public final class GlyphList {
         return len;
     }
 
-    private void resetBounds() {
-        if (bounds != null) {
-            bounds[0] = 1;
-            bounds[2] = 0;
-        }
-    }
-
-    private boolean areBoundsPopulated() {
-        return bounds != null && bounds[0] <= bounds[2];
-    }
-
     /* We re-do all this work as we iterate through the glyphs
      * but it seems unavoidable without re-working the Java TextRenderers.
      */
-    private void fillBounds(int[] bounds) {
+    private void fillBounds(int[] bounds, int endGlyphIndex) {
         /* Faster to access local variables in the for loop? */
         int xOffset = StrikeCache.topLeftXOffset;
         int yOffset = StrikeCache.topLeftYOffset;
@@ -461,7 +453,8 @@ public final class GlyphList {
         int xAdvOffset = StrikeCache.xAdvanceOffset;
         int yAdvOffset = StrikeCache.yAdvanceOffset;
 
-        if (len == 0) {
+        int startGlyphIndex = glyphindex + 1;
+        if (startGlyphIndex >= endGlyphIndex) {
             bounds[0] = bounds[1] = bounds[2] = bounds[3] = 0;
             return;
         }
@@ -469,12 +462,12 @@ public final class GlyphList {
         bx0 = by0 = Float.POSITIVE_INFINITY;
         bx1 = by1 = Float.NEGATIVE_INFINITY;
 
-        int posIndex = 0;
-        float glx = x + 0.5f;
-        float gly = y + 0.5f;
+        int posIndex = startGlyphIndex<<1;
+        float glx = gposx;
+        float gly = gposy;
         char gw, gh;
         float gx, gy, gx0, gy0, gx1, gy1;
-        for (int i=0; i<len; i++) {
+        for (int i=startGlyphIndex; i<endGlyphIndex; i++) {
             if (images[i] == 0L) {
                 continue;
             }
@@ -508,12 +501,17 @@ public final class GlyphList {
         bounds[3] = (int)Math.floor(by1);
     }
 
+    public static boolean canContainColorGlyphs() {
+        return true;
+    }
+
     /**
      * @return {@link StrikeCache#PIXEL_FORMAT_GREYSCALE} for greyscale,
      * {@link StrikeCache#PIXEL_FORMAT_LCD} for LCD and {@link StrikeCache#PIXEL_FORMAT_BGRA} for BGRA glyph
      */
     public byte getPixelFormat(int glyphIndex) {
-        return StrikeCache.unsafe.getByte(images[glyphIndex] + StrikeCache.formatOffset);
+        return StrikeCache.unsafe.getByte(images[glyphIndex] +
+                StrikeCache.formatOffset);
     }
 
     public boolean isColorGlyph(int glyphIndex) {

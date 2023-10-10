@@ -65,11 +65,11 @@ class BezierAnimationPanel extends JPanel implements Runnable {
 
     public final int NUMPTS = 6;
 
-    float animpts[] = new float[NUMPTS * 2];
+    float[] animpts = new float[NUMPTS * 2];
 
-    float deltas[] = new float[NUMPTS * 2];
+    float[] deltas = new float[NUMPTS * 2];
 
-    float staticpts[] = {
+    float[] staticpts = {
          50.0f,   0.0f,
         150.0f,   0.0f,
         200.0f,  75.0f,
@@ -78,7 +78,7 @@ class BezierAnimationPanel extends JPanel implements Runnable {
           0.0f,  75.0f,
     };
 
-    float movepts[] = new float[staticpts.length];
+    float[] movepts = new float[staticpts.length];
 
     BufferedImage img;
 

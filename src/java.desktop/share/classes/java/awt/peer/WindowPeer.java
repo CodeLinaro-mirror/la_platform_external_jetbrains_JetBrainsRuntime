@@ -128,8 +128,10 @@ public interface WindowPeer extends ContainerPeer {
 
     /**
      * Returns platform window handle.
+     *
+     * @return the window handle
      */
     default long getWindowHandle() {
-        throw new UnsupportedOperationException();
+        throw new UnsupportedOperationException("unimplemented");
     }
 }

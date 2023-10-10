@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * Copyright Amazon.com Inc. or its affiliates. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,7 +34,6 @@
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.Field;
-import java.net.URI;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -47,9 +46,8 @@ import java.util.ArrayList;
 
 public class ReleaseDeflater {
     public static void main(String[] args) throws Throwable {
-        Path zipFile = Paths.get("ReleaseDeflaterTest.zip").toAbsolutePath();
-        URI zipURI = URI.create("jar:" + zipFile.toUri());
-        try (FileSystem fs = FileSystems.newFileSystem(zipURI, Map.of("create", "true"))) {
+        Path zipFile = Paths.get("ReleaseDeflaterTest.zip");
+        try (FileSystem fs = FileSystems.newFileSystem(zipFile, Map.of("create", true))) {
             FileSystemProvider zprov = fs.provider();
             Path test = fs.getPath("test.txt");
             int STREAMS = 100;

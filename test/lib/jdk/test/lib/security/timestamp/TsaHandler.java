@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2020, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,15 +33,12 @@ import java.security.cert.X509Certificate;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.Enumeration;
-import java.util.List;
+import java.util.*;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 
-import sun.security.x509.AlgorithmId;
+import sun.security.util.KnownOIDs;
 
 /**
  * A {@link HttpHandler} receiving time-stamping request and returning response.
@@ -207,9 +204,18 @@ public class TsaHandler implements HttpHandler {
     protected String getSignerAlias(String alias, String sigAlgo)
             throws Exception {
         if (alias == null) {
-            String keyAlgo = sigAlgo == null
-                             ? null
-                             : AlgorithmId.getEncAlgFromSigAlg(sigAlgo);
+            String keyAlgo;
+            if (sigAlgo == null) {
+                keyAlgo = null;
+            } else {
+                String lower = sigAlgo.toLowerCase(Locale.ROOT);
+                int pos = lower.indexOf("with");
+                if (pos < 0) {
+                    keyAlgo = sigAlgo;
+                } else {
+                    keyAlgo = sigAlgo.substring(pos + 4);
+                }
+            }
             Enumeration<String> aliases = keyStore.aliases();
             while(aliases.hasMoreElements()) {
                 String bufAlias = aliases.nextElement();
@@ -218,7 +224,7 @@ public class TsaHandler implements HttpHandler {
                 // The certificate must have critical extended key usage time
                 // stamping, and must match the key algorithm if any.
                 List<String> eku = bufCert.getExtendedKeyUsage();
-                if (eku != null && eku.contains("1.3.6.1.5.5.7.3.8")
+                if (eku != null && eku.contains(KnownOIDs.KP_TimeStamping.value())
                         && (keyAlgo == null || keyAlgo.equalsIgnoreCase(
                                 bufCert.getPublicKey().getAlgorithm()))) {
                     return bufAlias;

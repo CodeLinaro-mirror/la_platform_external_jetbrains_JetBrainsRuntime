@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,7 +36,11 @@
 #include <dlfcn.h>
 #include <pthread.h>
 #include <inttypes.h>
+
+#include "management_ext.h"
 #include "com_sun_management_internal_OperatingSystemImpl.h"
+
+#include <assert.h>
 
 struct ticks {
     uint64_t  used;
@@ -61,8 +65,13 @@ static struct perfbuf {
 #define DEC_64 "%"SCNd64
 #define NS_PER_SEC 1000000000
 
-static void next_line(FILE *f) {
-    while (fgetc(f) != '\n');
+static int next_line(FILE *f) {
+    int c;
+    do {
+        c = fgetc(f);
+    } while (c != '\n' && c != EOF);
+
+    return c;
 }
 
 /**
@@ -91,7 +100,10 @@ static int get_totalticks(int which, ticks *pticks) {
            &iowTicks, &irqTicks, &sirqTicks);
 
     // Move to next line
-    next_line(fh);
+    if (next_line(fh) == EOF) {
+        fclose(fh);
+        return -2;
+    }
 
     //find the line for requested cpu faster to just iterate linefeeds?
     if (which != -1) {
@@ -104,7 +116,10 @@ static int get_totalticks(int which, ticks *pticks) {
                 fclose(fh);
                 return -2;
             }
-            next_line(fh);
+            if (next_line(fh) == EOF) {
+                fclose(fh);
+                return -2;
+            }
         }
         n = fscanf(fh, "cpu%*d " DEC_64 " " DEC_64 " " DEC_64 " " DEC_64 " "
                        DEC_64 " " DEC_64 " " DEC_64 "\n",
@@ -251,7 +266,7 @@ static double get_cpuload_internal(int which, double *pkernelLoad, CpuLoadTarget
 
     pthread_mutex_lock(&lock);
 
-    if(perfInit() == 0) {
+    if (perfInit() == 0) {
 
         if (target == CPU_LOAD_VM_ONLY) {
             pticks = &counters.jvmTicks;
@@ -271,14 +286,10 @@ static double get_cpuload_internal(int which, double *pkernelLoad, CpuLoadTarget
             failed = 1;
         }
 
-        if(!failed) {
-            // seems like we sometimes end up with less kernel ticks when
-            // reading /proc/self/stat a second time, timing issue between cpus?
-            if (pticks->usedKernel < tmp.usedKernel) {
-                kdiff = 0;
-            } else {
-                kdiff = pticks->usedKernel - tmp.usedKernel;
-            }
+        if (!failed) {
+
+            assert(pticks->usedKernel >= tmp.usedKernel);
+            kdiff = pticks->usedKernel - tmp.usedKernel;
             tdiff = pticks->total - tmp.total;
             udiff = pticks->used - tmp.used;
 
@@ -322,8 +333,28 @@ double get_process_load() {
     return u + s;
 }
 
+static long read_vmem_usage(const char *procfile, unsigned long *vsize) {
+    int n = read_statdata(procfile, "%*c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %*d %*d %*d %*d %*d %*d %*u %*u %*d %lu %*[^\n]\n", vsize);
+    if (n != 1) {
+        return -1;
+    } else {
+        return *vsize;
+    }
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_sun_management_internal_OperatingSystemImpl_getCommittedVirtualMemorySize0
+  (JNIEnv *env, jobject mbean)
+{
+    unsigned long vsize;
+    if (read_vmem_usage("/proc/self/stat", &vsize) == -1) {
+        throw_internal_error(env, "Unable to get virtual memory usage");
+    }
+    return (jlong) vsize;
+}
+
 JNIEXPORT jdouble JNICALL
-Java_com_sun_management_internal_OperatingSystemImpl_getSystemCpuLoad0
+Java_com_sun_management_internal_OperatingSystemImpl_getCpuLoad0
 (JNIEnv *env, jobject dummy)
 {
     if (perfInit() == 0) {

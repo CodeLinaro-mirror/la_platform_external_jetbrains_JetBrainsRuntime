@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,8 +25,10 @@
 
 package sun.java2d;
 
+import sun.awt.CGraphicsEnvironment;
 import sun.awt.image.SunVolatileImage;
 import sun.awt.image.VolatileSurfaceManager;
+import sun.java2d.metal.MTLVolatileSurfaceManager;
 import sun.java2d.opengl.CGLVolatileSurfaceManager;
 
 /**
@@ -42,13 +44,14 @@ public class MacosxSurfaceManagerFactory extends SurfaceManagerFactory {
      * as a way for the caller to pass pipeline-specific context data to
      * the VolatileSurfaceManager (such as a backbuffer handle, for example).
      *
-     * For Mac OS X, this method returns either an CGL-specific
+     * For Mac OS X, this method returns either an CGL/MTL-specific
      * VolatileSurfaceManager based on the GraphicsConfiguration
      * under which the SunVolatileImage was created.
      */
     public VolatileSurfaceManager createVolatileManager(SunVolatileImage vImg,
                                                         Object context)
     {
-        return new CGLVolatileSurfaceManager(vImg, context);
+        return CGraphicsEnvironment.usingMetalPipeline() ? new MTLVolatileSurfaceManager(vImg, context) :
+                new CGLVolatileSurfaceManager(vImg, context);
     }
 }

@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2019, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2019, 2021, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -26,6 +27,8 @@
 #include "gc/shenandoah/mode/shenandoahPassiveMode.hpp"
 #include "logging/log.hpp"
 #include "logging/logTag.hpp"
+#include "runtime/globals_extension.hpp"
+#include "runtime/java.hpp"
 
 void ShenandoahPassiveMode::initialize_flags() const {
   // Do not allow concurrent cycles.
@@ -46,14 +49,15 @@ void ShenandoahPassiveMode::initialize_flags() const {
   SHENANDOAH_ERGO_DISABLE_FLAG(ShenandoahIUBarrier);
   SHENANDOAH_ERGO_DISABLE_FLAG(ShenandoahCASBarrier);
   SHENANDOAH_ERGO_DISABLE_FLAG(ShenandoahCloneBarrier);
+  SHENANDOAH_ERGO_DISABLE_FLAG(ShenandoahNMethodBarrier);
+  SHENANDOAH_ERGO_DISABLE_FLAG(ShenandoahStackWatermarkBarrier);
 
   // Final configuration checks
   // No barriers are required to run.
 }
 ShenandoahHeuristics* ShenandoahPassiveMode::initialize_heuristics() const {
-  if (ShenandoahGCHeuristics != NULL) {
-    return new ShenandoahPassiveHeuristics();
+  if (ShenandoahGCHeuristics == nullptr) {
+    vm_exit_during_initialization("Unknown -XX:ShenandoahGCHeuristics option (null)");
   }
-  ShouldNotReachHere();
-  return NULL;
+  return new ShenandoahPassiveHeuristics();
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -71,8 +71,8 @@ public class TestNonIsoFormatter {
 
     private static final LocalDate IsoDate = LocalDate.of(2013, 2, 11);
 
-    private static final Locale ARABIC = new Locale("ar");
-    private static final Locale thTH = new Locale("th", "TH");
+    private static final Locale ARABIC = Locale.of("ar");
+    private static final Locale thTH = Locale.of("th", "TH");
     private static final Locale thTHTH = Locale.forLanguageTag("th-TH-u-nu-thai");
     private static final Locale jaJPJP = Locale.forLanguageTag("ja-JP-u-ca-japanese");
 
@@ -142,7 +142,7 @@ public class TestNonIsoFormatter {
         return new Object[][] {
             // Chronology, lenient era/year, strict era/year
             { JAPANESE, "Meiji 123", "Heisei 2" },
-            { JAPANESE, "Showa 65", "Heisei 2" },
+            { JAPANESE, "Sh\u014dwa 65", "Heisei 2" },
             { JAPANESE, "Heisei 32", "Reiwa 2" },
         };
     }

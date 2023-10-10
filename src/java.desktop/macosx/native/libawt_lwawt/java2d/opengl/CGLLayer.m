@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,11 +41,6 @@ extern NSOpenGLContext *sharedContext;
 @synthesize target;
 @synthesize textureWidth;
 @synthesize textureHeight;
-#ifdef REMOTELAYER
-@synthesize parentLayer;
-@synthesize remoteLayer;
-@synthesize jrsRemoteLayer;
-#endif
 
 - (id) initWithJavaLayer:(jobject)layer;
 {
@@ -183,10 +178,10 @@ JNI_COCOA_ENTER(env);
 
     [ThreadUtilities performOnMainThreadWaiting:YES block:^(){
             AWT_ASSERT_APPKIT_THREAD;
-        
+
             layer = [[CGLLayer alloc] initWithJavaLayer: javaLayer];
     }];
-    
+
 JNI_COCOA_EXIT(env);
 
     return ptr_to_jlong(layer);
@@ -226,9 +221,9 @@ Java_sun_java2d_opengl_CGLLayer_nativeSetScale
 {
     JNI_COCOA_ENTER(env);
     CGLLayer *layer = jlong_to_ptr(layerPtr);
-    // We always call all setXX methods asynchronously, exception is only in 
+    // We always call all setXX methods asynchronously, exception is only in
     // this method where we need to change native texture size and layer's scale
-    // in one call on appkit, otherwise we'll get window's contents blinking, 
+    // in one call on appkit, otherwise we'll get window's contents blinking,
     // during screen-2-screen moving.
     [ThreadUtilities performOnMainThreadWaiting:[NSThread isMainThread] block:^(){
         layer.contentsScale = scale;

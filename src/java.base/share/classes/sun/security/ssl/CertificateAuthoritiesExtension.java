@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -63,23 +63,25 @@ final class CertificateAuthoritiesExtension {
             this.authorities = authorities;
         }
 
-        private CertificateAuthoritiesSpec(ByteBuffer m) throws IOException  {
+        private CertificateAuthoritiesSpec(HandshakeContext hc,
+                ByteBuffer m) throws IOException  {
             if (m.remaining() < 3) {        // 2: the length of the list
                                             // 1: at least one byte authorities
-                throw new SSLProtocolException(
+                throw hc.conContext.fatal(Alert.DECODE_ERROR,
+                        new SSLProtocolException(
                     "Invalid certificate_authorities extension: " +
-                    "insufficient data");
+                    "insufficient data"));
             }
 
             int listLen = Record.getInt16(m);
             if (listLen == 0) {
-                throw new SSLProtocolException(
+                throw hc.conContext.fatal(Alert.DECODE_ERROR,
                     "Invalid certificate_authorities extension: " +
                     "no certificate authorities");
             }
 
             if (listLen > m.remaining()) {
-                throw new SSLProtocolException(
+                throw hc.conContext.fatal(Alert.DECODE_ERROR,
                     "Invalid certificate_authorities extension: " +
                     "insufficient data");
             }
@@ -102,7 +104,7 @@ final class CertificateAuthoritiesExtension {
                 byte[] encodedPrincipal = x500Principal.getEncoded();
                 sizeAccount += encodedPrincipal.length;
                 if (sizeAccount > 0xFFFF) {  // the size limit of this extension
-                    // If there too many trusts CAs such that they exceed the
+                    // If there are too many trusts CAs such that they exceed the
                     // size limit of the extension, enabling this extension
                     // does not really make sense as there is no way to
                     // indicate the peer certificate selection accurately.
@@ -151,9 +153,9 @@ final class CertificateAuthoritiesExtension {
     private static final
             class CertificateAuthoritiesStringizer implements SSLStringizer {
         @Override
-        public String toString(ByteBuffer buffer) {
+        public String toString(HandshakeContext hc, ByteBuffer buffer) {
             try {
-                return (new CertificateAuthoritiesSpec(buffer))
+                return (new CertificateAuthoritiesSpec(hc, buffer))
                         .toString();
             } catch (IOException ioe) {
                 // For debug logging only, so please swallow exceptions.
@@ -209,7 +211,7 @@ final class CertificateAuthoritiesExtension {
             if (encodedCAs.isEmpty()) {
                 if (SSLLogger.isOn && SSLLogger.isOn("ssl,handshake")) {
                     SSLLogger.warning(
-                            "The number of CAs exceeds the maximum size" +
+                            "The number of CAs exceeds the maximum size " +
                             "of the certificate_authorities extension");
                 }
 
@@ -272,7 +274,7 @@ final class CertificateAuthoritiesExtension {
 
             // Parse the extension.
             CertificateAuthoritiesSpec spec =
-                    new CertificateAuthoritiesSpec(buffer);
+                    new CertificateAuthoritiesSpec(shc, buffer);
 
             // Update the context.
             shc.peerSupportedAuthorities = spec.getAuthorities();
@@ -393,7 +395,7 @@ final class CertificateAuthoritiesExtension {
 
             // Parse the extension.
             CertificateAuthoritiesSpec spec =
-                    new CertificateAuthoritiesSpec(buffer);
+                    new CertificateAuthoritiesSpec(chc, buffer);
 
             // Update the context.
             chc.peerSupportedAuthorities = spec.getAuthorities();

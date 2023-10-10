@@ -35,6 +35,7 @@ import java.security.Provider;
 import java.security.Security;
 
 public class ReadConfInUTF16Env {
+
     @Test
     public void testReadConfInUTF16Env() throws Exception {
         String[] testCommand = new String[] { "-Dfile.encoding=UTF-16",

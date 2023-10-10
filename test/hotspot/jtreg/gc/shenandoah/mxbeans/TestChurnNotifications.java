@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2018, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -22,10 +23,10 @@
  */
 
 /*
- * @test TestChurnNotifications
+ * @test id=passive
  * @summary Check that MX notifications are reported for all cycles
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
  * @library /test/lib /
+ * @requires vm.gc.Shenandoah
  *
  * @run main/othervm -Xmx128m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCMode=passive
@@ -39,10 +40,10 @@
  */
 
 /*
- * @test TestChurnNotifications
+ * @test id=aggressive
  * @summary Check that MX notifications are reported for all cycles
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
  * @library /test/lib /
+ * @requires vm.gc.Shenandoah
  *
  * @run main/othervm -Xmx128m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=aggressive
@@ -51,10 +52,10 @@
  */
 
 /*
- * @test TestChurnNotifications
+ * @test id=adaptive
  * @summary Check that MX notifications are reported for all cycles
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
  * @library /test/lib /
+ * @requires vm.gc.Shenandoah
  *
  * @run main/othervm -Xmx128m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=adaptive
@@ -63,10 +64,10 @@
  */
 
 /*
- * @test TestChurnNotifications
+ * @test id=static
  * @summary Check that MX notifications are reported for all cycles
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
  * @library /test/lib /
+ * @requires vm.gc.Shenandoah
  *
  * @run main/othervm -Xmx128m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=static
@@ -75,10 +76,10 @@
  */
 
 /*
- * @test TestChurnNotifications
+ * @test id=compact
  * @summary Check that MX notifications are reported for all cycles
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
  * @library /test/lib /
+ * @requires vm.gc.Shenandoah
  *
  * @run main/othervm -Xmx128m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=compact
@@ -87,10 +88,10 @@
  */
 
 /*
- * @test TestChurnNotifications
+ * @test id=iu
  * @summary Check that MX notifications are reported for all cycles
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
  * @library /test/lib /
+ * @requires vm.gc.Shenandoah
  *
  * @run main/othervm -Xmx128m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCMode=iu -XX:ShenandoahGCHeuristics=aggressive

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -406,7 +406,7 @@ jobject AwtWin32GraphicsDevice::GetColorModel(JNIEnv *env, jboolean dynamic)
                 vbits[sizeof(vbits)-1] = 0;
                 allvalid = JNI_FALSE;
             } else {
-                if (AwtPalette::UseCustomPalette() && !dynamic) {
+                if (!dynamic) {
                     // If we plan to use our custom palette (i.e., we are
                     // not running inside another app and we are not creating
                     // a dynamic colorModel object), then setup ICM with
@@ -578,7 +578,7 @@ void AwtWin32GraphicsDevice::RealizePalette(HDC hDC)
 }
 
 /**
- * Deterine which device the HWND exists on and return the
+ * Determine which device the HWND exists on and return the
  * appropriate index into the devices array.
  */
 int AwtWin32GraphicsDevice::DeviceIndexForWindow(HWND hWnd)
@@ -673,7 +673,6 @@ int AwtWin32GraphicsDevice::ScaleDownAbsY(int y)
     return screen + ClipRound((y - screen) / scaleY);
 }
 
-
 int AwtWin32GraphicsDevice::ClipRound(double value)
 {
     value -= 0.5;
@@ -688,20 +687,6 @@ int AwtWin32GraphicsDevice::ClipRound(double value)
     }
 
     return (int)ceil(value);
-}
-
-// scale down the delta [pt.xy - device.xy]
-void AwtWin32GraphicsDevice::ScaleDownDPoint(POINT *pt)
-{
-    HMONITOR hmon = ::MonitorFromPoint(*pt, MONITOR_DEFAULTTONEAREST);
-    DASSERT(hmon != NULL);
-    int screen = AwtWin32GraphicsDevice::GetScreenFromHMONITOR(hmon);
-    DASSERT(screen > -1);
-
-    Devices::InstanceAccess devices;
-    AwtWin32GraphicsDevice* device = devices->GetDevice(screen);
-    pt->x = device == NULL ? pt->x : device->ScaleDownX(pt->x);
-    pt->y = device == NULL ? pt->y : device->ScaleDownY(pt->y);
 }
 
 void AwtWin32GraphicsDevice::InitDesktopScales()
@@ -740,7 +725,6 @@ void AwtWin32GraphicsDevice::DisableScaleAutoRefresh()
 {
     disableScaleAutoRefresh = TRUE;
 }
-
 
 /**
  * Invalidates the GraphicsDevice object associated with this
@@ -816,7 +800,6 @@ void AwtWin32GraphicsDevice::ResetAllDesktopScales()
         devices->GetDevice(deviceIndex)->InitDesktopScales();
     }
 }
-
 
 void AwtWin32GraphicsDevice::DisableOffscreenAccelerationForDevice(
     HMONITOR hMonitor)
@@ -1514,4 +1497,3 @@ Java_sun_awt_Win32GraphicsDevice_initNativeScale
         device->InitDesktopScales();
     }
 }
-

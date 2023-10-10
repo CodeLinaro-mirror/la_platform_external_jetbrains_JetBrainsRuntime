@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,7 +51,9 @@ enum {
   JMM_VERSION_1_2_1 = 0x20010201, // JDK 7 GA
   JMM_VERSION_1_2_2 = 0x20010202,
   JMM_VERSION_2   = 0x20020000, // JDK 10
-  JMM_VERSION     = JMM_VERSION_2
+  JMM_VERSION_3   = 0x20030000, // JDK 14
+  JMM_VERSION_4   = 0x20040000, // JDK 21
+  JMM_VERSION     = JMM_VERSION_4
 };
 
 typedef struct {
@@ -83,7 +85,7 @@ typedef enum {
   JMM_INTERNAL_ATTRIBUTE_INDEX       = 100,
   JMM_CLASS_LOADED_BYTES             = 101,  /* Number of bytes loaded instance classes */
   JMM_CLASS_UNLOADED_BYTES           = 102,  /* Number of bytes unloaded instance classes */
-  JMM_TOTAL_CLASSLOAD_TIME_MS        = 103,  /* Accumulated VM class loader time (TraceClassLoadingTime) */
+  JMM_TOTAL_CLASSLOAD_TIME_MS        = 103,  /* Accumulated VM class loader time */
   JMM_VM_GLOBAL_COUNT                = 104,  /* Number of VM internal flags */
   JMM_SAFEPOINT_COUNT                = 105,  /* Total number of safepoints */
   JMM_TOTAL_SAFEPOINTSYNC_TIME_MS    = 106,  /* Accumulated time spent getting to safepoints */
@@ -111,9 +113,7 @@ typedef enum {
   JMM_VERBOSE_CLASS                  = 22,
   JMM_THREAD_CONTENTION_MONITORING   = 23,
   JMM_THREAD_CPU_TIME                = 24,
-  JMM_THREAD_ALLOCATED_MEMORY        = 25,
-  JMM_COMPILATION_ENABLED            = 26,
-  JMM_COMPILATION_STOPPED_FOREVER    = 27,
+  JMM_THREAD_ALLOCATED_MEMORY        = 25
 } jmmBoolAttribute;
 
 
@@ -222,9 +222,7 @@ typedef struct {
 
 typedef struct jmmInterface_1_ {
   void*        reserved1;
-  jlong        (JNICALL *GetOneThreadAllocatedMemory)
-                                                 (JNIEnv *env,
-                                                  jlong thread_id);
+  void*        reserved2;
 
   jint         (JNICALL *GetVersion)             (JNIEnv *env);
 
@@ -243,6 +241,11 @@ typedef struct jmmInterface_1_ {
   jobject      (JNICALL *GetMemoryPoolUsage)     (JNIEnv* env, jobject pool);
   jobject      (JNICALL *GetPeakMemoryPoolUsage) (JNIEnv* env, jobject pool);
 
+  jlong        (JNICALL *GetTotalThreadAllocatedMemory)
+                                                 (JNIEnv *env);
+  jlong        (JNICALL *GetOneThreadAllocatedMemory)
+                                                 (JNIEnv *env,
+                                                  jlong thread_id);
   void         (JNICALL *GetThreadAllocatedMemory)
                                                  (JNIEnv *env,
                                                   jlongArray ids,

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,14 +34,13 @@ import sun.awt.IconInfo;
 import jdk.internal.misc.Unsafe;
 import java.awt.Insets;
 import java.awt.Frame;
+import java.awt.Point;
 import java.awt.Rectangle;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.security.AccessController;
-import java.security.PrivilegedAction;
 import sun.util.logging.PlatformLogger;
 
 
@@ -114,7 +113,7 @@ final class XWM
         XMONAD_WM = 17,
         AWESOME_WM = 18,
         I3_WM = 19,
-        DWM_WM = 20;
+        WESTON_WM = 20;
 
     public String toString() {
         switch  (WMID) {
@@ -152,10 +151,8 @@ final class XWM
               return "XMonad";
           case AWESOME_WM:
               return "Awesome";
-          case DWM_WM:
-              return "DWM";
-          case XWM.I3_WM:
-              return "I3WM";
+          case WESTON_WM:
+              return "Weston";
           case UNDETERMINED_WM:
           default:
               return "Undetermined WM";
@@ -166,13 +163,6 @@ final class XWM
     int WMID;
     static final Insets zeroInsets = new Insets(0, 0, 0, 0);
     static final Insets defaultInsets = new Insets(25, 5, 5, 5);
-
-    private static String gdmSession;
-
-    static {
-        gdmSession = AccessController.doPrivileged(
-            (PrivilegedAction<String>) () -> System.getenv("GDMSESSION"));
-    }
 
     XWM(int WMID) {
         this.WMID = WMID;
@@ -278,7 +268,7 @@ final class XWM
          * Quick checks for specific servers.
          */
         String vendor_string = XlibWrapper.ServerVendor(XToolkit.getDisplay());
-        if (vendor_string.indexOf("eXcursion") != -1) {
+        if (vendor_string.contains("eXcursion")) {
             /*
              * Use NO_WM since in all other aspects eXcursion is like not
              * having a window manager running. I.e. it does not reparent
@@ -460,7 +450,7 @@ final class XWM
         try {
             int status = getter.execute();
             if (status != XConstants.Success || getter.getData() == 0) {
-                log.finer("Getting of _DT_SM_WINDOW_INFO is not successfull");
+                log.finer("Getting of _DT_SM_WINDOW_INFO is not successful");
                 return false;
             }
             if (getter.getActualType() != XA_DT_SM_WINDOW_INFO.getAtom()
@@ -493,7 +483,7 @@ final class XWM
 
 
                 if (status != XConstants.Success || getter2.getData() == 0) {
-                    log.finer("Getting of _DT_SM_STATE_INFO is not successfull");
+                    log.finer("Getting of _DT_SM_STATE_INFO is not successful");
                     return false;
                 }
                 if (getter2.getActualType() != XA_DT_SM_STATE_INFO.getAtom()
@@ -640,8 +630,8 @@ final class XWM
         return isNetWMName("i3");
     }
 
-    static boolean isDWM() {
-        return "dwm".equals(gdmSession);
+    static boolean isWeston() {
+        return isNetWMName("Weston");
     }
 
     static int awtWMNonReparenting = -1;
@@ -651,7 +641,7 @@ final class XWM
         }
         return (awtWMNonReparenting == 1 || XWM.getWMID() == XWM.COMPIZ_WM
                 || XWM.getWMID() == XWM.LG3D_WM || XWM.getWMID() == XWM.CWM_WM  ||
-                XWM.getWMID() == XWM.XMONAD_WM || XWM.getWMID() == XWM.DWM_WM
+                XWM.getWMID() == XWM.XMONAD_WM
                );
     }
 
@@ -669,7 +659,7 @@ final class XWM
      * Gaa, dirty dances...
      */
     static final XAtom XA_ICEWM_WINOPTHINT = new XAtom("_ICEWM_WINOPTHINT", false);
-    static final char opt[] = {
+    static final char[] opt = {
         'A','W','T','_','I','C','E','W','M','_','T','E','S','T','\0',
         'a','l','l','W','o','r','k','s','p','a','c','e','s','\0',
         '0','\0'
@@ -699,7 +689,7 @@ final class XWM
 
             if ((XErrorHandlerUtil.saved_error != null) &&
                 (XErrorHandlerUtil.saved_error.get_error_code() != XConstants.Success)) {
-                log.finer("Erorr getting XA_ICEWM_WINOPTHINT property");
+                log.finer("Error getting XA_ICEWM_WINOPTHINT property");
                 return false;
             }
             log.finer("Prepared for IceWM detection");
@@ -849,8 +839,8 @@ final class XWM
                 awt_wmgr = XWM.AWESOME_WM;
             } else if (isI3()) {
                 awt_wmgr = XWM.I3_WM;
-            } else if (isDWM()) {
-                awt_wmgr = XWM.DWM_WM;
+            } else if (isWeston()) {
+                awt_wmgr = XWM.WESTON_WM;
             }
             /*
              * We don't check for legacy WM when we already know that WM
@@ -1083,9 +1073,7 @@ final class XWM
         try {
             Rectangle shellBounds;
             if (getWMID() != UNITY_COMPIZ_WM) {
-                shellBounds = window.getShellBounds();
-                shellBounds.translate(-window.currentInsets.left,
-                                      -window.currentInsets.top);
+                shellBounds = window.getBounds();
             } else {
                 shellBounds = window.getDimensions().getScreenBounds();
             }
@@ -1093,8 +1081,8 @@ final class XWM
             requestWMExtents(window.getWindow());
             XlibWrapper.XMoveResizeWindow(XToolkit.getDisplay(),
                                           window.getShell(),
-                                          window.scaleUp(shellBounds.x),
-                                          window.scaleUp(shellBounds.y),
+                                          window.scaleUpX(shellBounds.x),
+                                          window.scaleUpY(shellBounds.y),
                                           window.scaleUp(shellBounds.width),
                                           window.scaleUp(shellBounds.height));
             /* REMINDER: will need to revisit when setExtendedStateBounds is added */
@@ -1131,8 +1119,8 @@ final class XWM
                 XToolkit.XSync();
                 XlibWrapper.XMoveResizeWindow(XToolkit.getDisplay(),
                                               window.getShell(),
-                                              window.scaleUp(shellBounds.x),
-                                              window.scaleUp(shellBounds.y),
+                                              window.scaleUpX(shellBounds.x),
+                                              window.scaleUpY(shellBounds.y),
                                               window.scaleUp(shellBounds.width),
                                               window.scaleUp(shellBounds.height));
             }
@@ -1208,14 +1196,14 @@ final class XWM
                   /* "This is a deliberate policy decision." -hp */
                   return false;
               }
-              /* FALLTROUGH */
+              /* FALLTHROUGH */
           case Frame.MAXIMIZED_BOTH:
               for (XStateProtocol proto : getProtocols(XStateProtocol.class)) {
                   if (proto.supportsState(state)) {
                       return true;
                   }
               }
-              /* FALLTROUGH */
+              /* FALLTHROUGH */
           default:
               return false;
         }
@@ -1350,7 +1338,7 @@ final class XWM
      * on the top-level properties.  When WM restarts and sees the shaded
      * window it can reparent it into a "pre-shaded" decoration frame
      * (Metacity does), and our insets logic will go crazy, b/c it will
-     * see a huge nagative bottom inset.  There's no clean solution for
+     * see a huge negative bottom inset.  There's no clean solution for
      * this, so let's just be weasels and drop the shaded hint if we
      * detect that WM exited.  NB: we are in for a race condition with WM
      * restart here.  NB2: e.g. WindowMaker saves the state in a private
@@ -1486,8 +1474,6 @@ final class XWM
           case XWM.ENLIGHTEN_WM:
               /* At least E16 is buggy. */
               return true;
-          case XWM.I3_WM:
-              return true;
           default:
               return false;
         }
@@ -1612,7 +1598,7 @@ final class XWM
      * fact moved us to our final position relative to the reParented WM window.
      * We have noted a timing window which our shell has not been moved so we
      * screw up the insets thinking they are 0,0.  Wait (for a limited period of
-     * time to let the WM hava a chance to move us.
+     * time to let the WM have a chance to move us.
      * @param window window ID of the shell, assuming it is the window
      * which will NOT have zero coordinates after the complete
      * reparenting
@@ -1746,7 +1732,7 @@ final class XWM
                        * Check for double-reparenting WM.
                        *
                        * If the parent is exactly the same size as the
-                       * top-level assume taht it's the "lining" window and
+                       * top-level assume that it's the "lining" window and
                        * that the grandparent is the actual frame (NB: we
                        * have already handled undecorated windows).
                        *
@@ -1842,5 +1828,19 @@ final class XWM
             return getWMID() != ICE_WM;
         }
         return false;
+    }
+
+    public static boolean isWMMoveResizeSupported() {
+        if (g_net_protocol == null) {
+            return false;
+        }
+
+        return g_net_protocol.doWMMoveResizeProtocol();
+    }
+
+    void startMovingWindowTogetherWithMouse(long window, Point lastButtonPressAbsLocation, int mouseButton) {
+        if (g_net_protocol != null) {
+            g_net_protocol.startMovingWindowTogetherWithMouse(window, lastButtonPressAbsLocation, mouseButton);
+        }
     }
 }

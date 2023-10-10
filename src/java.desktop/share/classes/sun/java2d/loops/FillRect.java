@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,9 +29,9 @@
 
 package sun.java2d.loops;
 
-import sun.java2d.loops.GraphicsPrimitive;
 import sun.java2d.SunGraphics2D;
 import sun.java2d.SurfaceData;
+import sun.java2d.loops.GraphicsPrimitiveMgr.GeneralPrimitives;
 
 /**
  *   FillRect
@@ -76,12 +76,12 @@ public class FillRect extends GraphicsPrimitive
                                 int x, int y, int w, int h);
 
     static {
-        GraphicsPrimitiveMgr.registerGeneral(new FillRect(null, null, null));
+        GeneralPrimitives.register(new FillRect(null, null, null));
     }
 
-    public GraphicsPrimitive makePrimitive(SurfaceType srctype,
-                                           CompositeType comptype,
-                                           SurfaceType dsttype)
+    protected GraphicsPrimitive makePrimitive(SurfaceType srctype,
+                                              CompositeType comptype,
+                                              SurfaceType dsttype)
     {
         return new General(srctype, comptype, dsttype);
     }
@@ -125,12 +125,8 @@ public class FillRect extends GraphicsPrimitive
         public void FillRect(SunGraphics2D sg2d, SurfaceData dest,
                              int x, int y, int w, int h)
         {
-            if ((traceflags & TRACEPTIME) == 0) {
-                tracePrimitive(target);
-            }
-            long time = System.nanoTime();
+            tracePrimitive(target);
             target.FillRect(sg2d, dest, x, y, w, h);
-            tracePrimitiveTime(target, System.nanoTime() - time);
         }
     }
 }

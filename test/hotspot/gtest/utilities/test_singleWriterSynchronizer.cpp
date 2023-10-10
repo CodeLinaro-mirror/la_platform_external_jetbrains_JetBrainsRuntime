@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,8 +23,8 @@
  */
 
 #include "precompiled.hpp"
+#include "runtime/atomic.hpp"
 #include "runtime/interfaceSupport.inline.hpp"
-#include "runtime/orderAccess.hpp"
 #include "runtime/os.hpp"
 #include "runtime/thread.hpp"
 #include "utilities/debug.hpp"
@@ -32,7 +32,7 @@
 #include "utilities/globalDefinitions.hpp"
 #include "utilities/ostream.hpp"
 #include "utilities/singleWriterSynchronizer.hpp"
-#include "utilitiesHelper.inline.hpp"
+#include "threadHelper.inline.hpp"
 #include "unittest.hpp"
 
 class SingleWriterSynchronizerTestReader : public JavaTestThread {
@@ -54,13 +54,16 @@ public:
   {}
 
   virtual void main_run() {
-    uintx iterations = 0;
-    while (OrderAccess::load_acquire(_continue_running) != 0) {
+    size_t iterations = 0;
+    size_t values_changed = 0;
+    while (Atomic::load_acquire(_continue_running) != 0) {
+      { ThreadBlockInVM tbiv(this); } // Safepoint check outside critical section.
       ++iterations;
       SingleWriterSynchronizer::CriticalSection cs(_synchronizer);
-      uintx value = OrderAccess::load_acquire(_synchronized_value);
+      uintx value = Atomic::load_acquire(_synchronized_value);
+      uintx new_value = value;
       for (uint i = 0; i < reader_iterations; ++i) {
-        uintx new_value = OrderAccess::load_acquire(_synchronized_value);
+        new_value = Atomic::load_acquire(_synchronized_value);
         // A reader can see either the value it first read after
         // entering the critical section, or that value + 1.  No other
         // values are possible.
@@ -68,8 +71,12 @@ public:
           ASSERT_EQ((value + 1), new_value);
         }
       }
+      if (value != new_value) {
+        ++values_changed;
+      }
     }
-    tty->print_cr("reader iterations: " UINTX_FORMAT, iterations);
+    tty->print_cr("reader iterations: " SIZE_FORMAT ", changes: " SIZE_FORMAT,
+                  iterations, values_changed);
   }
 };
 
@@ -90,16 +97,17 @@ public:
   {}
 
   virtual void main_run() {
-    while (OrderAccess::load_acquire(_continue_running) != 0) {
+    while (Atomic::load_acquire(_continue_running) != 0) {
       ++*_synchronized_value;
       _synchronizer->synchronize();
+      { ThreadBlockInVM tbiv(this); } // Safepoint check.
     }
     tty->print_cr("writer iterations: " UINTX_FORMAT, *_synchronized_value);
   }
 };
 
 const uint nreaders = 5;
-const uint milliseconds_to_run = 3000;
+const uint milliseconds_to_run = 1000;
 
 TEST_VM(TestSingleWriterSynchronizer, stress) {
   Semaphore post;
@@ -125,9 +133,10 @@ TEST_VM(TestSingleWriterSynchronizer, stress) {
   writer->doit();
 
   tty->print_cr("Stressing synchronizer for %u ms", milliseconds_to_run);
+  JavaThread* cur = JavaThread::current();
   {
-    ThreadInVMfromNative invm(JavaThread::current());
-    os::sleep(Thread::current(), milliseconds_to_run, true);
+    ThreadInVMfromNative invm(cur);
+    cur->sleep(milliseconds_to_run);
   }
   continue_running = 0;
   for (uint i = 0; i < nreaders + 1; ++i) {

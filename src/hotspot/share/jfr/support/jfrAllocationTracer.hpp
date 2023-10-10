@@ -22,14 +22,17 @@
 *
 */
 
-#ifndef SHARE_VM_JFR_SUPPORT_JFRALLOCATIONTRACER_HPP
-#define SHARE_VM_JFR_SUPPORT_JFRALLOCATIONTRACER_HPP
+#ifndef SHARE_JFR_SUPPORT_JFRALLOCATIONTRACER_HPP
+#define SHARE_JFR_SUPPORT_JFRALLOCATIONTRACER_HPP
 
 #include "memory/allocation.hpp"
 
+class Klass;
+class Thread;
+
 class JfrAllocationTracer : public StackObj {
  public:
-  JfrAllocationTracer(HeapWord* obj, size_t alloc_size, Thread* thread);
+  JfrAllocationTracer(const Klass* klass, HeapWord* obj, size_t alloc_size, bool outside_tlab, JavaThread* thread);
 };
 
-#endif // SHARE_VM_JFR_SUPPORT_JFRALLOCATIONTRACER_HPP
+#endif // SHARE_JFR_SUPPORT_JFRALLOCATIONTRACER_HPP

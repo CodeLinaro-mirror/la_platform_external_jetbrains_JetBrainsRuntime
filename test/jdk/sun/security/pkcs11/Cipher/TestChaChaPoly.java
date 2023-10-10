@@ -39,6 +39,7 @@ import java.security.Provider;
 import java.security.SecureRandom;
 import java.security.spec.InvalidParameterSpecException;
 import java.util.Arrays;
+import java.util.HexFormat;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.ChaCha20ParameterSpec;
@@ -51,9 +52,9 @@ import jdk.test.lib.Utils;
 public class TestChaChaPoly extends PKCS11Test {
 
     private static final byte[] NONCE
-            = HexToBytes("012345670123456701234567");
+            = HexFormat.of().parseHex("012345670123456701234567");
     private static final SecretKeySpec KEY = new SecretKeySpec(
-            HexToBytes("0123456701234567012345670123456701234567012345670123456701234567"),
+            HexFormat.of().parseHex("0123456701234567012345670123456701234567012345670123456701234567"),
             "ChaCha20");
     private static final ChaCha20ParameterSpec CHACHA20_PARAM_SPEC
             = new ChaCha20ParameterSpec(NONCE, 0);
@@ -136,7 +137,7 @@ public class TestChaChaPoly extends PKCS11Test {
     }
 
     private static void testAEAD() throws Exception {
-        byte[] expectedPt = HexToBytes("01234567");
+        byte[] expectedPt = HexFormat.of().parseHex("01234567");
         byte[] ct = testUpdateAAD(Cipher.ENCRYPT_MODE, expectedPt);
         byte[] pt = testUpdateAAD(Cipher.DECRYPT_MODE, ct);
         if (pt != null && !Arrays.equals(pt, expectedPt)) {
@@ -151,7 +152,7 @@ public class TestChaChaPoly extends PKCS11Test {
         String opModeName = getOpModeName(opMode);
         System.out.println("== updateAAD (" + opModeName + ") ==");
 
-        byte[] aad = HexToBytes("0000");
+        byte[] aad = HexFormat.of().parseHex("0000");
         ByteBuffer aadBuf = ByteBuffer.wrap(aad);
 
         Cipher ccp = Cipher.getInstance(ALGO, p);
@@ -213,27 +214,24 @@ public class TestChaChaPoly extends PKCS11Test {
             byte[] expectedIV = NONCE;
             try {
                 switch (i) {
-                case 0: {
+                case 0 -> {
                     c.init(opMode, KEY);
                     expectedIV = null; // randomly-generated
-                    break;
                 }
-                case 1: {
+                case 1 -> {
                     c.init(opMode, KEY, RAND);
                     expectedIV = null; // randomly-generated
-                    break;
                 }
-                case 2: {
+                case 2 -> {
                     c.init(opMode, KEY, IV_PARAM_SPEC);
                     params = c.getParameters();
                     if (params == null) {
                         throw new RuntimeException("Params should not be null");
                     }
-                    break;
                 }
-                case 3: c.init(opMode, KEY, IV_PARAM_SPEC, RAND); break;
-                case 4: c.init(opMode, KEY, params); break;
-                case 5: c.init(opMode, KEY, params, RAND); break;
+                case 3 -> c.init(opMode, KEY, IV_PARAM_SPEC, RAND);
+                case 4 -> c.init(opMode, KEY, params);
+                case 5 -> c.init(opMode, KEY, params, RAND);
                 }
                 checkIV(c, expectedIV);
                 System.out.println("=> Passed");
@@ -285,14 +283,14 @@ public class TestChaChaPoly extends PKCS11Test {
             throws Exception {
         System.out.println("Interop: " + encCipher.getProvider().getName() +
                 " -> " + encCipher.getProvider().getName());
-        byte[] pt = HexToBytes("012345678901234567890123456789");
+        byte[] pt = HexFormat.of().parseHex("012345678901234567890123456789");
         encCipher.init(Cipher.ENCRYPT_MODE, KEY);
         byte[] ct = encCipher.doFinal(pt);
         decCipher.init(Cipher.DECRYPT_MODE, KEY, encCipher.getParameters());
         byte[] pt2 = decCipher.doFinal(ct);
         if (!Arrays.equals(pt, pt2)) {
-            System.out.println("HexDump/pt: " + toHexString(pt));
-            System.out.println("HexDump/pt2: " + toHexString(pt2));
+            System.out.println("HexDump/pt: " + HexFormat.of().formatHex(pt));
+            System.out.println("HexDump/pt2: " + HexFormat.of().formatHex(pt2));
             throw new RuntimeException("Recovered data should match");
         }
         System.out.println("=> Passed");

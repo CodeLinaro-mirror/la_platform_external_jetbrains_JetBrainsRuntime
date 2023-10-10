@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,7 +38,7 @@ import java.util.Set;
 public abstract class Font2D {
 
     /* Note: JRE and FONT_CONFIG ranks are identical. I don't know of a reason
-     * to distingish these. Possibly if a user adds fonts to the JRE font
+     * to distinguish these. Possibly if a user adds fonts to the JRE font
      * directory that are the same font as the ones specified in the font
      * configuration but that is more likely to be the legitimate intention
      * than a problem. One reason why these should be the same is that on
@@ -70,8 +70,6 @@ public abstract class Font2D {
 
     private static final FontRenderContext DEFAULT_FRC =
         new FontRenderContext(null, false, false);
-
-    static final boolean fontSubstitutionEnabled = !Boolean.getBoolean("disable.font.substitution");
 
     public Font2DHandle handle;
     protected String familyName;           /* Family font name (english) */
@@ -105,7 +103,7 @@ public abstract class Font2D {
      * typically SunGraphics2D instances) are using the same font, then
      * as may be typical of many UIs, they are probably using it in the
      * same style, so it can be a win to first quickly check if the last
-     * strike obtained from this Font2D satifies the needs of the next
+     * strike obtained from this Font2D satisfies the needs of the next
      * client too.
      * This pre-supposes that a FontStrike is a shareable object, which
      * it should.
@@ -156,21 +154,21 @@ public abstract class Font2D {
         String fName = fullName.toLowerCase();
 
         for (int i=0; i < boldItalicNames.length; i++) {
-            if (fName.indexOf(boldItalicNames[i]) != -1) {
+            if (fName.contains(boldItalicNames[i])) {
                 style = Font.BOLD|Font.ITALIC;
                 return;
             }
         }
 
         for (int i=0; i < italicNames.length; i++) {
-            if (fName.indexOf(italicNames[i]) != -1) {
+            if (fName.contains(italicNames[i])) {
                 style = Font.ITALIC;
                 return;
             }
         }
 
         for (int i=0; i < boldNames.length; i++) {
-            if (fName.indexOf(boldNames[i]) != -1 ) {
+            if (fName.contains(boldNames[i])) {
                 style = Font.BOLD;
                 return;
             }
@@ -257,7 +255,7 @@ public abstract class Font2D {
      * population of the strikes. However since users of these strikes are
      * transient, then the one that was overwritten would soon be freed.
      * If there is any problem then a small synchronized block would be
-     * required with its attendant consequences for MP scaleability.
+     * required with its attendant consequences for MP scalability.
      */
     public FontStrike getStrike(Font font, AffineTransform devTx,
                                 int aa, int fm) {
@@ -422,7 +420,7 @@ public abstract class Font2D {
      */
     public void getFontMetrics(Font font, AffineTransform at,
                                Object aaHint, Object fmHint,
-                               float metrics[]) {
+                               float[] metrics) {
         /* This is called in just one place in Font with "at" == identity.
          * Perhaps this can be eliminated.
          */
@@ -466,7 +464,7 @@ public abstract class Font2D {
      *    metrics[3]: max advance
      */
     public void getFontMetrics(Font font, FontRenderContext frc,
-                               float metrics[]) {
+                               float[] metrics) {
         StrikeMetrics strikeMetrics = getStrike(font, frc).getFontMetrics();
         metrics[0] = strikeMetrics.getAscent();
         metrics[1] = strikeMetrics.getDescent();

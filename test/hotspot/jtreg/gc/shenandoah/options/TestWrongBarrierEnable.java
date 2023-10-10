@@ -22,12 +22,11 @@
  *
  */
 
-/* @test TestWrongBarrierEnable
+/* @test
  * @summary Test that disabling wrong barriers fails early
- * @key gc
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @requires vm.gc.Shenandoah
  * @library /test/lib
- * @run main/othervm TestWrongBarrierEnable
+ * @run driver TestWrongBarrierEnable
  */
 
 import java.util.*;

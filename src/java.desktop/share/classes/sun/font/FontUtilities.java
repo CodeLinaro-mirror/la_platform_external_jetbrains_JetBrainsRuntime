@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,6 +33,7 @@ import java.security.AccessController;
 import java.security.PrivilegedAction;
 import javax.swing.plaf.FontUIResource;
 
+import sun.awt.OSInfo;
 import sun.util.logging.PlatformLogger;
 
 /**
@@ -40,26 +41,16 @@ import sun.util.logging.PlatformLogger;
  */
 public final class FontUtilities {
 
-    public static boolean isSolaris;
-
     public static boolean isLinux;
 
     public static boolean isMacOSX;
     public static boolean isMacOSX14;
-    public static boolean isMacOSX16;
-    public static boolean isMacOSX_aarch64;
 
     public static boolean useJDKScaler;
 
     public static boolean isWindows;
 
-    public static boolean isOpenJDK;
-
-    public static Dimension supplementarySubpixelGlyphResolution;
-
-    static final String LUCIDA_FILE_NAME = "LucidaSansRegular.ttf";
-
-    static final String DROID_FILE_NAME = "DroidSans.ttf";
+    static Dimension subpixelResolution;
 
     private static boolean debugFonts = false;
     private static PlatformLogger logger = null;
@@ -67,23 +58,24 @@ public final class FontUtilities {
 
     // This static initializer block figures out the OS constants.
     static {
+        initStatic();
+    }
 
+    @SuppressWarnings("removal")
+    private static void initStatic() {
         AccessController.doPrivileged(new PrivilegedAction<Object>() {
             @SuppressWarnings("deprecation") // PlatformLogger.setLevel is deprecated.
             @Override
             public Object run() {
-                String osName = System.getProperty("os.name", "unknownOS");
-                isSolaris = osName.startsWith("SunOS");
 
-                isLinux = osName.startsWith("Linux");
+                isLinux = OSInfo.getOSType() == OSInfo.OSType.LINUX;
 
-                isMacOSX = osName.contains("OS X"); // TODO: MacOSX
+                isMacOSX = OSInfo.getOSType() == OSInfo.OSType.MACOSX;
                 if (isMacOSX) {
                     // os.version has values like 10.13.6, 10.14.6
-                    // If it is not positively recognised as 10.13 (10.15) or less,
-                    // assume it means 10.14 (10.16) or some later version.
+                    // If it is not positively recognised as 10.13 or less,
+                    // assume it means 10.14 or some later version.
                     isMacOSX14 = true;
-                    isMacOSX16 = true;
                     String version = System.getProperty("os.version", "");
                     if (version.startsWith("10.")) {
                         version = version.substring(3);
@@ -94,12 +86,9 @@ public final class FontUtilities {
                         try {
                             int v = Integer.parseInt(version);
                             isMacOSX14 = (v >= 14);
-                            isMacOSX16 = (v >= 16);
                         } catch (NumberFormatException e) {
                         }
                      }
-                     String architecture = System.getProperty("os.arch");
-                     isMacOSX_aarch64 = "aarch64".equals(architecture);
                  }
                 /* If set to "jdk", use the JDK's scaler rather than
                  * the platform one. This may be a no-op on platforms where
@@ -113,7 +102,7 @@ public final class FontUtilities {
                 } else {
                     useJDKScaler = false;
                 }
-                isWindows = osName.startsWith("Windows");
+                isWindows = OSInfo.getOSType() == OSInfo.OSType.WINDOWS;
                 String debugLevel =
                     System.getProperty("sun.java2d.debugfonts");
 
@@ -125,10 +114,6 @@ public final class FontUtilities {
                     } else if (debugLevel.equals("severe")) {
                         logger.setLevel(PlatformLogger.Level.SEVERE);
                     }
-                }
-
-                if (debugFonts) {
-                    logger = PlatformLogger.getLogger("sun.java2d");
                     logging = logger.isEnabled();
                 }
 
@@ -136,14 +121,14 @@ public final class FontUtilities {
                     String property = System.getProperty("java2d.font.subpixelResolution", "");
                     int separatorIndex = property.indexOf('x');
                     final int MAX_RESOLUTION = 16;
-                    supplementarySubpixelGlyphResolution = new Dimension(
+                    subpixelResolution = new Dimension(
                             Math.max(Math.min(Integer.parseUnsignedInt(
                                     property.substring(0, separatorIndex)), MAX_RESOLUTION), 1),
                             Math.max(Math.min(Integer.parseUnsignedInt(
                                     property.substring(separatorIndex + 1)), MAX_RESOLUTION), 1)
                     );
                 } catch (Exception ignore) {
-                    supplementarySubpixelGlyphResolution = new Dimension(4, 1);
+                    subpixelResolution = new Dimension(4, 1);
                 }
 
                 return null;
@@ -151,8 +136,8 @@ public final class FontUtilities {
         });
     }
 
-    public static Dimension getSubpixelResolution() {
-        return supplementarySubpixelGlyphResolution;
+    static Dimension getSubpixelResolution() {
+        return subpixelResolution;
     }
 
     /**
@@ -173,7 +158,7 @@ public final class FontUtilities {
      * where the caller interprets 'layout' to mean any case where
      * one 'char' (ie the java type char) does not map to one glyph
      */
-    public static final int MAX_LAYOUT_CHARCODE = 0x20F0;
+    public static final int MAX_LAYOUT_CHARCODE = CharToGlyphMapper.VSS_END;
 
     /**
      * Calls the private getFont2D() method in java.awt.Font objects.
@@ -340,7 +325,19 @@ public final class FontUtilities {
         else if (code >= 0x206a && code <= 0x206f) { // directional control
             return true;
         }
-        else if (code >= 0x20d0) { // U+20D0 - U+20D0 combining diacritical marks for symbols
+        else if (code >= 0x20d0 && code <= 0x20f0) { // U+20D0 - U+20F0 combining diacritical marks for symbols
+            return true;
+        }
+        else if (code >= 0x1f1e6 && code <= 0x1f1ff) { // U+1F1E6 - U+1F1FF flag letters https://emojipedia.org/emoji-flag-sequence/
+            return true;
+        }
+        else if (code == 0x1f3f4) { // black flag https://emojipedia.org/emoji-tag-sequence/
+            return true;
+        }
+        else if (code >= 0x1f3fb && code <= 0x1f3ff) { // U+1F3FB - U+1F3FF emoji modifiers
+            return true;
+        }
+        else if (CharToGlyphMapper.isVariationSelector(code)) {
             return true;
         }
         return false;
@@ -358,6 +355,17 @@ public final class FontUtilities {
         return debugFonts;
     }
 
+    public static void logWarning(String s) {
+        getLogger().warning(s);
+    }
+
+    public static void logInfo(String s) {
+        getLogger().info(s);
+    }
+
+    public static void logSevere(String s) {
+        getLogger().severe(s);
+    }
 
     // The following methods are used by Swing.
 
@@ -440,10 +448,9 @@ public final class FontUtilities {
         FontManager fm = FontManagerFactory.getInstance();
         Font2D dialog = fm.findFont2D("dialog", font.getStyle(), FontManager.NO_FALLBACK);
         // Should never be null, but MACOSX fonts are not CompositeFonts
-        if (dialog == null || !(dialog instanceof CompositeFont)) {
+        if (!(dialog instanceof CompositeFont dialog2D)) {
             return fuir;
         }
-        CompositeFont dialog2D = (CompositeFont)dialog;
         PhysicalFont physicalFont = (PhysicalFont)font2D;
         ConcurrentHashMap<PhysicalFont, CompositeFont> compMap = compMapRef.get();
         if (compMap == null) { // Its been collected.

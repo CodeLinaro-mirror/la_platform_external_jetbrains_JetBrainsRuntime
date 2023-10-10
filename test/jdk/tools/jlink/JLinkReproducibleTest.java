@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,8 +22,6 @@
  */
 
 import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.*;
 import java.util.*;
 
@@ -45,7 +43,7 @@ public class JLinkReproducibleTest {
         res.shouldHaveExitValue(0);
     }
 
-    private static void jlink(Path image) throws Exception {
+    private static void jlink(Path image, boolean with_default_trace_file) throws Exception {
         var cmd = new ArrayList<String>();
         cmd.add(JDKToolFinder.getJDKTool("jlink"));
         cmd.addAll(List.of(
@@ -54,6 +52,9 @@ public class JLinkReproducibleTest {
             "--compress=2",
             "--output", image.toString()
         ));
+        if (!with_default_trace_file) {
+            cmd.add("--generate-jli-classes=@file-not-exists");
+        }
         run(cmd);
     }
 
@@ -100,47 +101,31 @@ public class JLinkReproducibleTest {
 
         // Link the first image
         var firstImage = Path.of("image-first");
-        jlink(firstImage);
+        jlink(firstImage, true);
         var firstModulesFile = firstImage.resolve("lib")
                                          .resolve("modules");
 
         // Link the second image
         var secondImage = Path.of("image-second");
-        jlink(secondImage);
+        jlink(secondImage, true);
         var secondModulesFile = secondImage.resolve("lib")
                                            .resolve("modules");
 
         // Ensure module files are identical
-        assertEquals(-1L, mismatch(firstModulesFile, secondModulesFile));
-    }
+        assertEquals(-1L, Files.mismatch(firstModulesFile, secondModulesFile));
 
-    // Copy from JDK-8202302
-    public static long mismatch(Path path, Path path2) throws IOException {
-        // buffer size used for reading and writing
-        final int BUFFER_SIZE = 8192;
+        // Link the third image
+        var thirdImage = Path.of("image-third");
+        jlink(thirdImage, false);
+        var thirdModulesFile = thirdImage.resolve("lib")
+                                         .resolve("modules");
+        // Link the fourth image
+        var fourthImage = Path.of("image-fourth");
+        jlink(fourthImage, false);
+        var fourthModulesFile = fourthImage.resolve("lib")
+                                           .resolve("modules");
 
-        if (Files.isSameFile(path, path2)) {
-            return -1;
-        }
-        byte[] buffer1 = new byte[BUFFER_SIZE];
-        byte[] buffer2 = new byte[BUFFER_SIZE];
-        try (InputStream in1 = Files.newInputStream(path);
-            InputStream in2 = Files.newInputStream(path2);) {
-            long totalRead = 0;
-            while (true) {
-                int nRead1 = in1.readNBytes(buffer1, 0, BUFFER_SIZE);
-                int nRead2 = in2.readNBytes(buffer2, 0, BUFFER_SIZE);
-
-                int i = Arrays.mismatch(buffer1, 0, nRead1, buffer2, 0, nRead2);
-                if (i > -1) {
-                    return totalRead + i;
-                }
-                if (nRead1 < BUFFER_SIZE) {
-                    // we've reached the end of the files, but found no mismatch
-                    return -1;
-                }
-                totalRead += nRead1;
-            }
-        }
+        // Ensure module files are identical
+        assertEquals(-1L, Files.mismatch(thirdModulesFile, fourthModulesFile));
     }
 }

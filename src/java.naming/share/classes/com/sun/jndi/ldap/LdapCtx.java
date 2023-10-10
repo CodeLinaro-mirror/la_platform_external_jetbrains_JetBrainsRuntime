@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,7 +27,6 @@ package com.sun.jndi.ldap;
 
 import javax.naming.*;
 import javax.naming.directory.*;
-import javax.naming.spi.*;
 import javax.naming.event.*;
 import javax.naming.ldap.*;
 import javax.naming.ldap.LdapName;
@@ -54,6 +53,8 @@ import com.sun.jndi.toolkit.ctx.*;
 import com.sun.jndi.toolkit.dir.HierMemDirCtx;
 import com.sun.jndi.toolkit.dir.SearchFilter;
 import com.sun.jndi.ldap.ext.StartTlsResponseImpl;
+import com.sun.naming.internal.NamingManagerHelper;
+import com.sun.naming.internal.ObjectFactoriesFilter;
 
 /**
  * The LDAP context implementation.
@@ -96,13 +97,13 @@ import com.sun.jndi.ldap.ext.StartTlsResponseImpl;
  * @author Rosanna Lee
  */
 
-final public class LdapCtx extends ComponentDirContext
+public final class LdapCtx extends ComponentDirContext
     implements EventDirContext, LdapContext {
 
     /*
      * Used to store arguments to the search method.
      */
-    final static class SearchArgs {
+    static final class SearchArgs {
         Name name;
         String filter;
         SearchControls cons;
@@ -943,7 +944,7 @@ final public class LdapCtx extends ComponentDirContext
         boolean directUpdate) throws NamingException {
 
             // Handle the empty name
-            if (dn.equals("")) {
+            if (dn.isEmpty()) {
                 return attrs;
             }
 
@@ -1111,8 +1112,8 @@ final public class LdapCtx extends ComponentDirContext
         }
 
         try {
-            return DirectoryManager.getObjectInstance(obj, name,
-                this, envprops, attrs);
+            return NamingManagerHelper.getDirObjectInstance(obj, name, this,
+                    envprops, attrs, ObjectFactoriesFilter::checkLdapFilter);
 
         } catch (NamingException e) {
             throw cont.fillInException(e);
@@ -1299,7 +1300,7 @@ final public class LdapCtx extends ComponentDirContext
         int prefixLast = prefix.size() - 1;
 
         if (name.isEmpty() || prefix.isEmpty() ||
-                name.get(0).equals("") || prefix.get(prefixLast).equals("")) {
+                name.get(0).isEmpty() || prefix.get(prefixLast).isEmpty()) {
             return super.composeName(name, prefix);
         }
 
@@ -1328,9 +1329,9 @@ final public class LdapCtx extends ComponentDirContext
 
     // used by LdapSearchEnumeration
     private static String concatNames(String lesser, String greater) {
-        if (lesser == null || lesser.equals("")) {
+        if (lesser == null || lesser.isEmpty()) {
             return greater;
-        } else if (greater == null || greater.equals("")) {
+        } else if (greater == null || greater.isEmpty()) {
             return lesser;
         } else {
             return (lesser + "," + greater);
@@ -2603,7 +2604,6 @@ final public class LdapCtx extends ComponentDirContext
 
         Vector<Vector<String>> referrals = new Vector<>(urlCount);
         int iURL;
-        int i = 0;
 
         separator = refString.indexOf('\n');
         iURL = separator + 1;
@@ -2640,7 +2640,7 @@ final public class LdapCtx extends ComponentDirContext
 
    // ----------------- Connection  ---------------------
 
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("removal")
     protected void finalize() {
         try {
             close();
@@ -2649,7 +2649,7 @@ final public class LdapCtx extends ComponentDirContext
         }
     }
 
-    synchronized public void close() throws NamingException {
+    public synchronized void close() throws NamingException {
         if (debug) {
             System.err.println("LdapCtx: close() called " + this);
             (new Throwable()).printStackTrace();
@@ -2700,6 +2700,7 @@ final public class LdapCtx extends ComponentDirContext
     }
 
     // Load 'mechsAllowedToSendCredentials' system property value
+    @SuppressWarnings("removal")
     private static String getMechsAllowedToSendCredentials() {
         PrivilegedAction<String> pa = () -> System.getProperty(ALLOWED_MECHS_SP);
         return System.getSecurityManager() == null ? pa.run() : AccessController.doPrivileged(pa);
@@ -3137,7 +3138,7 @@ final public class LdapCtx extends ComponentDirContext
             }
 
             // extract SLAPD-style referrals from errorMessage
-            if ((res.errorMessage != null) && (!res.errorMessage.equals(""))) {
+            if ((res.errorMessage != null) && (!res.errorMessage.isEmpty())) {
                 res.referrals = extractURLs(res.errorMessage);
             } else {
                 e = new PartialResultException(msg);

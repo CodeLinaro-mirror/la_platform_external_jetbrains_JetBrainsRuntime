@@ -41,7 +41,7 @@ extern "C" {
 static Options* options = NULL;
 static const char* agentName;
 
-static jvmtiEvent testEvents[] = {JVMTI_EVENT_THREAD_START, JVMTI_EVENT_THREAD_END};
+static jvmtiEvent testEvents[] = { JVMTI_EVENT_THREAD_START, JVMTI_EVENT_THREAD_END };
 static const int testEventsNumber = 2;
 
 static jrawMonitorID eventsCounterMonitor;
@@ -128,15 +128,18 @@ Agent_OnAttach(JavaVM *vm, char *optionsString, void *reserved)
     jvmtiEnv* jvmti;
     JNIEnv* jni;
 
-    if (!NSK_VERIFY((options = (Options*) nsk_aod_createOptions(optionsString)) != NULL))
+    options = (Options*) nsk_aod_createOptions(optionsString);
+    if (!NSK_VERIFY(options != NULL))
         return JNI_ERR;
 
     agentName = nsk_aod_getOptionValue(options, NSK_AOD_AGENT_NAME_OPTION);
 
-    if ((jni = (JNIEnv*) nsk_aod_createJNIEnv(vm)) == NULL)
+    jni = (JNIEnv*) nsk_aod_createJNIEnv(vm);
+    if (jni == NULL)
         return JNI_ERR;
 
-    if (!NSK_VERIFY((jvmti = nsk_jvmti_createJVMTIEnv(vm, reserved)) != NULL))
+    jvmti = nsk_jvmti_createJVMTIEnv(vm, reserved);
+    if (!NSK_VERIFY(jvmti != NULL))
         return JNI_ERR;
 
     if (!NSK_JVMTI_VERIFY(jvmti->CreateRawMonitor("attach045-agent02-eventsCounterMonitor", &eventsCounterMonitor))) {
@@ -146,7 +149,7 @@ Agent_OnAttach(JavaVM *vm, char *optionsString, void *reserved)
     memset(&eventCallbacks,0, sizeof(eventCallbacks));
     eventCallbacks.ThreadStart = threadStartHandler;
     eventCallbacks.ThreadEnd = threadEndHandler;
-    if (!NSK_JVMTI_VERIFY(jvmti->SetEventCallbacks(&eventCallbacks, sizeof(eventCallbacks))) ) {
+    if (!NSK_JVMTI_VERIFY(jvmti->SetEventCallbacks(&eventCallbacks, sizeof(eventCallbacks)))) {
         return JNI_ERR;
     }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,12 +26,14 @@
 package java.nio.channels.spi;
 
 import java.io.IOException;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.util.HashSet;
 import java.util.Set;
 import sun.nio.ch.Interruptible;
-import java.util.concurrent.atomic.AtomicBoolean;
+import sun.nio.ch.SelectorImpl;
 
 
 /**
@@ -45,14 +47,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * invoked, these methods should be used within a
  * {@code try}&nbsp;...&nbsp;{@code finally} block:
  *
- * <blockquote><pre id="be">
- * try {
- *     begin();
- *     // Perform blocking I/O operation here
- *     ...
- * } finally {
- *     end();
- * }</pre></blockquote>
+ * {@snippet lang=java id="be" :
+ *     try {
+ *         begin();
+ *         // Perform blocking I/O operation here
+ *         ...
+ *     } finally {
+ *         end();
+ *     }
+ * }
  *
  * <p> This class also defines methods for maintaining a selector's
  * cancelled-key set and for removing a key from its channel's key set, and
@@ -69,11 +72,22 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public abstract class AbstractSelector
     extends Selector
 {
-
-    private final AtomicBoolean selectorOpen = new AtomicBoolean(true);
+    private static final VarHandle CLOSED;
+    static {
+        try {
+            MethodHandles.Lookup l = MethodHandles.lookup();
+            CLOSED = l.findVarHandle(AbstractSelector.class, "closed", boolean.class);
+        } catch (Exception e) {
+            throw new InternalError(e);
+        }
+    }
+    private volatile boolean closed;
 
     // The provider that created this selector
     private final SelectorProvider provider;
+
+    // cancelled-key, not used by the JDK Selector implementations
+    private final Set<SelectionKey> cancelledKeys;
 
     /**
      * Initializes a new instance of this class.
@@ -83,9 +97,13 @@ public abstract class AbstractSelector
      */
     protected AbstractSelector(SelectorProvider provider) {
         this.provider = provider;
+        if (this instanceof SelectorImpl) {
+            // not used in JDK Selector implementations
+            this.cancelledKeys = Set.of();
+        } else {
+            this.cancelledKeys = new HashSet<>();
+        }
     }
-
-    private final Set<SelectionKey> cancelledKeys = new HashSet<SelectionKey>();
 
     void cancel(SelectionKey k) {                       // package-private
         synchronized (cancelledKeys) {
@@ -105,10 +123,10 @@ public abstract class AbstractSelector
      *          If an I/O error occurs
      */
     public final void close() throws IOException {
-        boolean open = selectorOpen.getAndSet(false);
-        if (!open)
-            return;
-        implCloseSelector();
+        boolean changed = (boolean) CLOSED.compareAndSet(this, false, true);
+        if (changed) {
+            implCloseSelector();
+        }
     }
 
     /**
@@ -130,7 +148,7 @@ public abstract class AbstractSelector
     protected abstract void implCloseSelector() throws IOException;
 
     public final boolean isOpen() {
-        return selectorOpen.get();
+        return !closed;
     }
 
     /**

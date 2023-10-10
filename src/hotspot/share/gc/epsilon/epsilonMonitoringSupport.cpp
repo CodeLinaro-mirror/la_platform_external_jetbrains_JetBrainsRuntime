@@ -29,6 +29,7 @@
 #include "memory/allocation.hpp"
 #include "memory/metaspaceCounters.hpp"
 #include "memory/resourceArea.hpp"
+#include "runtime/perfData.hpp"
 #include "services/memoryService.hpp"
 
 class EpsilonSpaceCounters: public CHeapObj<mtGC> {
@@ -72,9 +73,7 @@ public:
   }
 
   ~EpsilonSpaceCounters() {
-    if (_name_space != NULL) {
-      FREE_C_HEAP_ARRAY(char, _name_space);
-    }
+    FREE_C_HEAP_ARRAY(char, _name_space);
   }
 
   inline void update_all(size_t capacity, size_t used) {
@@ -112,7 +111,6 @@ void EpsilonMonitoringSupport::update_counters() {
     _heap_counters->update_all();
     _space_counters->update_all(capacity, used);
     MetaspaceCounters::update_performance_counters();
-    CompressedClassSpaceCounters::update_performance_counters();
   }
 }
 

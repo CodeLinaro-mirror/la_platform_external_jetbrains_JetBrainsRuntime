@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,10 +30,12 @@ import java.awt.Component;
 import java.awt.DefaultKeyboardFocusManager;
 import java.awt.Dialog;
 import java.awt.Dialog.ModalityType;
+import java.awt.EventQueue;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Frame;
 import java.awt.GraphicsDevice;
+import java.awt.GraphicsEnvironment;
 import java.awt.Insets;
 import java.awt.KeyboardFocusManager;
 import java.awt.MenuBar;
@@ -42,6 +44,7 @@ import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.Window;
 import java.awt.event.FocusEvent;
+import java.awt.event.PaintEvent;
 import java.awt.event.WindowEvent;
 import java.awt.peer.ComponentPeer;
 import java.beans.PropertyChangeEvent;
@@ -65,8 +68,9 @@ import sun.awt.AWTAccessor;
 import sun.awt.AWTAccessor.ComponentAccessor;
 import sun.awt.AWTAccessor.WindowAccessor;
 import sun.awt.AWTThreading;
+import sun.awt.PaintEventDispatcher;
+import sun.java2d.SunGraphicsEnvironment;
 import sun.java2d.SurfaceData;
-import sun.java2d.opengl.CGLSurfaceData;
 import sun.lwawt.LWLightweightFramePeer;
 import sun.lwawt.LWToolkit;
 import sun.lwawt.LWWindowPeer;
@@ -76,23 +80,15 @@ import sun.security.action.GetPropertyAction;
 import sun.util.logging.PlatformLogger;
 
 public class CPlatformWindow extends CFRetainedResource implements PlatformWindow {
-
-    static final boolean synergyWorkaroundEnabled;
-    static {
-        synergyWorkaroundEnabled = Boolean.parseBoolean(
-                AccessController.doPrivileged(
-                        new GetPropertyAction("com.jetbrains.synergyWorkaroundEnabled", "false")
-                ));
-    }
-
     private native long nativeCreateNSWindow(long nsViewPtr,long ownerPtr, long styleBits, double x, double y, double w, double h);
     private static native void nativeSetNSWindowStyleBits(long nsWindowPtr, int mask, int data);
+    private static native void nativeSetNSWindowAppearance(long nsWindowPtr, String appearanceName);
     private static native void nativeSetNSWindowMenuBar(long nsWindowPtr, long menuBarPtr);
     private static native Insets nativeGetNSWindowInsets(long nsWindowPtr);
     private static native void nativeSetNSWindowBounds(long nsWindowPtr, double x, double y, double w, double h);
     private static native void nativeSetNSWindowLocationByPlatform(long nsWindowPtr);
     private static native void nativeSetNSWindowStandardFrame(long nsWindowPtr,
-                                                              double x, double y, double w, double h);
+            double x, double y, double w, double h);
     private static native void nativeSetNSWindowMinMax(long nsWindowPtr, double minW, double minH, double maxW, double maxH);
     private static native void nativePushNSWindowToBack(long nsWindowPtr);
     private static native void nativePushNSWindowToFront(long nsWindowPtr, boolean wait);
@@ -101,6 +97,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     private static native void nativeRevalidateNSWindowShadow(long nsWindowPtr);
     private static native void nativeSetNSWindowMinimizedIcon(long nsWindowPtr, long nsImage);
     private static native void nativeSetNSWindowRepresentedFilename(long nsWindowPtr, String representedFilename);
+    private static native void nativeSetAllowAutomaticTabbingProperty(boolean allowAutomaticWindowTabbing);
     private static native void nativeSetEnabled(long nsWindowPtr, boolean isEnabled);
     private static native void nativeSynthesizeMouseEnteredExitedEvents();
     private static native void nativeSynthesizeMouseEnteredExitedEvents(long nsWindowPtr, int eventType);
@@ -108,19 +105,18 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     private static native void nativeEnterFullScreenMode(long nsWindowPtr);
     private static native void nativeExitFullScreenMode(long nsWindowPtr);
     static native CPlatformWindow nativeGetTopmostPlatformWindowUnderMouse();
-    private static native boolean nativeDelayShowing(long nsWindowPtr);
     private static native void nativeRaiseLevel(long nsWindowPtr, boolean popup, boolean onlyIfParentIsActive);
+    private static native boolean nativeDelayShowing(long nsWindowPtr);
+    private static native void nativeUpdateCustomTitleBar(long nsWindowPtr);
+    private static native void nativeCallDeliverMoveResizeEvent(long nsWindowPtr);
+    private static native void nativeSetRoundedCorners(long nsWindowPrt, float radius);
 
-    // Loger to report issues happened during execution but that do not affect functionality
+    // Logger to report issues happened during execution but that do not affect functionality
     private static final PlatformLogger logger = PlatformLogger.getLogger("sun.lwawt.macosx.CPlatformWindow");
     private static final PlatformLogger focusLogger = PlatformLogger.getLogger("sun.lwawt.macosx.focus.CPlatformWindow");
 
     // for client properties
     public static final String WINDOW_BRUSH_METAL_LOOK = "apple.awt.brushMetalLook";
-    public static final String WINDOW_DARK_APPEARANCE = "jetbrains.awt.windowDarkAppearance";
-    public static final String WINDOW_LIGHT_APPEARANCE = "jetbrains.awt.windowLightAppearance";
-    public static final String WINDOW_TRANSPARENT_TITLEBAR_APPEARANCE = "jetbrains.awt.transparentTitleBarAppearance";
-    public static final String WINDOW_AQUA_APPEARANCE = "jetbrains.awt.windowAquaAppearance";
     public static final String WINDOW_DRAGGABLE_BACKGROUND = "apple.awt.draggableWindowBackground";
 
     public static final String WINDOW_ALPHA = "Window.alpha";
@@ -145,6 +141,14 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     public static final String WINDOW_FULL_CONTENT = "apple.awt.fullWindowContent";
     public static final String WINDOW_TRANSPARENT_TITLE_BAR = "apple.awt.transparentTitleBar";
     public static final String WINDOW_TITLE_VISIBLE = "apple.awt.windowTitleVisible";
+    public static final String WINDOW_APPEARANCE = "apple.awt.windowAppearance";
+    public static final String WINDOW_CORNER_RADIUS = "apple.awt.windowCornerRadius";
+
+    // This system property is named as jdk.* because it is not specific to AWT
+    // and it is also used in JavaFX
+    @SuppressWarnings("removal")
+    public static final String MAC_OS_TABBED_WINDOW = AccessController.doPrivileged(
+            new GetPropertyAction("jdk.allowMacOSTabbedWindows"));
 
     // Yeah, I know. But it's easier to deal with ints from JNI
     static final int MODELESS = 0;
@@ -167,8 +171,6 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     static final int MINIMIZABLE = 1 << 8;
 
     static final int RESIZABLE = 1 << 9; // both a style bit and prop bit
-    static final int DARK = 1 << 28;
-    static final int LIGHT = 1 << 29;
     static final int IS_DIALOG = 1 << 25;
     static final int IS_MODAL = 1 << 26;
     static final int IS_POPUP = 1 << 27;
@@ -188,13 +190,11 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     static final int DOCUMENT_MODIFIED = 1 << 21;
     static final int FULLSCREENABLE = 1 << 23;
     static final int TRANSPARENT_TITLE_BAR = 1 << 18;
-    static final int TITLE_VISIBLE = 1 << 30;
+    static final int TITLE_VISIBLE = 1 << 25;
 
     static final int _METHOD_PROP_BITMASK = RESIZABLE | HAS_SHADOW | ZOOMABLE | ALWAYS_ON_TOP | HIDES_ON_DEACTIVATE
                                               | DRAGGABLE_BACKGROUND | DOCUMENT_MODIFIED | FULLSCREENABLE
                                               | TRANSPARENT_TITLE_BAR | TITLE_VISIBLE;
-
-    static final int POPUP = 1 << 14;
 
     // corresponds to callback-based properties
     static final int SHOULD_BECOME_KEY = 1 << 12;
@@ -212,87 +212,91 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
         return (bits & mask) != 0;
     }
 
+    static {
+        nativeSetAllowAutomaticTabbingProperty(Boolean.parseBoolean(MAC_OS_TABBED_WINDOW));
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
     static ClientPropertyApplicator<JRootPane, CPlatformWindow> CLIENT_PROPERTY_APPLICATOR = new ClientPropertyApplicator<JRootPane, CPlatformWindow>(new Property[] {
-            new Property<CPlatformWindow>(WINDOW_DOCUMENT_MODIFIED) { public void applyProperty(final CPlatformWindow c, final Object value) {
-                c.setStyleBits(DOCUMENT_MODIFIED, value == null ? false : Boolean.parseBoolean(value.toString()));
-            }},
-            new Property<CPlatformWindow>(WINDOW_BRUSH_METAL_LOOK) { public void applyProperty(final CPlatformWindow c, final Object value) {
-                c.setStyleBits(TEXTURED, Boolean.parseBoolean(value.toString()));
-            }},
-            new Property<CPlatformWindow>(WINDOW_DARK_APPEARANCE) { public void applyProperty(final CPlatformWindow c, final Object value) {
-                c.setStyleBits(DARK, value == null ? true : Boolean.parseBoolean(value.toString()));
-            }},
-            new Property<CPlatformWindow>(WINDOW_TRANSPARENT_TITLEBAR_APPEARANCE) { public void applyProperty(final CPlatformWindow c, final Object value) {
-                boolean val = value == null ? false : Boolean.parseBoolean(value.toString());
-                c.setStyleBits(TRANSPARENT_TITLE_BAR, val);
-                c.setStyleBits(FULL_WINDOW_CONTENT, val);
-                c.setStyleBits(TITLE_VISIBLE, !val);
-            }},
-            new Property<CPlatformWindow>(WINDOW_LIGHT_APPEARANCE) { public void applyProperty(final CPlatformWindow c, final Object value) {
-                c.setStyleBits(LIGHT, value == null ? true : Boolean.parseBoolean(value.toString()));
-            }},
-            new Property<CPlatformWindow>(WINDOW_ALPHA) { public void applyProperty(final CPlatformWindow c, final Object value) {
-                c.target.setOpacity(value == null ? 1.0f : Float.parseFloat(value.toString()));
-            }},
-            new Property<CPlatformWindow>(WINDOW_SHADOW) { public void applyProperty(final CPlatformWindow c, final Object value) {
-                c.setStyleBits(HAS_SHADOW, value == null ? true : Boolean.parseBoolean(value.toString()));
-            }},
-            new Property<CPlatformWindow>(WINDOW_MINIMIZABLE) { public void applyProperty(final CPlatformWindow c, final Object value) {
-                c.setStyleBits(MINIMIZABLE, Boolean.parseBoolean(value.toString()));
-            }},
-            new Property<CPlatformWindow>(WINDOW_CLOSEABLE) { public void applyProperty(final CPlatformWindow c, final Object value) {
-                c.setStyleBits(CLOSEABLE, Boolean.parseBoolean(value.toString()));
-            }},
-            new Property<CPlatformWindow>(WINDOW_ZOOMABLE) { public void applyProperty(final CPlatformWindow c, final Object value) {
-                boolean zoomable = Boolean.parseBoolean(value.toString());
-                if (c.target instanceof RootPaneContainer
-                        && c.getPeer().getPeerType() == PeerType.FRAME) {
-                    if (c.isInFullScreen && !zoomable) {
-                        c.toggleFullScreen();
-                    }
-                }
-                c.setStyleBits(ZOOMABLE, zoomable);
-            }},
-            new Property<CPlatformWindow>(WINDOW_FULLSCREENABLE) { public void applyProperty(final CPlatformWindow c, final Object value) {
-                boolean fullscrenable = Boolean.parseBoolean(value.toString());
-                if (c.target instanceof RootPaneContainer
-                        && c.getPeer().getPeerType() == PeerType.FRAME) {
-                    if (c.isInFullScreen && !fullscrenable) {
-                        c.toggleFullScreen();
-                    }
-                }
-                c.setStyleBits(FULLSCREENABLE, fullscrenable);
-            }},
-            new Property<CPlatformWindow>(WINDOW_SHADOW_REVALIDATE_NOW) { public void applyProperty(final CPlatformWindow c, final Object value) {
-                c.execute(ptr -> nativeRevalidateNSWindowShadow(ptr));
-            }},
-            new Property<CPlatformWindow>(WINDOW_DOCUMENT_FILE) { public void applyProperty(final CPlatformWindow c, final Object value) {
-                if (value == null || !(value instanceof java.io.File)) {
-                    c.execute(ptr->nativeSetNSWindowRepresentedFilename(ptr, null));
-                    return;
-                }
-
-                final String filename = ((java.io.File)value).getAbsolutePath();
-                c.execute(ptr->nativeSetNSWindowRepresentedFilename(ptr, filename));
-            }},
-            new Property<CPlatformWindow>(WINDOW_FULL_CONTENT) {
-                public void applyProperty(final CPlatformWindow c, final Object value) {
-                    boolean isFullWindowContent = Boolean.parseBoolean(value.toString());
-                    c.setStyleBits(FULL_WINDOW_CONTENT, isFullWindowContent);
-                }
-            },
-            new Property<CPlatformWindow>(WINDOW_TRANSPARENT_TITLE_BAR) {
-                public void applyProperty(final CPlatformWindow c, final Object value) {
-                    boolean isTransparentTitleBar = Boolean.parseBoolean(value.toString());
-                    c.setStyleBits(TRANSPARENT_TITLE_BAR, isTransparentTitleBar);
-                }
-            },
-            new Property<CPlatformWindow>(WINDOW_TITLE_VISIBLE) {
-                public void applyProperty(final CPlatformWindow c, final Object value) {
-                    c.setStyleBits(TITLE_VISIBLE, value == null ? true : Boolean.parseBoolean(value.toString()));
+        new Property<CPlatformWindow>(WINDOW_DOCUMENT_MODIFIED) { public void applyProperty(final CPlatformWindow c, final Object value) {
+            c.setStyleBits(DOCUMENT_MODIFIED, value == null ? false : Boolean.parseBoolean(value.toString()));
+        }},
+        new Property<CPlatformWindow>(WINDOW_BRUSH_METAL_LOOK) { public void applyProperty(final CPlatformWindow c, final Object value) {
+            c.setStyleBits(TEXTURED, Boolean.parseBoolean(value.toString()));
+        }},
+        new Property<CPlatformWindow>(WINDOW_ALPHA) { public void applyProperty(final CPlatformWindow c, final Object value) {
+            c.target.setOpacity(value == null ? 1.0f : Float.parseFloat(value.toString()));
+        }},
+        new Property<CPlatformWindow>(WINDOW_SHADOW) { public void applyProperty(final CPlatformWindow c, final Object value) {
+            c.setStyleBits(HAS_SHADOW, value == null ? true : Boolean.parseBoolean(value.toString()));
+        }},
+        new Property<CPlatformWindow>(WINDOW_MINIMIZABLE) { public void applyProperty(final CPlatformWindow c, final Object value) {
+            c.setStyleBits(MINIMIZABLE, Boolean.parseBoolean(value.toString()));
+        }},
+        new Property<CPlatformWindow>(WINDOW_CLOSEABLE) { public void applyProperty(final CPlatformWindow c, final Object value) {
+            c.setStyleBits(CLOSEABLE, Boolean.parseBoolean(value.toString()));
+        }},
+        new Property<CPlatformWindow>(WINDOW_ZOOMABLE) { public void applyProperty(final CPlatformWindow c, final Object value) {
+            boolean zoomable = Boolean.parseBoolean(value.toString());
+            if (c.target instanceof RootPaneContainer
+                    && c.getPeer().getPeerType() == PeerType.FRAME) {
+                if (c.isInFullScreen && !zoomable) {
+                    c.toggleFullScreen();
                 }
             }
+            c.setStyleBits(ZOOMABLE, zoomable);
+        }},
+        new Property<CPlatformWindow>(WINDOW_FULLSCREENABLE) { public void applyProperty(final CPlatformWindow c, final Object value) {
+            boolean fullscrenable = Boolean.parseBoolean(value.toString());
+            if (c.target instanceof RootPaneContainer
+                    && c.getPeer().getPeerType() == PeerType.FRAME) {
+                if (c.isInFullScreen && !fullscrenable) {
+                    c.toggleFullScreen();
+                }
+            }
+            c.setStyleBits(FULLSCREENABLE, fullscrenable);
+        }},
+        new Property<CPlatformWindow>(WINDOW_SHADOW_REVALIDATE_NOW) { public void applyProperty(final CPlatformWindow c, final Object value) {
+            c.execute(ptr -> nativeRevalidateNSWindowShadow(ptr));
+        }},
+        new Property<CPlatformWindow>(WINDOW_DOCUMENT_FILE) { public void applyProperty(final CPlatformWindow c, final Object value) {
+            if (!(value instanceof java.io.File file)) {
+                c.execute(ptr->nativeSetNSWindowRepresentedFilename(ptr, null));
+                return;
+            }
+
+            final String filename = file.getAbsolutePath();
+            c.execute(ptr->nativeSetNSWindowRepresentedFilename(ptr, filename));
+        }},
+        new Property<CPlatformWindow>(WINDOW_FULL_CONTENT) {
+            public void applyProperty(final CPlatformWindow c, final Object value) {
+                boolean isFullWindowContent = Boolean.parseBoolean(value.toString());
+                c.setStyleBits(FULL_WINDOW_CONTENT, isFullWindowContent);
+            }
+        },
+        new Property<CPlatformWindow>(WINDOW_TRANSPARENT_TITLE_BAR) {
+            public void applyProperty(final CPlatformWindow c, final Object value) {
+                boolean isTransparentTitleBar = Boolean.parseBoolean(value.toString());
+                c.setStyleBits(TRANSPARENT_TITLE_BAR, isTransparentTitleBar);
+            }
+        },
+        new Property<CPlatformWindow>(WINDOW_TITLE_VISIBLE) {
+            public void applyProperty(final CPlatformWindow c, final Object value) {
+                c.setStyleBits(TITLE_VISIBLE, value == null ? true : Boolean.parseBoolean(value.toString()));
+            }
+        },
+        new Property<CPlatformWindow>(WINDOW_APPEARANCE) {
+            public void applyProperty(final CPlatformWindow c, final Object value) {
+                if (value != null && (value instanceof String)) {
+                    c.execute(ptr -> nativeSetNSWindowAppearance(ptr, (String) value));
+                }
+            }
+        },
+        new Property<CPlatformWindow>(WINDOW_CORNER_RADIUS) {
+            public void applyProperty(final CPlatformWindow c, final Object value) {
+                c.setRoundedCorners(value);
+            }
+        }
     }) {
         @SuppressWarnings("deprecation")
         public CPlatformWindow convertJComponentToTarget(final JRootPane p) {
@@ -331,9 +335,6 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     private volatile boolean isInFullScreen;
     private volatile boolean isIconifyAnimationActive;
     private volatile boolean isZoomed;
-
-    private final long FLUSH_THRESHOLD = 200;
-    private volatile long flushTimeStamp = 0;
 
     private Window target;
     private LWWindowPeer peer;
@@ -405,7 +406,9 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
             }
         });
         setPtr(ref.get());
-
+        if (peer != null) { // Not applicable to CWarningWindow
+            peer.setTextured(IS(TEXTURED, styleBits));
+        }
         if (target instanceof javax.swing.RootPaneContainer) {
             final javax.swing.JRootPane rootpane = ((javax.swing.RootPaneContainer)target).getRootPane();
             if (rootpane != null) rootpane.addPropertyChangeListener("ancestor", new PropertyChangeListener() {
@@ -415,8 +418,6 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
                 }
             });
         }
-
-        validateSurface();
     }
 
     void initializeBase(Window target, LWWindowPeer peer, PlatformWindow owner) {
@@ -440,14 +441,11 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
         // defaults style bits
         int styleBits = DECORATED | HAS_SHADOW | CLOSEABLE | ZOOMABLE | RESIZABLE | TITLE_VISIBLE;
 
-        if (target.getName() == "###overrideRedirect###") {
-            styleBits = SET(styleBits, POPUP, true);
-        }
-
         styleBits |= getFocusableStyleBits();
 
         final boolean isFrame = (target instanceof Frame);
         final boolean isDialog = (target instanceof Dialog);
+        final boolean isPopup = (target.getType() == Window.Type.POPUP);
         if (isFrame) {
             styleBits = SET(styleBits, MINIMIZABLE, true);
         }
@@ -476,8 +474,10 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
         }
 
         // If the target is a dialog, popup or tooltip we want it to ignore the brushed metal look.
-        if (!isDialog && IS(styleBits, POPUP)) {
-            styleBits = SET(styleBits, TEXTURED, true);
+        if (isPopup) {
+            styleBits = SET(styleBits, TEXTURED, false);
+            // Popups in applets don't activate applet's process
+            styleBits = SET(styleBits, IS_POPUP, true);
         }
 
         if (Window.Type.UTILITY.equals(target.getType())) {
@@ -486,102 +486,81 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
 
         if (target instanceof javax.swing.RootPaneContainer) {
             javax.swing.JRootPane rootpane = ((javax.swing.RootPaneContainer)target).getRootPane();
+            Object prop = null;
 
-            if (rootpane != null) {
-                Object prop;
+            prop = rootpane.getClientProperty(WINDOW_BRUSH_METAL_LOOK);
+            if (prop != null) {
+                styleBits = SET(styleBits, TEXTURED, Boolean.parseBoolean(prop.toString()));
+            }
 
-                prop = rootpane.getClientProperty(WINDOW_BRUSH_METAL_LOOK);
+            if (isDialog && ((Dialog)target).getModalityType() == ModalityType.DOCUMENT_MODAL) {
+                prop = rootpane.getClientProperty(WINDOW_DOC_MODAL_SHEET);
                 if (prop != null) {
-                    styleBits = SET(styleBits, TEXTURED, Boolean.parseBoolean(prop.toString()));
+                    styleBits = SET(styleBits, SHEET, Boolean.parseBoolean(prop.toString()));
                 }
+            }
 
-                if (isDialog && ((Dialog) target).getModalityType() == ModalityType.DOCUMENT_MODAL) {
-                    prop = rootpane.getClientProperty(WINDOW_DOC_MODAL_SHEET);
-                    if (prop != null) {
-                        styleBits = SET(styleBits, SHEET, Boolean.parseBoolean(prop.toString()));
+            prop = rootpane.getClientProperty(WINDOW_STYLE);
+            if (prop != null) {
+                if ("small".equals(prop))  {
+                    styleBits = SET(styleBits, UTILITY, true);
+                    if (target.isAlwaysOnTop() && rootpane.getClientProperty(WINDOW_HIDES_ON_DEACTIVATE) == null) {
+                        styleBits = SET(styleBits, HIDES_ON_DEACTIVATE, true);
                     }
                 }
+                if ("textured".equals(prop)) styleBits = SET(styleBits, TEXTURED, true);
+                if ("unified".equals(prop)) styleBits = SET(styleBits, UNIFIED, true);
+                if ("hud".equals(prop)) styleBits = SET(styleBits, HUD, true);
+            }
 
-                prop = rootpane.getClientProperty(WINDOW_STYLE);
-                if (prop != null) {
-                    if ("small".equals(prop)) {
-                        styleBits = SET(styleBits, UTILITY, true);
-                        if (target.isAlwaysOnTop() && rootpane.getClientProperty(WINDOW_HIDES_ON_DEACTIVATE) == null) {
-                            styleBits = SET(styleBits, HIDES_ON_DEACTIVATE, true);
-                        }
-                    }
-                    if ("textured".equals(prop)) styleBits = SET(styleBits, TEXTURED, true);
-                    if ("unified".equals(prop)) styleBits = SET(styleBits, UNIFIED, true);
-                    if ("hud".equals(prop)) styleBits = SET(styleBits, HUD, true);
-                }
+            prop = rootpane.getClientProperty(WINDOW_HIDES_ON_DEACTIVATE);
+            if (prop != null) {
+                styleBits = SET(styleBits, HIDES_ON_DEACTIVATE, Boolean.parseBoolean(prop.toString()));
+            }
 
-                prop = rootpane.getClientProperty(WINDOW_HIDES_ON_DEACTIVATE);
-                if (prop != null) {
-                    styleBits = SET(styleBits, HIDES_ON_DEACTIVATE, Boolean.parseBoolean(prop.toString()));
-                }
+            prop = rootpane.getClientProperty(WINDOW_CLOSEABLE);
+            if (prop != null) {
+                styleBits = SET(styleBits, CLOSEABLE, Boolean.parseBoolean(prop.toString()));
+            }
 
-                prop = rootpane.getClientProperty(WINDOW_CLOSEABLE);
-                if (prop != null) {
-                    styleBits = SET(styleBits, CLOSEABLE, Boolean.parseBoolean(prop.toString()));
-                }
+            prop = rootpane.getClientProperty(WINDOW_MINIMIZABLE);
+            if (prop != null) {
+                styleBits = SET(styleBits, MINIMIZABLE, Boolean.parseBoolean(prop.toString()));
+            }
 
-                prop = rootpane.getClientProperty(WINDOW_MINIMIZABLE);
-                if (prop != null) {
-                    styleBits = SET(styleBits, MINIMIZABLE, Boolean.parseBoolean(prop.toString()));
-                }
+            prop = rootpane.getClientProperty(WINDOW_ZOOMABLE);
+            if (prop != null) {
+                styleBits = SET(styleBits, ZOOMABLE, Boolean.parseBoolean(prop.toString()));
+            }
 
-                prop = rootpane.getClientProperty(WINDOW_DARK_APPEARANCE);
-                if (prop != null) {
-                    styleBits = SET(styleBits, DARK, Boolean.parseBoolean(prop.toString()));
-                }
+            prop = rootpane.getClientProperty(WINDOW_FULLSCREENABLE);
+            if (prop != null) {
+                styleBits = SET(styleBits, FULLSCREENABLE, Boolean.parseBoolean(prop.toString()));
+            }
 
-                prop = rootpane.getClientProperty(WINDOW_TRANSPARENT_TITLEBAR_APPEARANCE);
-                if (prop != null) {
-                    boolean val = Boolean.parseBoolean(prop.toString());
-                    styleBits = SET(styleBits, TRANSPARENT_TITLE_BAR, val);
-                    styleBits = SET(styleBits, FULL_WINDOW_CONTENT, val);
-                    styleBits = SET(styleBits, TITLE_VISIBLE, !val);
-                }
+            prop = rootpane.getClientProperty(WINDOW_SHADOW);
+            if (prop != null) {
+                styleBits = SET(styleBits, HAS_SHADOW, Boolean.parseBoolean(prop.toString()));
+            }
 
-                prop = rootpane.getClientProperty(WINDOW_LIGHT_APPEARANCE);
-                if (prop != null) {
-                    styleBits = SET(styleBits, LIGHT, Boolean.parseBoolean(prop.toString()));
-                }
+            prop = rootpane.getClientProperty(WINDOW_DRAGGABLE_BACKGROUND);
+            if (prop != null) {
+                styleBits = SET(styleBits, DRAGGABLE_BACKGROUND, Boolean.parseBoolean(prop.toString()));
+            }
 
-                prop = rootpane.getClientProperty(WINDOW_ZOOMABLE);
-                if (prop != null) {
-                    styleBits = SET(styleBits, ZOOMABLE, Boolean.parseBoolean(prop.toString()));
-                }
+            prop = rootpane.getClientProperty(WINDOW_FULL_CONTENT);
+            if (prop != null) {
+                styleBits = SET(styleBits, FULL_WINDOW_CONTENT, Boolean.parseBoolean(prop.toString()));
+            }
 
-                prop = rootpane.getClientProperty(WINDOW_FULLSCREENABLE);
-                if (prop != null) {
-                    styleBits = SET(styleBits, FULLSCREENABLE, Boolean.parseBoolean(prop.toString()));
-                }
+            prop = rootpane.getClientProperty(WINDOW_TRANSPARENT_TITLE_BAR);
+            if (prop != null) {
+                styleBits = SET(styleBits, TRANSPARENT_TITLE_BAR, Boolean.parseBoolean(prop.toString()));
+            }
 
-                prop = rootpane.getClientProperty(WINDOW_SHADOW);
-                if (prop != null) {
-                    styleBits = SET(styleBits, HAS_SHADOW, Boolean.parseBoolean(prop.toString()));
-                }
-
-                prop = rootpane.getClientProperty(WINDOW_DRAGGABLE_BACKGROUND);
-                if (prop != null) {
-                    styleBits = SET(styleBits, DRAGGABLE_BACKGROUND, Boolean.parseBoolean(prop.toString()));
-                }
-
-                prop = rootpane.getClientProperty(WINDOW_FULL_CONTENT);
-                if (prop != null) {
-                    styleBits = SET(styleBits, FULL_WINDOW_CONTENT, Boolean.parseBoolean(prop.toString()));
-                }
-
-                prop = rootpane.getClientProperty(WINDOW_TRANSPARENT_TITLE_BAR);
-                if (prop != null) {
-                    styleBits = SET(styleBits, TRANSPARENT_TITLE_BAR, Boolean.parseBoolean(prop.toString()));
-                }
-
-                prop = rootpane.getClientProperty(WINDOW_TITLE_VISIBLE);
-                if (prop != null) {
-                    styleBits = SET(styleBits, TITLE_VISIBLE, Boolean.parseBoolean(prop.toString()));
-                }
+            prop = rootpane.getClientProperty(WINDOW_TITLE_VISIBLE);
+            if (prop != null) {
+                styleBits = SET(styleBits, TITLE_VISIBLE, Boolean.parseBoolean(prop.toString()));
             }
         }
 
@@ -591,8 +570,6 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
                 styleBits = SET(styleBits, IS_MODAL, true);
             }
         }
-
-        peer.setTextured(IS(TEXTURED, styleBits));
 
         return styleBits;
     }
@@ -613,19 +590,9 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     }
 
     private native void _toggleFullScreenMode(final long model);
-    private native void _enterFullScreen(final long model);
-    private native void _leaveFullScreen(final long model);
 
     public void toggleFullScreen() {
         execute(this::_toggleFullScreenMode);
-    }
-
-    public void enterFullScreen() {
-        execute(this::_enterFullScreen);
-    }
-
-    public void leaveFullScreen() {
-        execute(this::_leaveFullScreen);
     }
 
     @Override // PlatformWindow
@@ -682,6 +649,18 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     @Override // PlatformWindow
     public SurfaceData replaceSurfaceData() {
         return contentView.replaceSurfaceData();
+    }
+
+    public void displayChanged(boolean profileOnly) {
+        if (logger.isLoggable(PlatformLogger.Level.FINE)) {
+            logger.fine(profileOnly ? "DISPLAY_PROFILE_CHANGED" : "DISPLAY_CHANGED");
+        }
+
+        if (peer != null && !profileOnly) {
+            EventQueue.invokeLater(
+                    () -> ((SunGraphicsEnvironment) GraphicsEnvironment.
+                            getLocalGraphicsEnvironment()).displayChanged());
+        }
     }
 
     @Override // PlatformWindow
@@ -776,16 +755,24 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
             }
         } else if (blocker == null) {
             // If it ain't blocked, or is being hidden, go regular way
+            contentView.execute(viewPtr -> {
+                execute(ptr -> CWrapper.NSWindow.makeFirstResponder(ptr,
+                                                                    viewPtr));
+            });
+
             boolean isPopup = (target.getType() == Window.Type.POPUP);
             execute(ptr -> {
+                if (isPopup) {
+                    // Popups in applets don't activate applet's process
+                    CWrapper.NSWindow.orderFrontRegardless(ptr);
+                } else {
+                    CWrapper.NSWindow.orderFront(ptr);
+                }
 
                 boolean isKeyWindow = CWrapper.NSWindow.isKeyWindow(ptr);
                 if (!isKeyWindow) {
-                    logger.fine("setVisible: makeKeyAndOrderFront");
-                    CWrapper.NSWindow.makeKeyAndOrderFront(ptr);
-                } else {
-                    logger.fine("setVisible: orderFront");
-                    CWrapper.NSWindow.orderFront(ptr);
+                    logger.fine("setVisible: makeKeyWindow");
+                    CWrapper.NSWindow.makeKeyWindow(ptr);
                 }
 
                 if (owner != null
@@ -809,8 +796,8 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
             bw.execute(blockerPtr -> {
                 execute(ptr -> {
                     CWrapper.NSWindow.orderWindow(ptr,
-                            CWrapper.NSWindow.NSWindowBelow,
-                            blockerPtr);
+                                                  CWrapper.NSWindow.NSWindowBelow,
+                                                  blockerPtr);
                 });
             });
         }
@@ -821,7 +808,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
             Frame or Dialog is resizable.
             **/
             final boolean resizable = (target instanceof Frame) ? ((Frame)target).isResizable() :
-                    ((target instanceof Dialog) ? ((Dialog)target).isResizable() : false);
+            ((target instanceof Dialog) ? ((Dialog)target).isResizable() : false);
             if (resizable) {
                 setCanFullscreen(true);
             }
@@ -837,6 +824,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
                         // Treat all state bit masks with ICONIFIED bit as ICONIFIED state.
                         frameState = Frame.ICONIFIED;
                     }
+
                     switch (frameState) {
                         case Frame.ICONIFIED:
                             execute(CWrapper.NSWindow::miniaturize);
@@ -973,9 +961,8 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     @Override
     public boolean rejectFocusRequest(FocusEvent.Cause cause) {
         // Cross-app activation requests are not allowed.
-        if (!synergyWorkaroundEnabled &&
-                (cause != FocusEvent.Cause.MOUSE_EVENT &&
-                        !((LWCToolkit)Toolkit.getDefaultToolkit()).isApplicationActive()))
+        if (cause != FocusEvent.Cause.MOUSE_EVENT &&
+            !((LWCToolkit)Toolkit.getDefaultToolkit()).isApplicationActive())
         {
             focusLogger.fine("the app is inactive, so the request is rejected");
             return true;
@@ -1032,6 +1019,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
 
     @Override
     public void setOpaque(boolean isOpaque) {
+        contentView.setWindowLayerOpaque(isOpaque);
         execute(ptr -> CWrapper.NSWindow.setOpaque(ptr, isOpaque));
         boolean isTextured = (peer == null) ? false : peer.isTextured();
         if (!isTextured) {
@@ -1082,6 +1070,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
             // Treat all state bit masks with ICONIFIED bit as ICONIFIED state.
             windowState = Frame.ICONIFIED;
         }
+
         switch (windowState) {
             case Frame.ICONIFIED:
                 if (prevWindowState == Frame.MAXIMIZED_BOTH) {
@@ -1124,7 +1113,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
             // We are going to show a modal window. Previously displayed window will be
             // blocked/disabled. So we have to send mouse exited event to it now, since
             // all mouse events are discarded for blocked/disabled windows.
-            execute(ptr -> nativeSynthesizeMouseEnteredExitedEvents(ptr, CocoaConstants.NSMouseExited));
+            execute(ptr -> nativeSynthesizeMouseEnteredExitedEvents(ptr, CocoaConstants.NSEventTypeMouseExited));
         }
 
         execute(ptr -> {
@@ -1180,19 +1169,8 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
         return contentView.getWindowLayerPtr();
     }
 
-    private void validateSurface() {
-        SurfaceData surfaceData = getSurfaceData();
-        if (surfaceData instanceof CGLSurfaceData) {
-            ((CGLSurfaceData)surfaceData).validate();
-        }
-    }
-
     void flushBuffers() {
-        long timeStamp = System.currentTimeMillis();
-
-        if (isVisible() && !nativeBounds.isEmpty() && !isFullScreenMode  &&
-                flushTimeStamp + FLUSH_THRESHOLD < timeStamp)
-        {
+        if (isVisible() && !nativeBounds.isEmpty() && !isFullScreenMode) {
             try {
                 LWCToolkit.invokeAndWait(new Runnable() {
                     @Override
@@ -1203,7 +1181,6 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
             } catch (InvocationTargetException e) {
                 e.printStackTrace();
             }
-            flushTimeStamp = timeStamp;
         }
     }
 
@@ -1223,14 +1200,17 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     /*************************************************************
      * Callbacks from the AWTWindow and AWTView objc classes.
      *************************************************************/
-
     private void deliverWindowFocusEvent(boolean gained, CPlatformWindow opposite){
         LWWindowPeer oppositePeer = (opposite == null)? null : opposite.getPeer();
         responder.handleWindowFocusEvent(gained, oppositePeer);
     }
 
+    public void doDeliverMoveResizeEvent() {
+        execute(ptr -> nativeCallDeliverMoveResizeEvent(ptr));
+    }
+
     protected void deliverMoveResizeEvent(int x, int y, int width, int height,
-                                          boolean byUser) {
+                                        boolean byUser) {
         AtomicBoolean ref = new AtomicBoolean();
         execute(ptr -> {
             ref.set(CWrapper.NSWindow.isZoomed(ptr));
@@ -1442,7 +1422,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
 
     private Window getOwnerFrameOrDialog(Window window) {
         Window owner = window.getOwner();
-        while(owner != null && !(owner instanceof Frame || owner instanceof Dialog)) {
+        while (owner != null && !(owner instanceof Frame || owner instanceof Dialog)) {
             owner = owner.getOwner();
         }
         return owner;
@@ -1455,8 +1435,15 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
         return false;
     }
 
-    private long createNSWindow(long nsViewPtr,long ownerPtr, long styleBits, double x, double y, double w, double h) {
-        return AWTThreading.executeWaitToolkit(() -> nativeCreateNSWindow(nsViewPtr, ownerPtr, styleBits, x, y, w, h));
+    private long createNSWindow(long nsViewPtr,
+                                long ownerPtr,
+                                long styleBits,
+                                double x,
+                                double y,
+                                double w,
+                                double h) {
+        return AWTThreading.executeWaitToolkit(() ->
+                nativeCreateNSWindow(nsViewPtr, ownerPtr, styleBits, x, y, w, h));
     }
 
     // ----------------------------------------------------------------------
@@ -1488,5 +1475,32 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     private void windowDidExitFullScreen() {
         isInFullScreen = false;
         isFullScreenAnimationOn = false;
+    }
+
+    // JBR API internals
+    private static void updateCustomTitleBar(ComponentPeer peer) {
+        if (peer instanceof LWWindowPeer lwwp &&
+            lwwp.getPlatformWindow() instanceof CPlatformWindow cpw)  {
+            cpw.execute(CPlatformWindow::nativeUpdateCustomTitleBar);
+        }
+    }
+
+    // JBR API internals
+    private static void setRoundedCorners(Window window, Object params) {
+        Object peer = AWTAccessor.getComponentAccessor().getPeer(window);
+        if (peer instanceof CPlatformWindow) {
+            ((CPlatformWindow)peer).setRoundedCorners(params);
+        } else if (window instanceof RootPaneContainer) {
+            JRootPane rootpane = ((RootPaneContainer)window).getRootPane();
+            if (rootpane != null) {
+                rootpane.putClientProperty(WINDOW_CORNER_RADIUS, params);
+            }
+        }
+    }
+
+    private void setRoundedCorners(Object params) {
+        if (params instanceof Float) {
+            execute(ptr -> nativeSetRoundedCorners(ptr, (float) params));
+        }
     }
 }

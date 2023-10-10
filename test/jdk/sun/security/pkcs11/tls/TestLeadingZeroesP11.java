@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,7 +29,7 @@
  * @author Pasi Eronen
  * @modules jdk.crypto.cryptoki
  * @run main/othervm TestLeadingZeroesP11
- * @run main/othervm TestLeadingZeroesP11 sm
+ * @run main/othervm -Djava.security.manager=allow TestLeadingZeroesP11 sm
  */
 
 
@@ -39,6 +39,7 @@ import java.security.Provider;
 import java.security.PublicKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
+import java.util.HexFormat;
 import javax.crypto.KeyAgreement;
 
 /**
@@ -50,6 +51,9 @@ import javax.crypto.KeyAgreement;
  */
 
 public class TestLeadingZeroesP11 extends PKCS11Test {
+
+    // Hex formatter to upper case with ":" delimiter
+    private static final HexFormat HEX = HexFormat.ofDelimiter(":").withUpperCase();
 
     public static void main(String[] args) throws Exception {
         main(new TestLeadingZeroesP11(), args);
@@ -74,7 +78,7 @@ public class TestLeadingZeroesP11 extends PKCS11Test {
         aliceKeyAgree.init(alicePrivKey);
         aliceKeyAgree.doPhase(bobPubKey, true);
         byte[] sharedSecret = aliceKeyAgree.generateSecret();
-        System.out.println("shared secret:\n" + toHexString(sharedSecret));
+        System.out.println("shared secret:\n" + HEX.formatHex(sharedSecret));
 
         // verify that leading zero is present
         if (sharedSecret.length != 128) {
@@ -90,7 +94,7 @@ public class TestLeadingZeroesP11 extends PKCS11Test {
         byte[] tlsPremasterSecret =
             aliceKeyAgree.generateSecret("TlsPremasterSecret").getEncoded();
         System.out.println(
-            "tls premaster secret:\n" + toHexString(tlsPremasterSecret));
+            "tls premaster secret:\n" + HEX.formatHex(tlsPremasterSecret));
 
         // check that leading zero has been stripped
         if (tlsPremasterSecret.length != 127) {

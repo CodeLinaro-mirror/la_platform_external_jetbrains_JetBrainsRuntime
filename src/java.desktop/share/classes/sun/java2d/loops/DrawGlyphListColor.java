@@ -1,17 +1,26 @@
 /*
- * Copyright 2000-2018 JetBrains s.r.o.
+ * Copyright 2021 JetBrains s.r.o.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
  */
 
 package sun.java2d.loops;
@@ -20,14 +29,19 @@ import sun.font.GlyphList;
 import sun.java2d.SunGraphics2D;
 import sun.java2d.SurfaceData;
 import sun.java2d.pipe.Region;
+import sun.java2d.loops.GraphicsPrimitiveMgr.GeneralPrimitives;
 
 import java.awt.*;
 
+/**
+ *   Draws color glyphs onto destination surface
+ */
 public class DrawGlyphListColor extends GraphicsPrimitive {
 
-    public final static String methodSignature = "DrawGlyphListColor(...)".toString();
+    public static final String methodSignature =
+            "DrawGlyphListColor(...)".toString();
 
-    public final static int primTypeID = makePrimTypeID();
+    public static final int primTypeID = makePrimTypeID();
 
     public static DrawGlyphListColor locate(SurfaceType srctype,
                                             CompositeType comptype,
@@ -47,13 +61,14 @@ public class DrawGlyphListColor extends GraphicsPrimitive {
 
 
     public void DrawGlyphListColor(SunGraphics2D sg2d, SurfaceData dest,
-                                     GlyphList srcData, int fromGlyph, int toGlyph) {
-        // actual implementation is in the subclass
+                                   GlyphList srcData,
+                                   int fromGlyph, int toGlyph) {
+        // actual implementation is in the 'General' subclass
     }
 
     // This instance is used only for lookup.
     static {
-        GraphicsPrimitiveMgr.registerGeneral(
+        GeneralPrimitives.register(
                                 new DrawGlyphListColor(null, null, null));
     }
 
@@ -71,7 +86,8 @@ public class DrawGlyphListColor extends GraphicsPrimitive {
                        SurfaceType dsttype)
         {
             super(srctype, comptype, dsttype);
-            blit = Blit.locate(SurfaceType.IntArgbPre, CompositeType.SrcOverNoEa, dsttype);
+            blit = Blit.locate(SurfaceType.IntArgbPre,
+                    CompositeType.SrcOverNoEa, dsttype);
         }
 
         public void DrawGlyphListColor(SunGraphics2D sg2d, SurfaceData dest,
@@ -84,7 +100,7 @@ public class DrawGlyphListColor extends GraphicsPrimitive {
             int cy2 = clip.getHiY();
             for (int i = fromGlyph; i < toGlyph; i++) {
                 gl.setGlyphIndex(i);
-                int metrics[] = gl.getMetrics();
+                int[] metrics = gl.getMetrics();
                 int x = metrics[0];
                 int y = metrics[1];
                 int w = metrics[2];

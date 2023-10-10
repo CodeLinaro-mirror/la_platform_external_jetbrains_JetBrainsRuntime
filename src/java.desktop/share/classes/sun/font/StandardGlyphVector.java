@@ -26,6 +26,7 @@
 package sun.font;
 
 import java.awt.Font;
+import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.Rectangle;
 import static java.awt.RenderingHints.*;
@@ -35,6 +36,7 @@ import java.awt.font.GlyphMetrics;
 import java.awt.font.GlyphJustificationInfo;
 import java.awt.font.GlyphVector;
 import java.awt.font.LineMetrics;
+import java.awt.font.TextAttribute;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.GeneralPath;
 import java.awt.geom.NoninvertibleTransformException;
@@ -195,21 +197,22 @@ public class StandardGlyphVector extends GlyphVector {
 
             // how do we know its a base glyph
             // for now, it is if the natural advance of the glyph is non-zero
-            Font2D f2d = FontUtilities.getFont2D(font);
-            FontStrike strike = f2d.getStrike(font, frc);
 
             float[] deltas = { trackPt.x, trackPt.y };
             for (int j = 0; j < deltas.length; ++j) {
                 float inc = deltas[j];
+                float prevPos = 0;
                 if (inc != 0) {
                     float delta = 0;
-                    for (int i = j, n = 0; n < glyphs.length; i += 2) {
-                        if (strike.getGlyphAdvance(glyphs[n++]) != 0) { // might be an inadequate test
+                    for (int i = j; i < positions.length; i += 2) {
+                        if (i == j || prevPos != positions[i]) {
+                            prevPos = positions[i];
                             positions[i] += delta;
                             delta += inc;
+                        } else if (prevPos == positions[i]) {
+                            positions[i] = positions[i - 2];
                         }
                     }
-                    positions[positions.length-2+j] += delta;
                 }
             }
         }
@@ -255,7 +258,7 @@ public class StandardGlyphVector extends GlyphVector {
      * because a GV caches a strike and glyph images suitable for its FRC.
      * LCD text isn't currently supported on all surfaces, in which case
      * standard AA must be used. This is most likely to occur when LCD text
-     * is requested and the surface is some non-standard type or hardward
+     * is requested and the surface is some non-standard type or hardware
      * surface for which there are no accelerated loops.
      * We can detect this as being AA=="ON" in the FontInfo and AA!="ON"
      * and AA!="GASP" in the FRC - since this only occurs for LCD text we don't
@@ -874,27 +877,19 @@ public class StandardGlyphVector extends GlyphVector {
         return result;
     }
 
-    /**
-     * !!! not used currently, but might be by getPixelbounds?
-     */
-    public void pixellate(FontRenderContext renderFRC, Point2D loc, Point pxResult) {
-        if (renderFRC == null) {
-            renderFRC = frc;
+    public GlyphRenderData getGlyphRenderData(float x, float y) {
+        setFRCTX();
+        initPositions();
+
+        GlyphRenderData result = new GlyphRenderData();
+        for (int i = 0, n = 0; i < glyphs.length; ++i, n += 2) {
+            float px = x + positions[n];
+            float py = y + positions[n+1];
+
+            getGlyphStrike(i).appendGlyphRenderData(glyphs[i], result, px, py);
         }
 
-        // it is a total pain that you have to copy the transform.
-
-        AffineTransform at = renderFRC.getTransform();
-        at.transform(loc, loc);
-        pxResult.x = (int)loc.getX(); // but must not behave oddly around zero
-        pxResult.y = (int)loc.getY();
-        loc.setLocation(pxResult.x, pxResult.y);
-        try {
-            at.inverseTransform(loc, loc);
-        }
-        catch (NoninvertibleTransformException e) {
-            throw new IllegalArgumentException("must be able to invert frc transform");
-        }
+        return result;
     }
 
     //////////////////////
@@ -1128,7 +1123,7 @@ public class StandardGlyphVector extends GlyphVector {
 
     private void initFontData() {
         font2D = FontUtilities.getFont2D(font);
-        if (Font2D.fontSubstitutionEnabled && font2D instanceof FontSubstitution) {
+        if (font2D instanceof FontSubstitution) {
            font2D = ((FontSubstitution)font2D).getCompositeFont2D();
         }
         float s = font.getSize2D();
@@ -1803,7 +1798,8 @@ public class StandardGlyphVector extends GlyphVector {
                 result = new Rectangle2D.Float();
                 result.setRect(strike.getGlyphOutlineBounds(glyphID)); // don't mutate cached rect
             } else {
-                if (sgv.invdtx.getShearX() == 0 && sgv.invdtx.getShearY() == 0) {
+                if (sgv.invdtx.getShearX() == 0 && sgv.invdtx.getShearY() == 0 &&
+                        sgv.invdtx.getScaleX() > 0 && sgv.invdtx.getScaleY() > 0) {
                     final Rectangle2D.Float rect = strike.getGlyphOutlineBounds(glyphID);
                     result = new Rectangle2D.Float(
                         (float)(rect.x*sgv.invdtx.getScaleX() + sgv.invdtx.getTranslateX()),
@@ -1844,6 +1840,19 @@ public class StandardGlyphVector extends GlyphVector {
             }
             PathIterator iterator = gp.getPathIterator(null);
             result.append(iterator, false);
+        }
+
+        void appendGlyphRenderData(int glyphID, GlyphRenderData result, float x, float y) {
+            // !!! fontStrike needs a method for this.  For that matter, GeneralPath does.
+            GlyphRenderData grd;
+            if (sgv.invdtx == null) {
+                grd = strike.getGlyphRenderData(glyphID, x + dx, y + dy);
+            } else {
+                grd = strike.getGlyphRenderData(glyphID, 0, 0);
+                grd.transform(sgv.invdtx);
+                grd.transform(AffineTransform.getTranslateInstance(x + dx, y + dy));
+            }
+            result.merge(grd);
         }
     }
 

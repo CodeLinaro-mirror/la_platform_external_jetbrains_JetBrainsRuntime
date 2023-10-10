@@ -334,6 +334,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
      * nested classes.)
      * @serial
      */
+    @SuppressWarnings("serial") // Conditionally serializable
     final Comparator<? super K> comparator;
 
     /** Lazily initialized topmost index of the skiplist. */
@@ -1869,6 +1870,30 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
         return n.key;
     }
 
+   /**
+     * Throws {@code UnsupportedOperationException}. The encounter order induced by this
+     * map's comparison method determines the position of mappings, so explicit positioning
+     * is not supported.
+     *
+     * @throws UnsupportedOperationException always
+     * @since 21
+     */
+     public V putFirst(K k, V v) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Throws {@code UnsupportedOperationException}. The encounter order induced by this
+     * map's comparison method determines the position of mappings, so explicit positioning
+     * is not supported.
+     *
+     * @throws UnsupportedOperationException always
+     * @since 21
+     */
+    public V putLast(K k, V v) {
+        throw new UnsupportedOperationException();
+    }
+
     /**
      * @throws ClassCastException {@inheritDoc}
      * @throws NullPointerException if {@code fromKey} or {@code toKey} is null
@@ -2375,8 +2400,10 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
         /** Underlying map */
         final ConcurrentSkipListMap<K,V> m;
         /** lower bound key, or null if from start */
+        @SuppressWarnings("serial") // Conditionally serializable
         private final K lo;
         /** upper bound key, or null if to end */
+        @SuppressWarnings("serial") // Conditionally serializable
         private final K hi;
         /** inclusion flag for lo */
         private final boolean loInclusive;

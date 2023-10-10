@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,11 +27,12 @@ package sun.java2d.loops;
 
 import java.awt.Composite;
 import java.awt.image.BufferedImage;
+
 import sun.awt.image.BufImgSurfaceData;
-import sun.java2d.loops.GraphicsPrimitive;
 import sun.java2d.SunGraphics2D;
 import sun.java2d.SurfaceData;
 import sun.java2d.pipe.Region;
+import sun.java2d.loops.GraphicsPrimitiveMgr.GeneralPrimitives;
 
 /**
  * MaskFill
@@ -141,12 +142,12 @@ public class MaskFill extends GraphicsPrimitive
     }
 
     static {
-        GraphicsPrimitiveMgr.registerGeneral(new MaskFill(null, null, null));
+        GeneralPrimitives.register(new MaskFill(null, null, null));
     }
 
-    public GraphicsPrimitive makePrimitive(SurfaceType srctype,
-                                           CompositeType comptype,
-                                           SurfaceType dsttype)
+    protected GraphicsPrimitive makePrimitive(SurfaceType srctype,
+                                              CompositeType comptype,
+                                              SurfaceType dsttype)
     {
         if (SurfaceType.OpaqueColor.equals(srctype) ||
             SurfaceType.AnyColor.equals(srctype))
@@ -181,7 +182,7 @@ public class MaskFill extends GraphicsPrimitive
                              SurfaceData sData,
                              Composite comp,
                              int x, int y, int w, int h,
-                             byte mask[], int offset, int scan)
+                             byte[] mask, int offset, int scan)
         {
             BufferedImage dstBI =
                 new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
@@ -237,13 +238,9 @@ public class MaskFill extends GraphicsPrimitive
                              int x, int y, int w, int h,
                              byte[] mask, int maskoff, int maskscan)
         {
-            if ((traceflags & TRACEPTIME) == 0) {
-                tracePrimitive(target);
-            }
-            long time = System.nanoTime();
+            tracePrimitive(target);
             target.MaskFill(sg2d, sData, comp, x, y, w, h,
                             mask, maskoff, maskscan);
-            tracePrimitiveTime(target, System.nanoTime() - time);
         }
 
         public void FillAAPgram(SunGraphics2D sg2d, SurfaceData sData,
@@ -252,13 +249,9 @@ public class MaskFill extends GraphicsPrimitive
                                 double dx1, double dy1,
                                 double dx2, double dy2)
         {
-            if ((traceflags & TRACEPTIME) == 0) {
-                tracePrimitive(fillPgramTarget);
-            }
-            long time = System.nanoTime();
+            tracePrimitive(fillPgramTarget);
             target.FillAAPgram(sg2d, sData, comp,
                                x, y, dx1, dy1, dx2, dy2);
-            tracePrimitiveTime(fillPgramTarget, System.nanoTime() - time);
         }
 
         public void DrawAAPgram(SunGraphics2D sg2d, SurfaceData sData,
@@ -268,13 +261,9 @@ public class MaskFill extends GraphicsPrimitive
                                 double dx2, double dy2,
                                 double lw1, double lw2)
         {
-            if ((traceflags & TRACEPTIME) == 0) {
-                tracePrimitive(drawPgramTarget);
-            }
-            long time = System.nanoTime();
+            tracePrimitive(drawPgramTarget);
             target.DrawAAPgram(sg2d, sData, comp,
                                x, y, dx1, dy1, dx2, dy2, lw1, lw2);
-            tracePrimitiveTime(drawPgramTarget, System.nanoTime() - time);
         }
 
         public boolean canDoParallelograms() {

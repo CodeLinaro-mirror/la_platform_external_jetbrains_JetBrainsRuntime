@@ -144,6 +144,6 @@ __attribute__((visibility("default")))
 + (NSString*)javaRunLoopMode;
 @end
 
-void OSXAPP_SetJavaVM(JavaVM *vm);
+JNIEXPORT void OSXAPP_SetJavaVM(JavaVM *vm);
 
 #endif /* __THREADUTILITIES_H */

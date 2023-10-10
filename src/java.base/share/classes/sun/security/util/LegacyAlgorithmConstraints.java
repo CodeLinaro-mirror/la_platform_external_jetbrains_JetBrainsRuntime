@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,7 +28,6 @@ package sun.security.util;
 import java.security.AlgorithmParameters;
 import java.security.CryptoPrimitive;
 import java.security.Key;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -51,17 +50,29 @@ public class LegacyAlgorithmConstraints extends AbstractAlgorithmConstraints {
     @Override
     public final boolean permits(Set<CryptoPrimitive> primitives,
             String algorithm, AlgorithmParameters parameters) {
+        if (primitives == null || primitives.isEmpty()) {
+            throw new IllegalArgumentException("The primitives cannot be null" +
+                    " or empty.");
+        }
         return checkAlgorithm(legacyAlgorithms, algorithm, decomposer);
     }
 
     @Override
     public final boolean permits(Set<CryptoPrimitive> primitives, Key key) {
+         if (primitives == null || primitives.isEmpty()) {
+            throw new IllegalArgumentException("The primitives cannot be null" +
+            " or empty.");
+        }
         return true;
     }
 
     @Override
     public final boolean permits(Set<CryptoPrimitive> primitives,
             String algorithm, Key key, AlgorithmParameters parameters) {
+        if (primitives == null || primitives.isEmpty()) {
+            throw new IllegalArgumentException("The primitives cannot be null" +
+                    " or empty.");
+        }
         return checkAlgorithm(legacyAlgorithms, algorithm, decomposer);
     }
 

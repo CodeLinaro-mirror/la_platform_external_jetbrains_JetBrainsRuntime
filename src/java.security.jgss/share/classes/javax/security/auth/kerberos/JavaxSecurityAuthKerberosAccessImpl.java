@@ -49,9 +49,11 @@ class JavaxSecurityAuthKerberosAccessImpl
     public void kerberosTicketSetServerAlias(KerberosTicket t, KerberosPrincipal a) {
         t.serverAlias = a;
     }
+
     public KerberosTicket kerberosTicketGetProxy(KerberosTicket t) {
         return t.proxy;
     }
+
     public void kerberosTicketSetProxy(KerberosTicket t, KerberosTicket p) {
         t.proxy = p;
     }

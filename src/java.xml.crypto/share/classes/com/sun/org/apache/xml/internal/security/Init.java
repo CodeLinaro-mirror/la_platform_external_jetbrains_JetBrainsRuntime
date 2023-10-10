@@ -83,7 +83,8 @@ public class Init {
             return;
         }
 
-        InputStream is =
+        @SuppressWarnings("removal")
+        InputStream is =    //NOPMD
             AccessController.doPrivileged(
                 (PrivilegedAction<InputStream>)
                     () -> {
@@ -112,6 +113,7 @@ public class Init {
     /**
      * Dynamically initialise the library by registering the default algorithms/implementations
      */
+    @SuppressWarnings("removal")
     private static void dynamicInit() {
         //
         // Load the Resource Bundle - the default is the English resource bundle.

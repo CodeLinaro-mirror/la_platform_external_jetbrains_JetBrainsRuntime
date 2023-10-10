@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -75,6 +75,8 @@ import sun.util.logging.PlatformLogger;
  * @since 1.4
  */
 public class Application {
+    private static final PlatformLogger focusRequestLog = PlatformLogger.getLogger("jb.focus.requests");
+
     private static native void nativeInitializeApplicationDelegate();
 
     static Application sApplication = null;
@@ -89,9 +91,8 @@ public class Application {
         sApplication = new Application();
     }
 
-    private static final PlatformLogger focusRequestLog = PlatformLogger.getLogger("jb.focus.requests");
-
     private static void checkSecurity() {
+        @SuppressWarnings("removal")
         final SecurityManager security = System.getSecurityManager();
         if (security == null) return;
         security.checkPermission(new RuntimePermission("canProcessApplicationEvents"));
@@ -435,7 +436,7 @@ public class Application {
         if (!(peer instanceof LWWindowPeer)) return;
         Object platformWindow = ((LWWindowPeer) peer).getPlatformWindow();
         if (!(platformWindow instanceof CPlatformWindow)) return;
-        ((CPlatformWindow)platformWindow).enterFullScreen();
+        ((CPlatformWindow)platformWindow).enterFullScreenMode();
     }
 
     public void requestLeaveFullScreen(final Window window) {
@@ -443,6 +444,6 @@ public class Application {
         if (!(peer instanceof LWWindowPeer)) return;
         Object platformWindow = ((LWWindowPeer) peer).getPlatformWindow();
         if (!(platformWindow instanceof CPlatformWindow)) return;
-        ((CPlatformWindow)platformWindow).leaveFullScreen();
+        ((CPlatformWindow)platformWindow).exitFullScreenMode();
     }
 }

@@ -130,7 +130,7 @@ BOOL AwtPrintControl::FindPrinter(jstring printerName, LPBYTE pPrinterEnum,
     DWORD cbBuf = *pcbBuf, dummyWord = 0;
 
     JavaStringBuffer printerNameBuf(env, printerName);
-    LPTSTR lpcPrinterName = (LPTSTR)printerNameBuf;
+    LPCTSTR lpcPrinterName = (LPCTSTR)printerNameBuf;
     DASSERT(lpcPrinterName != NULL);
 
     // For NT, first do a quick check of all remote and local printers.
@@ -1045,7 +1045,7 @@ BOOL AwtPrintControl::UpdateAttributes(JNIEnv *env,
         DEVNAMES *devnames = (DEVNAMES*)::GlobalLock(pd.hDevNames);
         DASSERT(!IsBadReadPtr(devnames, sizeof(DEVNAMES)));
         LPTSTR lpcNames = (LPTSTR)devnames;
-        LPTSTR pbuf = (_tcslen(lpcNames + devnames->wDeviceOffset) == 0 ?
+        LPCTSTR pbuf = (_tcslen(lpcNames + devnames->wDeviceOffset) == 0 ?
                       TEXT("") : lpcNames + devnames->wDeviceOffset);
         if (pbuf != NULL) {
             jstring jstr = JNU_NewStringPlatform(env, pbuf);

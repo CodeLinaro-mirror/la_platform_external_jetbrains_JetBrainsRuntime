@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,8 +22,8 @@
  *
  */
 
-#ifndef CPU_ARM_VM_ASSEMBLER_ARM_32_HPP
-#define CPU_ARM_VM_ASSEMBLER_ARM_32_HPP
+#ifndef CPU_ARM_ASSEMBLER_ARM_32_HPP
+#define CPU_ARM_ASSEMBLER_ARM_32_HPP
 
 // ARM Addressing Mode 1 - Data processing operands
 class AsmOperand {
@@ -55,12 +55,8 @@ class AsmOperand {
     encode(imm_8);
   }
 
-#ifdef ASSERT
-  AsmOperand(ByteSize bytesize_8) {
-    const int imm_8 = in_bytes(bytesize_8);
-    encode(imm_8);
-  }
-#endif // ASSERT
+  AsmOperand(ByteSize bytesize_8) :
+    AsmOperand(in_bytes(bytesize_8)) {}
 
   AsmOperand(Register rm, AsmShift shift, int shift_imm) {
     encode(rm,shift,shift_imm);
@@ -198,6 +194,14 @@ class Assembler : public AbstractAssembler  {
 
   static const int LogInstructionSize = 2;
   static const int InstructionSize    = 1 << LogInstructionSize;
+
+  //---<  calculate length of instruction  >---
+  // We just use the values set above.
+  // instruction must start at passed address
+  static unsigned int instr_len(unsigned char *instr) { return InstructionSize; }
+
+  //---<  longest instructions  >---
+  static unsigned int instr_maxlen() { return InstructionSize; }
 
   static inline AsmCondition inverse(AsmCondition cond) {
     assert ((cond != al) && (cond != nv), "AL and NV conditions cannot be inversed");
@@ -500,7 +504,7 @@ class Assembler : public AbstractAssembler  {
   void dmb(DMB_Opt opt, Register reg) {
     if (VM_Version::arm_arch() >= 7) {
       emit_int32(0xF57FF050 | opt);
-    } else {
+    } else if (VM_Version::arm_arch() == 6) {
       bool preserve_tmp = (reg == noreg);
       if(preserve_tmp) {
         reg = Rtemp;
@@ -1252,4 +1256,4 @@ extern double __aeabi_dsub_glibc(double, double);
 #endif // __SOFTFP__
 
 
-#endif // CPU_ARM_VM_ASSEMBLER_ARM_32_HPP
+#endif // CPU_ARM_ASSEMBLER_ARM_32_HPP

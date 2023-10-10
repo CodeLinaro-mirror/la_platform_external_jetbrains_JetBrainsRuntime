@@ -156,9 +156,6 @@ abstract class AbstractLine implements Line {
      * events if it changes.
      */
     final void setOpen(boolean open) {
-
-        if (Printer.trace) Printer.trace("> "+getClass().getName()+" (AbstractLine): setOpen(" + open + ")  this.open: " + this.open);
-
         boolean sendEvents = false;
         long position = getLongFramePosition();
 
@@ -174,7 +171,6 @@ abstract class AbstractLine implements Line {
                 sendEvents(new LineEvent(this, LineEvent.Type.CLOSE, position));
             }
         }
-        if (Printer.trace) Printer.trace("< "+getClass().getName()+" (AbstractLine): setOpen(" + open + ")  this.open: " + this.open);
     }
 
     /**

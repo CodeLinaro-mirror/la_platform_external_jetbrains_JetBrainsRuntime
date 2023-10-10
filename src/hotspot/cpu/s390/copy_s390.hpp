@@ -25,8 +25,8 @@
 
 // Major contributions by LS
 
-#ifndef CPU_S390_VM_COPY_S390_HPP
-#define CPU_S390_VM_COPY_S390_HPP
+#ifndef CPU_S390_COPY_S390_HPP
+#define CPU_S390_COPY_S390_HPP
 
 // Inline functions for memory copy and fill.
 
@@ -1125,4 +1125,4 @@ static void pd_zero_to_bytes(void* to, size_t count) {
 #endif
 }
 
-#endif // CPU_S390_VM_COPY_S390_HPP
+#endif // CPU_S390_COPY_S390_HPP

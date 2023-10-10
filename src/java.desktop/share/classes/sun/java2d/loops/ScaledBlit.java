@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,7 +26,7 @@
 package sun.java2d.loops;
 
 import java.awt.Composite;
-import sun.java2d.loops.GraphicsPrimitive;
+
 import sun.java2d.SurfaceData;
 import sun.java2d.pipe.Region;
 
@@ -104,23 +104,6 @@ public class ScaledBlit extends GraphicsPrimitive
                              double dx1, double dy1,
                              double dx2, double dy2);
 
-    static {
-        GraphicsPrimitiveMgr.registerGeneral(new ScaledBlit(null, null, null));
-    }
-
-    public GraphicsPrimitive makePrimitive(SurfaceType srctype,
-                                           CompositeType comptype,
-                                           SurfaceType dsttype)
-    {
-        /*
-        System.out.println("Constructing general blit for:");
-        System.out.println("src:  "+srctype);
-        System.out.println("comp: "+comptype);
-        System.out.println("dst:  "+dsttype);
-        */
-        return null;
-    }
-
     public GraphicsPrimitive traceWrap() {
         return new TraceScaledBlit(this);
     }
@@ -146,14 +129,10 @@ public class ScaledBlit extends GraphicsPrimitive
                           double dx1, double dy1,
                           double dx2, double dy2)
         {
-            if ((traceflags & TRACEPTIME) == 0) {
-                tracePrimitive(target);
-            }
-            long time = System.nanoTime();
+            tracePrimitive(target);
             target.Scale(src, dst, comp, clip,
                          sx1, sy1, sx2, sy2,
                          dx1, dy1, dx2, dy2);
-            tracePrimitiveTime(target, System.nanoTime() - time);
         }
     }
 }

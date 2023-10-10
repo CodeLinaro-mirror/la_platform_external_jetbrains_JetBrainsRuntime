@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,6 +23,10 @@
  * questions.
  */
 
+#ifdef HEADLESS
+    #error This file should not be included in headless library
+#endif
+
 #include "jni_util.h"
 #include "awt_p.h"
 #include "awt.h"
@@ -31,16 +35,14 @@
 #include <sun_awt_X11GraphicsEnvironment.h>
 #include <sun_awt_X11GraphicsDevice.h>
 #include <sun_awt_X11GraphicsConfig.h>
-#ifndef HEADLESS
 #include <X11/extensions/Xdbe.h>
 #include <X11/XKBlib.h>
 #include <X11/Xlib.h>
 #include <X11/Xresource.h>
-#ifndef _AIX
+#ifndef NO_XRANDR
 #include <X11/extensions/Xrandr.h>
 #endif
 #include "GLXGraphicsConfig.h"
-#endif /* !HEADLESS */
 
 #include <jni.h>
 #include <jni_util.h>
@@ -56,13 +58,6 @@
 #include <dlfcn.h>
 #include "Trace.h"
 
-#ifdef NETSCAPE
-#include <signal.h>
-extern int awt_init_xt;
-#endif
-
-#ifndef HEADLESS
-
 int awt_numScreens;     /* Xinerama-aware number of screens */
 
 AwtScreenDataPtr x11Screens; // should be guarded by AWT_LOCK()/AWT_UNLOCK()
@@ -72,12 +67,6 @@ AwtScreenDataPtr x11Screens; // should be guarded by AWT_LOCK()/AWT_UNLOCK()
  * GLX for the default configuration.
  */
 static jboolean glxRequested = JNI_FALSE;
-
-#endif /* !HEADLESS */
-
-#ifdef HEADLESS
-#define Display void
-#endif /* HEADLESS */
 
 Display *awt_display;
 
@@ -98,11 +87,8 @@ jboolean awtLockInited = JNI_FALSE;
     } while (0)
 
 struct X11GraphicsConfigIDs x11GraphicsConfigIDs;
-struct X11GraphicsDeviceIDs x11GraphicsDeviceIDs;
 
-#ifndef HEADLESS
 int awtCreateX11Colormap(AwtGraphicsConfigDataPtr adata);
-#endif /* HEADLESS */
 
 static char *x11GraphicsConfigClassName = "sun/awt/X11GraphicsConfig";
 
@@ -115,25 +101,9 @@ static char *x11GraphicsConfigClassName = "sun/awt/X11GraphicsConfig";
  * pass the correct Display value, depending on the circumstances (a single
  * X display, multiple X displays, or a single X display with multiple
  * Xinerama screens).
- *
- * Solaris and Linux differ in the functions used to access Xinerama-related
- * data.  This is in part because at this time, the X consortium has not
- * finalized the "official" Xinerama API.  Once this spec is available, and
- * both OSes are conformant, one code base should be sufficient for Xinerama
- * operation on both OSes.  Until then, some of the Xinerama-related code
- * is ifdef'd appropriately.  -bchristi, 7/12/01
  */
 
 #define MAXFRAMEBUFFERS 16
-#if defined(__solaris__)
-typedef Status XineramaGetInfoFunc(Display* display, int screen_number,
-         XRectangle* framebuffer_rects, unsigned char* framebuffer_hints,
-         int* num_framebuffers);
-typedef Status XineramaGetCenterHintFunc(Display* display, int screen_number,
-                                         int* x, int* y);
-
-XineramaGetCenterHintFunc* XineramaSolarisCenterFunc = NULL;
-#else /* Linux, Mac, AIX */
 typedef struct {
    int   screen_number;
    short x_org;
@@ -143,8 +113,6 @@ typedef struct {
 } XineramaScreenInfo;
 
 typedef XineramaScreenInfo* XineramaQueryScreensFunc(Display*, int*);
-#endif
-
 static XineramaQueryScreensFunc* XineramaQueryScreens = NULL;
 Bool usingXinerama = False;
 
@@ -153,33 +121,12 @@ Java_sun_awt_X11GraphicsConfig_initIDs (JNIEnv *env, jclass cls)
 {
     x11GraphicsConfigIDs.aData = NULL;
     x11GraphicsConfigIDs.bitsPerPixel = NULL;
-    x11GraphicsConfigIDs.screen = NULL;
 
     x11GraphicsConfigIDs.aData = (*env)->GetFieldID (env, cls, "aData", "J");
     CHECK_NULL(x11GraphicsConfigIDs.aData);
     x11GraphicsConfigIDs.bitsPerPixel = (*env)->GetFieldID (env, cls, "bitsPerPixel", "I");
     CHECK_NULL(x11GraphicsConfigIDs.bitsPerPixel);
-    x11GraphicsConfigIDs.screen = (*env)->GetFieldID (env, cls, "screen", "Lsun/awt/X11GraphicsDevice;");
-    CHECK_NULL(x11GraphicsConfigIDs.screen);
-
-    if (x11GraphicsConfigIDs.aData == NULL ||
-            x11GraphicsConfigIDs.bitsPerPixel == NULL ||
-        x11GraphicsConfigIDs.screen == NULL) {
-
-            JNU_ThrowNoSuchFieldError(env, "Can't find a field");
-            return;
-        }
 }
-
-JNIEXPORT void JNICALL
-Java_sun_awt_X11GraphicsDevice_initIDs (JNIEnv *env, jclass cls)
-{
-    x11GraphicsDeviceIDs.screen = NULL;
-    x11GraphicsDeviceIDs.screen = (*env)->GetFieldID (env, cls, "screen", "I");
-    DASSERT(x11GraphicsDeviceIDs.screen);
-}
-
-#ifndef HEADLESS
 
 /*
  * XIOErrorHandler
@@ -350,6 +297,7 @@ getAllConfigs (JNIEnv *env, int screen, AwtScreenDataPtr screenDataPtr) {
     // NB: should be invoked only while holding the AWT lock
     DASSERT(screen >= 0 && screen < awt_numScreens);
 
+    jboolean success = JNI_FALSE;
     int i;
     int n8p=0, n12p=0, n8s=0, n8gs=0, n8sg=0, n1sg=0, nTrue=0;
     int nConfig;
@@ -437,7 +385,7 @@ getAllConfigs (JNIEnv *env, int screen, AwtScreenDataPtr screenDataPtr) {
          */
         screenDataPtr->defaultConfig = makeDefaultConfig(env, screen);
         if (screenDataPtr->defaultConfig == NULL) {
-            return;
+            goto cleanup;
         }
     }
 
@@ -452,23 +400,11 @@ getAllConfigs (JNIEnv *env, int screen, AwtScreenDataPtr screenDataPtr) {
         DTRACE_PRINTLN("RENDER extension available");
         xrenderLibHandle = dlopen("libXrender.so.1", RTLD_LAZY | RTLD_GLOBAL);
 
-#ifdef MACOSX
-#define XRENDER_LIB "/usr/X11/lib/libXrender.dylib"
-#else
-#define XRENDER_LIB "libXrender.so"
-#endif
-
         if (xrenderLibHandle == NULL) {
-            xrenderLibHandle = dlopen(XRENDER_LIB,
-                                      RTLD_LAZY | RTLD_GLOBAL);
+            xrenderLibHandle = dlopen("libXrender.so", RTLD_LAZY | RTLD_GLOBAL);
         }
 
-#if defined(__solaris__)
-        if (xrenderLibHandle == NULL) {
-            xrenderLibHandle = dlopen("/usr/lib/libXrender.so.1",
-                                      RTLD_LAZY | RTLD_GLOBAL);
-        }
-#elif defined(_AIX)
+#if defined(_AIX)
         if (xrenderLibHandle == NULL) {
             xrenderLibHandle = dlopen("libXrender.a(libXrender.so.0)",
                                       RTLD_MEMBER | RTLD_LAZY | RTLD_GLOBAL);
@@ -632,10 +568,17 @@ getAllConfigs (JNIEnv *env, int screen, AwtScreenDataPtr screenDataPtr) {
                 sizeof (XVisualInfo));
     }
 
+    success = JNI_TRUE;
     screenDataPtr->numConfigs = nConfig;
     screenDataPtr->configs = graphicsConfigs;
 
 cleanup:
+    if (success != JNI_TRUE) {
+        for (i = 0; i < nConfig; i++) {
+            free(graphicsConfigs[i]);
+        }
+        free(graphicsConfigs);
+    }
     if (n8p != 0)
        XFree (pVI8p);
     if (n12p != 0)
@@ -648,14 +591,29 @@ cleanup:
        XFree (pVI8sg);
     if (n1sg != 0)
        XFree (pVI1sg);
+    if (nTrue != 0)
+       XFree (pVITrue);
 }
 
-#ifndef HEADLESS
-#if defined(__linux__) || defined(MACOSX) || defined(_AIX)
-static void xinerama_init_linux()
-{
+/*
+ * Checks if Xinerama is running and perform Xinerama-related initialization.
+ */
+static void xineramaInit(void) {
+    char* XinExtName = "XINERAMA";
+    int32_t major_opcode, first_event, first_error;
+    Bool gotXinExt = False;
     void* libHandle = NULL;
     char* XineramaQueryScreensName = "XineramaQueryScreens";
+
+    gotXinExt = XQueryExtension(awt_display, XinExtName, &major_opcode,
+                                &first_event, &first_error);
+
+    if (!gotXinExt) {
+        DTRACE_PRINTLN("Xinerama extension is not available");
+        return;
+    }
+
+    DTRACE_PRINTLN("Xinerama extension is available");
 
     /* load library */
     libHandle = dlopen(VERSIONED_JNI_LIB_NAME("Xinerama", "1"),
@@ -694,6 +652,178 @@ static void resetNativeData(int screen) {
     }
     x11Screens[screen].defaultConfig = NULL;
     x11Screens[screen].numConfigs = 0;
+}
+
+typedef void wl_proxy;
+typedef void wl_interface;
+typedef void wl_display;
+typedef void wl_registry;
+typedef void wl_output;
+
+struct wl_registry_listener {
+    void (*global)(void* data, wl_registry* wl_registry, uint name, const char* iface, uint ver);
+    void (*global_remove)(void* data, wl_registry* wl_registry, uint name);
+};
+
+struct wl_output_listener {
+    void (*geometry)(void *data,
+                     wl_output *wl_output,
+                     int32_t x,
+                     int32_t y,
+                     int32_t physical_width,
+                     int32_t physical_height,
+                     int32_t subpixel,
+                     const char *make,
+                     const char *model,
+                     int32_t transform);
+    void (*mode)(void *data,
+                 wl_output *wl_output,
+                 uint32_t flags,
+                 int32_t width,
+                 int32_t height,
+                 int32_t refresh);
+    void (*done)(void *data,
+                 wl_output *wl_output);
+    void (*scale)(void *data,
+                  wl_output *wl_output,
+                  int32_t factor);
+};
+
+static wl_display* (*wl_display_connect)(const char *name);
+static wl_proxy* (*wl_proxy_marshal_constructor)(wl_proxy *proxy,
+                                                 uint32_t opcode,
+                                                 const wl_interface *interface, ...);
+static wl_proxy* (*wl_proxy_marshal_constructor_versioned)(wl_proxy *proxy,
+                                                           uint32_t opcode,
+                                                           const wl_interface *interface,
+                                                           uint32_t version,
+                                                           ...);
+static int (*wl_proxy_add_listener)(wl_proxy *proxy, void (**implementation)(void), void *data);
+static int (*wl_display_roundtrip)(wl_display *display);
+static void (*wl_display_disconnect)(wl_display *display);
+
+static wl_interface* wl_registry_interface;
+static wl_interface* wl_output_interface;
+
+static void* wlLibHandle = NULL;
+#define LOAD_WAYLAND_SYMBOL(NAME) NAME = dlsym(wlLibHandle, #NAME); if (!(NAME)) goto cleanup
+
+static void wlInit() {
+    wlLibHandle = dlopen("libwayland-client.so.0", RTLD_LAZY | RTLD_LOCAL);
+    if (!wlLibHandle) return;
+
+    LOAD_WAYLAND_SYMBOL(wl_display_connect);
+    LOAD_WAYLAND_SYMBOL(wl_proxy_marshal_constructor);
+    LOAD_WAYLAND_SYMBOL(wl_proxy_marshal_constructor_versioned);
+    LOAD_WAYLAND_SYMBOL(wl_proxy_add_listener);
+    LOAD_WAYLAND_SYMBOL(wl_display_roundtrip);
+    LOAD_WAYLAND_SYMBOL(wl_display_disconnect);
+
+    LOAD_WAYLAND_SYMBOL(wl_registry_interface);
+    LOAD_WAYLAND_SYMBOL(wl_output_interface);
+
+    return;
+    cleanup:
+    dlclose(wlLibHandle);
+    wlLibHandle = NULL;
+}
+
+static int32_t* waylandMonitorScales = NULL;
+struct UpdateWaylandMonitorsData {
+    int32_t currentWaylandMonitor, currentWaylandScale, xinScreens;
+    XineramaScreenInfo *xinInfo;
+    int32_t* waylandMonitorScales;
+};
+
+static void wlOutputGeometry(void *data,
+                             wl_output *wl_output,
+                             int32_t x,
+                             int32_t y,
+                             int32_t physical_width,
+                             int32_t physical_height,
+                             int32_t subpixel,
+                             const char *make,
+                             const char *model,
+                             int32_t transform) {
+    struct UpdateWaylandMonitorsData* monData = (struct UpdateWaylandMonitorsData*) data;
+    // Match Wayland and Xinerama monitors by coordinates
+    for (int i = 0; i < monData->xinScreens; i++) {
+        if (monData->xinInfo[i].x_org == x && monData->xinInfo[i].y_org == y) {
+            monData->currentWaylandMonitor = monData->xinInfo[i].screen_number;
+            return;
+        }
+    }
+    monData->currentWaylandMonitor = -1;
+}
+static void wlOutputMode(void *data,
+                         wl_output *wl_output,
+                         uint32_t flags,
+                         int32_t width,
+                         int32_t height,
+                         int32_t refresh) {}
+static void wlOutputDone(void *data,
+                         wl_output *wl_output) {
+    struct UpdateWaylandMonitorsData* monData = (struct UpdateWaylandMonitorsData*) data;
+    if (monData->currentWaylandMonitor != -1) {
+        monData->waylandMonitorScales[monData->currentWaylandMonitor] = monData->currentWaylandScale;
+    }
+}
+static void wlOutputScale(void *data,
+                          wl_output *wl_output,
+                          int32_t factor) {
+    struct UpdateWaylandMonitorsData* monData = (struct UpdateWaylandMonitorsData*) data;
+    monData->currentWaylandScale = factor;
+}
+static struct wl_output_listener wlOutputListener = {&wlOutputGeometry, &wlOutputMode, &wlOutputDone, &wlOutputScale};
+
+static void wlGlobal(void* data,
+                     wl_registry* registry,
+                     uint32_t name,
+                     const char *interface,
+                     uint32_t version) {
+    const uint32_t ver = 2; // Output protocol version
+    if (strcmp(interface, "wl_output") == 0 && version >= ver) {
+        wl_output* output = wl_proxy_marshal_constructor_versioned(registry, 0, wl_output_interface, ver, name, "wl_output", ver, NULL); // wl_registry_bind
+        wl_proxy_add_listener(output, (void (**)(void)) &wlOutputListener, data); // wl_output_add_listener
+    }
+}
+static void wlGlobalRemove(void* data,
+                           wl_registry* registry,
+                           uint32_t name) {}
+static struct wl_registry_listener wlRegistryListener = {&wlGlobal, &wlGlobalRemove};
+
+/*
+ * Class:     sun_awt_X11GraphicsEnvironment
+ * Method:    updateWaylandMonitorScaling
+ * Signature: ()V
+ */
+JNIEXPORT void JNICALL
+Java_sun_awt_X11GraphicsEnvironment_updateWaylandMonitorScaling(JNIEnv *env, jclass clazz) {
+    if (!usingXinerama || !wlLibHandle) return;
+
+    struct UpdateWaylandMonitorsData monData;
+    monData.currentWaylandMonitor = -1;
+    monData.currentWaylandScale = 1;
+    monData.waylandMonitorScales = NULL;
+    if (!isMonitorFramebufferScalingEnabled()) {
+        monData.xinInfo = (*XineramaQueryScreens)(awt_display, &monData.xinScreens);
+        if (monData.xinInfo == NULL) return;
+        wl_display* display = wl_display_connect(NULL);
+        if (display == NULL) return;
+        monData.waylandMonitorScales = calloc(monData.xinScreens, sizeof(int32_t));
+
+        wl_registry* registry = wl_proxy_marshal_constructor(display, 1, wl_registry_interface, NULL); // wl_display_get_registry
+        wl_proxy_add_listener(registry, (void (**)(void)) &wlRegistryListener, &monData); // wl_registry_add_listener
+        wl_display_roundtrip(display); // Get globals (wl_outputs)
+        wl_display_roundtrip(display); // Get outputs info
+
+        wl_display_disconnect(display);
+        XFree(monData.xinInfo);
+    }
+
+    int32_t* oldScales = waylandMonitorScales;
+    waylandMonitorScales = monData.waylandMonitorScales;
+    free(oldScales);
 }
 
 /*
@@ -759,73 +889,6 @@ Java_sun_awt_X11GraphicsEnvironment_initNativeData(JNIEnv *env, jobject this) {
         JNU_CHECK_EXCEPTION(env);
     }
 }
-#elif defined(__solaris__)
-static void xinerama_init_solaris()
-{
-    void* libHandle = NULL;
-    unsigned char fbhints[MAXFRAMEBUFFERS];
-    int32_t locNumScr = 0;
-    /* load and run XineramaGetInfo */
-    char* XineramaGetInfoName = "XineramaGetInfo";
-    char* XineramaGetCenterHintName = "XineramaGetCenterHint";
-    XineramaGetInfoFunc* XineramaSolarisFunc = NULL;
-
-    /* load library */
-    libHandle = dlopen(JNI_LIB_NAME("Xext"), RTLD_LAZY | RTLD_GLOBAL);
-    if (libHandle != NULL) {
-        XineramaSolarisFunc = (XineramaGetInfoFunc*)dlsym(libHandle, XineramaGetInfoName);
-        XineramaSolarisCenterFunc =
-            (XineramaGetCenterHintFunc*)dlsym(libHandle, XineramaGetCenterHintName);
-
-        if (XineramaSolarisFunc != NULL) {
-            DTRACE_PRINTLN("calling XineramaGetInfo func on Solaris");
-            if ((*XineramaSolarisFunc)(awt_display, 0, &fbrects[0],
-                                       &fbhints[0], &locNumScr) != 0 &&
-                locNumScr > XScreenCount(awt_display))
-            {
-                DTRACE_PRINTLN("Enabling Xinerama support");
-                usingXinerama = True;
-                /* set global number of screens */
-                DTRACE_PRINTLN1(" num screens = %i\n", locNumScr);
-                awt_numScreens = locNumScr;
-            } else {
-                DTRACE_PRINTLN("calling XineramaGetInfo didn't work");
-            }
-        } else {
-            DTRACE_PRINTLN("couldn't load XineramaGetInfo symbol");
-        }
-        dlclose(libHandle);
-    } else {
-        DTRACE_PRINTLN1("\ncouldn't open shared library: %s\n", dlerror());
-    }
-}
-#endif
-
-/*
- * Checks if Xinerama is running and perform Xinerama-related
- * platform dependent initialization.
- */
-static void xineramaInit(void) {
-    char* XinExtName = "XINERAMA";
-    int32_t major_opcode, first_event, first_error;
-    Bool gotXinExt = False;
-
-    gotXinExt = XQueryExtension(awt_display, XinExtName, &major_opcode,
-                                &first_event, &first_error);
-
-    if (!gotXinExt) {
-        DTRACE_PRINTLN("Xinerama extension is not available");
-        return;
-    }
-
-    DTRACE_PRINTLN("Xinerama extension is available");
-#if defined(__solaris__)
-    xinerama_init_solaris();
-#else /* Linux, Mac, AIX */
-    xinerama_init_linux();
-#endif
-}
-#endif /* HEADLESS */
 
 Display *
 awt_init_Display(JNIEnv *env, jobject this)
@@ -834,25 +897,10 @@ awt_init_Display(JNIEnv *env, jobject this)
     Display *dpy;
     char errmsg[128];
     int i;
-#ifdef NETSCAPE
-    sigset_t alarm_set, oldset;
-#endif
 
     if (awt_display) {
         return awt_display;
     }
-
-#ifdef NETSCAPE
-    /* Disable interrupts during XtOpenDisplay to avoid bugs in unix os select
-       code: some unix systems don't implement SA_RESTART properly and
-       because of this, select returns with EINTR. Most implementations of
-       gethostbyname don't cope with EINTR properly and as a result we get
-       stuck (forever) in the gethostbyname code
-    */
-    sigemptyset(&alarm_set);
-    sigaddset(&alarm_set, SIGALRM);
-    sigprocmask(SIG_BLOCK, &alarm_set, &oldset);
-#endif
 
     /* Load AWT lock-related methods in SunToolkit */
     klass = (*env)->FindClass(env, "sun/awt/SunToolkit");
@@ -873,9 +921,6 @@ awt_init_Display(JNIEnv *env, jobject this)
     }
 
     dpy = awt_display = XOpenDisplay(NULL);
-#ifdef NETSCAPE
-    sigprocmask(SIG_SETMASK, &oldset, NULL);
-#endif
     if (!dpy) {
         jio_snprintf(errmsg,
                      sizeof(errmsg),
@@ -890,11 +935,13 @@ awt_init_Display(JNIEnv *env, jobject this)
         ptr_to_jlong(awt_display));
     JNU_CHECK_EXCEPTION_RETURN(env, NULL);
 
+    // Init Wayland if available, it's used to retrieve per-monitor scaling
+    wlInit();
+
     /* set awt_numScreens, and whether or not we're using Xinerama */
     xineramaInit();
     return dpy;
 }
-#endif /* !HEADLESS */
 
 /*
  * Class:     sun_awt_X11GraphicsEnvironment
@@ -905,14 +952,9 @@ JNIEXPORT jint JNICALL
 Java_sun_awt_X11GraphicsEnvironment_getDefaultScreenNum(
 JNIEnv *env, jobject this)
 {
-#ifdef HEADLESS
-    return (jint)0;
-#else
     return DefaultScreen(awt_display);
-#endif /* !HEADLESS */
 }
 
-#ifndef HEADLESS
 static void ensureConfigsInited(JNIEnv* env, int screen) {
     // NB: should be invoked only while holding the AWT lock
    if (x11Screens[screen].numConfigs == 0) {
@@ -922,13 +964,7 @@ static void ensureConfigsInited(JNIEnv* env, int screen) {
        getAllConfigs (env, screen, &(x11Screens[screen]));
     }
 }
-#endif
 
-#ifdef HEADLESS
-void* getDefaultConfig(int screen) {
-    return NULL;
-}
-#else
 AwtGraphicsConfigDataPtr
 getDefaultConfig(int screen) {
     // NB: should be invoked only while holding the AWT lock
@@ -937,14 +973,6 @@ getDefaultConfig(int screen) {
     ensureConfigsInited(NULL, screen);
     return x11Screens[screen].defaultConfig;
 }
-
-AwtScreenDataPtr
-getScreenData(int screen) {
-    // NB: should be invoked only while holding the AWT lock
-    DASSERT(screen >= 0 && screen < awt_numScreens);
-    return &(x11Screens[screen]);
-}
-#endif /* !HEADLESS */
 
 /*
  * Class:     sun_awt_X11GraphicsEnvironment
@@ -955,10 +983,8 @@ JNIEXPORT void JNICALL
 Java_sun_awt_X11GraphicsEnvironment_initDisplay(JNIEnv *env, jobject this,
                                                 jboolean glxReq)
 {
-#ifndef HEADLESS
     glxRequested = glxReq;
     (void) awt_init_Display(env, this);
-#endif /* !HEADLESS */
 }
 
 /*
@@ -967,19 +993,15 @@ Java_sun_awt_X11GraphicsEnvironment_initDisplay(JNIEnv *env, jobject this,
  * Signature: ()Z
  */
 JNIEXPORT jboolean JNICALL
-Java_sun_awt_X11GraphicsEnvironment_initGLX(JNIEnv *env, jclass x11ge)
+Java_sun_awt_X11GraphicsEnvironment_initGLX(JNIEnv *env, jclass x11ge, jboolean glxRecommended)
 {
-#ifndef HEADLESS
     jboolean glxAvailable;
 
     AWT_LOCK();
-    glxAvailable = GLXGC_IsGLXAvailable();
+    glxAvailable = GLXGC_IsGLXAvailable(glxRecommended);
     AWT_UNLOCK();
 
     return glxAvailable;
-#else
-    return JNI_FALSE;
-#endif /* !HEADLESS */
 }
 
 /*
@@ -990,11 +1012,7 @@ Java_sun_awt_X11GraphicsEnvironment_initGLX(JNIEnv *env, jclass x11ge)
 JNIEXPORT jint JNICALL
 Java_sun_awt_X11GraphicsEnvironment_getNumScreens(JNIEnv *env, jobject this)
 {
-#ifdef HEADLESS
-    return (jint)0;
-#else
     return awt_numScreens;
-#endif /* !HEADLESS */
 }
 
 /*
@@ -1005,11 +1023,7 @@ Java_sun_awt_X11GraphicsEnvironment_getNumScreens(JNIEnv *env, jobject this)
 JNIEXPORT jlong JNICALL
 Java_sun_awt_X11GraphicsDevice_getDisplay(JNIEnv *env, jobject this)
 {
-#ifdef HEADLESS
-    return NULL;
-#else
     return ptr_to_jlong(awt_display);
-#endif /* !HEADLESS */
 }
 
 #ifdef MITSHM
@@ -1083,7 +1097,7 @@ void TryInitMITShm(JNIEnv *env, jint *shmExt, jint *shmPixmaps) {
         resetXShmAttachFailed();
         /**
          * The J2DXErrHandler handler will set xshmAttachFailed
-         * to JNI_TRUE if any Shm error has occured.
+         * to JNI_TRUE if any Shm error has occurred.
          */
         EXEC_WITH_XERROR_HANDLER(XShmAttachXErrHandler,
                                  XShmAttach(awt_display, &shminfo));
@@ -1136,11 +1150,7 @@ JNIEXPORT jstring JNICALL
 Java_sun_awt_X11GraphicsEnvironment_getDisplayString
   (JNIEnv *env, jobject this)
 {
-#ifdef HEADLESS
-    return (jstring)NULL;
-#else
     return (*env)->NewStringUTF(env, DisplayString(awt_display));
-#endif /* HEADLESS */
 }
 
 
@@ -1153,15 +1163,11 @@ JNIEXPORT jint JNICALL
 Java_sun_awt_X11GraphicsDevice_getNumConfigs(
 JNIEnv *env, jobject this, jint screen)
 {
-#ifdef HEADLESS
-    return (jint)0;
-#else
     // NB: should be invoked only while holding the AWT lock
     DASSERT(screen >= 0 && screen < awt_numScreens);
     ensureConfigsInited(env, screen);
     return x11Screens[screen].numConfigs;
 
-#endif /* !HEADLESS */
 }
 
 /*
@@ -1173,16 +1179,12 @@ JNIEXPORT jint JNICALL
 Java_sun_awt_X11GraphicsDevice_getConfigVisualId(
 JNIEnv *env, jobject this, jint index, jint screen)
 {
-#ifdef HEADLESS
-    return (jint)0;
-#else
     // NB: should be invoked only while holding the AWT lock
     DASSERT(screen >= 0 && screen < awt_numScreens);
     ensureConfigsInited(env, screen);
     jint id = (jint) (index == 0 ? x11Screens[screen].defaultConfig
                                  : x11Screens[screen].configs[index])->awt_visInfo.visualid;
     return id;
-#endif /* !HEADLESS */
 }
 
 /*
@@ -1194,16 +1196,12 @@ JNIEXPORT jint JNICALL
 Java_sun_awt_X11GraphicsDevice_getConfigDepth(
 JNIEnv *env, jobject this, jint index, jint screen)
 {
-#ifdef HEADLESS
-    return (jint)0;
-#else
     // NB: should be invoked only while holding the AWT lock
     DASSERT(screen >= 0 && screen < awt_numScreens);
     ensureConfigsInited(env, screen);
     jint depth = (jint) (index == 0 ? x11Screens[screen].defaultConfig
                                     : x11Screens[screen].configs[index])->awt_visInfo.depth;
     return depth;
-#endif /* !HEADLESS */
 }
 
 /*
@@ -1215,16 +1213,12 @@ JNIEXPORT jint JNICALL
 Java_sun_awt_X11GraphicsDevice_getConfigColormap(
 JNIEnv *env, jobject this, jint index, jint screen)
 {
-#ifdef HEADLESS
-    return (jint)0;
-#else
     // NB: should be invoked only while holding the AWT lock
     DASSERT(screen >= 0 && screen < awt_numScreens);
     ensureConfigsInited(env, screen);
     jint colormap = (jint) (index == 0 ? x11Screens[screen].defaultConfig
                                        : x11Screens[screen].configs[index])->awt_cmap;
     return colormap;
-#endif /* !HEADLESS */
 }
 
 
@@ -1237,7 +1231,6 @@ JNIEXPORT void JNICALL
 Java_sun_awt_X11GraphicsConfig_dispose
     (JNIEnv *env, jclass x11gc, jlong configData)
 {
-#ifndef HEADLESS
     AwtGraphicsConfigDataPtr aData = (AwtGraphicsConfigDataPtr)
         jlong_to_ptr(configData);
 
@@ -1279,7 +1272,6 @@ Java_sun_awt_X11GraphicsConfig_dispose
     }
 
     free(aData);
-#endif /* !HEADLESS */
 }
 
 /*
@@ -1291,12 +1283,8 @@ JNIEXPORT jdouble JNICALL
 Java_sun_awt_X11GraphicsConfig_getXResolution(
 JNIEnv *env, jobject this, jint screen)
 {
-#ifdef HEADLESS
-    return (jdouble)0;
-#else
     return ((DisplayWidth(awt_display, screen) * 25.4) /
             DisplayWidthMM(awt_display, screen));
-#endif /* !HEADLESS */
 }
 
 /*
@@ -1308,12 +1296,8 @@ JNIEXPORT jdouble JNICALL
 Java_sun_awt_X11GraphicsConfig_getYResolution(
 JNIEnv *env, jobject this, jint screen)
 {
-#ifdef HEADLESS
-    return (jdouble)0;
-#else
     return ((DisplayHeight(awt_display, screen) * 25.4) /
             DisplayHeightMM(awt_display, screen));
-#endif /* !HEADLESS */
 }
 
 
@@ -1326,16 +1310,12 @@ JNIEXPORT jint JNICALL
 Java_sun_awt_X11GraphicsConfig_getNumColors(
 JNIEnv *env, jobject this)
 {
-#ifdef HEADLESS
-    return (jint)0;
-#else
     AwtGraphicsConfigData *adata;
 
     adata = (AwtGraphicsConfigData *) JNU_GetLongFieldAsPtr(env, this,
                                               x11GraphicsConfigIDs.aData);
 
     return adata->awt_num_colors;
-#endif /* !HEADLESS */
 }
 
 /*
@@ -1347,7 +1327,6 @@ JNIEXPORT void JNICALL
 Java_sun_awt_X11GraphicsConfig_init(
 JNIEnv *env, jobject this, jint visualNum, jint screen)
 {
-#ifndef HEADLESS
     // NB: should be invoked only while holding the AWT lock
     DASSERT(screen >= 0 && screen < awt_numScreens);
 
@@ -1391,10 +1370,7 @@ JNIEnv *env, jobject this, jint visualNum, jint screen)
     (*env)->SetIntField(env, this, x11GraphicsConfigIDs.bitsPerPixel,
                         (jint)tempImage->bits_per_pixel);
     XDestroyImage(tempImage);
-#endif /* !HEADLESS */
 }
-
-
 
 /*
  * Class:     sun_awt_X11GraphicsConfig
@@ -1405,9 +1381,6 @@ JNIEXPORT jobject JNICALL
 Java_sun_awt_X11GraphicsConfig_makeColorModel(
 JNIEnv *env, jobject this)
 {
-#ifdef HEADLESS
-    return NULL;
-#else
     AwtGraphicsConfigData *adata;
     jobject colorModel;
 
@@ -1436,7 +1409,6 @@ JNIEnv *env, jobject this)
     AWT_UNLOCK ();
 
     return colorModel;
-#endif /* !HEADLESS */
 }
 
 
@@ -1448,9 +1420,6 @@ JNIEnv *env, jobject this)
 JNIEXPORT jobject JNICALL
 Java_sun_awt_X11GraphicsDevice_pGetBounds(JNIEnv *env, jobject this, jint screen)
 {
-#ifdef HEADLESS
-    return NULL;
-#else
     jclass clazz;
     jmethodID mid;
     jobject bounds = NULL;
@@ -1504,7 +1473,6 @@ Java_sun_awt_X11GraphicsDevice_pGetBounds(JNIEnv *env, jobject this, jint screen
         }
     }
     return bounds;
-#endif /* !HEADLESS */
 }
 
 /*
@@ -1580,15 +1548,11 @@ JNIEXPORT jboolean JNICALL
 Java_sun_awt_X11GraphicsConfig_isTranslucencyCapable
     (JNIEnv *env, jobject this, jlong configData)
 {
-#ifdef HEADLESS
-    return JNI_FALSE;
-#else
     AwtGraphicsConfigDataPtr aData = (AwtGraphicsConfigDataPtr)jlong_to_ptr(configData);
     if (aData == NULL) {
         return JNI_FALSE;
     }
     return aData->isTranslucencySupported ? JNI_TRUE : JNI_FALSE;
-#endif
 }
 
 /*
@@ -1599,9 +1563,6 @@ Java_sun_awt_X11GraphicsConfig_isTranslucencyCapable
 JNIEXPORT jboolean JNICALL
 Java_sun_awt_X11GraphicsDevice_isDBESupported(JNIEnv *env, jobject this)
 {
-#ifdef HEADLESS
-    return JNI_FALSE;
-#else
     int opcode = 0, firstEvent = 0, firstError = 0;
     jboolean ret;
 
@@ -1610,7 +1571,6 @@ Java_sun_awt_X11GraphicsDevice_isDBESupported(JNIEnv *env, jobject this)
                                     &opcode, &firstEvent, &firstError);
     AWT_FLUSH_UNLOCK();
     return ret;
-#endif /* !HEADLESS */
 }
 
 /*
@@ -1622,7 +1582,6 @@ JNIEXPORT void JNICALL
 Java_sun_awt_X11GraphicsDevice_getDoubleBufferVisuals(JNIEnv *env,
     jobject this, jint screen)
 {
-#ifndef HEADLESS
     jclass clazz;
     jmethodID midAddVisual;
     Window rootWindow;
@@ -1652,12 +1611,14 @@ Java_sun_awt_X11GraphicsDevice_getDoubleBufferVisuals(JNIEnv *env,
     AWT_FLUSH_UNLOCK();
     for (i = 0; i < visScreenInfo->count; i++) {
         XdbeVisualInfo* visInfo = visScreenInfo->visinfo;
-        (*env)->CallVoidMethod(env, this, midAddVisual, (visInfo[i]).visual);
         if ((*env)->ExceptionCheck(env)) {
             break;
         }
+        (*env)->CallVoidMethod(env, this, midAddVisual, (visInfo[i]).visual);
     }
-#endif /* !HEADLESS */
+    AWT_LOCK();
+    XdbeFreeVisualInfo(visScreenInfo);
+    AWT_UNLOCK();
 }
 
 /*
@@ -1669,52 +1630,14 @@ JNIEXPORT jboolean JNICALL
 Java_sun_awt_X11GraphicsEnvironment_pRunningXinerama(JNIEnv *env,
     jobject this)
 {
-#ifdef HEADLESS
-    return JNI_FALSE;
-#else
     return usingXinerama ? JNI_TRUE : JNI_FALSE;
-#endif /* HEADLESS */
 }
-
-/*
- * Can return NULL.
- *
- * Class:     sun_awt_X11GraphicsEnvironment
- * Method:    getXineramaCenterPoint
- * Signature: ()Ljava/awt/Point
- */
-JNIEXPORT jobject JNICALL
-Java_sun_awt_X11GraphicsEnvironment_getXineramaCenterPoint(JNIEnv *env,
-    jobject this)
-{
-    jobject point = NULL;
-#ifndef HEADLESS    /* return NULL in HEADLESS, Linux */
-#if defined(__solaris__)
-    int x,y;
-
-    AWT_LOCK();
-    DASSERT(usingXinerama);
-    if (XineramaSolarisCenterFunc != NULL) {
-        (XineramaSolarisCenterFunc)(awt_display, 0, &x, &y);
-        point = JNU_NewObjectByName(env, "java/awt/Point","(II)V", x, y);
-        DASSERT(point);
-    } else {
-        DTRACE_PRINTLN("unable to call XineramaSolarisCenterFunc: symbol is null");
-    }
-    AWT_FLUSH_UNLOCK();
-#endif /* __solaris__ */
-#endif /* HEADLESS */
-    return point;
-}
-
 
 /**
  * Begin DisplayMode/FullScreen support
  */
 
-#ifndef HEADLESS
-
-#ifndef _AIX
+#ifndef NO_XRANDR
 
 #define BIT_DEPTH_MULTI java_awt_DisplayMode_BIT_DEPTH_MULTI
 #define REFRESH_RATE_UNKNOWN java_awt_DisplayMode_REFRESH_RATE_UNKNOWN
@@ -1921,7 +1844,7 @@ X11GD_AddDisplayMode(JNIEnv *env, jobject arrayList,
     }
 }
 
-#endif /* !_AIX */
+#endif /* !NO_XRANDR */
 
 static void
 X11GD_SetFullscreenMode(Window win, jboolean enabled)
@@ -1951,7 +1874,6 @@ X11GD_SetFullscreenMode(Window win, jboolean enabled)
                &event);
     XSync(awt_display, False);
 }
-#endif /* !HEADLESS */
 
 /*
  * Class:     sun_awt_X11GraphicsDevice
@@ -1962,7 +1884,7 @@ JNIEXPORT jboolean JNICALL
 Java_sun_awt_X11GraphicsDevice_initXrandrExtension
     (JNIEnv *env, jclass x11gd)
 {
-#if defined(HEADLESS) || defined(_AIX)
+#if defined(NO_XRANDR)
     return JNI_FALSE;
 #else
     int opcode = 0, firstEvent = 0, firstError = 0;
@@ -1977,7 +1899,7 @@ Java_sun_awt_X11GraphicsDevice_initXrandrExtension
     AWT_FLUSH_UNLOCK();
 
     return ret;
-#endif /* HEADLESS */
+#endif /* NO_XRANDR */
 }
 
 /*
@@ -1989,7 +1911,7 @@ JNIEXPORT jobject JNICALL
 Java_sun_awt_X11GraphicsDevice_getCurrentDisplayMode
     (JNIEnv* env, jclass x11gd, jint screen)
 {
-#if defined(HEADLESS) || defined(_AIX)
+#if defined(NO_XRANDR)
     return NULL;
 #else
     XRRScreenConfiguration *config;
@@ -2072,7 +1994,7 @@ Java_sun_awt_X11GraphicsDevice_getCurrentDisplayMode
     AWT_FLUSH_UNLOCK();
 
     return displayMode;
-#endif /* HEADLESS */
+#endif /* NO_XRANDR */
 }
 
 /*
@@ -2085,7 +2007,7 @@ Java_sun_awt_X11GraphicsDevice_enumDisplayModes
     (JNIEnv* env, jclass x11gd,
      jint screen, jobject arrayList)
 {
-#if !defined(HEADLESS) && !defined(_AIX)
+#if !defined(NO_XRANDR)
 
     AWT_LOCK();
 
@@ -2160,7 +2082,7 @@ ret1:
     }
 
     AWT_FLUSH_UNLOCK();
-#endif /* !HEADLESS */
+#endif /* !NO_XRANDR */
 }
 
 /*
@@ -2173,7 +2095,7 @@ Java_sun_awt_X11GraphicsDevice_configDisplayMode
     (JNIEnv* env, jclass x11gd,
      jint screen, jint width, jint height, jint refreshRate)
 {
-#if !defined(HEADLESS) && !defined(_AIX)
+#if !defined(NO_XRANDR)
     jboolean success = JNI_FALSE;
     XRRScreenConfiguration *config;
     Drawable root;
@@ -2243,7 +2165,7 @@ Java_sun_awt_X11GraphicsDevice_configDisplayMode
     if (!success && !(*env)->ExceptionCheck(env)) {
         JNU_ThrowInternalError(env, "Could not set display mode");
     }
-#endif /* !HEADLESS */
+#endif /* !NO_XRANDR */
 }
 
 /*
@@ -2256,14 +2178,12 @@ Java_sun_awt_X11GraphicsDevice_enterFullScreenExclusive
     (JNIEnv* env, jclass x11gd,
      jlong window)
 {
-#ifndef HEADLESS
     Window win = (Window)window;
 
     AWT_LOCK();
     XSync(awt_display, False); /* ensures window is visible first */
     X11GD_SetFullscreenMode(win, JNI_TRUE);
     AWT_UNLOCK();
-#endif /* !HEADLESS */
 }
 
 /*
@@ -2276,13 +2196,11 @@ Java_sun_awt_X11GraphicsDevice_exitFullScreenExclusive
     (JNIEnv* env, jclass x11gd,
      jlong window)
 {
-#ifndef HEADLESS
     Window win = (Window)window;
 
     AWT_LOCK();
     X11GD_SetFullscreenMode(win, JNI_FALSE);
     AWT_UNLOCK();
-#endif /* !HEADLESS */
 }
 
 /**
@@ -2290,7 +2208,7 @@ Java_sun_awt_X11GraphicsDevice_exitFullScreenExclusive
  */
 
 static char *get_output_screen_name(JNIEnv *env, int screen) {
-#ifdef _AIX
+#ifdef NO_XRANDR
     return NULL;
 #else
     if (!awt_XRRGetScreenResources || !awt_XRRGetOutputInfo) {
@@ -2322,7 +2240,7 @@ static char *get_output_screen_name(JNIEnv *env, int screen) {
     }
     AWT_UNLOCK();
     return name;
-#endif /* _AIX */
+#endif /* NO_XRANDR */
 }
 
 /*
@@ -2333,6 +2251,11 @@ static char *get_output_screen_name(JNIEnv *env, int screen) {
 JNIEXPORT jdouble JNICALL
 Java_sun_awt_X11GraphicsDevice_getNativeScaleFactor
     (JNIEnv *env, jobject this, jint screen, jdouble defValue) {
+    int32_t* wls = waylandMonitorScales;
+    if (wls != NULL && wls[screen] != 0) {
+        return (double) wls[screen];
+    }
+
     // in case of Xinerama individual screen scales are not supported
     char *name = get_output_screen_name(env, usingXinerama ? 0 : screen);
     double scale = getNativeScaleFactor(name, defValue);

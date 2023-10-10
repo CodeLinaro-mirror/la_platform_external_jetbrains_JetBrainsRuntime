@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,10 +32,12 @@ import java.awt.ImageCapabilities;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.awt.image.VolatileImage;
+
 import sun.awt.DisplayChangedListener;
 import sun.java2d.SunGraphicsEnvironment;
 import sun.java2d.SurfaceData;
-import static sun.java2d.pipe.hw.AccelSurface.*;
+
+import static sun.java2d.pipe.hw.AccelSurface.UNDEFINED;
 
 /**
  * This SurfaceManager variant manages an accelerated volatile surface, if it
@@ -66,14 +68,14 @@ public abstract class VolatileSurfaceManager
     /**
      * The accelerated SurfaceData object.
      */
-    protected SurfaceData sdAccel;
+    protected volatile SurfaceData sdAccel;
 
     /**
      * The software-based SurfaceData object.  Only create when first asked
      * to (otherwise it is a waste of memory as it will only be used in
      * situations of surface loss).
      */
-    protected SurfaceData sdBackup;
+    protected volatile SurfaceData sdBackup;
 
     /**
      * The current SurfaceData object.
@@ -89,7 +91,7 @@ public abstract class VolatileSurfaceManager
     protected SurfaceData sdPrevious;
 
     /**
-     * Tracks loss of surface contents; queriable by user to see whether
+     * Tracks loss of surface contents; queryable by user to see whether
      * contents need to be restored.
      */
     protected boolean lostSurface;
@@ -136,6 +138,9 @@ public abstract class VolatileSurfaceManager
     }
 
     public SurfaceData getPrimarySurfaceData() {
+        if (sdCurrent == null) {
+            sdCurrent = getBackupSurface();
+        }
         return sdCurrent;
     }
 
@@ -307,6 +312,9 @@ public abstract class VolatileSurfaceManager
      * primary SurfaceData object.
      */
     public SurfaceData restoreContents() {
+        // We're asked to restore contents by the accelerated surface, which
+        // means that it had been lost
+        acceleratedSurfaceLost();
         return getBackupSurface();
     }
 
@@ -342,7 +350,8 @@ public abstract class VolatileSurfaceManager
     public void displayChanged() {
         lostSurface = true;
         boolean needBackup = false;
-        if (sdAccel != null) {
+        SurfaceData oldData = sdAccel;
+        if (oldData != null) {
             // First, nullify the software surface.  This guards against
             // using a SurfaceData that was created in a different
             // display mode.
@@ -350,9 +359,10 @@ public abstract class VolatileSurfaceManager
                 sdBackup = null;
                 needBackup = true;
             }
+            // Clear primary surface data for lazy initialization
+            sdCurrent = null;
             // Now, invalidate the old hardware-based SurfaceData
             // Note that getBackupSurface may set sdAccel to null so we have to invalidate it before
-            SurfaceData oldData = sdAccel;
             sdAccel = null;
             oldData.invalidate();
         }
@@ -375,6 +385,8 @@ public abstract class VolatileSurfaceManager
                     sdBackup = null;
                     needBackup = true;
                 }
+                // Clear primary surface data for lazy initialization
+                sdCurrent = null;
             } else {
                 // Software backed surface was not invalidated.
                 lostSurface = false;

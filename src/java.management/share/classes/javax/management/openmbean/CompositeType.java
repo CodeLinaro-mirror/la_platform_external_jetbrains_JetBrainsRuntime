@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,16 +26,10 @@
 
 package javax.management.openmbean;
 
-
-// java import
-//
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.Collections;
 import java.util.Iterator;
-
-// jmx import
-//
 
 
 /**
@@ -144,8 +138,8 @@ public class CompositeType extends OpenType<CompositeData> {
         // Initialize internal "names to descriptions" and "names to types" sorted maps,
         // and, by doing so, check there are no duplicate item names
         //
-        nameToDescription = new TreeMap<String,String>();
-        nameToType        = new TreeMap<String,OpenType<?>>();
+        nameToDescription = new TreeMap<>();
+        nameToType        = new TreeMap<>();
         String key;
         for (int i=0; i<itemNames.length; i++) {
             key = itemNames[i].trim();
@@ -171,7 +165,7 @@ public class CompositeType extends OpenType<CompositeData> {
 
     private static void checkForEmptyString(String[] arg, String argName) {
         for (int i=0; i<arg.length; i++) {
-            if (arg[i].trim().equals("")) {
+            if (arg[i].trim().isEmpty()) {
                 throw new IllegalArgumentException("Argument's element "+ argName +"["+ i +"] cannot be an empty string.");
             }
         }
@@ -346,7 +340,7 @@ public class CompositeType extends OpenType<CompositeData> {
     }
 
 
-    /* *** Methods overriden from class Object *** */
+    /* *** Methods overridden from class Object *** */
 
     /**
      * Compares the specified <code>obj</code> parameter with this <code>CompositeType</code> instance for equality.
@@ -392,7 +386,7 @@ public class CompositeType extends OpenType<CompositeData> {
             return false;
         }
 
-        // All tests for equality were successfull
+        // All tests for equality were successful
         //
         return true;
     }

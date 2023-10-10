@@ -59,13 +59,16 @@
  */
 package test.java.time.format;
 
+import static java.time.temporal.ChronoField.AMPM_OF_DAY;
 import static java.time.temporal.ChronoField.EPOCH_DAY;
+import static java.time.temporal.ChronoField.HOUR_OF_AMPM;
 import static java.time.temporal.ChronoField.INSTANT_SECONDS;
 import static java.time.temporal.ChronoField.MICRO_OF_SECOND;
 import static java.time.temporal.ChronoField.MILLI_OF_SECOND;
 import static java.time.temporal.ChronoField.NANO_OF_SECOND;
 import static java.time.temporal.ChronoField.OFFSET_SECONDS;
 import static java.time.temporal.ChronoField.SECOND_OF_DAY;
+import static java.util.Locale.US;
 import static org.testng.Assert.assertEquals;
 
 import java.time.DateTimeException;
@@ -76,6 +79,7 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.DateTimeParseException;
 import java.time.temporal.TemporalAccessor;
 
 import org.testng.annotations.DataProvider;
@@ -84,7 +88,7 @@ import org.testng.annotations.Test;
 /**
  * @test
  * @summary Test parsing of edge cases.
- * @bug 8272473
+ * @bug 8223773 8272473
  */
 public class TestDateTimeParsing {
 
@@ -118,6 +122,9 @@ public class TestDateTimeParsing {
     private static final DateTimeFormatter INSTANTSECONDS_OFFSETSECONDS = new DateTimeFormatterBuilder()
         .appendValue(INSTANT_SECONDS).appendLiteral(' ').appendValue(OFFSET_SECONDS).toFormatter();
     private static final DateTimeFormatter INSTANTSECONDS_WITH_NEW_YORK = INSTANTSECONDS.withZone(NEW_YORK);
+
+    private static final String DTPE_MESSAGE =
+        "Invalid value for HourOfAmPm (valid values 0 - 11): 12";
 
     @DataProvider(name = "instantZones")
     Object[][] data_instantZones() {
@@ -209,4 +216,25 @@ public class TestDateTimeParsing {
         assertEquals(actual.isSupported(MILLI_OF_SECOND), true);
     }
 
+    // Bug 8223773: validation check for the range of HourOfAmPm in SMART mode.
+    // Should throw a DateTimeParseException, as 12 is out of range for HourOfAmPm.
+    @Test(expectedExceptions = DateTimeParseException.class)
+    public void test_validateHourOfAmPm() {
+        try {
+            new DateTimeFormatterBuilder()
+                .appendValue(HOUR_OF_AMPM,2)
+                .appendText(AMPM_OF_DAY)
+                .toFormatter(US)
+                .parse("12PM");
+        } catch (DateTimeParseException e) {
+            Throwable cause = e.getCause();
+            if (cause == null ||
+                !DTPE_MESSAGE.equals(cause.getMessage())) {
+                throw new RuntimeException(
+                    "DateTimeParseException was thrown with different reason: " + e);
+            } else {
+                throw e;
+            }
+        }
+    }
 }

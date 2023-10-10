@@ -36,7 +36,7 @@ import javax.naming.directory.InitialDirContext;
  * @requires os.family != "aix"
  * @library ../lib/
  * @modules java.base/sun.security.util
- * @run main PortUnreachable
+ * @run main/othervm -Djdk.net.usePlainDatagramSocketImpl=false PortUnreachable
  */
 
 public class PortUnreachable extends DNSTestBase {

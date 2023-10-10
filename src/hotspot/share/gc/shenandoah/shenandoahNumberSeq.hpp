@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2018, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2018, 2019, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -21,8 +22,8 @@
  *
  */
 
-#ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHNUMBERSEQ_HPP
-#define SHARE_VM_GC_SHENANDOAH_SHENANDOAHNUMBERSEQ_HPP
+#ifndef SHARE_GC_SHENANDOAH_SHENANDOAHNUMBERSEQ_HPP
+#define SHARE_GC_SHENANDOAH_SHENANDOAHNUMBERSEQ_HPP
 
 #include "utilities/numberSeq.hpp"
 
@@ -54,7 +55,7 @@ public:
 // Binary magnitude sequence stores the power-of-two histogram.
 // It has very low memory requirements, and is thread-safe. When accuracy
 // is not needed, it is preferred over HdrSeq.
-class BinaryMagnitudeSeq {
+class BinaryMagnitudeSeq : public CHeapObj<mtGC> {
 private:
   size_t  _sum;
   size_t* _mags;
@@ -72,4 +73,4 @@ public:
   void clear();
 };
 
-#endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHNUMBERSEQ_HPP
+#endif // SHARE_GC_SHENANDOAH_SHENANDOAHNUMBERSEQ_HPP

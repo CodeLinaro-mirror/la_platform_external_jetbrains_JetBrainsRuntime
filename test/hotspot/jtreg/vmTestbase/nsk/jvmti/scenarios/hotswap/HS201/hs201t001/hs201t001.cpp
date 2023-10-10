@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -190,9 +190,7 @@ callbackClassLoad(jvmtiEnv *jvmti_env, JNIEnv* jni_env, jthread thread,
         return;
     }
 
-    if (strcmp(className, EXPECTED_CLASS_SIGN)
-                        == 0) {
-
+    if (strcmp(className, EXPECTED_CLASS_SIGN) == 0) {
         NSK_DISPLAY1("\n\n>>>> Class loaded: %s", className);
         NSK_DISPLAY0(", activating breakpoint\n");
         setBreakPoint(jvmti_env, jni_env, klass);
@@ -392,7 +390,7 @@ int readNewBytecode(jvmtiEnv* jvmti, int testcase) {
         return NSK_FALSE;
     }
 
-    sprintf(filename,"%s/%s%02d/%s.class",
+    snprintf(filename, sizeof(filename), "%s/%s%02d/%s.class",
                 pathToByteCode, "newclass", testcase, EXPECTED_CLASS_NAME);
 
     NSK_DISPLAY1("\treading new bytecode for the tested class\n\tfile name: %s\n",

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -59,10 +59,19 @@ import java.awt.peer.KeyboardFocusManagerPeer;
 import java.awt.peer.WindowPeer;
 import java.util.List;
 
+import java.util.Objects;
 import javax.swing.JComponent;
 
-import sun.awt.*;
+import sun.awt.AWTAccessor;
 import sun.awt.AWTAccessor.ComponentAccessor;
+import sun.awt.AppContext;
+import sun.awt.CGraphicsDevice;
+import sun.awt.DisplayChangedListener;
+import sun.awt.ExtendedKeyCodes;
+import sun.awt.FullScreenCapable;
+import sun.awt.SunToolkit;
+import sun.awt.TimedWindowEvent;
+import sun.awt.UngrabEvent;
 import sun.java2d.NullSurfaceData;
 import sun.java2d.SunGraphics2D;
 import sun.java2d.SunGraphicsEnvironment;
@@ -87,6 +96,7 @@ public class LWWindowPeer
     }
 
     private static final PlatformLogger focusLog = PlatformLogger.getLogger("sun.lwawt.focus.LWWindowPeer");
+    private static final PlatformLogger logger = PlatformLogger.getLogger("sun.lwawt.LWWindowPeer");
 
     private final PlatformWindow platformWindow;
 
@@ -105,7 +115,7 @@ public class LWWindowPeer
     private volatile int windowState = Frame.NORMAL;
 
     // check that the mouse is over the window
-    private volatile boolean isMouseOver = false;
+    private volatile boolean isMouseOver;
 
     // A peer where the last mouse event came to. Used by cursor manager to
     // find the component under cursor
@@ -189,7 +199,6 @@ public class LWWindowPeer
         }
 
         platformWindow.initialize(target, this, ownerDelegate);
-
         // Init warning window(for applets)
         SecurityWarningWindow warn = null;
         if (target.getWarningString() != null) {
@@ -273,6 +282,16 @@ public class LWWindowPeer
 
         platformWindow.dispose();
         super.disposeImpl();
+    }
+
+    @Override
+    public void setBackground(final Color c) {
+        Color oldBg = getBackground();
+        if (Objects.equals(oldBg, c)) {
+            return;
+        }
+        super.setBackground(c);
+        updateOpaque();
     }
 
     @Override
@@ -383,7 +402,7 @@ public class LWWindowPeer
     /**
      * Overridden from LWContainerPeer to return the correct insets.
      * Insets are queried from the delegate and are kept up to date by
-     * requiering when needed (i.e. when the window geometry is changed).
+     * requerying when needed (i.e. when the window geometry is changed).
      */
     @Override
     public Insets getInsets() {
@@ -468,12 +487,6 @@ public class LWWindowPeer
     }
 
     @Override
-    public void setBackground(final Color c) {
-        super.setBackground(c);
-        updateOpaque();
-    }
-
-    @Override
     public void setOpacity(float opacity) {
         getPlatformWindow().setOpacity(opacity);
         repaintPeer();
@@ -502,7 +515,10 @@ public class LWWindowPeer
     }
 
     public final void setTextured(final boolean isTextured) {
-        textured = isTextured;
+        if (textured != isTextured) {
+            textured = isTextured;
+            updateOpaque();
+        }
     }
 
     @Override
@@ -703,12 +719,21 @@ public class LWWindowPeer
         setBounds(x, y, w, h, SET_BOUNDS, false, false);
 
         // Second, update the graphics config and surface data
-        final boolean isNewDevice = updateGraphicsDevice();
+        GraphicsDevice newGraphicsDevice = platformWindow.getGraphicsDevice();
+        if (newGraphicsDevice == null) {
+            if (logger.isLoggable(PlatformLogger.Level.FINE)) {
+                logger.fine("Unable to update graphics device: " +
+                            "platform window graphics device is null");
+            }
+            return;
+        }
+        boolean isNewDevice = updateGraphicsDevice(newGraphicsDevice);
+
         if (isNewDevice && !isMaximizedBoundsSet()) {
             setPlatformMaximizedBounds(getDefaultMaximizedBounds());
         }
 
-        if (pResized || isNewDevice) {
+        if (pResized || isNewDevice || invalid) {
             replaceSurfaceData();
             updateMinimumSize();
         }
@@ -1102,8 +1127,7 @@ public class LWWindowPeer
     /**
      * Returns true if the GraphicsDevice has been changed, false otherwise.
      */
-    public boolean updateGraphicsDevice() {
-        GraphicsDevice newGraphicsDevice = platformWindow.getGraphicsDevice();
+    public boolean updateGraphicsDevice(GraphicsDevice newGraphicsDevice) {
         synchronized (getStateLock()) {
             if (graphicsDevice == newGraphicsDevice) {
                 return false;
@@ -1125,21 +1149,29 @@ public class LWWindowPeer
 
     @Override
     public final void displayChanged() {
-        try {
-            if (updateGraphicsDevice()) {
-                updateMinimumSize();
-                if (!isMaximizedBoundsSet()) {
-                    setPlatformMaximizedBounds(getDefaultMaximizedBounds());
-                }
+        GraphicsDevice newGraphicsDevice = platformWindow.getGraphicsDevice();
+        if (newGraphicsDevice == null) {
+            if (logger.isLoggable(PlatformLogger.Level.FINE)) {
+                logger.fine("Unable to update graphics device: " +
+                            "platform window graphics device is null");
             }
+            return;
+        }
+        boolean isNewDevice = updateGraphicsDevice(newGraphicsDevice);
+
+        if (isNewDevice) {
+            updateMinimumSize();
+            if (!isMaximizedBoundsSet()) {
+                setPlatformMaximizedBounds(getDefaultMaximizedBounds());
+            }
+        }
+
+        SunToolkit.executeOnEventHandlerThread(getTarget(), () -> {
             // Replace surface unconditionally, because internal state of the
             // GraphicsDevice could be changed.
             replaceSurfaceData();
             repaintPeer();
-        } catch (Throwable t) {
-            System.err.println(t + " on "  + this);
-            t.printStackTrace();
-        }
+        });
     }
 
     @Override
@@ -1294,7 +1326,7 @@ public class LWWindowPeer
      */
     protected void changeFocusedWindow(boolean becomesFocused, Window opposite) {
         if (focusLog.isLoggable(PlatformLogger.Level.FINE)) {
-            focusLog.fine((becomesFocused?"gaining":"loosing") + " focus window: " + this);
+            focusLog.fine((becomesFocused?"gaining":"losing") + " focus window: " + this);
         }
         if (skipNextFocusChange) {
             focusLog.fine("skipping focus change");
@@ -1333,7 +1365,7 @@ public class LWWindowPeer
         KeyboardFocusManagerPeer kfmPeer = LWKeyboardFocusManagerPeer.getInstance();
 
         if (!becomesFocused && kfmPeer.getCurrentFocusedWindow() != getTarget()) {
-            // late window focus lost event - ingoring
+            // late window focus lost event - ignoring
             return;
         }
 

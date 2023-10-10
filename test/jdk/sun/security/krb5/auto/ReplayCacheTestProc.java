@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,7 @@
  * @test
  * @bug 7152176 8168518 8172017 8014628 8194486
  * @summary More krb5 tests
- * @library ../../../../java/security/testlibrary/ /test/lib
+ * @library /test/lib
  * @build jdk.test.lib.Platform
  * @run main jdk.test.lib.FileInstaller TestHosts TestHosts
  * @run main/othervm/timeout=300 -Djdk.net.hosts.file=TestHosts
@@ -49,6 +49,7 @@ import java.util.regex.Pattern;
 
 import jdk.test.lib.Asserts;
 import jdk.test.lib.Platform;
+import jdk.test.lib.process.Proc;
 import sun.security.jgss.GSSUtil;
 import sun.security.krb5.internal.rcache.AuthTime;
 
@@ -91,15 +92,7 @@ public class ReplayCacheTestProc {
         // recognized on Solaris (might be supported on Solaris 12),
         // and directory name is different when launched by root.
         // See manpage krb5envvar(5) on KRB5RCNAME.
-        if (System.getProperty("os.name").startsWith("SunOS")) {
-            if (uid == 0) {
-                cwd = "/var/krb5/rcache/root/";
-            } else {
-                cwd = "/var/krb5/rcache/";
-            }
-        } else {
-            cwd = System.getProperty("user.dir");
-        }
+        cwd = System.getProperty("user.dir");
     }
 
     private static MessageDigest md5, sha256;
@@ -399,8 +392,7 @@ public class ReplayCacheTestProc {
             if (lib != null) {
                 String libDir = lib.substring(0, lib.lastIndexOf('/'));
                 p.prop("sun.security.jgss.lib", lib)
-                        .env("DYLD_LIBRARY_PATH", libDir)
-                        .env("LD_LIBRARY_PATH", libDir);
+                        .env(Platform.sharedLibraryPathVariableName(), libDir);
             }
         }
         Proc.d(label+suffix+" started");
@@ -417,20 +409,9 @@ public class ReplayCacheTestProc {
             ps.printf("%s:\nmsg: %s\nMD5: %s\nSHA-256: %s\n\n",
                     label,
                     req.msg,
-                    hex(md5.digest(data)),
-                    hex(sha256.digest(data)));
+                    HexFormat.of().withUpperCase().formatHex(md5.digest(data)),
+                    HexFormat.of().withUpperCase().formatHex(sha256.digest(data)));
         }
-    }
-
-    // Returns a compact hexdump for a byte array
-    private static String hex(byte[] hash) {
-        char[] h = new char[hash.length * 2];
-        char[] hexConst = "0123456789ABCDEF".toCharArray();
-        for (int i=0; i<hash.length; i++) {
-            h[2*i] = hexConst[(hash[i]&0xff)>>4];
-            h[2*i+1] = hexConst[hash[i]&0xf];
-        }
-        return new String(h);
     }
 
     // return size of dfl file, excluding the null hash ones

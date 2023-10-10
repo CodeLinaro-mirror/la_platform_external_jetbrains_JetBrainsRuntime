@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -74,13 +74,12 @@ public:
     int                     ScaleUpX(int x);
     int                     ScaleUpAbsX(int x);
     int                     ScaleUpY(int y);
-    int                     ScaleUpAbsY(int y);
+    int                     ScaleUpAbsY(int x);
     int                     ScaleDownX(int x);
     int                     ScaleDownAbsX(int x);
     int                     ScaleDownY(int y);
     int                     ScaleDownAbsY(int y);
 
-    static void             ScaleDownDPoint(POINT *pt);
     static int              DeviceIndexForWindow(HWND hWnd);
     static jobject          GetColorModel(JNIEnv *env, jboolean dynamic,
                                           int deviceIndex);
@@ -131,4 +130,4 @@ private:
     static int              ClipRound(double value);
 };
 
-#endif AWT_WIN32GRAPHICSDEVICE_H
+#endif // AWT_WIN32GRAPHICSDEVICE_H

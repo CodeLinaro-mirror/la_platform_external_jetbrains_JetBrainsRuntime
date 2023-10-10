@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,21 +33,35 @@ public final class CCompositeGlyphMapper extends CompositeGlyphMapper {
     }
 
     @Override
+    public int charToVariationGlyph(int unicode, int variationSelector) {
+        if (variationSelector == 0) return charToGlyph(unicode);
+        else {
+            int glyph = convertToGlyph(unicode, variationSelector);
+            if (glyph == missingGlyph) glyph = charToGlyph(unicode);
+            return glyph;
+        }
+    }
+
+    @Override
     protected int convertToGlyph(int unicode) {
+        int glyph = convertToGlyph(unicode, 0);
+        setCachedGlyphCode(unicode, glyph);
+        return glyph;
+    }
+
+    @Override
+    protected int convertToGlyph(int unicode, int variationSelector) {
         CCompositeFont compositeFont = (CCompositeFont) font;
         CFont mainFont = (CFont) font.getSlotFont(0);
         String[] fallbackFontInfo = new String[2];
-        int glyphCode = nativeCodePointToGlyph(mainFont.getNativeFontPtr(), unicode, fallbackFontInfo);
+        int glyphCode = nativeCodePointToGlyph(mainFont.getNativeFontPtr(), unicode, variationSelector, fallbackFontInfo);
         if (glyphCode == missingGlyph) {
-            setCachedGlyphCode(unicode, missingGlyph);
             return missingGlyph;
         }
         String fallbackFontName = fallbackFontInfo[0];
         String fallbackFontFamilyName = fallbackFontInfo[1];
         if (fallbackFontName == null || fallbackFontFamilyName == null) {
-            int result = compositeGlyphCode(0, glyphCode);
-            setCachedGlyphCode(unicode, result);
-            return result;
+            return compositeGlyphCode(0, glyphCode);
         }
 
         int slot = compositeFont.findSlot(fallbackFontName);
@@ -68,12 +82,10 @@ public final class CCompositeGlyphMapper extends CompositeGlyphMapper {
             slot = compositeFont.addSlot((CFont) fallbackFont);
         }
 
-        int result = compositeGlyphCode(slot, glyphCode);
-        setCachedGlyphCode(unicode, result);
-        return result;
+        return compositeGlyphCode(slot, glyphCode);
     }
 
     // This invokes native font fallback mechanism, returning information about font (its Postscript and family names)
     // able to display a given character, and corresponding glyph code
-    private static native int nativeCodePointToGlyph(long nativeFontPtr, int codePoint, String[] result);
+    private static native int nativeCodePointToGlyph(long nativeFontPtr, int codePoint, int variationSelector, String[] result);
 }

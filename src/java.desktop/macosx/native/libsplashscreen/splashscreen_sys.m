@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,6 +28,7 @@
 #import <Cocoa/Cocoa.h>
 #import <objc/objc-auto.h>
 
+#include <Security/AuthSession.h>
 #import "NSApplicationAWT.h"
 
 #include <sys/time.h>
@@ -187,8 +188,31 @@ jboolean SplashGetScaledImageName(const char* jar, const char* file,
     return JNI_FALSE;
 }
 
-void
+static int isInAquaSession() {
+    // environment variable to bypass the aqua session check
+    char *ev = getenv("AWT_FORCE_HEADFUL");
+    if (ev && (strncasecmp(ev, "true", 4) == 0)) {
+        // if "true" then tell the caller we're in
+        // an Aqua session without actually checking
+        return 1;
+    }
+    // Is the WindowServer available?
+    SecuritySessionId session_id;
+    SessionAttributeBits session_info;
+    OSStatus status = SessionGetInfo(callerSecuritySession, &session_id, &session_info);
+    if (status == noErr) {
+        if (session_info & sessionHasGraphicAccess) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int
 SplashInitPlatform(Splash * splash) {
+    if (!isInAquaSession()) {
+        return 0;
+    }
     pthread_mutex_init(&splash->lock, NULL);
 
     splash->maskRequired = 0;
@@ -209,6 +233,7 @@ SplashInitPlatform(Splash * splash) {
             [NSApplicationAWT runAWTLoopWithApp:[NSApplicationAWT sharedApplication]];
         }];
     }
+    return 1;
 }
 
 void
@@ -303,7 +328,7 @@ SplashRedrawWindow(Splash * splash) {
         //         the 'wait cursor'. So that is undoable.
 
         //TODO: only the first image in an animated gif preserves transparency.
-        //      Loos like the splash->screenData contains inappropriate data
+        //      Looks like the splash->screenData contains inappropriate data
         //      for all but the first frame.
 
         [image release];
@@ -413,7 +438,7 @@ SplashScreenThread(void *param) {
 
         splash->window = (void*) [[NSWindow alloc]
             initWithContentRect: NSMakeRect(splash->x, splash->y, splash->width, splash->height)
-                      styleMask: NSBorderlessWindowMask
+                      styleMask: NSWindowStyleMaskBorderless
                         backing: NSBackingStoreBuffered
                           defer: NO
                          screen: SplashNSScreen()];

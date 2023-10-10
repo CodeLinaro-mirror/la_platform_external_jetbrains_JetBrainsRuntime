@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -39,6 +39,8 @@ extern "C" {
 static jvmtiEnv *jvmti = NULL;
 static jint result = PASSED;
 static int verbose = 0;
+// test thread
+static jthread testThread = NULL;
 
 static const char *javaField = "exc";
 static const char *excClassSig =
@@ -55,14 +57,37 @@ int throw_calls = 0;
 int thrownew_calls = 0;
 int excoccur_calls = 0;
 
+void setTestThread(JNIEnv *env) {
+    jthread curThread = NULL;
+    NSK_JVMTI_VERIFY(jvmti->GetCurrentThread(&curThread));
+    testThread = env->NewGlobalRef(curThread);
+}
+
+void resetTestThread(JNIEnv *env) {
+     env->DeleteGlobalRef(testThread);
+     testThread = NULL;
+}
+
+bool isOnTestThread(JNIEnv *env) {
+    jthread curThread = NULL;
+    NSK_JVMTI_VERIFY(jvmti->GetCurrentThread(&curThread));
+    return env->IsSameObject(testThread, curThread);
+}
+
 /** redirected JNI functions **/
 jint JNICALL MyThrow(JNIEnv *env, jthrowable thrw) {
     jint res;
 
-    throw_calls++;
-    if (verbose)
-        printf("\nMyThrow: the function called successfully: number of calls=%d\n",
-            throw_calls);
+    if (isOnTestThread(env)) {
+        throw_calls++;
+        if (verbose) {
+            printf("\nMyThrow: the function called successfully: number of calls=%d\n", throw_calls);
+        }
+    } else {
+        if (verbose) {
+            printf("\nMyThrow: the function called on non-test thread, ignoring\n");
+        }
+    }
 
     res = orig_jni_functions->Throw(env, thrw);
 
@@ -74,10 +99,16 @@ jint JNICALL MyThrow(JNIEnv *env, jthrowable thrw) {
 jint JNICALL MyThrowNew(JNIEnv *env, jclass cls, const char *msg) {
     jint res;
 
-    thrownew_calls++;
-    if (verbose)
-        printf("\nMyThrowNew: the function called successfully: number of calls=%d\n",
-            thrownew_calls);
+    if (isOnTestThread(env)) {
+        thrownew_calls++;
+        if (verbose) {
+            printf("\nMyThrowNew: the function called successfully: number of calls=%d\n", thrownew_calls);
+        }
+    } else {
+        if (verbose) {
+            printf("\nMyThrowNew: the function called on non-test thread, ignoring\n");
+        }
+    }
 
     res = orig_jni_functions->ThrowNew(env, cls, msg);
 
@@ -87,11 +118,15 @@ jint JNICALL MyThrowNew(JNIEnv *env, jclass cls, const char *msg) {
 }
 
 jthrowable JNICALL MyExceptionOccurred(JNIEnv *env) {
-    if (isThreadExpected(jvmti, NULL)) {
+    if (isOnTestThread(env)) {
         excoccur_calls++;
-        if (verbose)
-            printf("\nMyExceptionOccurred: the function called successfully: number of calls=%d\n",
-                   excoccur_calls);
+        if (verbose) {
+            printf("\nMyExceptionOccurred: the function called successfully: number of calls=%d\n", excoccur_calls);
+        }
+    } else {
+        if (verbose) {
+            printf("\nMyExceptionOccurred: the function called on non-test thread, ignoring\n");
+        }
     }
 
     return orig_jni_functions->ExceptionOccurred(env);
@@ -103,15 +138,15 @@ void doRedirect(JNIEnv *env) {
 
     if (verbose)
         printf("\ndoRedirect: obtaining the JNI function table ...\n");
-    if ((err = jvmti->GetJNIFunctionTable(&orig_jni_functions)) !=
-            JVMTI_ERROR_NONE) {
+    err = jvmti->GetJNIFunctionTable(&orig_jni_functions);
+    if (err != JVMTI_ERROR_NONE) {
         result = STATUS_FAILED;
         printf("(%s,%d): TEST FAILED: failed to get original JNI function table: %s\n",
             __FILE__, __LINE__, TranslateError(err));
         env->FatalError("failed to get original JNI function table");
     }
-    if ((err = jvmti->GetJNIFunctionTable(&redir_jni_functions)) !=
-            JVMTI_ERROR_NONE) {
+    err = jvmti->GetJNIFunctionTable(&redir_jni_functions);
+    if (err != JVMTI_ERROR_NONE) {
         result = STATUS_FAILED;
         printf("(%s,%d): TEST FAILED: failed to get redirected JNI function table: %s\n",
             __FILE__, __LINE__, TranslateError(err));
@@ -126,8 +161,8 @@ void doRedirect(JNIEnv *env) {
     redir_jni_functions->ThrowNew = MyThrowNew;
     redir_jni_functions->ExceptionOccurred = MyExceptionOccurred;
 
-    if ((err = jvmti->SetJNIFunctionTable(redir_jni_functions)) !=
-            JVMTI_ERROR_NONE) {
+    err = jvmti->SetJNIFunctionTable(redir_jni_functions);
+    if (err != JVMTI_ERROR_NONE) {
         result = STATUS_FAILED;
         printf("(%s,%d): TEST FAILED: failed to set new JNI function table: %s\n",
             __FILE__, __LINE__, TranslateError(err));
@@ -143,8 +178,8 @@ void doRestore(JNIEnv *env) {
 
     if (verbose)
         printf("\ndoRestore: restoring the original JNI function table ...\n");
-    if ((err = jvmti->SetJNIFunctionTable(orig_jni_functions)) !=
-            JVMTI_ERROR_NONE) {
+    err = jvmti->SetJNIFunctionTable(orig_jni_functions);
+    if (err != JVMTI_ERROR_NONE) {
         result = STATUS_FAILED;
         printf("(%s,%d): TEST FAILED: failed to restore original JNI function table: %s\n",
             __FILE__, __LINE__, TranslateError(err));
@@ -157,7 +192,8 @@ void doRestore(JNIEnv *env) {
 void doExc(JNIEnv *env, jthrowable thrw, jclass thrCls, const char *msg) {
     jint res;
 
-    if ((res = env->ThrowNew(thrCls, msg)) != 0) {
+    res = env->ThrowNew(thrCls, msg);
+    if (res != 0) {
         result = STATUS_FAILED;
         printf("(%s,%d): TEST FAILED: failed to throw new exception\n",
             __FILE__, __LINE__);
@@ -176,7 +212,8 @@ void doExc(JNIEnv *env, jthrowable thrw, jclass thrCls, const char *msg) {
             __FILE__, __LINE__, msg);
     }
 
-    if ((res = env->Throw(thrw)) != 0) {
+    res = env->Throw(thrw);
+    if (res != 0) {
         result = STATUS_FAILED;
         printf("(%s,%d): TEST FAILED: failed to throw exception\n",
             __FILE__, __LINE__);
@@ -200,15 +237,15 @@ void checkCall(int step, int exThrCalls, int exThrNewCalls, int exExcOccCalls) {
     if (throw_calls == exThrCalls) {
         if (verbose)
             printf("\nCHECK PASSED: the %s JNI function Throw() has been %s:\n\t%d intercepted call(s) as expected\n",
-                (step==1)?"tested":"original",
-                (step==1)?"redirected":"restored",
+                (step == 1) ? "tested" : "original",
+                (step == 1) ? "redirected" : "restored",
                 throw_calls);
     }
     else {
         result = STATUS_FAILED;
         printf("\nTEST FAILED: the %s JNI function Throw() has not been %s:\n\t%d intercepted call(s) instead of %d as expected\n",
-            (step==1)?"tested":"original",
-            (step==1)?"redirected":"restored",
+            (step == 1) ? "tested" : "original",
+            (step == 1) ? "redirected" : "restored",
             throw_calls, exThrCalls);
     }
     throw_calls = 0; /* zeroing an interception counter */
@@ -216,15 +253,15 @@ void checkCall(int step, int exThrCalls, int exThrNewCalls, int exExcOccCalls) {
     if (thrownew_calls == exThrNewCalls) {
         if (verbose)
             printf("\nCHECK PASSED: the %s JNI function ThrowNew() has been %s:\n\t%d intercepted call(s) as expected\n",
-                (step==1)?"tested":"original",
-                (step==1)?"redirected":"restored",
+                (step == 1) ? "tested" : "original",
+                (step == 1) ? "redirected" : "restored",
                 thrownew_calls);
     }
     else {
         result = STATUS_FAILED;
         printf("\nTEST FAILED: the %s JNI function ThrowNew() has not been %s:\n\t%d intercepted call(s) instead of %d as expected\n",
-            (step==1)?"tested":"original",
-            (step==1)?"redirected":"restored",
+            (step == 1) ? "tested" : "original",
+            (step == 1) ? "redirected" : "restored",
             thrownew_calls, exThrNewCalls);
     }
     thrownew_calls = 0; /* zeroing an interception counter */
@@ -232,15 +269,15 @@ void checkCall(int step, int exThrCalls, int exThrNewCalls, int exExcOccCalls) {
     if (excoccur_calls == exExcOccCalls) {
         if (verbose)
             printf("\nCHECK PASSED: the %s JNI function ExceptionOccurred() has been %s:\n\t%d intercepted call(s) as expected\n",
-                (step==1)?"tested":"original",
-                (step==1)?"redirected":"restored",
+                (step == 1) ? "tested" : "original",
+                (step == 1) ? "redirected" : "restored",
                 excoccur_calls);
     }
     else {
         result = STATUS_FAILED;
         printf("\nTEST FAILED: the %s JNI function ExceptionOccurred() has not been %s:\n\t%d intercepted call(s) instead of %d as expected\n",
-            (step==1)?"tested":"original",
-            (step==1)?"redirected":"restored",
+            (step == 1) ? "tested" : "original",
+            (step == 1) ? "redirected" : "restored",
             excoccur_calls, exExcOccCalls);
     }
     excoccur_calls = 0; /* zeroing an interception counter */
@@ -264,7 +301,8 @@ Java_nsk_jvmti_scenarios_jni_1interception_JI03_ji03t003_check(JNIEnv *env, jobj
     if (verbose)
        printf("\ncheck: obtaining field ID for \"name=%s signature=%s\"...\n",
            javaField, excClassSig);
-    if ((fid = env->GetFieldID(objCls, javaField, excClassSig)) == 0) {
+    fid = env->GetFieldID(objCls, javaField, excClassSig);
+    if (fid == 0) {
         result = STATUS_FAILED;
         printf("(%s,%d): TEST FAILED: failed to get ID for the field \"%s\"\n",
             __FILE__, __LINE__, javaField);
@@ -280,6 +318,8 @@ Java_nsk_jvmti_scenarios_jni_1interception_JI03_ji03t003_check(JNIEnv *env, jobj
        printf("check: obtaining the class of the object for \"%s\"...\n",
            javaField);
     thrw = env->GetObjectClass(thrwObj);
+
+    setTestThread(env);
 
     /* 1: check the JNI function table interception */
     if (verbose)
@@ -297,6 +337,8 @@ Java_nsk_jvmti_scenarios_jni_1interception_JI03_ji03t003_check(JNIEnv *env, jobj
 
     env->DeleteLocalRef(thrw);
     env->DeleteLocalRef(thrwObj);
+
+    resetTestThread(env);
 
     return result;
 }

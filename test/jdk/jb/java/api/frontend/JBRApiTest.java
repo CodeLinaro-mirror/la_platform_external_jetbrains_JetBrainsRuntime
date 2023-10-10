@@ -1,17 +1,24 @@
 /*
- * Copyright 2000-2021 JetBrains s.r.o.
+ * Copyright 2000-2023 JetBrains s.r.o.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
  */
 
 /*
@@ -31,7 +38,7 @@ import java.util.Objects;
 public class JBRApiTest {
 
     public static void main(String[] args) throws Exception {
-        if (!JBR.getApiVersion().matches("\\w+\\.\\d+\\.\\d+\\.\\d+")) throw new Error("Invalid JBR API version");
+        if (!JBR.getApiVersion().matches("\\w+\\.\\d+\\.\\d+\\.\\d+")) throw new Error("Invalid JBR API version: " + JBR.getApiVersion());
         if (!JBR.isAvailable()) throw new Error("JBR API is not available");
         checkMetadata();
         testServices();
@@ -48,7 +55,11 @@ public class JBRApiTest {
     }
 
     private static void testServices() {
-        Objects.requireNonNull(JBR.getExtendedGlyphCache().getSubpixelResolution());
+        Objects.requireNonNull(JBR.getFontExtensions().getSubpixelResolution());
         Objects.requireNonNull(JBRFileDialog.get(new FileDialog((Frame) null)));
+        Objects.requireNonNull(JBR.getAccessibleAnnouncer());
+        if (!System.getProperty("os.name").toLowerCase().contains("linux")) {
+            Objects.requireNonNull(JBR.getRoundedCornersManager());
+        }
     }
 }

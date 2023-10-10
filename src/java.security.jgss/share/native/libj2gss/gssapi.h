@@ -48,6 +48,7 @@ extern "C" {
 #if TARGET_OS_MAC && (defined(__ppc__) || defined(__ppc64__) || defined(__i386__) || defined(__x86_64__))
 #    pragma pack(push,2)
 #endif
+
 /*
  * First, include stddef.h to get size_t defined.
  */

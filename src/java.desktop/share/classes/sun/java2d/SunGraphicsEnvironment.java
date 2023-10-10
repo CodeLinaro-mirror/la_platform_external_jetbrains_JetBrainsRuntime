@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,18 +40,18 @@ import java.awt.Toolkit;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.awt.peer.ComponentPeer;
-import java.security.PrivilegedAction;
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.InputStreamReader;
 import java.security.AccessController;
+import java.security.PrivilegedAction;
 import java.util.Locale;
 import java.util.TreeMap;
 
 import sun.awt.DisplayChangedListener;
+import sun.awt.DisplayParametersChangedListener;
 import sun.awt.SunDisplayChanger;
-import sun.font.*;
+import sun.font.FontManager;
+import sun.font.FontManagerFactory;
+import sun.font.FontManagerForSGE;
+import sun.font.FontUtilities;
 import sun.java2d.pipe.Region;
 import sun.security.action.GetPropertyAction;
 
@@ -63,10 +63,10 @@ import sun.security.action.GetPropertyAction;
  * @see GraphicsConfiguration
  */
 public abstract class SunGraphicsEnvironment extends GraphicsEnvironment
-    implements DisplayChangedListener {
+    implements DisplayChangedListener, DisplayParametersChangedListener {
 
-    public static boolean isOpenSolaris;
-    private static Font defaultFont;
+    /** Establish the default font to be used by SG2D. */
+    private final Font defaultFont = new Font(Font.DIALOG, Font.PLAIN, 12);
 
     private static final Object UI_SCALE_LOCK = new Object();
     private static boolean uiScaleEnabled;
@@ -74,65 +74,18 @@ public abstract class SunGraphicsEnvironment extends GraphicsEnvironment
     private static final double debugScale;
 
     static {
+        final GetPropertyAction gpa = new GetPropertyAction("sun.java2d.uiScale.enabled", "true");
+        @SuppressWarnings("removal")
+        final String uiScaleEnabledPropValue = AccessController.doPrivileged(gpa);
+
         uiScaleEnabled = FontUtilities.isMacOSX ||
-                ("true".equals(AccessController.doPrivileged(
-                        new GetPropertyAction("sun.java2d.uiScale.enabled", "true"))) &&
+            ("true".equals(uiScaleEnabledPropValue) &&
                 (isWindows_8_1_orUpper() || FontUtilities.isLinux));
+
         if (uiScaleEnabled && FontUtilities.isWindows) {
-            AccessController.doPrivileged((PrivilegedAction<Object>) () -> {
-                System.setProperty("swing.bufferPerWindow", "false"); // todo: until JRE-489 is fixed
-                return null;
-            });
+            System.setProperty("swing.bufferPerWindow", "false"); // todo: until JRE-489 is fixed
         }
         debugScale = uiScaleEnabled ? getScaleFactor("sun.java2d.uiScale") : -1;
-    }
-
-    public SunGraphicsEnvironment() {
-        java.security.AccessController.doPrivileged(
-                                    new java.security.PrivilegedAction<Object>() {
-            public Object run() {
-                String osName = System.getProperty("os.name");
-                if ("SunOS".equals(osName)) {
-                    String version = System.getProperty("os.version", "0.0");
-                    try {
-                        float ver = Float.parseFloat(version);
-                        if (ver > 5.10f) {
-                            File f = new File("/etc/release");
-                            FileInputStream fis = new FileInputStream(f);
-                            InputStreamReader isr
-                                = new InputStreamReader(fis, "ISO-8859-1");
-                            BufferedReader br = new BufferedReader(isr);
-                            String line = br.readLine();
-                            if (line.indexOf("OpenSolaris") >= 0) {
-                                isOpenSolaris = true;
-                            } else {
-                                /* We are using isOpenSolaris as meaning
-                                 * we know the Solaris commercial fonts aren't
-                                 * present. "Solaris Next" (03/10) did not
-                                 * include these even though its was not
-                                 * OpenSolaris. Need to revisit how this is
-                                 * handled but for now as in 6ux, we'll use
-                                 * the test for a standard font resource as
-                                 * being an indicator as to whether we need
-                                 * to treat this as OpenSolaris from a font
-                                 * config perspective.
-                                 */
-                                String courierNew =
-                                    "/usr/openwin/lib/X11/fonts/TrueType/CourierNew.ttf";
-                                File courierFile = new File(courierNew);
-                                isOpenSolaris = !courierFile.exists();
-                            }
-                            fis.close();
-                        }
-                    } catch (Exception e) {
-                    }
-                }
-                /* Establish the default font to be used by SG2D etc */
-                defaultFont = new Font(Font.DIALOG, Font.PLAIN, 12);
-
-                return null;
-            }
-        });
     }
 
     protected GraphicsDevice[] screens;
@@ -140,7 +93,7 @@ public abstract class SunGraphicsEnvironment extends GraphicsEnvironment
     private static boolean isWindows_8_1_orUpper() {
         if (!FontUtilities.isWindows) return false;
 
-        String osVersion = AccessController.doPrivileged(new GetPropertyAction("os.version"));
+        String osVersion = System.getProperty("os.version");
         if (osVersion == null) return false;
 
         String[] parts = osVersion.split("\\.");
@@ -155,7 +108,7 @@ public abstract class SunGraphicsEnvironment extends GraphicsEnvironment
 
             int minorVer = Integer.parseInt(parts[1]);
             if (minorVer >= 3) return true;
-        } catch (NumberFormatException e) {
+        } catch (NumberFormatException ignore) {
         }
         return false;
     }
@@ -271,11 +224,7 @@ public abstract class SunGraphicsEnvironment extends GraphicsEnvironment
                 map.put(installed[i].toLowerCase(requestedLocale),
                         installed[i]);
             }
-            String[] retval =  new String[map.size()];
-            Object [] keyNames = map.keySet().toArray();
-            for (int i=0; i < keyNames.length; i++) {
-                retval[i] = map.get(keyNames[i]);
-            }
+            String[] retval = map.values().toArray(new String[0]);
             return retval;
         }
     }
@@ -316,6 +265,15 @@ public abstract class SunGraphicsEnvironment extends GraphicsEnvironment
         // notify SunDisplayChanger list (e.g. VolatileSurfaceManagers and
         // SurfaceDataProxies) about the display change event
         displayChanger.notifyListeners();
+    }
+
+    @Override
+    public void displayParametersChanged() {
+        for (GraphicsDevice gd : getScreenDevices()) {
+            if (gd instanceof DisplayParametersChangedListener) {
+                ((DisplayParametersChangedListener) gd).displayParametersChanged();
+            }
+        }
     }
 
     /**
@@ -402,6 +360,7 @@ public abstract class SunGraphicsEnvironment extends GraphicsEnvironment
 
     public static double getScaleFactor(String propertyName) {
 
+        @SuppressWarnings("removal")
         String scaleFactor = AccessController.doPrivileged(
                 new GetPropertyAction(propertyName, "-1"));
 

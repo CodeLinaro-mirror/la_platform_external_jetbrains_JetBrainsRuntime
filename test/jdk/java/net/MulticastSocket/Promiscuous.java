@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,6 +37,7 @@ import java.io.UncheckedIOException;
 import java.net.*;
 
 import jdk.test.lib.NetworkConfiguration;
+import jdk.test.lib.net.IPSupport;
 
 public class Promiscuous {
 
@@ -170,6 +171,7 @@ public class Promiscuous {
     }
 
     public static void main(String args[]) throws IOException {
+        IPSupport.throwSkippedExceptionIfNonOperational();
         String os = System.getProperty("os.name");
 
         // Requires IP_MULTICAST_ALL on Linux (new since 2.6.31) so skip

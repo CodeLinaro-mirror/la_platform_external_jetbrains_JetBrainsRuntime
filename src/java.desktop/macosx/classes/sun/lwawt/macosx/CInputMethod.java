@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,13 +37,10 @@ import java.lang.Character.Subset;
 import java.lang.reflect.InvocationTargetException;
 import java.text.AttributedCharacterIterator.Attribute;
 import java.text.*;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.swing.text.JTextComponent;
 
 import sun.awt.AWTAccessor;
-import sun.awt.AppContext;
-import sun.awt.SunToolkit;
 import sun.awt.im.InputMethodAdapter;
 import sun.lwawt.*;
 
@@ -60,7 +57,7 @@ public class CInputMethod extends InputMethodAdapter {
     // Intitalize highlight mapping table and its mapper.
     static {
         @SuppressWarnings({"rawtypes", "unchecked"})
-        Map<TextAttribute, Integer> styles[] = new Map[4];
+        Map<TextAttribute, Integer>[] styles = new Map[4];
         HashMap<TextAttribute, Integer> map;
 
         // UNSELECTED_RAW_TEXT_HIGHLIGHT
@@ -206,7 +203,7 @@ public class CInputMethod extends InputMethodAdapter {
 
     /**
      * Dispatches the event to the input method. If input method support is
-     * enabled for the focussed component, incoming events of certain types
+     * enabled for the focused component, incoming events of certain types
      * are dispatched to the current input method for this component before
      * they are dispatched to the component's methods or event listeners.
      * The input method decides whether it needs to handle the event. If it
@@ -268,9 +265,12 @@ public class CInputMethod extends InputMethodAdapter {
      */
     public void removeNotify() {
         if (fAwtFocussedComponentPeer != null) {
-            nativeEndComposition(getNativeViewPtr(fAwtFocussedComponentPeer));
+            long modelPtr = getNativeViewPtr(fAwtFocussedComponentPeer);
+            nativeEndComposition(modelPtr, fAwtFocussedComponent);
+            nativeNotifyPeer(modelPtr, null);
         }
 
+        fAwtFocussedComponent = null;
         fAwtFocussedComponentPeer = null;
     }
 
@@ -281,34 +281,32 @@ public class CInputMethod extends InputMethodAdapter {
      * to talk to when responding to key events.
      */
     protected void setAWTFocussedComponent(Component component) {
-        LWComponentPeer<?, ?> peer = null;
-        long modelPtr = 0;
-        CInputMethod imInstance = this;
+        if (component == null || component == fAwtFocussedComponent) {
+            // Sometimes input happens for the natively unfocused window
+            // (e.g. in case of system emoji picker),
+            // so we don't reset last focused component on focus lost.
+            return;
+        }
 
-        // component will be null when we are told there's no focused component.
-        // When that happens we need to notify the native architecture to stop generating IMEs
-        if (component == null) {
-            peer = fAwtFocussedComponentPeer;
-            imInstance = null;
-        } else {
-            peer = getNearestNativePeer(component);
+        if (fAwtFocussedComponentPeer != null) {
+            long modelPtr = getNativeViewPtr(fAwtFocussedComponentPeer);
+            nativeNotifyPeer(modelPtr, null);
+        }
 
+        fAwtFocussedComponent = component;
+        fAwtFocussedComponentPeer = getNearestNativePeer(component);
+
+        if (fAwtFocussedComponentPeer != null) {
+            long modelPtr = getNativeViewPtr(fAwtFocussedComponentPeer);
+
+            CInputMethod imInstance = this;
             // If we have a passive client, don't pass input method events to it.
             if (component.getInputMethodRequests() == null) {
                 imInstance = null;
             }
-        }
 
-        if (peer != null) {
-            modelPtr = getNativeViewPtr(peer);
-
-            // modelPtr refers to the ControlModel that either got or lost focus.
             nativeNotifyPeer(modelPtr, imInstance);
         }
-
-        // Track the focused component and its nearest peer.
-        fAwtFocussedComponent = component;
-        fAwtFocussedComponentPeer = getNearestNativePeer(component);
     }
 
     /**
@@ -354,7 +352,7 @@ public class CInputMethod extends InputMethodAdapter {
      */
     public void endComposition() {
         if (fAwtFocussedComponentPeer != null)
-            nativeEndComposition(getNativeViewPtr(fAwtFocussedComponentPeer));
+            nativeEndComposition(getNativeViewPtr(fAwtFocussedComponentPeer), fAwtFocussedComponent);
     }
 
     /**
@@ -562,18 +560,21 @@ public class CInputMethod extends InputMethodAdapter {
     /**
      * Frequent callbacks from NSTextInput.  I think we're supposed to commit it here?
      */
-    private synchronized void unmarkText() {
-        if (fCurrentText == null || fAwtFocussedComponent == null) return;
+    private synchronized void unmarkText(Component component) {
+        if (component == null) {
+            component = fAwtFocussedComponent;
+        }
+        if (fCurrentText == null || component == null) return;
 
         TextHitInfo theCaret = TextHitInfo.afterOffset(fCurrentTextLength);
         TextHitInfo visiblePosition = theCaret;
-        InputMethodEvent event = new InputMethodEvent(fAwtFocussedComponent,
+        InputMethodEvent event = new InputMethodEvent(component,
                                                       InputMethodEvent.INPUT_METHOD_TEXT_CHANGED,
                                                       fCurrentText.getIterator(),
                                                       fCurrentTextLength,
                                                       theCaret,
                                                       visiblePosition);
-        LWCToolkit.postEvent(LWCToolkit.targetToAppContext(fAwtFocussedComponent), event);
+        LWCToolkit.postEvent(LWCToolkit.targetToAppContext(component), event);
         fCurrentText = null;
         fCurrentTextAsString = null;
         fCurrentTextLength = 0;
@@ -619,7 +620,7 @@ public class CInputMethod extends InputMethodAdapter {
                         }
 
                         // Get the characters from the iterator
-                        char selectedText[] = new char[theIterator.getEndIndex() - theIterator.getBeginIndex()];
+                        char[] selectedText = new char[theIterator.getEndIndex() - theIterator.getBeginIndex()];
                         char current = theIterator.first();
                         int index = 0;
                         while (current != CharacterIterator.DONE) {
@@ -806,7 +807,7 @@ public class CInputMethod extends InputMethodAdapter {
     // Note that if nativePeer isn't something that normally accepts keystrokes (i.e., a CPanel)
     // these calls will be ignored.
     private native void nativeNotifyPeer(long nativePeer, CInputMethod imInstance);
-    private native void nativeEndComposition(long nativePeer);
+    private native void nativeEndComposition(long nativePeer, Component component);
     private native void nativeHandleEvent(LWComponentPeer<?, ?> peer, AWTEvent event);
 
     // Returns the locale of the active input method.
@@ -823,7 +824,7 @@ public class CInputMethod extends InputMethodAdapter {
 
     private static class FxInvoker {
         final static Method GET_CLIENT_COMPONENT_METHOD;
-        static Class JFX_PANEL_CLASS;
+        static Class<?> JFX_PANEL_CLASS;
 
         static {
             Method m = null;
@@ -882,7 +883,7 @@ public class CInputMethod extends InputMethodAdapter {
 
     static void invokeAndWaitNoThrow(Runnable runnable, Component component) {
         try {
-            LWCToolkit.invokeAndWait(runnable, component, false);
+            LWCToolkit.invokeAndWait(runnable, component);
         } catch (Throwable e) {
             e.printStackTrace();
         }

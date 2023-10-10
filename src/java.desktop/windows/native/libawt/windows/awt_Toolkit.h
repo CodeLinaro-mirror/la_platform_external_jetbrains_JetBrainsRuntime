@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -194,15 +194,23 @@ class CriticalSection {
     #define TOUCHEVENTF_PEN             0x0040
     #define TOUCHEVENTF_PALM            0x0080
 
-    #define MOUSEEVENTF_FROMTOUCH_MASK  0xFFFFFF00
-    #define MOUSEEVENTF_FROMTOUCH       0xFF515700
-    
     /*
     * Conversion of touch input coordinates to pixels
     */
     #define TOUCH_COORD_TO_PIXEL(l)         ((l) / 100)
 #endif
 
+#ifndef MOUSEEVENTF_FROMTOUCH_MASK
+#define MOUSEEVENTF_FROMTOUCH_MASK  0xFFFFFF00
+#endif
+
+#ifndef MOUSEEVENTF_FROMTOUCH
+#define MOUSEEVENTF_FROMTOUCH       0xFF515700
+#endif
+
+inline BOOL IsMouseEventFromTouch() {
+    return (::GetMessageExtraInfo() & MOUSEEVENTF_FROMTOUCH_MASK) == MOUSEEVENTF_FROMTOUCH;
+}
 /************************************************************************
  * AwtToolkit class
  */
@@ -448,20 +456,19 @@ public:
     static BOOL CALLBACK CommonPeekMessageFunc(MSG& msg);
     static BOOL activateKeyboardLayout(HKL hkl);
 
-    static INLINE BOOL EnableNcDpiScaling(HWND hwnd)
-    {
-        return lpEnableNonClientDpiScaling != NULL ? lpEnableNonClientDpiScaling(hwnd) : FALSE;
-    }
-
     static INLINE BOOL AdjustWindowRectExForDpi(LPRECT lpRect, DWORD dwStyle, BOOL bMenu, DWORD dwExStyle, UINT dpi)
     {
         return lpAdjustWindowRectExForDpi != NULL ?
-            lpAdjustWindowRectExForDpi(lpRect, dwStyle, bMenu, dwExStyle, dpi) : ::AdjustWindowRectEx(lpRect, dwStyle, bMenu, dwExStyle);
+               lpAdjustWindowRectExForDpi(lpRect, dwStyle, bMenu, dwExStyle, dpi) : ::AdjustWindowRectEx(lpRect, dwStyle, bMenu, dwExStyle);
+    }
+    static INLINE UINT GetDpiForWindow(HWND hwnd) {
+        return lpGetDpiForWindow != NULL ? lpGetDpiForWindow(hwnd) : 96;
     }
 
     HANDLE m_waitEvent;
     volatile DWORD eventNumber;
-    volatile BOOL isInDoDragDropLoop;
+    volatile BOOL isDnDSourceActive;
+    volatile BOOL isDnDTargetActive;
 private:
     HWND CreateToolkitWnd(LPCTSTR name);
 
@@ -526,8 +533,8 @@ private:
     HANDLE m_inputMethodWaitEvent;
     LRESULT m_inputMethodData;
 
-    static EnableNonClientDpiScalingFunc *lpEnableNonClientDpiScaling;
     static AdjustWindowRectExForDpiFunc *lpAdjustWindowRectExForDpi;
+    static GetDpiForWindowFunc *lpGetDpiForWindow;
 
 /* track display changes - used by palette-updating code.
    This is a workaround for a windows bug that prevents
@@ -751,5 +758,7 @@ template<typename T> inline T* SafeCreate(T* &pArg) {
         return pNew;
     }
 }
+
+POINT ScreenToBottommostChild(HWND& w, LONG ncx, LONG ncy);
 
 #endif /* AWT_TOOLKIT_H */

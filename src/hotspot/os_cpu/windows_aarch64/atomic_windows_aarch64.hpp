@@ -37,11 +37,14 @@
 // For AARCH64 we add explicit barriers in the stubs.
 
 template<size_t byte_size>
-struct Atomic::PlatformAdd
-  : Atomic::AddAndFetch<Atomic::PlatformAdd<byte_size> >
-{
-  template<typename I, typename D>
-  D add_and_fetch(I add_value, D volatile* dest, atomic_memory_order order) const;
+struct Atomic::PlatformAdd {
+  template<typename D, typename I>
+  D add_then_fetch(D volatile* dest, I add_value, atomic_memory_order order) const;
+
+  template<typename D, typename I>
+  D fetch_then_add(D volatile* dest, I add_value, atomic_memory_order order) const {
+    return add_then_fetch(dest, add_value, order) - add_value;
+  }
 };
 
 // The Interlocked* APIs only take long and will not accept __int32. That is
@@ -49,10 +52,10 @@ struct Atomic::PlatformAdd
 
 #define DEFINE_INTRINSIC_ADD(IntrinsicName, IntrinsicType)                \
   template<>                                                              \
-  template<typename I, typename D>                                        \
-  inline D Atomic::PlatformAdd<sizeof(IntrinsicType)>::add_and_fetch(I add_value, \
-                                                                     D volatile* dest, \
-                                                                     atomic_memory_order order) const { \
+  template<typename D, typename I>                                        \
+  inline D Atomic::PlatformAdd<sizeof(IntrinsicType)>::add_then_fetch(D volatile* dest, \
+                                                                      I add_value, \
+                                                                      atomic_memory_order order) const { \
     STATIC_ASSERT(sizeof(IntrinsicType) == sizeof(D));                    \
     return PrimitiveConversions::cast<D>(                                 \
       IntrinsicName(reinterpret_cast<IntrinsicType volatile *>(dest),     \
@@ -67,8 +70,8 @@ DEFINE_INTRINSIC_ADD(InterlockedAdd64, __int64)
 #define DEFINE_INTRINSIC_XCHG(IntrinsicName, IntrinsicType)               \
   template<>                                                              \
   template<typename T>                                                    \
-  inline T Atomic::PlatformXchg<sizeof(IntrinsicType)>::operator()(T exchange_value, \
-                                                                   T volatile* dest, \
+  inline T Atomic::PlatformXchg<sizeof(IntrinsicType)>::operator()(T volatile* dest, \
+                                                                   T exchange_value, \
                                                                    atomic_memory_order order) const { \
     STATIC_ASSERT(sizeof(IntrinsicType) == sizeof(T));                    \
     return PrimitiveConversions::cast<T>(                                 \
@@ -88,9 +91,9 @@ DEFINE_INTRINSIC_XCHG(InterlockedExchange64, __int64)
 #define DEFINE_INTRINSIC_CMPXCHG(IntrinsicName, IntrinsicType)            \
   template<>                                                              \
   template<typename T>                                                    \
-  inline T Atomic::PlatformCmpxchg<sizeof(IntrinsicType)>::operator()(T exchange_value, \
-                                                                      T volatile* dest, \
+  inline T Atomic::PlatformCmpxchg<sizeof(IntrinsicType)>::operator()(T volatile* dest, \
                                                                       T compare_value, \
+                                                                      T exchange_value, \
                                                                       atomic_memory_order order) const { \
     STATIC_ASSERT(sizeof(IntrinsicType) == sizeof(T));                    \
     return PrimitiveConversions::cast<T>(                                 \

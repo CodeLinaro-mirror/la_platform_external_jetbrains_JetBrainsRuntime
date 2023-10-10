@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2020, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,13 +30,11 @@ import java.security.cert.X509Certificate;
 import java.util.Date;
 import java.util.Objects;
 
+import jdk.test.lib.hexdump.HexPrinter;
 import sun.security.pkcs.ContentInfo;
 import sun.security.pkcs.PKCS7;
 import sun.security.pkcs.SignerInfo;
-import sun.security.util.DerOutputStream;
-import sun.security.util.DerValue;
-import sun.security.util.HexDumpEncoder;
-import sun.security.util.ObjectIdentifier;
+import sun.security.util.*;
 import sun.security.x509.AlgorithmId;
 import sun.security.x509.X500Name;
 
@@ -46,6 +44,7 @@ import sun.security.x509.X500Name;
 public class TsaSigner {
 
     private static final boolean DEBUG = Boolean.getBoolean("test.debug");
+    private static final HexPrinter HEX_PRINTER = HexPrinter.simple();
 
     protected final SignerEntry signerEntry;
     protected final byte[] requestData;
@@ -84,7 +83,7 @@ public class TsaSigner {
     /**
      * Sign data.
      *
-     * @returns the time-stamping response data
+     * @return the time-stamping response data
      */
     public byte[] sign() throws Exception {
         TsaParam requestParam = parseRequestParam();
@@ -170,7 +169,7 @@ public class TsaSigner {
 
             String policyId = respParam.policyId();
             print("policyId", policyId);
-            tstInfoOut.putOID(new ObjectIdentifier(policyId));
+            tstInfoOut.putOID(ObjectIdentifier.of(policyId));
 
             String digestAlgo = respParam.digestAlgo();
             print("digestAlgo", digestAlgo);
@@ -204,10 +203,10 @@ public class TsaSigner {
             eContentOut.putOctetString(tstInfoSeqData);
 
             ContentInfo eContentInfo = new ContentInfo(
-                    new ObjectIdentifier("1.2.840.113549.1.9.16.1.4"),
+                    ObjectIdentifier.of(KnownOIDs.TimeStampTokenInfo),
                     new DerValue(eContentOut.toByteArray()));
 
-            String defaultSigAlgo =  AlgorithmId.getDefaultSigAlgForKey(
+            String defaultSigAlgo =  SignatureUtil.getDefaultSigAlgForKey(
                     signerEntry.privateKey);
             String sigAlgo = interceptor.getSigAlgo(defaultSigAlgo);
             Signature signature = Signature.getInstance(sigAlgo);
@@ -219,8 +218,8 @@ public class TsaSigner {
             SignerInfo signerInfo = new SignerInfo(
                     new X500Name(issuerName),
                     signerEntry.cert.getSerialNumber(),
-                    AlgorithmId.get(
-                            AlgorithmId.getDigAlgFromSigAlg(sigAlgo)),
+                    SignatureUtil.getDigestAlgInPkcs7SignerInfo(
+                            signature, sigAlgo, signerEntry.privateKey, false),
                     AlgorithmId.get(sigAlgo),
                     signature.sign());
 
@@ -229,7 +228,7 @@ public class TsaSigner {
             PKCS7 p7 = new PKCS7(new AlgorithmId[] { digestAlgoId },
                     eContentInfo, signerCertChain,
                     new SignerInfo[] { signerInfo });
-            ByteArrayOutputStream signedDataOut = new ByteArrayOutputStream();
+            DerOutputStream signedDataOut = new DerOutputStream();
             p7.encodeSignedData(signedDataOut);
             byte[] signedData = signedDataOut.toByteArray();
             debug("Signed data", signedData);
@@ -252,7 +251,7 @@ public class TsaSigner {
     private static void debug(String name, byte[] bytes) {
         if (DEBUG) {
             System.out.println(name + ":");
-            System.out.println(new HexDumpEncoder().encode(bytes));
+            HEX_PRINTER.format(bytes);
         }
     }
 }

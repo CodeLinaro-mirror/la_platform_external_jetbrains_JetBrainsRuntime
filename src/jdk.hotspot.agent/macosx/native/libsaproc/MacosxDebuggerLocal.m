@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2023, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2021, Azul Systems, Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -484,6 +484,7 @@ bool fill_java_threads(JNIEnv* env, jobject this_obj, struct ps_prochandle* ph) 
   for (i = 0; i < n; i++) {
     if (!get_nth_lwp_regs(ph, i, &regs)) {
       print_debug("Could not get regs of thread %d, already set!\n", i);
+      (*env)->ReleaseLongArrayElements(env, thrinfos, (jlong*)cinfos, 0);
       return false;
     }
     for (j = 0; j < len; j += 3) {
@@ -620,7 +621,7 @@ jlongArray getThreadIntegerRegisterSetFromCore(JNIEnv *env, jobject this_obj, lo
 #error UNSUPPORTED_ARCH
 #endif
 
-  (*env)->ReleaseLongArrayElements(env, array, regs, JNI_COMMIT);
+  (*env)->ReleaseLongArrayElements(env, array, regs, 0);
   return array;
 }
 
@@ -685,7 +686,7 @@ Java_sun_jvm_hotspot_debugger_bsd_BsdDebuggerLocal_getThreadIntegerRegisterSet0(
   JNIEnv *env, jobject this_obj,
   jlong thread_id)
 {
-  print_debug("getThreadRegisterSet0 called\n");
+  print_debug("getThreadIntegerRegisterSet0 called\n");
 
   struct ps_prochandle* ph = get_proc_handle(env, this_obj);
   if (ph != NULL && ph->core != NULL) {
@@ -705,7 +706,13 @@ Java_sun_jvm_hotspot_debugger_bsd_BsdDebuggerLocal_getThreadIntegerRegisterSet0(
   result = thread_get_state(tid, HSDB_THREAD_STATE, (thread_state_t)&state, &count);
 
   if (result != KERN_SUCCESS) {
-    print_error("getregs: thread_get_state(%d) failed (%d)\n", tid, result);
+    // This is not considered fatal. Unlike on Linux and Windows, we haven't seen a
+    // failure to get thread registers, but if it were to fail the response should
+    // be the same. By ignoring this error and returning NULL, stacking walking code
+    // will get null registers and fallback to using the "last java frame" if setup.
+    fprintf(stdout, "WARNING: getThreadIntegerRegisterSet0: thread_get_state failed (%d) for thread (%d)\n",
+            result, tid);
+    fflush(stdout);
     return NULL;
   }
 
@@ -791,53 +798,6 @@ Java_sun_jvm_hotspot_debugger_bsd_BsdDebuggerLocal_getThreadIntegerRegisterSet0(
   primitiveArray[REG_INDEX(SP)] = state.__sp;
   primitiveArray[REG_INDEX(PC)] = state.__pc;
 
-#elif defined(aarch64)
-#define NPRGREG sun_jvm_hotspot_debugger_aarch64_AARCH64ThreadContext_NPRGREG
-#undef REG_INDEX
-#define REG_INDEX(reg) sun_jvm_hotspot_debugger_aarch64_AARCH64ThreadContext_##reg
-  // 64 bit
-  print_debug("Getting threads for a 64-bit process\n");
-  registerArray = (*env)->NewLongArray(env, NPRGREG);
-  CHECK_EXCEPTION_(0);
-  primitiveArray = (*env)->GetLongArrayElements(env, registerArray, NULL);
-
-
-  primitiveArray[REG_INDEX(R28)] = state.__x[28];
-  primitiveArray[REG_INDEX(R27)] = state.__x[27];
-  primitiveArray[REG_INDEX(R26)] = state.__x[26];
-  primitiveArray[REG_INDEX(R25)] = state.__x[25];
-  primitiveArray[REG_INDEX(R24)] = state.__x[24];
-  primitiveArray[REG_INDEX(R23)] = state.__x[23];
-  primitiveArray[REG_INDEX(R22)] = state.__x[22];
-  primitiveArray[REG_INDEX(R21)] = state.__x[21];
-  primitiveArray[REG_INDEX(R20)] = state.__x[20];
-  primitiveArray[REG_INDEX(R19)] = state.__x[19];
-  primitiveArray[REG_INDEX(R17)] = state.__x[17];
-  primitiveArray[REG_INDEX(R16)] = state.__x[16];
-  primitiveArray[REG_INDEX(R15)] = state.__x[15];
-  primitiveArray[REG_INDEX(R14)] = state.__x[14];
-  primitiveArray[REG_INDEX(R13)] = state.__x[13];
-  primitiveArray[REG_INDEX(R12)] = state.__x[12];
-  primitiveArray[REG_INDEX(R11)] = state.__x[11];
-  primitiveArray[REG_INDEX(R10)] = state.__x[10];
-  primitiveArray[REG_INDEX(R9)]  = state.__x[9];
-  primitiveArray[REG_INDEX(R8)]  = state.__x[8];
-  primitiveArray[REG_INDEX(R7)]  = state.__x[7];
-  primitiveArray[REG_INDEX(R6)]  = state.__x[6];
-  primitiveArray[REG_INDEX(R5)]  = state.__x[5];
-  primitiveArray[REG_INDEX(R4)]  = state.__x[4];
-  primitiveArray[REG_INDEX(R3)]  = state.__x[3];
-  primitiveArray[REG_INDEX(R2)]  = state.__x[2];
-  primitiveArray[REG_INDEX(R1)]  = state.__x[1];
-  primitiveArray[REG_INDEX(R0)]  = state.__x[0];
-  primitiveArray[REG_INDEX(SP)]  = state.__sp;
-  primitiveArray[REG_INDEX(SP)]  = state.__fp;
-  primitiveArray[REG_INDEX(PC)]  = state.__pc;
-
-  print_debug("set registers\n");
-
-  (*env)->ReleaseLongArrayElements(env, registerArray, primitiveArray, 0);
-
 #else
 #error UNSUPPORTED_ARCH
 #endif
@@ -855,25 +815,25 @@ Java_sun_jvm_hotspot_debugger_bsd_BsdDebuggerLocal_getThreadIntegerRegisterSet0(
  */
 JNIEXPORT jint JNICALL
 Java_sun_jvm_hotspot_debugger_macosx_MacOSXDebuggerLocal_translateTID0(
-  JNIEnv *env, jobject this_obj, jint tid) 
+  JNIEnv *env, jobject this_obj, jint tid)
 {
   print_debug("translateTID0 called on tid = 0x%x\n", (int)tid);
 
   kern_return_t result;
   thread_t foreign_tid, usable_tid;
   mach_msg_type_name_t type;
-  
+
   foreign_tid = tid;
-    
+
   task_t gTask = getTask(env, this_obj);
-  result = mach_port_extract_right(gTask, foreign_tid, 
-				   MACH_MSG_TYPE_COPY_SEND, 
-				   &usable_tid, &type);
+  result = mach_port_extract_right(gTask, foreign_tid,
+                                   MACH_MSG_TYPE_COPY_SEND,
+                                   &usable_tid, &type);
   if (result != KERN_SUCCESS)
     return -1;
-    
+
   print_debug("translateTID0: 0x%x -> 0x%x\n", foreign_tid, usable_tid);
-    
+
   return (jint) usable_tid;
 }
 
@@ -889,6 +849,9 @@ static bool ptrace_attach(pid_t pid) {
   return true;
 }
 
+#define GOT_HOTSPOT_TRAP (KERN_SUCCESS + 1)
+#define GOT_UNKNOWN_EXC  (KERN_SUCCESS + 2)
+
 kern_return_t catch_mach_exception_raise(
   mach_port_t exception_port, mach_port_t thread_port, mach_port_t task_port,
   exception_type_t exception_type, mach_exception_data_t codes,
@@ -898,20 +861,33 @@ kern_return_t catch_mach_exception_raise(
               "task port %d exc type = %d num_codes %d\n",
               exception_port, thread_port, task_port, exception_type, num_codes);
 
+  // Uncommon traps in the JVM can result in a "crash". We just ignore them.
+  // Returning a result other than KERN_SUCCESS means it will be passed on to the
+  // next handler, which should be in the JVM so it can do the right thing with it.
+  if (exception_type == EXC_BAD_INSTRUCTION || exception_type == EXC_BAD_ACCESS) {
+    return GOT_HOTSPOT_TRAP;
+  }
+
   // This message should denote a Unix soft signal, with
-  // 1. the exception type = EXC_SOFTWARE
-  // 2. codes[0] (which is the code) = EXC_SOFT_SIGNAL
-  // 3. codes[1] (which is the sub-code) = SIGSTOP
-  if (!(exception_type == EXC_SOFTWARE &&
-        codes[0] == EXC_SOFT_SIGNAL    &&
-        codes[num_codes -1] == SIGSTOP)) {
+  // 1. the exception type = EXC_SOFTWARE (5)
+  // 2. codes[0] (which is the code) = EXC_SOFT_SIGNAL (0x10003 / 65539)
+  // 3. codes[1] (which is the sub-code) = SIGSTOP (17)
+  if (exception_type != EXC_SOFTWARE || codes[0] != EXC_SOFT_SIGNAL) {
     print_error("catch_mach_exception_raise: Message doesn't denote a Unix "
                 "soft signal. exception_type = %d, codes[0] = %d, "
-                "codes[num_codes -1] = %d, num_codes = %d\n",
+                "codes[num_codes -1] = 0x%llx, num_codes = %d\n",
                 exception_type, codes[0], codes[num_codes - 1], num_codes);
-    return MACH_RCV_INVALID_TYPE;
+    return GOT_UNKNOWN_EXC;
   }
-  return KERN_SUCCESS;
+  int sig = codes[num_codes -1];
+  if (sig == SIGSTOP) {
+    return KERN_SUCCESS;
+  } else {
+    // Sometimes we get SIGTRAP(4) or SIGILL(5) instead of SIGSTOP (17) on aarch64.
+    // We currently can't deal with them. See JDK-8288429.
+    print_error("catch_mach_exception_raise: signal is not SIGSTOP (%d)\n", sig);
+    return GOT_UNKNOWN_EXC;
+  }
 }
 
 kern_return_t catch_mach_exception_raise_state(
@@ -932,8 +908,12 @@ kern_return_t catch_mach_exception_raise_state_identity(
   return MACH_RCV_INVALID_TYPE;
 }
 
+#define WAIT_SUCCESS 0
+#define WAIT_RETRY   1
+#define WAIT_FAILURE 2
+
 // wait to receive an exception message
-static bool wait_for_exception() {
+static int wait_for_exception() {
   kern_return_t result;
 
   result = mach_msg(&exc_msg.header,
@@ -947,17 +927,21 @@ static bool wait_for_exception() {
   if (result != MACH_MSG_SUCCESS) {
     print_error("attach: wait_for_exception: mach_msg() failed: '%s' (%d)\n",
                 mach_error_string(result), result);
-    return false;
+    return WAIT_FAILURE;
   }
 
-  if (mach_exc_server(&exc_msg.header, &rep_msg.header) == false ||
-      rep_msg.ret_code != KERN_SUCCESS) {
-    print_error("attach: wait_for_exception: mach_exc_server failure\n");
-    if (rep_msg.ret_code != KERN_SUCCESS) {
-      print_error("catch_mach_exception_raise() failed '%s' (%d)\n",
-                  mach_error_string(rep_msg.ret_code), rep_msg.ret_code);
-    }
-    return false;
+  if (!mach_exc_server(&exc_msg.header, &rep_msg.header)) {
+    print_error("attach: wait_for_exception: mach_exc_server failed\n");
+    return WAIT_FAILURE;
+  }
+  if (rep_msg.ret_code == GOT_UNKNOWN_EXC) {
+    print_error("attach: wait_for_exception: catch_mach_exception_raise() got unknown exception type\n");
+    return WAIT_FAILURE;
+  }
+  if (rep_msg.ret_code == GOT_HOTSPOT_TRAP) {
+    // hotspot uncommon trap. Just retry.
+    print_debug("attach: wait_for_exception: retrying\n");
+    return WAIT_RETRY;
   }
 
   print_debug("reply msg from mach_exc_server: (msg->{bits = %#x, size = %u, "
@@ -966,7 +950,7 @@ static bool wait_for_exception() {
               rep_msg.header.msgh_remote_port, rep_msg.header.msgh_local_port,
               rep_msg.header.msgh_reserved, rep_msg.header.msgh_id);
 
-  return true;
+  return WAIT_SUCCESS;
 }
 
 /*
@@ -1060,7 +1044,14 @@ Java_sun_jvm_hotspot_debugger_bsd_BsdDebuggerLocal_attach0__I(
     THROW_NEW_DEBUGGER_EXCEPTION("Can't ptrace attach to the process");
   }
 
-  if (wait_for_exception() != true) {
+  int retry_count = 0;
+  int wait_result;
+  do {
+    wait_result = wait_for_exception();
+  } while (wait_result == WAIT_RETRY && retry_count++ < 5);
+
+  if (wait_result != WAIT_SUCCESS) {
+    print_error("attach: wait_for_exception() failed. Retried %d times\n", retry_count);
     mach_port_deallocate(mach_task_self(), gTask);
     mach_port_deallocate(mach_task_self(), tgt_exception_port);
     THROW_NEW_DEBUGGER_EXCEPTION(
@@ -1101,27 +1092,30 @@ Java_sun_jvm_hotspot_debugger_bsd_BsdDebuggerLocal_attach0__I(
     called from Java_sun_jvm_hotspot_debugger_bsd_BsdDebuggerLocal_attach0__Ljava_lang_String_2Ljava_lang_String_2 */
 static void fillLoadObjects(JNIEnv* env, jobject this_obj, struct ps_prochandle* ph) {
   int n = 0, i = 0;
+  jobject loadObjectList;
+
+  loadObjectList = (*env)->GetObjectField(env, this_obj, loadObjectList_ID);
+  CHECK_EXCEPTION;
 
   // add load objects
   n = get_num_libs(ph);
   for (i = 0; i < n; i++) {
-     uintptr_t base;
+     uintptr_t base, memsz;
      const char* name;
      jobject loadObject;
-     jobject loadObjectList;
      jstring nameString;
 
-     base = get_lib_base(ph, i);
+     get_lib_addr_range(ph, i, &base, &memsz);
      name = get_lib_name(ph, i);
      nameString = (*env)->NewStringUTF(env, name);
      CHECK_EXCEPTION;
      loadObject = (*env)->CallObjectMethod(env, this_obj, createLoadObject_ID,
-                                            nameString, (jlong)0, (jlong)base);
-     CHECK_EXCEPTION;
-     loadObjectList = (*env)->GetObjectField(env, this_obj, loadObjectList_ID);
+                                            nameString, (jlong)memsz, (jlong)base);
      CHECK_EXCEPTION;
      (*env)->CallBooleanMethod(env, loadObjectList, listAdd_ID, loadObject);
      CHECK_EXCEPTION;
+     (*env)->DeleteLocalRef(env, nameString);
+     (*env)->DeleteLocalRef(env, loadObject);
   }
 }
 

@@ -33,7 +33,14 @@ void
 CGGlyphImages_GetGlyphImagePtrs(jlong glyphInfos[],
                                 const AWTStrike *strike,
                                 jint rawGlyphCodes[], const CFIndex len);
-
-bool CGGI_IsColorFont(CGFontRef font);
-
+void
+CGGlyphImages_GetGlyphMetrics(const CTFontRef font,
+                              const CGAffineTransform *tx,
+                              CGFloat fontSize,
+                              const JRSFontRenderingStyle style,
+                              const CGGlyph glyphs[],
+                              size_t count,
+                              CGRect bboxes[],
+                              CGSize advances[],
+                              const bool isCatalinaOrAbove);
 #endif /* __CGGLYPHIMAGES_H */

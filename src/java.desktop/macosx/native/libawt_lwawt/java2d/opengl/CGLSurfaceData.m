@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -318,23 +318,6 @@ OGLSD_Flush(JNIEnv *env)
             [ThreadUtilities performOnMainThreadWaiting:NO block:^(){
                 AWT_ASSERT_APPKIT_THREAD;
                 [layer setNeedsDisplay];
-
-#ifdef REMOTELAYER
-                /* If there's a remote layer (being used for testing)
-                 * then we want to have that also receive the texture.
-                 * First sync. up its dimensions with that of the layer
-                 * we have attached to the local window and tell it that
-                 * it also needs to copy the texture.
-                 */
-                if (layer.remoteLayer != nil) {
-                    CGLLayer* remoteLayer = layer.remoteLayer;
-                    remoteLayer.target = GL_TEXTURE_2D;
-                    remoteLayer.textureID = layer.textureID;
-                    remoteLayer.textureWidth = layer.textureWidth;
-                    remoteLayer.textureHeight = layer.textureHeight;
-                    [remoteLayer setNeedsDisplay];
-                }
-#endif /* REMOTELAYER */
             }];
         }
     }
@@ -415,39 +398,4 @@ Java_sun_java2d_opengl_CGLSurfaceData_clearWindow
 
     cglsdo->peerData = NULL;
     cglsdo->layer = NULL;
-}
-
-#pragma mark -
-#pragma mark "--- CGLSurfaceData methods - Mac OS X specific ---"
-
-// Must be called on the QFT...
-JNIEXPORT void JNICALL
-Java_sun_java2d_opengl_CGLSurfaceData_validate
-    (JNIEnv *env, jobject jsurfacedata,
-     jint xoff, jint yoff, jint width, jint height, jboolean isOpaque)
-{
-    J2dTraceLn2(J2D_TRACE_INFO, "CGLSurfaceData_validate: w=%d h=%d", width, height);
-
-    OGLSDOps *oglsdo = (OGLSDOps*)SurfaceData_GetOps(env, jsurfacedata);
-    oglsdo->needsInit = JNI_TRUE;
-    oglsdo->xOffset = xoff;
-    oglsdo->yOffset = yoff;
-
-    oglsdo->width = width;
-    oglsdo->height = height;
-    oglsdo->isOpaque = isOpaque;
-
-    if (oglsdo->drawableType == OGLSD_WINDOW) {
-        OGLContext_SetSurfaces(env, ptr_to_jlong(oglsdo), ptr_to_jlong(oglsdo));
-
-        // we have to explicitly tell the NSOpenGLContext that its target
-        // drawable has changed size
-        CGLSDOps *cglsdo = (CGLSDOps *)oglsdo->privOps;
-        OGLContext *oglc = cglsdo->configInfo->context;
-        CGLCtxInfo *ctxinfo = (CGLCtxInfo *)oglc->ctxInfo;
-
-JNI_COCOA_ENTER(env);
-        [ctxinfo->context update];
-JNI_COCOA_EXIT(env);
-    }
 }

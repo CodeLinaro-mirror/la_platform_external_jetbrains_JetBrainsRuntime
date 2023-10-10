@@ -28,7 +28,6 @@ import java.util.Formatter;
 import java.util.HashMap;
 import java.util.Map;
 import jdk.xml.internal.XMLSecurityManager.Limit;
-import com.sun.org.apache.xalan.internal.XalanConstants;
 
 
 /**
@@ -41,9 +40,9 @@ public final class XMLLimitAnalyzer {
      * Map old property names with the new ones
      */
     public static enum NameMap {
-        ENTITY_EXPANSION_LIMIT(XalanConstants.SP_ENTITY_EXPANSION_LIMIT, XalanConstants.ENTITY_EXPANSION_LIMIT),
-        MAX_OCCUR_NODE_LIMIT(XalanConstants.SP_MAX_OCCUR_LIMIT, XalanConstants.MAX_OCCUR_LIMIT),
-        ELEMENT_ATTRIBUTE_LIMIT(XalanConstants.SP_ELEMENT_ATTRIBUTE_LIMIT, XalanConstants.ELEMENT_ATTRIBUTE_LIMIT);
+        ENTITY_EXPANSION_LIMIT(JdkConstants.SP_ENTITY_EXPANSION_LIMIT, JdkConstants.ENTITY_EXPANSION_LIMIT),
+        MAX_OCCUR_NODE_LIMIT(JdkConstants.SP_MAX_OCCUR_LIMIT, JdkConstants.MAX_OCCUR_LIMIT),
+        ELEMENT_ATTRIBUTE_LIMIT(JdkConstants.SP_ELEMENT_ATTRIBUTE_LIMIT, JdkConstants.ELEMENT_ATTRIBUTE_LIMIT);
 
         final String newName;
         final String oldName;

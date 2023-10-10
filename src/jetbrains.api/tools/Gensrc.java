@@ -1,17 +1,26 @@
 /*
- * Copyright 2000-2021 JetBrains s.r.o.
+ * Copyright 2000-2023 JetBrains s.r.o.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
  */
 
 import java.io.FileNotFoundException;
@@ -85,12 +94,10 @@ public class Gensrc {
     }
 
     private static String generateContent(String fileName, String content) throws IOException {
-        switch (fileName) {
-            case "JBR.java":
-                return JBR.generate(content);
-            default:
-                return generate(content);
-        }
+        return switch (fileName) {
+            case "JBR.java" -> JBR.generate(content);
+            default -> generate(content);
+        };
     }
 
     private static String generate(String content) throws IOException {
@@ -127,7 +134,7 @@ public class Gensrc {
                 }
             }
             if (statements.isEmpty()) throw new RuntimeException("Constant not found: " + placeholder);
-            content = replaceTemplate(content, placeholder, statements);
+            content = replaceTemplate(content, placeholder, statements, true);
         }
     }
 
@@ -137,7 +144,7 @@ public class Gensrc {
         return matcher.group(1);
     }
 
-    private static String replaceTemplate(String src, String placeholder, Iterable<String> statements) {
+    private static String replaceTemplate(String src, String placeholder, Iterable<String> statements, boolean compact) {
         int placeholderIndex = src.indexOf(placeholder);
         int indent = 0;
         while (placeholderIndex - indent >= 1 && src.charAt(placeholderIndex - indent - 1) == ' ') indent++;
@@ -145,8 +152,11 @@ public class Gensrc {
         if (nextLineIndex == 0) nextLineIndex = placeholderIndex + placeholder.length();
         String before = src.substring(0, placeholderIndex - indent), after = src.substring(nextLineIndex);
         StringBuilder sb = new StringBuilder(before);
+        boolean firstStatement = true;
         for (String s : statements) {
-            sb.append(s).append('\n');
+            if (!firstStatement && !compact) sb.append('\n');
+            sb.append(s.indent(indent));
+            firstStatement = false;
         }
         sb.append(after);
         return sb.toString();
@@ -161,7 +171,7 @@ public class Gensrc {
             Service[] interfaces = findPublicServiceInterfaces();
             List<String> statements = new ArrayList<>();
             for (Service i : interfaces) statements.add(generateMethodsForService(i));
-            content = replaceTemplate(content, "/*GENERATED_METHODS*/", statements);
+            content = replaceTemplate(content, "/*GENERATED_METHODS*/", statements, false);
             content = content.replace("/*KNOWN_SERVICES*/",
                     modules.services.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining(", ")));
             content = content.replace("/*KNOWN_PROXIES*/",
@@ -171,7 +181,8 @@ public class Gensrc {
         }
 
         private static Service[] findPublicServiceInterfaces() {
-            Pattern javadocPattern = Pattern.compile("/\\*\\*((?:.|\n)*?)(\\s|\n)*\\*/");
+            Pattern javadocPattern = Pattern.compile("/\\*\\*((?:.|\n)*?)\\s*\\*/");
+            Pattern deprecatedPattern = Pattern.compile("@Deprecated( *\\(.*?forRemoval *= *true.*?\\))?");
             return modules.services.stream()
                     .map(fullName -> {
                         if (fullName.indexOf('$') != -1) return null; // Only top level services can be public
@@ -192,9 +203,12 @@ public class Gensrc {
                                 javadoc = "";
                                 javadocEnd = 0;
                             }
-                            return new Service(name, javadoc,
-                                    content.substring(javadocEnd, indexOfDeclaration).contains("@Deprecated"),
-                                    content.contains("__Fallback"));
+                            Matcher deprecatedMatcher = deprecatedPattern.matcher(content.substring(javadocEnd, indexOfDeclaration));
+                            Status status;
+                            if (!deprecatedMatcher.find()) status = Status.NORMAL;
+                            else if (deprecatedMatcher.group(1) == null) status = Status.DEPRECATED;
+                            else status = Status.FOR_REMOVAL;
+                            return new Service(name, javadoc, status, content.contains("__Fallback"));
                         } catch (IOException e) {
                             throw new UncheckedIOException(e);
                         }
@@ -203,42 +217,41 @@ public class Gensrc {
         }
 
         private static String generateMethodsForService(Service service) {
-            return ("private static class $__Holder {<DEPRECATED>\n" +
-                    "    private static final $ INSTANCE = getService($.class, <FALLBACK>);\n" +
-                    "}\n" +
-                    "/**\n" +
-                    " * @return true if current runtime has implementation for all methods in {@link $}\n" +
-                    " * and its dependencies (can fully implement given service).\n" +
-                    " * @see #get$()\n" +
-                    " */<DEPRECATED>\n" +
-                    "public static boolean is$Supported() {\n" +
-                    "    return $__Holder.INSTANCE != null;\n" +
-                    "}\n" +
-                    "/**<JAVADOC>\n" +
-                    " * @return full implementation of {@link $} service if any, or {@code null} otherwise\n" +
-                    " */<DEPRECATED>\n" +
-                    "public static $ get$() {\n" +
-                    "    return $__Holder.INSTANCE;\n" +
-                    "}")
+            return """
+                    private static class $__Holder {<DEPRECATED>
+                        private static final $ INSTANCE = getService($.class, <FALLBACK>);
+                    }
+                    /**
+                     * @return true if current runtime has implementation for all methods in {@link $}
+                     * and its dependencies (can fully implement given service).
+                     * @see #get$()
+                     */<DEPRECATED>
+                    public static boolean is$Supported() {
+                        return $__Holder.INSTANCE != null;
+                    }
+                    /**<JAVADOC>
+                     * @return full implementation of {@link $} service if any, or {@code null} otherwise
+                     */<DEPRECATED>
+                    public static $ get$() {
+                        return $__Holder.INSTANCE;
+                    }
+                    """
                     .replace("<FALLBACK>", service.hasFallback ? "$.__Fallback::new" : "null")
                     .replaceAll("\\$", service.name)
                     .replace("<JAVADOC>", service.javadoc)
-                    .replaceAll("<DEPRECATED>", service.deprecated ? "\n@Deprecated" : "");
+                    .replaceAll("<DEPRECATED>", service.status.text);
         }
 
-        private static class Service {
-            private final String name;
-            private final String javadoc;
-            private final boolean deprecated;
-            private final boolean hasFallback;
+        private enum Status {
+            NORMAL(""),
+            DEPRECATED("\n@Deprecated"),
+            FOR_REMOVAL("\n@Deprecated(forRemoval=true)\n@SuppressWarnings(\"removal\")");
 
-            private Service(String name, String javadoc, boolean deprecated, boolean hasFallback) {
-                this.name = name;
-                this.javadoc = javadoc;
-                this.deprecated = deprecated;
-                this.hasFallback = hasFallback;
-            }
+            private final String text;
+            Status(String text) { this.text = text; }
         }
+
+        private record Service(String name, String javadoc, Status status, boolean hasFallback) {}
     }
 
     /**
@@ -259,12 +272,11 @@ public class Gensrc {
         }
 
         private void findInModule(String content) {
-            Pattern servicePattern = compile("(service|proxy|twoWayProxy)\\s*\\(([^)]+)");
+            Pattern servicePattern = compile("(service|proxy|twoWayProxy)\\s*\\(([^,)]+)");
             Matcher matcher = servicePattern.matcher(content);
             while (matcher.find()) {
                 String type = matcher.group(1);
-                String parameters = matcher.group(2);
-                String interfaceName = extractFromStringLiteral(parameters.substring(0, parameters.indexOf(',')));
+                String interfaceName = extractFromStringLiteral(matcher.group(2));
                 if (type.equals("service")) services.add(interfaceName);
                 else proxies.add(interfaceName);
             }

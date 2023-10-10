@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,17 +44,21 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.OptionalDataException;
+import java.io.Serial;
 import java.io.Serializable;
 import java.lang.annotation.Native;
+import java.lang.invoke.MethodHandles;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.InvocationTargetException;
 import java.security.AccessController;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.EventListener;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.Vector;
@@ -66,6 +70,7 @@ import javax.accessibility.AccessibleRole;
 import javax.accessibility.AccessibleState;
 import javax.accessibility.AccessibleStateSet;
 
+import com.jetbrains.internal.JBRApi;
 import sun.awt.AWTAccessor;
 import sun.awt.AWTPermissions;
 import sun.awt.AppContext;
@@ -99,8 +104,9 @@ import sun.util.logging.PlatformLogger;
  * possible, as shown in the following figure.
  * <p>
  * <img src="doc-files/MultiScreen.gif"
- * alt="Diagram shows virtual device containing 4 physical screens. Primary physical screen shows coords (0,0), other screen shows (-80,-100)."
- * style="float:center; margin: 7px 10px;">
+ * alt="Diagram shows virtual device containing 4 physical screens. Primary
+ * physical screen shows coords (0,0), other screen shows (-80,-100)."
+ * style="margin: 7px 10px;">
  * <p>
  * In such an environment, when calling {@code setLocation},
  * you must pass a virtual coordinate to this method.  Similarly,
@@ -135,6 +141,11 @@ import sun.util.logging.PlatformLogger;
  * management system may ignore such requests, or modify the requested
  * geometry in order to place and size the {@code Window} in a way
  * that more closely matches the desktop settings.
+ * <p>
+ * Visual effects such as halos, shadows, motion effects and animations may be
+ * applied to the window by the desktop window management system. These are
+ * outside the knowledge and control of the AWT and so for the purposes of this
+ * specification are not considered part of the top-level window.
  * <p>
  * Due to the asynchronous nature of native event handling, the results
  * returned by {@code getBounds}, {@code getLocation},
@@ -238,7 +249,11 @@ public class Window extends Container implements Accessible {
     private transient Component temporaryLostComponent;
 
     static boolean systemSyncLWRequests = false;
-    boolean     syncLWRequests = false;
+
+    /**
+     * Focus transfers should be synchronous for lightweight component requests.
+     */
+    boolean syncLWRequests = false;
     transient boolean beforeFirstShow = true;
     private transient boolean disposing = false;
     transient WindowDisposerRecord disposerRecord = null;
@@ -374,14 +389,22 @@ public class Window extends Container implements Accessible {
      * @see #setShape(Shape)
      * @since 1.7
      */
+    @SuppressWarnings("serial") // Not statically typed as Serializable
     private Shape shape = null;
+
+    /**
+     * For popup windows, the component that the popup
+     * "must intersect with or be at least partially adjacent to".
+     */
+    private Component popupParent = null;
 
     private static final String base = "win";
     private static int nameCounter = 0;
 
-    /*
-     * JDK 1.1 serialVersionUID
+    /**
+     * Use serialVersionUID from JDK 1.1 for interoperability.
      */
+    @Serial
     private static final long serialVersionUID = 4497834738069338734L;
 
     private static final PlatformLogger log = PlatformLogger.getLogger("java.awt.Window");
@@ -395,18 +418,8 @@ public class Window extends Container implements Accessible {
      * These fields are initialized in the native peer code
      * or via AWTAccessor's WindowAccessor.
      */
-    private transient volatile int securityWarningWidth = 0;
-    private transient volatile int securityWarningHeight = 0;
-
-    /**
-     * These fields represent the desired location for the security
-     * warning if this window is untrusted.
-     * See com.sun.awt.SecurityWarning for more details.
-     */
-    private transient double securityWarningPointX = 2.0;
-    private transient double securityWarningPointY = 0.0;
-    private transient float securityWarningAlignmentX = RIGHT_ALIGNMENT;
-    private transient float securityWarningAlignmentY = TOP_ALIGNMENT;
+    private transient volatile int securityWarningWidth;
+    private transient volatile int securityWarningHeight;
 
     static {
         /* ensure that the necessary native libraries are loaded */
@@ -415,12 +428,14 @@ public class Window extends Container implements Accessible {
             initIDs();
         }
 
+        @SuppressWarnings("removal")
         String s = java.security.AccessController.doPrivileged(
             new GetPropertyAction("java.awt.syncLWRequests"));
-        systemSyncLWRequests = (s != null && s.equals("true"));
-        s = java.security.AccessController.doPrivileged(
+        systemSyncLWRequests = "true".equals(s);
+        @SuppressWarnings("removal")
+        String s2 = java.security.AccessController.doPrivileged(
             new GetPropertyAction("java.awt.Window.locationByPlatform"));
-        locationByPlatformProp = (s != null && s.equals("true"));
+        locationByPlatformProp = "true".equals(s2);
     }
 
     /**
@@ -441,9 +456,9 @@ public class Window extends Container implements Accessible {
      * @param gc the {@code GraphicsConfiguration} of the target screen
      *     device. If {@code gc} is {@code null}, the system default
      *     {@code GraphicsConfiguration} is assumed
-     * @exception IllegalArgumentException if {@code gc}
+     * @throws IllegalArgumentException if {@code gc}
      *    is not from a screen device
-     * @exception HeadlessException when
+     * @throws HeadlessException when
      *     {@code GraphicsEnvironment.isHeadless()} returns {@code true}
      *
      * @see java.awt.GraphicsEnvironment#isHeadless
@@ -543,7 +558,7 @@ public class Window extends Container implements Accessible {
      * If that check fails with a {@code SecurityException} then a warning
      * banner is created.
      *
-     * @exception HeadlessException when
+     * @throws HeadlessException when
      *     {@code GraphicsEnvironment.isHeadless()} returns {@code true}
      *
      * @see java.awt.GraphicsEnvironment#isHeadless
@@ -565,9 +580,9 @@ public class Window extends Container implements Accessible {
      *
      * @param owner the {@code Frame} to act as owner or {@code null}
      *    if this window has no owner
-     * @exception IllegalArgumentException if the {@code owner}'s
+     * @throws IllegalArgumentException if the {@code owner}'s
      *    {@code GraphicsConfiguration} is not from a screen device
-     * @exception HeadlessException when
+     * @throws HeadlessException when
      *    {@code GraphicsEnvironment.isHeadless} returns {@code true}
      *
      * @see java.awt.GraphicsEnvironment#isHeadless
@@ -592,9 +607,9 @@ public class Window extends Container implements Accessible {
      *
      * @param owner the {@code Window} to act as owner or
      *     {@code null} if this window has no owner
-     * @exception IllegalArgumentException if the {@code owner}'s
+     * @throws IllegalArgumentException if the {@code owner}'s
      *     {@code GraphicsConfiguration} is not from a screen device
-     * @exception HeadlessException when
+     * @throws HeadlessException when
      *     {@code GraphicsEnvironment.isHeadless()} returns
      *     {@code true}
      *
@@ -626,9 +641,9 @@ public class Window extends Container implements Accessible {
      * @param gc the {@code GraphicsConfiguration} of the target
      *     screen device; if {@code gc} is {@code null},
      *     the system default {@code GraphicsConfiguration} is assumed
-     * @exception IllegalArgumentException if {@code gc}
+     * @throws IllegalArgumentException if {@code gc}
      *     is not from a screen device
-     * @exception HeadlessException when
+     * @throws HeadlessException when
      *     {@code GraphicsEnvironment.isHeadless()} returns
      *     {@code true}
      *
@@ -1126,7 +1141,7 @@ public class Window extends Container implements Accessible {
      * {@link #setVisible(boolean)}.
      */
     @Deprecated
-    @SuppressWarnings({"unchecked"})
+    @SuppressWarnings({"unchecked", "rawtypes"})
     public void hide() {
         WeakReference<Window>[] ownedWindowArray;
         synchronized(ownedWindowList) {
@@ -1254,7 +1269,6 @@ public class Window extends Container implements Accessible {
         // on the EventQueue anyways.
         if (fireWindowClosedEvent) {
             postWindowEvent(WindowEvent.WINDOW_CLOSED);
-            KeyboardFocusManager.getCurrentKeyboardFocusManager().cleanUpHeavyWeightRequests(this);
         }
     }
 
@@ -1415,6 +1429,7 @@ public class Window extends Container implements Accessible {
         return warningString;
     }
 
+    @SuppressWarnings("removal")
     private void setWarningString() {
         warningString = null;
         SecurityManager sm = System.getSecurityManager();
@@ -1508,7 +1523,7 @@ public class Window extends Container implements Accessible {
         return getOwnedWindows_NoClientCode();
     }
     final Window[] getOwnedWindows_NoClientCode() {
-        Window realCopy[];
+        Window[] realCopy;
 
         synchronized(ownedWindowList) {
             // Recall that ownedWindowList is actually a Vector of
@@ -1518,7 +1533,7 @@ public class Window extends Container implements Accessible {
             // all non-null get()s (realCopy with size realSize).
             int fullSize = ownedWindowList.size();
             int realSize = 0;
-            Window fullCopy[] = new Window[fullSize];
+            Window[] fullCopy = new Window[fullSize];
 
             for (int i = 0; i < fullSize; i++) {
                 fullCopy[realSize] = ownedWindowList.elementAt(i).get();
@@ -1586,14 +1601,14 @@ public class Window extends Container implements Accessible {
 
     private static Window[] getWindows(AppContext appContext) {
         synchronized (Window.class) {
-            Window realCopy[];
+            Window[] realCopy;
             @SuppressWarnings("unchecked")
             Vector<WeakReference<Window>> windowList =
                 (Vector<WeakReference<Window>>)appContext.get(Window.class);
             if (windowList != null) {
                 int fullSize = windowList.size();
                 int realSize = 0;
-                Window fullCopy[] = new Window[fullSize];
+                Window[] fullCopy = new Window[fullSize];
                 for (int i = 0; i < fullSize; i++) {
                     Window w = windowList.get(i).get();
                     if (w != null) {
@@ -1719,6 +1734,7 @@ public class Window extends Container implements Accessible {
             return;
         }
         if (exclusionType == Dialog.ModalExclusionType.TOOLKIT_EXCLUDE) {
+            @SuppressWarnings("removal")
             SecurityManager sm = System.getSecurityManager();
             if (sm != null) {
                 sm.checkPermission(AWTPermissions.TOOLKIT_MODALITY_PERMISSION);
@@ -1763,7 +1779,7 @@ public class Window extends Container implements Accessible {
     }
 
     void updateChildrenBlocking() {
-        Vector<Window> childHierarchy = new Vector<Window>();
+        ArrayList<Window> childHierarchy = new ArrayList<>();
         Window[] ownedWindows = getOwnedWindows();
         for (int i = 0; i < ownedWindows.length; i++) {
             childHierarchy.add(ownedWindows[i]);
@@ -1978,10 +1994,10 @@ public class Window extends Container implements Accessible {
      *          <code><em>Foo</em>Listener</code>s on this window,
      *          or an empty array if no such
      *          listeners have been added
-     * @exception ClassCastException if {@code listenerType}
+     * @throws ClassCastException if {@code listenerType}
      *          doesn't specify a class or interface that implements
      *          {@code java.util.EventListener}
-     * @exception NullPointerException if {@code listenerType} is {@code null}
+     * @throws NullPointerException if {@code listenerType} is {@code null}
      *
      * @see #getWindowListeners
      * @since 1.3
@@ -2269,6 +2285,7 @@ public class Window extends Container implements Accessible {
      * @since 1.5
      */
     public final void setAlwaysOnTop(boolean alwaysOnTop) throws SecurityException {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkPermission(AWTPermissions.SET_WINDOW_ALWAYS_ON_TOP_PERMISSION);
@@ -2960,7 +2977,8 @@ public class Window extends Container implements Accessible {
      * Writes a list of child windows as optional data.
      * Writes a list of icon images as optional data
      *
-     * @param s the {@code ObjectOutputStream} to write
+     * @param  s the {@code ObjectOutputStream} to write
+     * @throws IOException if an I/O error occurs
      * @serialData {@code null} terminated sequence of
      *    0 or more pairs; the pair consists of a {@code String}
      *    and {@code Object}; the {@code String}
@@ -2978,6 +2996,7 @@ public class Window extends Container implements Accessible {
      * @see Component#ownedWindowK
      * @see #readObject(ObjectInputStream)
      */
+    @Serial
     private void writeObject(ObjectOutputStream s) throws IOException {
         synchronized (this) {
             // Update old focusMgr fields so that our object stream can be read
@@ -3115,13 +3134,16 @@ public class Window extends Container implements Accessible {
      * (possibly {@code null}) child windows.
      * Unrecognized keys or values will be ignored.
      *
-     * @param s the {@code ObjectInputStream} to read
-     * @exception HeadlessException if
-     *   {@code GraphicsEnvironment.isHeadless} returns
-     *   {@code true}
+     * @param  s the {@code ObjectInputStream} to read
+     * @throws ClassNotFoundException if the class of a serialized object could
+     *         not be found
+     * @throws IOException if an I/O error occurs
+     * @throws HeadlessException if {@code GraphicsEnvironment.isHeadless()}
+     *         returns {@code true}
      * @see java.awt.GraphicsEnvironment#isHeadless
      * @see #writeObject
      */
+    @Serial
     private void readObject(ObjectInputStream s)
       throws ClassNotFoundException, IOException, HeadlessException
     {
@@ -3148,10 +3170,6 @@ public class Window extends Container implements Accessible {
 
          this.securityWarningWidth = 0;
          this.securityWarningHeight = 0;
-         this.securityWarningPointX = 2.0;
-         this.securityWarningPointY = 0.0;
-         this.securityWarningAlignmentX = RIGHT_ALIGNMENT;
-         this.securityWarningAlignmentY = TOP_ALIGNMENT;
 
          deserializeResources(s);
     }
@@ -3186,10 +3204,16 @@ public class Window extends Container implements Accessible {
      */
     protected class AccessibleAWTWindow extends AccessibleAWTContainer
     {
-        /*
-         * JDK 1.3 serialVersionUID
+        /**
+         * Use serialVersionUID from JDK 1.3 for interoperability.
          */
+        @Serial
         private static final long serialVersionUID = 4215068635060671780L;
+
+        /**
+         * Constructs an {@code AccessibleAWTWindow}.
+         */
+        protected AccessibleAWTWindow() {}
 
         /**
          * Get the role of this object.
@@ -3378,8 +3402,8 @@ public class Window extends Container implements Accessible {
      * Each time this method is called,
      * the existing buffer strategy for this component is discarded.
      * @param numBuffers number of buffers to create
-     * @exception IllegalArgumentException if numBuffers is less than 1.
-     * @exception IllegalStateException if the component is not displayable
+     * @throws IllegalArgumentException if numBuffers is less than 1.
+     * @throws IllegalStateException if the component is not displayable
      * @see #isDisplayable
      * @see #getBufferStrategy
      * @since 1.4
@@ -3399,11 +3423,11 @@ public class Window extends Container implements Accessible {
      * @param numBuffers number of buffers to create, including the front buffer
      * @param caps the required capabilities for creating the buffer strategy;
      * cannot be {@code null}
-     * @exception AWTException if the capabilities supplied could not be
+     * @throws AWTException if the capabilities supplied could not be
      * supported or met; this may happen, for example, if there is not enough
      * accelerated memory currently available, or if page flipping is specified
      * but not possible.
-     * @exception IllegalArgumentException if numBuffers is less than 1, or if
+     * @throws IllegalArgumentException if numBuffers is less than 1, or if
      * caps is {@code null}
      * @see #getBufferStrategy
      * @since 1.4
@@ -3450,6 +3474,10 @@ public class Window extends Container implements Accessible {
         return super.canContainFocusOwner(focusOwnerCandidate) && isFocusableWindow();
     }
 
+    /**
+     * {@code true} if this Window should appear at the default location,
+     * {@code false} if at the current location.
+     */
     private volatile boolean locationByPlatform = locationByPlatformProp;
 
 
@@ -3991,21 +4019,193 @@ public class Window extends Container implements Accessible {
         }
     }
 
-    private volatile boolean hasCustomDecoration;
-    private volatile List<Map.Entry<Shape, Integer>> customDecorHitTestSpots;
-    private volatile int customDecorTitleBarHeight = -1; // 0 can be a legal value when no title bar is expected
+    // ************************** Custom title bar support *******************************
 
-    // called from native
-    private int hitTestCustomDecoration(int x, int y) {
-        var spots = customDecorHitTestSpots;
-        if (spots == null) return CustomWindowDecoration.NO_HIT_SPOT;
-        for (var spot : spots) {
-            if (spot.getKey().contains(x, y)) return spot.getValue();
-        }
-        return CustomWindowDecoration.NO_HIT_SPOT;
+    private static class WindowDecorations {
+        WindowDecorations() { CustomTitleBar.assertSupported(); }
+        void setCustomTitleBar(Frame frame, CustomTitleBar customTitleBar) { ((Window) frame).setCustomTitleBar(customTitleBar); }
+        void setCustomTitleBar(Dialog dialog, CustomTitleBar customTitleBar) { ((Window) dialog).setCustomTitleBar(customTitleBar); }
+        CustomTitleBar createCustomTitleBar() { return new CustomTitleBar(); }
     }
 
+
+    private static class CustomTitleBar implements Serializable {
+        @Serial
+        private static final long serialVersionUID = -2330620200902241173L;
+
+        @Native
+        private static final int
+                HIT_UNDEFINED = 0,
+                HIT_TITLEBAR = 1,
+                HIT_CLIENT = 2,
+                HIT_MINIMIZE_BUTTON = 3,
+                HIT_MAXIMIZE_BUTTON = 4,
+                HIT_CLOSE_BUTTON = 5;
+
+        private static void assertSupported() {
+            if (CustomTitleBarPeer.INSTANCE == null) {
+                throw new JBRApi.ServiceNotAvailableException("Only supported on Windows and macOS");
+            }
+        }
+
+        private volatile Window window;
+        private float height;
+        private HashMap<String, Object> properties;
+        private final float[] insets = new float[2];
+
+        private float getHeight() { return height; }
+        private void setHeight(float height) {
+            if (height <= 0.0f) throw new IllegalArgumentException("TitleBar height must be positive");
+            this.height = height;
+            notifyUpdate();
+        }
+        private Map<String, Object> getProperties() {
+            return properties != null ? Collections.unmodifiableMap(properties) : Collections.emptyMap();
+        }
+        private void putProperties(Map<String, ?> m) {
+            if (properties == null) properties = new HashMap<>();
+            properties.putAll(m);
+            notifyUpdate();
+        }
+        private void putProperty(String key, Object value) {
+            if (properties == null) properties = new HashMap<>();
+            properties.put(key, value);
+            notifyUpdate();
+        }
+        private float getLeftInset() { return insets[0]; }
+        private float getRightInset() { return insets[1]; }
+        private void forceHitTest(boolean client) {
+            Window w = window;
+            if (w != null) {
+                w.pendingCustomTitleBarHitTest = client ? CustomTitleBar.HIT_CLIENT : CustomTitleBar.HIT_TITLEBAR;
+                w.applyCustomTitleBarHitTest();
+            }
+        }
+        private Window getContainingWindow() { return window; }
+
+        private void notifyUpdate() {
+            // Do not synchronize on itself to prevent possible deadlocks, synchronize on parent window instead.
+            Window w = window;
+            if (w != null) {
+                synchronized (w) {
+                    if (w == window) w.setCustomTitleBar(this);
+                }
+            }
+        }
+    }
+
+    private CustomTitleBar customTitleBar;
+
+    /**
+     * Convenience method for JNI access.
+     * @return 0 if there's no custom title bar, >0 otherwise.
+     */
+    private float internalCustomTitleBarHeight() {
+        CustomTitleBar t = customTitleBar;
+        return t != null ? t.getHeight() : 0.0f;
+    }
+    /**
+     * Convenience method for JNI access.
+     * @return true if custom title bar controls are visible.
+     */
+    private boolean internalCustomTitleBarControlsVisible() {
+        CustomTitleBar t = customTitleBar;
+        return t == null || Boolean.TRUE.equals(t.getProperties().getOrDefault("controls.visible", Boolean.TRUE));
+    }
+    /**
+     * Convenience method for JNI access.
+     */
+    private void internalCustomTitleBarUpdateInsets(float left, float right) {
+        CustomTitleBar t = customTitleBar;
+        if (t != null) {
+            t.insets[0] = left;
+            t.insets[1] = right;
+        }
+    }
+
+    private interface CustomTitleBarPeer {
+        CustomTitleBarPeer INSTANCE = (CustomTitleBarPeer) JBRApi.internalServiceBuilder(MethodHandles.lookup())
+                .withStatic("update", "updateCustomTitleBar", "sun.awt.windows.WFramePeer", "sun.lwawt.macosx.CPlatformWindow").build();
+        void update(ComponentPeer peer);
+    }
+
+    private synchronized void setCustomTitleBar(CustomTitleBar t) {
+        if (t != null && t.getHeight() <= 0.0f) throw new IllegalArgumentException("TitleBar height must be positive");
+        if (customTitleBar != null && customTitleBar != t) {
+            customTitleBar.window = null;
+            customTitleBar.insets[0] = customTitleBar.insets[1] = 0;
+        }
+        customTitleBar = t;
+        if (t != null) t.window = this;
+        if (CustomTitleBarPeer.INSTANCE != null) {
+            CustomTitleBarPeer.INSTANCE.update(peer);
+        }
+    }
+
+    /**
+     * Used to allow/prevent native title bar actions: window drag and double-click maximization.
+     */
+    private transient volatile int customTitleBarHitTest = CustomTitleBar.HIT_UNDEFINED;
+    /**
+     * Temporary value which will eventually substitute {@code customTitleBarHitTest}.
+     * @see #applyCustomTitleBarHitTest()
+     */
+    private transient int pendingCustomTitleBarHitTest = CustomTitleBar.HIT_UNDEFINED;
+    /**
+     * Unlike {@code customTitleBarHitTest}, {@code customTitleBarHitTestQuery} is not updated on each mouse event.
+     * Reset this to {@code CustomTitleBar.HIT_UNDEFINED} and it will be set and fixed on the next hit test update.
+     */
+    private transient volatile int customTitleBarHitTestQuery = CustomTitleBar.HIT_UNDEFINED;
+
+    @Override
+    Window updateCustomTitleBarHitTest(boolean allowNativeActions) {
+        if (customTitleBar == null) return null;
+        pendingCustomTitleBarHitTest = allowNativeActions ? CustomTitleBar.HIT_TITLEBAR : CustomTitleBar.HIT_CLIENT;
+        if (customDecorHitTestSpots != null) { // Compatibility bridge, to be removed with old API
+            Point p = getMousePosition(true);
+            if (p == null) return this;
+            // Perform old-style hit test
+            int result = CustomWindowDecoration.NO_HIT_SPOT;
+            for (var spot : customDecorHitTestSpots) {
+                if (spot.getKey().contains(p.x, p.y)) {
+                    result = spot.getValue();
+                    break;
+                }
+            }
+            // Convert old hit test value to new one
+            pendingCustomTitleBarHitTest = switch (result) {
+                case CustomWindowDecoration.MINIMIZE_BUTTON -> CustomTitleBar.HIT_MINIMIZE_BUTTON;
+                case CustomWindowDecoration.MAXIMIZE_BUTTON -> CustomTitleBar.HIT_MAXIMIZE_BUTTON;
+                case CustomWindowDecoration.CLOSE_BUTTON -> CustomTitleBar.HIT_CLOSE_BUTTON;
+                case CustomWindowDecoration.NO_HIT_SPOT, CustomWindowDecoration.DRAGGABLE_AREA -> CustomTitleBar.HIT_TITLEBAR;
+                default -> CustomTitleBar.HIT_CLIENT;
+            };
+            // Overwrite hit test value
+            applyCustomTitleBarHitTest();
+        }
+        return this;
+    }
+
+    void applyCustomTitleBarHitTest() {
+        // Normally this will only be updated on EDT, so we don't care about non-atomic update.
+        if (customTitleBarHitTestQuery == CustomTitleBar.HIT_UNDEFINED) {
+            customTitleBarHitTestQuery = pendingCustomTitleBarHitTest;
+        }
+        customTitleBarHitTest = pendingCustomTitleBarHitTest;
+    }
+
+    // *** Following custom decorations code is kept for backward compatibility and will be removed soon. ***
+
+    @Deprecated
+    private transient volatile boolean hasCustomDecoration;
+    @Deprecated
+    private transient volatile List<Map.Entry<Shape, Integer>> customDecorHitTestSpots;
+    @Deprecated
+    private transient volatile int customDecorTitleBarHeight = -1; // 0 can be a legal value when no title bar is expected
+    @Deprecated
     private static class CustomWindowDecoration {
+
+        CustomWindowDecoration() { CustomTitleBar.assertSupported(); }
 
         @Native public static final int
                 NO_HIT_SPOT = 0,
@@ -4013,10 +4213,12 @@ public class Window extends Container implements Accessible {
                 MINIMIZE_BUTTON = 2,
                 MAXIMIZE_BUTTON = 3,
                 CLOSE_BUTTON = 4,
-                MENU_BAR = 5;
+                MENU_BAR = 5,
+                DRAGGABLE_AREA = 6;
 
         void setCustomDecorationEnabled(Window window, boolean enabled) {
             window.hasCustomDecoration = enabled;
+            setTitleBar(window, enabled ? Math.max(window.customDecorTitleBarHeight, 0.01f) : 0);
         }
         boolean isCustomDecorationEnabled(Window window) {
             return window.hasCustomDecoration;
@@ -4030,25 +4232,32 @@ public class Window extends Container implements Accessible {
         }
 
         void setCustomDecorationTitleBarHeight(Window window, int height) {
-            if (height >= 0) window.customDecorTitleBarHeight = height;
+            window.customDecorTitleBarHeight = height;
+            setTitleBar(window, window.hasCustomDecoration ? Math.max(height, 0.01f) : 0);
         }
         int getCustomDecorationTitleBarHeight(Window window) {
             return window.customDecorTitleBarHeight;
         }
+
+        // Bridge from old to new API
+        private static void setTitleBar(Window window, float height) {
+            if (height <= 0.0f) window.setCustomTitleBar(null);
+            else {
+                CustomTitleBar t = new CustomTitleBar();
+                // Old API accepts title bar height with insets, subtract it for new API.
+                // We use bottom insets here because top insets may change when toggling custom title bar, they are usually equal.
+                if (window instanceof Frame f && (f.getExtendedState() & Frame.MAXIMIZED_BOTH) != 0) {
+                    height -= window.getInsets().bottom;
+                }
+                t.setHeight(Math.max(height, 0.01f));
+                // In old API versions there were no control buttons on Windows.
+                if (System.getProperty("os.name").toLowerCase().contains("win")) t.putProperty("controls.visible", false);
+                window.setCustomTitleBar(t);
+            }
+        }
     }
 
-    @Deprecated
-    boolean hasCustomDecoration() {
-        return hasCustomDecoration;
-    }
-
-    /**
-     * Set via reflection (JB JdkEx API).
-     */
-    @Deprecated
-    void setHasCustomDecoration() {
-        hasCustomDecoration = true;
-    }
+    // ************************** JBR stuff *******************************
 
     private volatile boolean ignoreMouseEvents;
 
@@ -4076,7 +4285,7 @@ public class Window extends Container implements Accessible {
         hasTabbingMode = true;
     }
 
-    private volatile Runnable moveTabToNewWindowCallback;
+    private transient volatile Runnable moveTabToNewWindowCallback;
 
     void runMoveTabToNewWindowCallback() {
         if (moveTabToNewWindowCallback != null) {
@@ -4156,9 +4365,9 @@ public class Window extends Container implements Accessible {
     private Point2D calculateSecurityWarningPosition(double x, double y,
             double w, double h)
     {
-        // The position according to the spec of SecurityWarning.setPosition()
-        double wx = x + w * securityWarningAlignmentX + securityWarningPointX;
-        double wy = y + h * securityWarningAlignmentY + securityWarningPointY;
+         // The desired location for the security warning
+        double wx = x + w * RIGHT_ALIGNMENT + 2.0;
+        double wy = y + h * TOP_ALIGNMENT + 0.0;
 
         // First, make sure the warning is not too far from the window bounds
         wx = Window.limit(wx,
@@ -4189,35 +4398,32 @@ public class Window extends Container implements Accessible {
 
     static {
         AWTAccessor.setWindowAccessor(new AWTAccessor.WindowAccessor() {
+            private static final boolean isWLToolkit = Toolkit.getDefaultToolkit()
+                    .getClass().getName().equals("sun.awt.wl.WLToolkit");
             public void updateWindow(Window window) {
                 window.updateWindow();
             }
 
-            public Dimension getSecurityWarningSize(Window window) {
-                return new Dimension(window.securityWarningWidth,
-                        window.securityWarningHeight);
+            public boolean needUpdateWindowAfterPaint(Window window) {
+                return window != null && isWLToolkit;
+            }
+
+            public boolean needUpdateWindow(Window window) {
+                return window != null && (isWLToolkit || !window.isOpaque());
+            }
+
+            public void setPopupParent(Window window, Component component) {
+                window.popupParent = component;
+            }
+
+            public Component getPopupParent(Window window) {
+                return window.popupParent;
             }
 
             public void setSecurityWarningSize(Window window, int width, int height)
             {
                 window.securityWarningWidth = width;
                 window.securityWarningHeight = height;
-            }
-
-            public void setSecurityWarningPosition(Window window,
-                    Point2D point, float alignmentX, float alignmentY)
-            {
-                window.securityWarningPointX = point.getX();
-                window.securityWarningPointY = point.getY();
-                window.securityWarningAlignmentX = alignmentX;
-                window.securityWarningAlignmentY = alignmentY;
-
-                synchronized (window.getTreeLock()) {
-                    WindowPeer peer = (WindowPeer) window.peer;
-                    if (peer != null) {
-                        peer.repositionSecurityWarning();
-                    }
-                }
             }
 
             public Point2D calculateSecurityWarningPosition(Window window,
@@ -4263,8 +4469,9 @@ class FocusManager implements java.io.Serializable {
     Container focusRoot;
     Component focusOwner;
 
-    /*
-     * JDK 1.1 serialVersionUID
+    /**
+     * Use serialVersionUID from JDK 1.1 for interoperability.
      */
-    static final long serialVersionUID = 2491878825643557906L;
+    @Serial
+    private static final long serialVersionUID = 2491878825643557906L;
 }

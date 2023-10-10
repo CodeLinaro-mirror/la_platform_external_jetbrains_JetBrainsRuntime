@@ -387,7 +387,7 @@ HandleError(Display * disp, XErrorEvent * err) {
     XGetErrorText(disp, err->error_code, msg, sizeof(msg));
     fprintf(stderr, "Xerror %s, XID %x, ser# %d\n", msg, err->resourceid,
         err->serial);
-    sprintf(buf, "%d", err->request_code);
+    snprintf(buf, sizeof(buf), "%d", err->request_code);
     XGetErrorDatabaseText(disp, "XRequest", buf, "Unknown", msg, sizeof(msg));
     fprintf(stderr, "Major opcode %d (%s)\n", err->request_code, msg);
     if (err->request_code > 128) {
@@ -405,7 +405,7 @@ HandleIOError(Display * display) {
     return 0;
 }
 
-void
+int
 SplashInitPlatform(Splash * splash) {
     int shapeVersionMajor, shapeVersionMinor;
 
@@ -424,7 +424,7 @@ SplashInitPlatform(Splash * splash) {
     splash->display = XOpenDisplay(NULL);
     if (!splash->display) {
         splash->isVisible = -1;
-        return;
+        return 0;
     }
 
     shapeSupported = XShapeQueryExtension(splash->display, &shapeEventBase,
@@ -474,7 +474,7 @@ SplashInitPlatform(Splash * splash) {
                 splash->screen = NULL;
                 splash->visual = NULL;
                 fprintf(stderr, "Warning: unable to initialize the splashscreen. Not enough available color cells.\n");
-                return;
+                return 0;
             }
             splash->cmap = AllocColors(splash->display, splash->screen,
                     numColors, colorIndex);
@@ -506,6 +506,7 @@ SplashInitPlatform(Splash * splash) {
     default:
         ; /* FIXME: should probably be fixed, but javaws splash screen doesn't support other visuals either */
     }
+    return 1;
 }
 
 
@@ -754,7 +755,7 @@ SplashScreenThread(void *param) {
         XMapRaised(splash->display, splash->window);
         SplashUpdateShape(splash);
         SplashRedrawWindow(splash);
-        //map the splash co-ordinates as per system scale
+        //map the splash coordinates as per system scale
         splash->x /= splash->scaleFactor;
         splash->y /= splash->scaleFactor;
         SplashEventLoop(splash);

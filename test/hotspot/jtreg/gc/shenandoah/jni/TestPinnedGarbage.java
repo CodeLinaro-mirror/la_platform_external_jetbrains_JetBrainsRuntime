@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2018, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -21,10 +22,11 @@
  *
  */
 
-/* @test TestPinnedGarbage
+/* @test id=passive
  * @summary Test that garbage in the pinned region does not crash VM
- * @key gc
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @key randomness
+ * @requires vm.gc.Shenandoah
+ * @library /test/lib
  *
  * @run main/othervm/native -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx128m
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCMode=passive
@@ -37,15 +39,22 @@
  *      TestPinnedGarbage
  */
 
-/* @test TestPinnedGarbage
+/* @test id=aggressive
  * @summary Test that garbage in the pinned region does not crash VM
- * @key gc
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @key randomness
+ * @requires vm.gc.Shenandoah
+ * @library /test/lib
  *
  * @run main/othervm/native -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx128m
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=aggressive
  *      TestPinnedGarbage
- *
+ */
+
+/* @test id=verify
+ * @summary Test that garbage in the pinned region does not crash VM
+ * @key randomness
+ * @requires vm.gc.Shenandoah
+ * @library /test/lib
  * @run main/othervm/native -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx128m
  *      -XX:+UseShenandoahGC
  *      -XX:+ShenandoahVerify
@@ -53,7 +62,8 @@
  */
 
 import java.util.Arrays;
-import java.util.concurrent.*;
+import java.util.Random;
+import jdk.test.lib.Utils;
 
 public class TestPinnedGarbage {
     static {
@@ -68,13 +78,13 @@ public class TestPinnedGarbage {
     private static native void unpin(int[] a);
 
     public static void main(String[] args) {
-        ThreadLocalRandom rng = ThreadLocalRandom.current();
+        Random rng = Utils.getRandomInstance();
         for (int i = 0; i < NUM_RUNS; i++) {
             test(rng);
         }
     }
 
-    private static void test(ThreadLocalRandom rng) {
+    private static void test(Random rng) {
         Object[] objs = new Object[OBJS_COUNT];
         for (int i = 0; i < OBJS_COUNT; i++) {
             objs[i] = new MyClass();

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,9 +31,7 @@
 /*
    SipHash reference C implementation
 
-   Copyright (c) 2012-2021 Jean-Philippe Aumasson
-   <jeanphilippe.aumasson@gmail.com>
-   Copyright (c) 2012-2014 Daniel J. Bernstein <djb@cr.yp.to>
+   Copyright (c) 2016 Jean-Philippe Aumasson <jeanphilippe.aumasson@gmail.com>
 
    To the extent possible under law, the author(s) have dedicated all copyright
    and related and neighboring rights to this software to the public domain
@@ -47,8 +45,9 @@
 
 #include "precompiled.hpp"
 #include "classfile/altHashing.hpp"
-#include "classfile/systemDictionary.hpp"
-#include "oops/markOop.hpp"
+#include "classfile/vmClasses.hpp"
+#include "oops/klass.inline.hpp"
+#include "oops/markWord.hpp"
 #include "oops/oop.inline.hpp"
 #include "runtime/os.hpp"
 
@@ -57,8 +56,8 @@
 // objects.  We don't want to call the synchronizer hash code to install
 // this value because it may safepoint.
 static intptr_t object_hash(Klass* k) {
-  intptr_t hc = k->java_mirror()->mark()->hash();
-  return hc != markOopDesc::no_hash ? hc : os::random();
+  intptr_t hc = k->java_mirror()->mark().hash();
+  return hc != markWord::no_hash ? hc : os::random();
 }
 
 // Seed value used for each alternative hash calculated.
@@ -66,8 +65,8 @@ uint64_t AltHashing::compute_seed() {
   uint64_t nanos = os::javaTimeNanos();
   uint64_t now = os::javaTimeMillis();
   uint32_t SEED_MATERIAL[8] = {
-            (uint32_t) object_hash(SystemDictionary::String_klass()),
-            (uint32_t) object_hash(SystemDictionary::System_klass()),
+            (uint32_t) object_hash(vmClasses::String_klass()),
+            (uint32_t) object_hash(vmClasses::System_klass()),
             (uint32_t) os::random(),  // current thread isn't a java thread
             (uint32_t) (((uint64_t)nanos) >> 32),
             (uint32_t) nanos,

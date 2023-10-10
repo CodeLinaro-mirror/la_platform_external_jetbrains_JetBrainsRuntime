@@ -66,7 +66,7 @@ import com.sun.jndi.toolkit.url.UrlUtil;
  * This class also supports ldaps URLs.
  */
 
-final public class LdapURL extends Uri {
+public final class LdapURL extends Uri {
 
     private static final String PARSE_MODE_PROP = "com.sun.jndi.ldapURLParsing";
     private static final ParseMode DEFAULT_PARSE_MODE = ParseMode.COMPAT;
@@ -256,7 +256,7 @@ final public class LdapURL extends Uri {
 
         // path begins with a '/' or is empty
 
-        if (path.equals("")) {
+        if (path.isEmpty()) {
             return;
         }
 

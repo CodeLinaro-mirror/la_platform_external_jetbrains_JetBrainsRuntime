@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,7 +29,6 @@
 
 package sun.java2d.loops;
 
-import sun.java2d.loops.GraphicsPrimitive;
 import sun.java2d.SunGraphics2D;
 import sun.java2d.SurfaceData;
 
@@ -79,15 +78,6 @@ public class FillParallelogram extends GraphicsPrimitive
                                          double dx1, double dy1,
                                          double dx2, double dy2);
 
-    public GraphicsPrimitive makePrimitive(SurfaceType srctype,
-                                           CompositeType comptype,
-                                           SurfaceType dsttype)
-    {
-        // REMIND: iterate with a FillRect primitive?
-        throw new InternalError("FillParallelogram not implemented for "+
-                                srctype+" with "+comptype);
-    }
-
     public GraphicsPrimitive traceWrap() {
         return new TraceFillParallelogram(this);
     }
@@ -111,12 +101,8 @@ public class FillParallelogram extends GraphicsPrimitive
                                       double dx1, double dy1,
                                       double dx2, double dy2)
         {
-            if ((traceflags & TRACEPTIME) == 0) {
-                tracePrimitive(target);
-            }
-            long time = System.nanoTime();
+            tracePrimitive(target);
             target.FillParallelogram(sg2d, dest, x0, y0, dx1, dy1, dx2, dy2);
-            tracePrimitiveTime(target, System.nanoTime() - time);
         }
     }
 }

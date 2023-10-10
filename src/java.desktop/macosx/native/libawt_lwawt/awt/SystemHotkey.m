@@ -445,11 +445,12 @@ void readSystemHotkeysImpl(Visitor visitorBlock) {
     }
 }
 
-bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, NSString * chars) {
+bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, int keyCode, NSString * chars) {
     const int shortcutUid_NextWindowInApplication = 27;
     static NSString * shortcutCharacter = nil;
     static int shortcutMask = 0;
-    if (shortcutCharacter == nil) {
+    static int shortcutKeyCode = -1;
+    if (shortcutCharacter == nil && shortcutKeyCode == -1) {
         readSystemHotkeysImpl(
             ^bool(int vkeyCode, const char * keyCharStr, int jmodifiers, const char * descriptionStr, int hotkeyUid) {
                 if (hotkeyUid != shortcutUid_NextWindowInApplication)
@@ -457,23 +458,35 @@ bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, NSString
 
                 if (keyCharStr != NULL) {
                     shortcutCharacter = [[NSString stringWithFormat:@"%s", keyCharStr] retain];
-                    shortcutMask = javaModifiers2NS(jmodifiers);
                 }
+
+                if (vkeyCode != -1) {
+                    shortcutKeyCode = vkeyCode;
+                }
+
+                shortcutMask = javaModifiers2NS(jmodifiers);
                 return false;
             }
         );
-        if (shortcutCharacter == nil) {
+        if (shortcutCharacter == nil && shortcutKeyCode == -1) {
             shortcutCharacter = @"`";
             shortcutMask = NSCommandKeyMask;
         }
     }
 
-    return ((modifiersMask == shortcutMask)
-        || (modifiersMask == (shortcutMask & NSShiftKeyMask)))
-        && [chars isEqualToString:shortcutCharacter];
+    int ignoredModifiers = NSAlphaShiftKeyMask | NSFunctionKeyMask | NSNumericPadKeyMask | NSHelpKeyMask;
+    // Ignore Shift because of JBR-4899.
+    if (!(shortcutMask & NSShiftKeyMask)) {
+        ignoredModifiers |= NSShiftKeyMask;
+    }
+    if ((modifiersMask & ~ignoredModifiers) == shortcutMask) {
+        return shortcutKeyCode == keyCode || [chars isEqualToString:shortcutCharacter];
+    }
+
+    return false;
 }
 
-void Java_java_awt_desktop_SystemHotkeyReader_readSystemHotkeys(JNIEnv* env, jobject reader) {
+JNIEXPORT void JNICALL Java_java_awt_desktop_SystemHotkeyReader_readSystemHotkeys(JNIEnv* env, jobject reader) {
     jclass clsReader = (*env)->GetObjectClass(env, reader);
     jmethodID methodAdd = (*env)->GetMethodID(env, clsReader, "add", "(ILjava/lang/String;ILjava/lang/String;)V");
 
@@ -489,7 +502,7 @@ void Java_java_awt_desktop_SystemHotkeyReader_readSystemHotkeys(JNIEnv* env, job
     );
 }
 
-jint Java_java_awt_desktop_SystemHotkeyReader_osx2java(JNIEnv* env, jclass clazz, jint osxKeyCode) {
+JNIEXPORT jint JNICALL Java_java_awt_desktop_SystemHotkeyReader_osx2java(JNIEnv* env, jclass clazz, jint osxKeyCode) {
     static NSDictionary * osx2javaMap = nil;
     if (osx2javaMap == nil) {
         osx2javaMap = [NSDictionary dictionaryWithObjectsAndKeys:
@@ -619,7 +632,7 @@ jint Java_java_awt_desktop_SystemHotkeyReader_osx2java(JNIEnv* env, jclass clazz
     return java_awt_event_KeyEvent_VK_UNDEFINED;
 }
 
-jstring Java_java_awt_desktop_SystemHotkey_osxKeyCodeDescription(JNIEnv* env, jclass clazz, jint osxKeyCode) {
+JNIEXPORT jstring JNICALL Java_java_awt_desktop_SystemHotkey_osxKeyCodeDescription(JNIEnv* env, jclass clazz, jint osxKeyCode) {
     static NSDictionary * osxCode2DescMap = nil;
     if (osxCode2DescMap == nil) {
         osxCode2DescMap = [NSDictionary dictionaryWithObjectsAndKeys:

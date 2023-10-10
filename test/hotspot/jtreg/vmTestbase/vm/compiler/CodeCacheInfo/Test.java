@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,27 +33,43 @@
  *
  * @library /vmTestbase
  *          /test/lib
- * @run driver vm.compiler.CodeCacheInfo.Test
+ * @build jdk.test.whitebox.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
+ * @run main/othervm
+ *      -Xmixed
+ *      -Xbootclasspath/a:.
+ *      -XX:+UnlockDiagnosticVMOptions
+ *      -XX:+WhiteBoxAPI
+ *      vm.compiler.CodeCacheInfo.Test
  */
 
 package vm.compiler.CodeCacheInfo;
 
+import jdk.test.whitebox.WhiteBox;
 import jdk.test.lib.process.OutputAnalyzer;
 import jdk.test.lib.process.ProcessTools;
 
 public class Test {
-    private static String p1 = " size=\\d+Kb used=\\d+Kb max_used=\\d+Kb free=\\d+Kb\\n";
-    private static String p2 = " bounds \\[0x[0-9a-f]+, 0x[0-9a-f]+, 0x[0-9a-f]+\\]\\n";
-    private static String p3 = " total_blobs=\\d+ nmethods=\\d+ adapters=\\d+\\n";
-    private static String p4 = " compilation: enabled\\n";
+    private static final String SEG_REGEXP;
+    private static final String NOSEG_REGEXP;
 
-    private static String SEG_REGEXP = "^(CodeHeap '[^']+':" + p1 + p2 + ")+" + p3 + p4;
-    private static String NOSEG_REGEXP = "^CodeCache:" + p1 + p2 + p3 + p4;
+    static {
+        String p1 = " size=\\d+Kb used=\\d+Kb max_used=\\d+Kb free=\\d+Kb\\n";
+        String p2 = " bounds \\[0x[0-9a-f]+, 0x[0-9a-f]+, 0x[0-9a-f]+\\]\\n";
+        String p3 = " total_blobs=\\d+ nmethods=\\d+ adapters=\\d+\\n";
+        String p4 = " compilation: enabled\\n";
+
+        String segPrefix = "^(CodeHeap '[^']+':" + p1 + p2 + ")+";
+        String nosegPrefix = "^CodeCache:" + p1 + p2;
+
+        SEG_REGEXP = segPrefix + p3 + p4;
+        NOSEG_REGEXP = nosegPrefix + p3 + p4;
+    }
 
     public static void main(String[] args) throws Exception {
         {
             System.out.println("SegmentedCodeCache is enabled");
-            var pb = ProcessTools.createJavaProcessBuilder(true,
+            var pb = ProcessTools.createTestJvm(
                     "-XX:+SegmentedCodeCache",
                     "-XX:+PrintCodeCache",
                     "-version");
@@ -63,7 +79,7 @@ public class Test {
         }
         {
             System.out.println("SegmentedCodeCache is disabled");
-            var pb = ProcessTools.createJavaProcessBuilder(true,
+            var pb = ProcessTools.createTestJvm(
                     "-XX:-SegmentedCodeCache",
                     "-XX:+PrintCodeCache",
                     "-version");

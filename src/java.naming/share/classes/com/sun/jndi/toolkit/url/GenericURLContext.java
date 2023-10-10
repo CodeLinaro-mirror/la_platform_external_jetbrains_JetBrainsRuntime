@@ -49,7 +49,7 @@ import com.sun.jndi.toolkit.url.Uri.ParseMode;
  * @author Scott Seligman
  * @author Rosanna Lee
  */
-abstract public class GenericURLContext implements Context {
+public abstract class GenericURLContext implements Context {
 
     protected Hashtable<String, Object> myEnv = null;
 
@@ -79,7 +79,7 @@ abstract public class GenericURLContext implements Context {
       * getRootURLContext(), getURLPrefix(), and getURLSuffix()
       * must be in sync wrt how URLs are parsed and returned.
       */
-    abstract protected ResolveResult getRootURLContext(String url,
+    protected abstract ResolveResult getRootURLContext(String url,
         Hashtable<?,?> env) throws NamingException;
 
     /**
@@ -489,9 +489,9 @@ abstract public class GenericURLContext implements Context {
 
     public String composeName(String name, String prefix)
         throws NamingException {
-            if (prefix.equals("")) {
+            if (prefix.isEmpty()) {
                 return name;
-            } else if (name.equals("")) {
+            } else if (name.isEmpty()) {
                 return prefix;
             } else {
                 return (prefix + "/" + name);

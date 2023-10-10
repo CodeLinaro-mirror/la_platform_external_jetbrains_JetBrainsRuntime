@@ -38,13 +38,16 @@ import static java.awt.Color.*;
  * @test
  * @key headful
  * @summary Check that increasing alpha of text on white background produces letters with decreasing brightness.
- * @run main AlphaTextRender
+ *  Test runs two times to test accelerated OGL and Metal text rendering.
+ * @run main/othervm -Dsun.java2d.metal=False AlphaTextRender
+ * @run main/othervm -Dsun.java2d.metal=True AlphaTextRender
  */
 
 public class AlphaTextRender {
   final static int WIDTH = 150;
   final static int HEIGHT = 200;
-  final static File img = new File("t-alpha.png");
+  final static File mtlImg = new File("t-alpha-metal.png");
+  final static File oglImg = new File("t-alpha-ogl.png");
 
   public static void main(final String[] args) throws IOException {
 
@@ -110,7 +113,7 @@ public class AlphaTextRender {
         int dg = Math.abs(c1.getGreen() - WHITE.getGreen());
         int db = Math.abs(c1.getBlue() - WHITE.getBlue());
 
-        // Skip background and pick color with maximal local brightness
+        // Skip background and pick
         if (dr + dg + db > 0) {
           if (!spike) {
             lmr = c1.getRed();
@@ -146,7 +149,12 @@ public class AlphaTextRender {
     }
 
     if (errors > 0) {
-      ImageIO.write(br, "png", img);
+      String opt = System.getProperty("sun.java2d.metal");
+      if (("true".equals(opt) || "True".equals(opt))) {
+        ImageIO.write(br, "png", mtlImg);
+      } else {
+        ImageIO.write(br, "png", oglImg);
+      }
       throw new RuntimeException("Translucent text errors found: " + errors);
     }
   }

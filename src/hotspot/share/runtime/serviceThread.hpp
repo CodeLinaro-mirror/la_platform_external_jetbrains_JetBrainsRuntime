@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,20 +22,21 @@
  *
  */
 
-#ifndef SHARE_VM_RUNTIME_SERVICETHREAD_HPP
-#define SHARE_VM_RUNTIME_SERVICETHREAD_HPP
+#ifndef SHARE_RUNTIME_SERVICETHREAD_HPP
+#define SHARE_RUNTIME_SERVICETHREAD_HPP
 
 #include "prims/jvmtiImpl.hpp"
-#include "runtime/thread.hpp"
+#include "runtime/javaThread.hpp"
 
-// A JavaThread for low memory detection support and JVMTI
-// compiled-method-load events.
+// A hidden from external view JavaThread for JVMTI compiled-method-load
+// events, oop storage cleanup, and the maintenance of string, symbol,
+// protection domain, and resolved method tables.
 class JvmtiDeferredEvent;
 
 class ServiceThread : public JavaThread {
   friend class VMStructs;
  private:
-  static ServiceThread* _instance;
+  DEBUG_ONLY(static JavaThread* _instance;)
   static JvmtiDeferredEvent* _jvmti_event;
   static JvmtiDeferredEventQueue _jvmti_service_queue;
 
@@ -53,8 +54,8 @@ class ServiceThread : public JavaThread {
   static void enqueue_deferred_event(JvmtiDeferredEvent* event);
 
   // GC support
-  void oops_do(OopClosure* f, CodeBlobClosure* cf);
+  void oops_do_no_frames(OopClosure* f, CodeBlobClosure* cf);
   void nmethods_do(CodeBlobClosure* cf);
 };
 
-#endif // SHARE_VM_RUNTIME_SERVICETHREAD_HPP
+#endif // SHARE_RUNTIME_SERVICETHREAD_HPP

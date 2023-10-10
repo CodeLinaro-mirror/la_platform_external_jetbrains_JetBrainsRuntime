@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,7 @@
 
 package java.util;
 
-import jdk.internal.misc.SharedSecrets;
+import jdk.internal.access.SharedSecrets;
 
 /**
  * A specialized {@link Set} implementation for use with enum types.  All of
@@ -72,30 +72,28 @@ import jdk.internal.misc.SharedSecrets;
  * <a href="{@docRoot}/java.base/java/util/package-summary.html#CollectionsFramework">
  * Java Collections Framework</a>.
  *
+ * @param <E> the enum type of elements maintained by this set
+ *
  * @author Josh Bloch
  * @since 1.5
  * @see EnumMap
  */
-@SuppressWarnings("serial") // No serialVersionUID declared
-public abstract class EnumSet<E extends Enum<E>> extends AbstractSet<E>
-    implements Cloneable, java.io.Serializable
+public abstract sealed class EnumSet<E extends Enum<E>> extends AbstractSet<E>
+    implements Cloneable, java.io.Serializable permits JumboEnumSet, RegularEnumSet
 {
-    // The following must be present in order to preserve the same computed
-    // serialVersionUID value as JDK 8, and to prevent the appearance of
-    // the fields in the Serialized Form documentation. See JDK-8227368.
-    static Enum<?>[] access$000() { return null; }
-    private static final java.io.ObjectStreamField[] serialPersistentFields
-        = new java.io.ObjectStreamField[0];
+    // declare EnumSet.class serialization compatibility with JDK 8
+    @java.io.Serial
+    private static final long serialVersionUID = 1009687484059888093L;
 
     /**
      * The class of all the elements of this set.
      */
-    final Class<E> elementType;
+    final transient Class<E> elementType;
 
     /**
      * All of the values comprising E.  (Cached for performance.)
      */
-    final Enum<?>[] universe;
+    final transient Enum<?>[] universe;
 
     EnumSet(Class<E>elementType, Enum<?>[] universe) {
         this.elementType = elementType;
@@ -454,6 +452,7 @@ public abstract class EnumSet<E extends Enum<E>> extends AbstractSet<E>
          * held by this proxy
          */
         @SuppressWarnings("unchecked")
+        @java.io.Serial
         private Object readResolve() {
             // instead of cast to E, we should perhaps use elementType.cast()
             // to avoid injection of forged stream, but it will slow the
@@ -464,27 +463,41 @@ public abstract class EnumSet<E extends Enum<E>> extends AbstractSet<E>
             return result;
         }
 
+        @java.io.Serial
         private static final long serialVersionUID = 362491234563181265L;
     }
 
     /**
      * Returns a
-     * <a href="../../serialized-form.html#java.util.EnumSet.SerializationProxy">
+     * <a href="{@docRoot}/serialized-form.html#java.util.EnumSet.SerializationProxy">
      * SerializationProxy</a>
      * representing the state of this instance.
      *
      * @return a {@link SerializationProxy}
      * representing the state of this instance
      */
+    @java.io.Serial
     Object writeReplace() {
         return new SerializationProxy<>(this);
     }
 
     /**
+     * Throws {@code InvalidObjectException}.
      * @param s the stream
      * @throws java.io.InvalidObjectException always
      */
+    @java.io.Serial
     private void readObject(java.io.ObjectInputStream s)
+        throws java.io.InvalidObjectException {
+        throw new java.io.InvalidObjectException("Proxy required");
+    }
+
+    /**
+     * Throws {@code InvalidObjectException}.
+     * @throws java.io.InvalidObjectException always
+     */
+    @java.io.Serial
+    private void readObjectNoData()
         throws java.io.InvalidObjectException {
         throw new java.io.InvalidObjectException("Proxy required");
     }

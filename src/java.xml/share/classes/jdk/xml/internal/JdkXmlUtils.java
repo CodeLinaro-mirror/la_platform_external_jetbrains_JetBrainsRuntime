@@ -39,6 +39,7 @@ import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.parsers.SAXParserFactory;
 import javax.xml.transform.TransformerConfigurationException;
 import javax.xml.transform.sax.SAXTransformerFactory;
+import static jdk.xml.internal.JdkConstants.OVERRIDE_PARSER;
 import org.w3c.dom.Document;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXNotRecognizedException;
@@ -72,25 +73,7 @@ public class JdkXmlUtils {
     public final static String CATALOG_PREFER = CatalogFeatures.Feature.PREFER.getPropertyName();
     public final static String CATALOG_RESOLVE = CatalogFeatures.Feature.RESOLVE.getPropertyName();
 
-    /**
-     * Reset SymbolTable feature System property name is identical to feature
-     * name
-     */
-    public final static String RESET_SYMBOL_TABLE = "jdk.xml.resetSymbolTable";
 
-    /**
-     * jdk.xml.overrideDefaultParser: enables the use of a 3rd party's parser
-     * implementation to override the system-default parser.
-     */
-    public static final String OVERRIDE_PARSER = "jdk.xml.overrideDefaultParser";
-    public static final boolean OVERRIDE_PARSER_DEFAULT = SecuritySupport.getJAXPSystemProperty(
-                    Boolean.class, OVERRIDE_PARSER, "false");
-
-    /**
-     * Values for a feature
-     */
-    public static final String FEATURE_TRUE = "true";
-    public static final String FEATURE_FALSE = "false";
 
     /**
      * Default value of USE_CATALOG. This will read the System property
@@ -98,18 +81,6 @@ public class JdkXmlUtils {
     public static final boolean USE_CATALOG_DEFAULT
             = SecuritySupport.getJAXPSystemProperty(Boolean.class, SP_USE_CATALOG, "true");
 
-    /**
-     * Default value of RESET_SYMBOL_TABLE. This will read the System property
-     */
-    public static final boolean RESET_SYMBOL_TABLE_DEFAULT
-            = SecuritySupport.getJAXPSystemProperty(Boolean.class, RESET_SYMBOL_TABLE, "false");
-
-    /**
-     * JDK features (will be consolidated in the next major feature revamp
-     */
-    public final static String CDATA_CHUNK_SIZE = "jdk.xml.cdataChunkSize";
-    public static final int CDATA_CHUNK_SIZE_DEFAULT
-            = SecuritySupport.getJAXPSystemProperty(Integer.class, CDATA_CHUNK_SIZE, "0");
 
     /**
      * The system-default factory
@@ -139,7 +110,7 @@ public class JdkXmlUtils {
     }
 
     /**
-     * Sets the XMLReader instance with the specified property if the the
+     * Sets the XMLReader instance with the specified property if the
      * property is supported, ignores error if not, issues a warning if so
      * requested.
      *
@@ -339,6 +310,7 @@ public class JdkXmlUtils {
      *
      * @return a DocumentBuilderFactory instance.
      */
+    @SuppressWarnings("removal")
     public static DocumentBuilderFactory getDOMFactory(boolean overrideDefaultParser) {
         boolean override = overrideDefaultParser;
         String spDOMFactory = SecuritySupport.getJAXPSystemProperty(DOM_FACTORY_ID);
@@ -365,6 +337,7 @@ public class JdkXmlUtils {
      *
      * @return a SAXParserFactory instance.
      */
+    @SuppressWarnings("removal")
     public static SAXParserFactory getSAXFactory(boolean overrideDefaultParser) {
         boolean override = overrideDefaultParser;
         String spSAXFactory = SecuritySupport.getJAXPSystemProperty(SAX_FACTORY_ID);

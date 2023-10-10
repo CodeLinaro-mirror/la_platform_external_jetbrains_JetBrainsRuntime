@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2019, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2014, Red Hat Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -45,7 +45,7 @@ LIR_Opr FrameMap::map_to_opr(BasicType type, VMRegPair* reg, bool) {
       Register reg2 = r_2->as_Register();
       assert(reg2 == reg, "must be same register");
       opr = as_long_opr(reg);
-    } else if (type == T_OBJECT || type == T_ARRAY) {
+    } else if (is_reference_type(type)) {
       opr = as_oop_opr(reg);
     } else if (type == T_METADATA) {
       opr = as_metadata_opr(reg);
@@ -154,8 +154,8 @@ LIR_Opr FrameMap::long1_opr;
 LIR_Opr FrameMap::fpu0_float_opr;
 LIR_Opr FrameMap::fpu0_double_opr;
 
-LIR_Opr FrameMap::_caller_save_cpu_regs[] = { 0, };
-LIR_Opr FrameMap::_caller_save_fpu_regs[] = { 0, };
+LIR_Opr FrameMap::_caller_save_cpu_regs[] = {};
+LIR_Opr FrameMap::_caller_save_fpu_regs[] = {};
 
 //--------------------------------------------------------
 //               FrameMap
@@ -290,7 +290,7 @@ void FrameMap::initialize() {
 
   VMRegPair regs;
   BasicType sig_bt = T_OBJECT;
-  SharedRuntime::java_calling_convention(&sig_bt, &regs, 1, true);
+  SharedRuntime::java_calling_convention(&sig_bt, &regs, 1);
   receiver_opr = as_oop_opr(regs.first()->as_Register());
 
   for (int i = 0; i < nof_caller_save_fpu_regs; i++) {
@@ -300,8 +300,6 @@ void FrameMap::initialize() {
 
 
 Address FrameMap::make_new_address(ByteSize sp_offset) const {
-  // for rbp, based address use this:
-  // return Address(rbp, in_bytes(sp_offset) - (framesize() - 2) * 4);
   return Address(sp, in_bytes(sp_offset));
 }
 

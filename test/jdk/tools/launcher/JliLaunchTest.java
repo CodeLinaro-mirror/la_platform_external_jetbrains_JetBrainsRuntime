@@ -24,7 +24,7 @@
 
 /**
  * @test
- * @bug 8213362 8238225
+ * @bug 8213362 8238225 8303669
  * @comment Test JLI_Launch for tools distributed outside JDK
  * @library /test/lib
  * @run main/native JliLaunchTest
@@ -49,7 +49,7 @@ public class JliLaunchTest {
         ProcessBuilder pb = new ProcessBuilder(launcher.toString(), "--version");
         Map<String, String> env = pb.environment();
         // On windows, the DLL should be in JDK/bin, else in JDK/lib.
-        String libdir = Paths.get(Utils.TEST_JDK).resolve(Platform.isWindows() ? "bin" : "lib/jli")
+        String libdir = Paths.get(Utils.TEST_JDK).resolve(Platform.isWindows() ? "bin" : "lib")
             .toAbsolutePath().toString();
         String pathEnvVar = Platform.sharedLibraryPathVariableName();
         env.compute(pathEnvVar, (k, v) -> (v == null) ? libdir : libdir + File.pathSeparator + v);

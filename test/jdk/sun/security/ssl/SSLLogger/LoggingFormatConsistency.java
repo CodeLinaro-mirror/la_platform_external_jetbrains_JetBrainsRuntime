@@ -42,9 +42,6 @@ import java.net.InetAddress;
 
 public class LoggingFormatConsistency extends SSLSocketTemplate {
 
-    // JDK-8230435 introduces serverAddress in SSLSocketTemplate, but we don't have it.
-    InetAddress serverAddress;
-
     LoggingFormatConsistency () {
         serverAddress = InetAddress.getLoopbackAddress();
         SecurityUtils.removeFromDisabledTlsAlgs("TLSv1", "TLSv1.1");

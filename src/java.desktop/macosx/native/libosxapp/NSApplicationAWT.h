@@ -26,7 +26,7 @@
 #import "JNIUtilities.h"
 #import <Cocoa/Cocoa.h>
 
-@interface NSApplicationAWT : NSApplication {
+JNIEXPORT @interface NSApplicationAWT : NSApplication {
     NSString *fApplicationName;
     NSWindow *eventTransparentWindow;
     NSTimeInterval dummyEventTimestamp;
@@ -52,5 +52,5 @@
 
 @end
 
-void OSXAPP_SetApplicationDelegate(id <NSApplicationDelegate> delegate);
+JNIEXPORT void OSXAPP_SetApplicationDelegate(id <NSApplicationDelegate> delegate);
 

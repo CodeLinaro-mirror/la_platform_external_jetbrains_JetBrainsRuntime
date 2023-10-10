@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,6 +33,7 @@ import java.awt.event.KeyEvent;
 import java.awt.peer.MenuItemPeer;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import sun.awt.AWTThreading;
 import sun.awt.SunToolkit;
 import sun.lwawt.LWToolkit;
 
@@ -55,13 +56,13 @@ public class CMenuItem extends CMenuComponent implements MenuItemPeer {
 
     private boolean isSeparator() {
         String label = ((MenuItem)getTarget()).getLabel();
-        return (label != null && label.equals("-"));
+        return "-".equals(label);
     }
 
     @Override
     long createModel() {
         CMenuComponent parent = (CMenuComponent)LWToolkit.targetToPeer(getTarget().getParent());
-        return parent.executeGet(ptr->nativeCreate(ptr, isSeparator()));
+        return AWTThreading.executeWaitToolkit(() -> parent.executeGet(ptr->nativeCreate(ptr, isSeparator())));
     }
     @SuppressWarnings("deprecation")
     public void setLabel(String label, char keyChar, int keyCode, int modifiers) {
@@ -102,10 +103,6 @@ public class CMenuItem extends CMenuComponent implements MenuItemPeer {
     @Override
     public void setLabel(String label) {
         setLabel(label, (char)0, KeyEvent.VK_UNDEFINED, 0);
-    }
-
-    public void setAcceleratorText(String acceleratorText) {
-        execute(ptr -> nativeSetAcceleratorText(ptr, acceleratorText));
     }
 
     /**
@@ -154,7 +151,6 @@ public class CMenuItem extends CMenuComponent implements MenuItemPeer {
     private native void nativeSetImage(long modelPtr, long image);
     private native void nativeSetTooltip(long modelPtr, String text);
     private native void nativeSetEnabled(long modelPtr, boolean b);
-    private native void nativeSetAcceleratorText(long modelPtr, String acceleratorText);
 
     // native callbacks
     void handleAction(final long when, final int modifiers) {

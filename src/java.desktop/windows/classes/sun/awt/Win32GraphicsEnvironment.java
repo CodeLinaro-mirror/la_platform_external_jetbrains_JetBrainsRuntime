@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -52,10 +52,9 @@ import sun.java2d.windows.WindowsFlags;
 public final class Win32GraphicsEnvironment extends SunGraphicsEnvironment {
 
     // [tav] the values match the native ones
-    private final static int PROCESS_DPI_UNAWARE               = 0;
-    private final static int PROCESS_SYSTEM_DPI_AWARE          = 1;
-    private final static int PROCESS_PER_MONITOR_DPI_AWARE     = 2;
-    private final static int PROCESS_PER_MONITOR_DPI_AWARE_V2  = 3;
+    private final static int PROCESS_DPI_UNAWARE            = 0;
+    private final static int PROCESS_SYSTEM_DPI_AWARE       = 1;
+    private final static int PROCESS_PER_MONITOR_DPI_AWARE  = 2;
 
     static final float debugScaleX;
     static final float debugScaleY;
@@ -98,7 +97,7 @@ public final class Win32GraphicsEnvironment extends SunGraphicsEnvironment {
     public static void initDisplayWrapper() {
         if (!displayInitialized) {
             displayInitialized = true;
-            setProcessDPIAwareness(isUIScaleEnabled() ? PROCESS_PER_MONITOR_DPI_AWARE_V2 : PROCESS_SYSTEM_DPI_AWARE);
+            if (!isUIScaleEnabled()) setProcessDPIAwareness(PROCESS_SYSTEM_DPI_AWARE);
             initDisplay();
         }
     }
@@ -149,8 +148,8 @@ public final class Win32GraphicsEnvironment extends SunGraphicsEnvironment {
     @Override
     public void displayChanged() {
         // getNumScreens() will return the correct current number of screens
-        GraphicsDevice newDevices[] = new GraphicsDevice[getNumScreens()];
-        GraphicsDevice oldScreens[] = screens;
+        GraphicsDevice[] newDevices = new GraphicsDevice[getNumScreens()];
+        GraphicsDevice[] oldScreens = screens;
         // go through the list of current devices and determine if they
         // could be reused, or will have to be replaced
         if (oldScreens != null) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -180,6 +180,7 @@ AWT_ASSERT_APPKIT_THREAD;
     }
 }
 
+
 - (void) registerWithProcessManager
 {
     // Headless: NO
@@ -201,24 +202,9 @@ AWT_ASSERT_APPKIT_THREAD;
     }
 
     // If it wasn't specified as an argument, see if it was specified as a system property.
+    // The launcher code sets this if it is not already set on the command line.
     if (fApplicationName == nil) {
         fApplicationName = [PropertiesUtilities javaSystemPropertyForKey:@"apple.awt.application.name" withEnv:env];
-    }
-
-    // If we STILL don't have it, the app name is retrieved from an environment variable (set in java.c) It should be UTF8.
-    if (fApplicationName == nil) {
-        char mainClassEnvVar[80];
-        snprintf(mainClassEnvVar, sizeof(mainClassEnvVar), "JAVA_MAIN_CLASS_%d", getpid());
-        char *mainClass = getenv(mainClassEnvVar);
-        if (mainClass != NULL) {
-            fApplicationName = [NSString stringWithUTF8String:mainClass];
-            unsetenv(mainClassEnvVar);
-
-            NSRange lastPeriod = [fApplicationName rangeOfString:@"." options:NSBackwardsSearch];
-            if (lastPeriod.location != NSNotFound) {
-                fApplicationName = [fApplicationName substringFromIndex:lastPeriod.location + 1];
-            }
-        }
     }
 
     // The dock name is nil for double-clickable Java apps (bundled and Web Start apps)
@@ -400,14 +386,13 @@ untilDate:(NSDate *)expiration inMode:(NSString *)mode dequeue:(BOOL)deqFlag {
             && [event data2] == NativeSyncQueueEvent) {
         [seenDummyEventLock lockWhenCondition:NO];
         [seenDummyEventLock unlockWithCondition:YES];
-
     } else if ([event type] == NSApplicationDefined
                && (short)[event subtype] == ExecuteBlockEvent
                && [event data1] != 0 && [event data2] == ExecuteBlockEvent) {
         void (^block)() = (void (^)()) [event data1];
         block();
         [block release];
-    } else if ([event type] == NSKeyUp && ([event modifierFlags] & NSCommandKeyMask)) {
+    } else if ([event type] == NSEventTypeKeyUp && ([event modifierFlags] & NSCommandKeyMask)) {
         // Cocoa won't send us key up event when releasing a key while Cmd is down,
         // so we have to do it ourselves.
         [[self keyWindow] sendEvent:event];
@@ -492,7 +477,7 @@ untilDate:(NSDate *)expiration inMode:(NSString *)mode dequeue:(BOOL)deqFlag {
 
         NSArray<NSString *> *stack = [exception callStackSymbols];
 
-        for (int i = 0; i < stack.count; i++) {
+        for (NSUInteger i = 0; i < stack.count; i++) {
             [info appendString:stack[i]];
             [info appendString:@"\n"];
         }

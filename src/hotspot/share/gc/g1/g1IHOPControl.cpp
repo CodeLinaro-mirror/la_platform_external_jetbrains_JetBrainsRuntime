@@ -26,7 +26,7 @@
 #include "gc/g1/g1CollectedHeap.inline.hpp"
 #include "gc/g1/g1IHOPControl.hpp"
 #include "gc/g1/g1Predictions.hpp"
-#include "gc/shared/gcTrace.hpp"
+#include "gc/g1/g1Trace.hpp"
 #include "logging/log.hpp"
 
 G1IHOPControl::G1IHOPControl(double initial_ihop_percent,
@@ -88,12 +88,12 @@ G1AdaptiveIHOPControl::G1AdaptiveIHOPControl(double ihop_percent,
                                              size_t heap_reserve_percent,
                                              size_t heap_waste_percent) :
   G1IHOPControl(ihop_percent, old_gen_alloc_tracker),
-  _predictor(predictor),
-  _marking_times_s(10, 0.95),
-  _allocation_rate_s(10, 0.95),
-  _last_unrestrained_young_size(0),
   _heap_reserve_percent(heap_reserve_percent),
-  _heap_waste_percent(heap_waste_percent)
+  _heap_waste_percent(heap_waste_percent),
+  _predictor(predictor),
+  _marking_times_s(10, 0.05),
+  _allocation_rate_s(10, 0.05),
+  _last_unrestrained_young_size(0)
 {
 }
 
@@ -115,6 +115,10 @@ size_t G1AdaptiveIHOPControl::actual_target_threshold() const {
     );
 }
 
+double G1AdaptiveIHOPControl::predict(TruncatedSeq const* seq) const {
+  return _predictor->predict_zero_bounded(seq);
+}
+
 bool G1AdaptiveIHOPControl::have_enough_data_for_prediction() const {
   return ((size_t)_marking_times_s.num() >= G1AdaptiveIHOPNumInitialSamples) &&
          ((size_t)_allocation_rate_s.num() >= G1AdaptiveIHOPNumInitialSamples);
@@ -122,8 +126,8 @@ bool G1AdaptiveIHOPControl::have_enough_data_for_prediction() const {
 
 size_t G1AdaptiveIHOPControl::get_conc_mark_start_threshold() {
   if (have_enough_data_for_prediction()) {
-    double pred_marking_time = _predictor->get_new_prediction(&_marking_times_s);
-    double pred_promotion_rate = _predictor->get_new_prediction(&_allocation_rate_s);
+    double pred_marking_time = predict(&_marking_times_s);
+    double pred_promotion_rate = predict(&_allocation_rate_s);
     size_t pred_promotion_size = (size_t)(pred_marking_time * pred_promotion_rate);
 
     size_t predicted_needed_bytes_during_marking =
@@ -173,8 +177,8 @@ void G1AdaptiveIHOPControl::print() {
                       actual_target,
                       G1CollectedHeap::heap()->used(),
                       _last_unrestrained_young_size,
-                      _predictor->get_new_prediction(&_allocation_rate_s),
-                      _predictor->get_new_prediction(&_marking_times_s) * 1000.0,
+                      predict(&_allocation_rate_s),
+                      predict(&_marking_times_s) * 1000.0,
                       have_enough_data_for_prediction() ? "true" : "false");
 }
 
@@ -184,7 +188,7 @@ void G1AdaptiveIHOPControl::send_trace_event(G1NewTracer* tracer) {
                                           actual_target_threshold(),
                                           G1CollectedHeap::heap()->used(),
                                           _last_unrestrained_young_size,
-                                          _predictor->get_new_prediction(&_allocation_rate_s),
-                                          _predictor->get_new_prediction(&_marking_times_s),
+                                          predict(&_allocation_rate_s),
+                                          predict(&_marking_times_s),
                                           have_enough_data_for_prediction());
 }

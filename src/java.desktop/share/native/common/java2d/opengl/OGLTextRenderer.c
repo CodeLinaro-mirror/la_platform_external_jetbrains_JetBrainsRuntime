@@ -26,7 +26,6 @@
 #ifndef HEADLESS
 
 #include <stdlib.h>
-#include <limits.h>
 #include <math.h>
 #include <jlong.h>
 
@@ -34,20 +33,21 @@
 
 #include "SurfaceData.h"
 #include "OGLContext.h"
+#include "OGLSurfaceData.h"
 #include "OGLRenderQueue.h"
 #include "OGLTextRenderer.h"
 #include "OGLVertexCache.h"
 #include "AccelGlyphCache.h"
-#include "jni_util.h"
+#include "fontscalerdefs.h"
 
 /**
  * The following constants define the inner and outer bounds of the
  * accelerated glyph cache.
  */
-#define OGLTR_CACHE_WIDTH       2048
-#define OGLTR_CACHE_HEIGHT      2048
-#define OGLTR_CACHE_CELL_WIDTH  64
-#define OGLTR_CACHE_CELL_HEIGHT 64
+#define OGLTR_CACHE_WIDTH       512
+#define OGLTR_CACHE_HEIGHT      512
+#define OGLTR_CACHE_CELL_WIDTH  32
+#define OGLTR_CACHE_CELL_HEIGHT 32
 
 /**
  * The current "glyph mode" state.  This variable is used to track the
@@ -99,18 +99,6 @@ static GLhandleARB lcdTextProgram = 0;
 static GLhandleARB grayTextProgram = 0;
 
 /**
- * Use this hints if gray gamma shader is enabled
- */
-typedef struct {
-    float light_gamma; // brightness of light text
-    float dark_gamma;  // brightness of dark text
-    float light_exp;   // thickness of light text
-    float dark_exp;    // thickness of dark text
-} GrayRenderHints;
-
-
-
-/**
  * This value tracks the previous LCD contrast setting, so if the contrast
  * value hasn't changed since the last time the gamma uniforms were
  * updated (not very common), then we can skip updating the unforms.
@@ -132,7 +120,7 @@ static jboolean lastRGBOrder = JNI_TRUE;
  * OGLTR_DrawLCDGlyphNoCache() method.  See below for more on why we
  * restrict this value to a particular size.
  */
-#define OGLTR_NOCACHE_TILE_SIZE 64
+#define OGLTR_NOCACHE_TILE_SIZE 32
 
 /**
  * These constants define the size of the "cached destination" texture.
@@ -153,7 +141,7 @@ static jboolean lastRGBOrder = JNI_TRUE;
  *     (OGLTR_CACHED_DEST_HEIGHT >= OGLTR_CACHE_CELL_HEIGHT) &&
  *     (OGLTR_CACHED_DEST_HEIGHT >= OGLTR_NOCACHE_TILE_SIZE)
  */
-#define OGLTR_CACHED_DEST_WIDTH  1024
+#define OGLTR_CACHED_DEST_WIDTH  512
 #define OGLTR_CACHED_DEST_HEIGHT (OGLTR_CACHE_CELL_HEIGHT * 2)
 
 /**
@@ -250,10 +238,8 @@ OGLTR_AddToGlyphCache(GlyphInfo *glyph, GLenum pixelFormat, jint subimage)
     J2dTraceLn(J2D_TRACE_INFO, "OGLTR_AddToGlyphCache");
 
     if (pixelFormat == GL_LUMINANCE) {
-        J2dTracePrimitive("OGLTR_AddToGlyphCacheGray");
         gcinfo = glyphCacheAA;
     } else {
-        J2dTracePrimitive("OGLTR_AddToGlyphCacheLCD");
         gcinfo = glyphCacheLCD;
     }
 
@@ -393,105 +379,13 @@ OGLTR_CreateLCDTextProgram()
     return lcdTextProgram;
 }
 
-static int JVM_GetIntProperty(const char* name,  int defaultValue) {
-    JNIEnv *env = (JNIEnv *) JNU_GetEnv(jvm, JNI_VERSION_1_2);
-    static jclass systemCls = NULL;
-    if (systemCls == NULL) {
-        systemCls = (*env)->FindClass(env, "java/lang/System");
-        if (systemCls == NULL) {
-            return defaultValue;
-        }
-    }
-
-    static jmethodID mid = NULL;
-
-    if (mid == NULL) {
-        mid = (*env)->GetStaticMethodID(env, systemCls, "getProperty",
-                                        "(Ljava/lang/String;)Ljava/lang/String;");
-        if (mid == NULL) {
-            return defaultValue;
-        }
-    }
-
-    jstring jName = (*env)->NewStringUTF(env, name);
-    if (jName == NULL) {
-        return defaultValue;
-    }
-
-    int result = defaultValue;
-    jstring jvalue = (*env)->CallStaticObjectMethod(env, systemCls, mid, jName);
-    if (jvalue != NULL) {
-        const char *utf8string = (*env)->GetStringUTFChars(env, jvalue, NULL);
-        if (utf8string != NULL) {
-            const int parsedVal = atoi(utf8string);
-            if (parsedVal > 0) {
-                result = parsedVal;
-            }
-        }
-        (*env)->ReleaseStringUTFChars(env, jvalue, utf8string);
-    }
-    (*env)->DeleteLocalRef(env, jName);
-    return result;
-}
-
-static GrayRenderHints* getGrayRenderHints() {
-    static GrayRenderHints *hints = NULL;
-    static GrayRenderHints defaultRenderHints[] = {
-            // hints for "use font smoothing" option
-            // disabled
-            {1.666f, 0.333f, 1.0f, 1.25f},
-            // enabled
-            {1.666f, 0.333f, 0.454f, 1.4f}
-    };
-
-    if (hints == NULL) {
-        // read from VM-properties
-        int val = JVM_GetIntProperty("awt.font.nosm.light_gamma", 0);
-        if (val > 0) {
-            defaultRenderHints[0].light_gamma = val / 1000.0;
-        }
-        val = JVM_GetIntProperty("awt.font.nosm.dark_gamma", 0);
-        if (val > 0) {
-            defaultRenderHints[0].dark_gamma = val / 1000.0;
-        }
-        val = JVM_GetIntProperty("awt.font.nosm.light_exp", 0);
-        if (val > 0) {
-            defaultRenderHints[0].light_exp = val / 1000.0;
-        }
-        val = JVM_GetIntProperty("awt.font.nosm.dark_exp", 0);
-        if (val > 0) {
-            defaultRenderHints[0].dark_exp = val / 1000.0;
-        }
-
-        val = JVM_GetIntProperty("awt.font.sm.light_gamma", 0);
-        if (val > 0) {
-            defaultRenderHints[1].light_gamma = val / 1000.0;
-        }
-        val = JVM_GetIntProperty("awt.font.sm.dark_gamma", 0);
-        if (val > 0) {
-            defaultRenderHints[1].dark_gamma = val / 1000.0;
-        }
-        val = JVM_GetIntProperty("awt.font.sm.light_exp", 0);
-        if (val > 0) {
-            defaultRenderHints[1].light_exp = val / 1000.0;
-        }
-        val = JVM_GetIntProperty("awt.font.sm.dark_exp", 0);
-        if (val > 0) {
-            defaultRenderHints[1].dark_exp = val / 1000.0;
-        }
-
-        hints = defaultRenderHints;
-    }
-    return hints;
-}
-
 /**
  * Compiles and links the LCD text shader program.  If successful, this
  * function returns a handle to the newly created shader program; otherwise
  * returns 0.
  */
 static GLhandleARB
-OGLTR_CreateGrayTextProgram(jboolean useFontSmoothing)
+OGLTR_CreateGrayTextProgram(OGLContext *oglc, jboolean useFontSmoothing)
 {
     GLhandleARB grayTextProgram;
     GLint loc;
@@ -509,7 +403,7 @@ OGLTR_CreateGrayTextProgram(jboolean useFontSmoothing)
     // "use" the program object temporarily so that we can set the uniforms
     j2d_glUseProgramObjectARB(grayTextProgram);
 
-    GrayRenderHints *hints = &(getGrayRenderHints()[useFontSmoothing]);
+    GrayRenderHints *hints = &(oglc->grayRenderHints[useFontSmoothing]);
     J2dTraceLn5(J2D_TRACE_INFO,
                 "OGLTR_CreateGrayTextProgram: useFontSmoothing=%d "
                 "light_gamma=%f dark_gamma=%f light_exp=%f dark_exp=%f",
@@ -700,7 +594,7 @@ OGLTR_EnableLCDGlyphModeState(GLuint glyphTextureID,
  * Enables the GrayScale text shader and updates any related states
  */
 static jboolean
-OGLTR_EnableGrayGlyphModeState(GLuint glyphTextureID, jboolean useFontSmoothing)
+OGLTR_EnableGrayGlyphModeState(OGLContext *oglc, GLuint glyphTextureID, jboolean useFontSmoothing)
 {
     // bind the texture containing glyph data to texture unit 0
     j2d_glActiveTextureARB(GL_TEXTURE0_ARB);
@@ -714,7 +608,7 @@ OGLTR_EnableGrayGlyphModeState(GLuint glyphTextureID, jboolean useFontSmoothing)
 
     // create the Gray text shader, if necessary
     if (grayTextProgram == 0) {
-        grayTextProgram = OGLTR_CreateGrayTextProgram(useFontSmoothing);
+        grayTextProgram = OGLTR_CreateGrayTextProgram(oglc, useFontSmoothing);
         if (grayTextProgram == 0) {
             return JNI_FALSE;
         }
@@ -773,12 +667,9 @@ OGLTR_DisableGlyphVertexCache(OGLContext *oglc)
 /**
  * Disables any pending state associated with the current "glyph mode".
  */
-void
+static void
 OGLTR_DisableGlyphModeState()
 {
-    J2dTraceLn1(J2D_TRACE_VERBOSE,
-                "OGLTR_DisableGlyphModeState: mode=%d", glyphMode);
-
     switch (glyphMode) {
     case MODE_NO_CACHE_LCD:
         j2d_glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
@@ -804,19 +695,18 @@ OGLTR_DisableGlyphModeState()
         j2d_glDisable(GL_TEXTURE_2D);
         j2d_glBlendFunc(currentBlendSrc, currentBlendDst);
         break;
-
+    case MODE_NO_CACHE_COLOR:
     case MODE_NO_CACHE_GRAY:
         /* FALLTHROUGH */
     case MODE_NOT_INITED:
     default:
         break;
     }
-    glyphMode = MODE_NOT_INITED;
 }
 
 static jboolean
-OGLTR_DrawGrayscaleGlyphViaCache(OGLContext *oglc, GlyphInfo *ginfo, jint x, jint y,
-                                 jboolean useFontSmoothing, jint subimage)
+OGLTR_DrawGrayscaleGlyphViaCache(OGLContext *oglc, GlyphInfo *ginfo,
+                                 jint x, jint y, jboolean useFontSmoothing, jint subimage)
 {
     CacheCellInfo *cell;
     jfloat x1, y1, x2, y2;
@@ -831,7 +721,7 @@ OGLTR_DrawGrayscaleGlyphViaCache(OGLContext *oglc, GlyphInfo *ginfo, jint x, jin
             }
         }
 
-        if (!OGLTR_EnableGrayGlyphModeState(glyphCacheAA->cacheID, useFontSmoothing))
+        if (!OGLTR_EnableGrayGlyphModeState(oglc, glyphCacheAA->cacheID, useFontSmoothing))
         {
             return JNI_FALSE;
         }
@@ -1020,8 +910,11 @@ OGLTR_UpdateCachedDestination(OGLSDOps *dstOps, GlyphInfo *ginfo,
 }
 
 static jboolean
-OGLTR_DrawLCDGlyphViaCache(OGLContext *oglc, OGLSDOps *dstOps, GlyphInfo *ginfo, jint x, jint y, jint glyphIndex,
-                           jint totalGlyphs, jboolean rgbOrder, jint contrast, GLuint dstTextureID)
+OGLTR_DrawLCDGlyphViaCache(OGLContext *oglc, OGLSDOps *dstOps,
+                           GlyphInfo *ginfo, jint x, jint y,
+                           jint glyphIndex, jint totalGlyphs,
+                           jboolean rgbOrder, jint contrast,
+                            GLuint dstTextureID)
 {
     CacheCellInfo *cell;
     jint dx1, dy1, dx2, dy2;
@@ -1108,15 +1001,25 @@ OGLTR_DrawLCDGlyphViaCache(OGLContext *oglc, OGLSDOps *dstOps, GlyphInfo *ginfo,
 
         dty1 = ((GLfloat)dyadj + gh) / dstOps->textureHeight;
         dty2 = ((GLfloat)dyadj) / dstOps->textureHeight;
+
+        j2d_glTextureBarrierNV();
     }
 
     // render composed texture to the destination surface
-    if (!OGLMTVertexCache_enable(oglc, dstTextureID != 0)) {
-        J2dTracePrimitive("OGLMTVertexCache_enable_failed");
-        return JNI_FALSE;
-    }
-    OGLMTVertexCache_addGlyphQuad(dx1, dy1, dx2, dy2, cell->tx1, cell->ty1,
-                                  cell->tx2, cell->ty2, dtx1, dty1, dtx2, dty2);
+    j2d_glBegin(GL_QUADS);
+    j2d_glMultiTexCoord2fARB(GL_TEXTURE0_ARB, cell->tx1, cell->ty1);
+    j2d_glMultiTexCoord2fARB(GL_TEXTURE1_ARB, dtx1, dty1);
+    j2d_glVertex2i(dx1, dy1);
+    j2d_glMultiTexCoord2fARB(GL_TEXTURE0_ARB, cell->tx2, cell->ty1);
+    j2d_glMultiTexCoord2fARB(GL_TEXTURE1_ARB, dtx2, dty1);
+    j2d_glVertex2i(dx2, dy1);
+    j2d_glMultiTexCoord2fARB(GL_TEXTURE0_ARB, cell->tx2, cell->ty2);
+    j2d_glMultiTexCoord2fARB(GL_TEXTURE1_ARB, dtx2, dty2);
+    j2d_glVertex2i(dx2, dy2);
+    j2d_glMultiTexCoord2fARB(GL_TEXTURE0_ARB, cell->tx1, cell->ty2);
+    j2d_glMultiTexCoord2fARB(GL_TEXTURE1_ARB, dtx1, dty2);
+    j2d_glVertex2i(dx1, dy2);
+    j2d_glEnd();
 
     return JNI_TRUE;
 }
@@ -1158,6 +1061,7 @@ OGLTR_DrawGrayscaleGlyphNoCache(OGLContext *oglc,
 
     return JNI_TRUE;
 }
+
 static jboolean
 OGLTR_DrawLCDGlyphNoCache(OGLContext *oglc, OGLSDOps *dstOps,
                           GlyphInfo *ginfo, jint x, jint y,
@@ -1202,87 +1106,40 @@ OGLTR_DrawLCDGlyphNoCache(OGLContext *oglc, OGLSDOps *dstOps,
     j2d_glPixelStorei(GL_UNPACK_ROW_LENGTH, ginfo->rowBytes / 3);
 
     x0 = x;
+    tx1 = 0.0f;
+    ty1 = 0.0f;
+    dtx1 = 0.0f;
+    dty2 = 0.0f;
     tw = OGLTR_NOCACHE_TILE_SIZE;
     th = OGLTR_NOCACHE_TILE_SIZE;
 
-    if (dstTextureID) {
-        // use the destination texture directly
+    for (sy = 0; sy < h; sy += th, y += th) {
+        x = x0;
+        sh = ((sy + th) > h) ? (h - sy) : th;
 
-        // update the source pointer offsets
-        j2d_glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
-        j2d_glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+        for (sx = 0; sx < w; sx += tw, x += tw) {
+            sw = ((sx + tw) > w) ? (w - sx) : tw;
 
-        // copy LCD mask into glyph texture tile
-        j2d_glActiveTextureARB(GL_TEXTURE0_ARB);
-        j2d_glTexSubImage2D(GL_TEXTURE_2D, 0,
-                            0, 0, w, h,
-                            pixelFormat, GL_UNSIGNED_BYTE,
-                            ginfo->image + rowBytesOffset);
+            // update the source pointer offsets
+            j2d_glPixelStorei(GL_UNPACK_SKIP_PIXELS, sx);
+            j2d_glPixelStorei(GL_UNPACK_SKIP_ROWS, sy);
 
-        tx2 = ((GLfloat)w) / OGLContext_BlitTileSize;
-        ty2 = ((GLfloat)h) / OGLContext_BlitTileSize;;
-        dxadj = dstOps->xOffset + x;
-        dyadj = dstOps->yOffset + dstOps->height - y;
-        dtx1 = ((GLfloat)dxadj) / dstOps->textureWidth;
-        dty1 = ((GLfloat)dyadj) / dstOps->textureHeight;
-        dtx2 = ((GLfloat)dxadj + w) / dstOps->textureWidth;
-        dty2 = ((GLfloat)dyadj - h) / dstOps->textureHeight;
+            // copy LCD mask into glyph texture tile
+            j2d_glActiveTextureARB(GL_TEXTURE0_ARB);
+            j2d_glTexSubImage2D(GL_TEXTURE_2D, 0,
+                                0, 0, sw, sh,
+                                pixelFormat, GL_UNSIGNED_BYTE,
+                                ginfo->image + rowBytesOffset);
 
-        // render composed texture to the destination surface
-        j2d_glBegin(GL_QUADS);
-        j2d_glMultiTexCoord2fARB(GL_TEXTURE0_ARB, 0, 0);
-        j2d_glMultiTexCoord2fARB(GL_TEXTURE1_ARB, dtx1, dty1);
-        j2d_glVertex2i(x, y);
-        j2d_glMultiTexCoord2fARB(GL_TEXTURE0_ARB, tx2, 0);
-        j2d_glMultiTexCoord2fARB(GL_TEXTURE1_ARB, dtx2, dty1);
-        j2d_glVertex2i(x + w, y);
-        j2d_glMultiTexCoord2fARB(GL_TEXTURE0_ARB, tx2, ty2);
-        j2d_glMultiTexCoord2fARB(GL_TEXTURE1_ARB, dtx2, dty2);
-        j2d_glVertex2i(x + w, y + h);
-        j2d_glMultiTexCoord2fARB(GL_TEXTURE0_ARB, 0, ty2);
-        j2d_glMultiTexCoord2fARB(GL_TEXTURE1_ARB, dtx1, dty2);
-        j2d_glVertex2i(x, y + h);
-        j2d_glEnd();
+            // update the lower-right glyph texture coordinates
+            tx2 = ((GLfloat)sw) / OGLC_BLIT_TILE_SIZE;
+            ty2 = ((GLfloat)sh) / OGLC_BLIT_TILE_SIZE;
 
-    } else {
-        tx1 = 0.0f;
-        ty1 = 0.0f;
-        dtx1 = 0.0f;
-        dty2 = 0.0f;
-
-        for (sy = 0; sy < h; sy += th, y += th) {
-            x = x0;
-            sh = ((sy + th) > h) ? (h - sy) : th;
-
-            // update lower glyph texture coordinate
-            ty2 = ((GLfloat)sh) / OGLContext_BlitTileSize;
-
-            // update the destination texture coordinate
-            dty1 = ((GLfloat)sh) / OGLTR_CACHED_DEST_HEIGHT;
-
-            // this accounts for lower origin of the destination region
+            // this accounts for lower-left origin of the destination region
+            dxadj = dstOps->xOffset + x;
             dyadj = dstOps->yOffset + dstOps->height - (y + sh);
 
-            for (sx = 0; sx < w; sx += tw, x += tw) {
-                sw = ((sx + tw) > w) ? (w - sx) : tw;
-
-                // update the source pointer offsets
-                j2d_glPixelStorei(GL_UNPACK_SKIP_PIXELS, sx);
-                j2d_glPixelStorei(GL_UNPACK_SKIP_ROWS, sy);
-
-                // copy LCD mask into glyph texture tile
-                j2d_glActiveTextureARB(GL_TEXTURE0_ARB);
-                j2d_glTexSubImage2D(GL_TEXTURE_2D, 0,
-                                    0, 0, sw, sh,
-                                    pixelFormat, GL_UNSIGNED_BYTE,
-                                    ginfo->image + rowBytesOffset);
-
-                // update right glyph texture coordinate
-                tx2 = ((GLfloat)sw) / OGLContext_BlitTileSize;
-
-                // this accounts for left origin of the destination region
-                dxadj = dstOps->xOffset + x;
-
+            if (dstTextureID == 0) {
                 // copy destination into cached texture tile (the lower-left
                 // corner of the destination region will be positioned at the
                 // lower-left corner (0,0) of the texture)
@@ -1291,28 +1148,39 @@ OGLTR_DrawLCDGlyphNoCache(OGLContext *oglc, OGLSDOps *dstOps,
                                         0, 0,
                                         dxadj, dyadj,
                                         sw, sh);
+                // update the remaining destination texture coordinates
+                dtx2 = ((GLfloat)sw) / OGLTR_CACHED_DEST_WIDTH;
+                dty1 = ((GLfloat)sh) / OGLTR_CACHED_DEST_HEIGHT;
+            } else {
+                // use the destination texture directly
+                // update the remaining destination texture coordinates
+                dtx1 =((GLfloat)dxadj) / dstOps->textureWidth;
+                dtx2 = ((GLfloat)dxadj + sw) / dstOps->textureWidth;
 
-                // update the destination texture coordinate
-                dtx2 = ((GLfloat) sw) / OGLTR_CACHED_DEST_WIDTH;
+                dty1 = ((GLfloat)dyadj + sh) / dstOps->textureHeight;
+                dty2 = ((GLfloat)dyadj) / dstOps->textureHeight;
 
-                // render composed texture to the destination surface
-                j2d_glBegin(GL_QUADS);
-                j2d_glMultiTexCoord2fARB(GL_TEXTURE0_ARB, tx1, ty1);
-                j2d_glMultiTexCoord2fARB(GL_TEXTURE1_ARB, dtx1, dty1);
-                j2d_glVertex2i(x, y);
-                j2d_glMultiTexCoord2fARB(GL_TEXTURE0_ARB, tx2, ty1);
-                j2d_glMultiTexCoord2fARB(GL_TEXTURE1_ARB, dtx2, dty1);
-                j2d_glVertex2i(x + sw, y);
-                j2d_glMultiTexCoord2fARB(GL_TEXTURE0_ARB, tx2, ty2);
-                j2d_glMultiTexCoord2fARB(GL_TEXTURE1_ARB, dtx2, dty2);
-                j2d_glVertex2i(x + sw, y + sh);
-                j2d_glMultiTexCoord2fARB(GL_TEXTURE0_ARB, tx1, ty2);
-                j2d_glMultiTexCoord2fARB(GL_TEXTURE1_ARB, dtx1, dty2);
-                j2d_glVertex2i(x, y + sh);
-                j2d_glEnd();
+                j2d_glTextureBarrierNV();
             }
+
+            // render composed texture to the destination surface
+            j2d_glBegin(GL_QUADS);
+            j2d_glMultiTexCoord2fARB(GL_TEXTURE0_ARB, tx1, ty1);
+            j2d_glMultiTexCoord2fARB(GL_TEXTURE1_ARB, dtx1, dty1);
+            j2d_glVertex2i(x, y);
+            j2d_glMultiTexCoord2fARB(GL_TEXTURE0_ARB, tx2, ty1);
+            j2d_glMultiTexCoord2fARB(GL_TEXTURE1_ARB, dtx2, dty1);
+            j2d_glVertex2i(x + sw, y);
+            j2d_glMultiTexCoord2fARB(GL_TEXTURE0_ARB, tx2, ty2);
+            j2d_glMultiTexCoord2fARB(GL_TEXTURE1_ARB, dtx2, dty2);
+            j2d_glVertex2i(x + sw, y + sh);
+            j2d_glMultiTexCoord2fARB(GL_TEXTURE0_ARB, tx1, ty2);
+            j2d_glMultiTexCoord2fARB(GL_TEXTURE1_ARB, dtx1, dty2);
+            j2d_glVertex2i(x, y + sh);
+            j2d_glEnd();
         }
     }
+
     return JNI_TRUE;
 }
 
@@ -1321,17 +1189,23 @@ OGLTR_DrawColorGlyphNoCache(OGLContext *oglc, GlyphInfo *ginfo, jint x, jint y)
 {
     if (glyphMode != MODE_NO_CACHE_COLOR) {
         OGLTR_DisableGlyphModeState();
-        CHECK_PREVIOUS_OP(OGL_STATE_RESET);
+        RESET_PREVIOUS_OP();
         glyphMode = MODE_NO_CACHE_COLOR;
     }
 
-    // see OGLBlitSwToSurface() in OGLBlitLoops.c for more info on the following two lines
+    // see OGLBlitSwToSurface() in OGLBlitLoops.c
+    // for more info on the following two lines
     j2d_glRasterPos2i(0, 0);
     j2d_glBitmap(0, 0, 0, 0, (GLfloat) x, (GLfloat) (-y), NULL);
 
-    j2d_glPixelZoom(1, -1); // in OpenGL image data is assumed to contain lines from bottom to top
-    j2d_glDrawPixels(ginfo->width, ginfo->height, GL_BGRA, GL_UNSIGNED_BYTE, ginfo->image);
-    j2d_glPixelZoom(1, 1); // restoring state
+    // in OpenGL image data is assumed to contain lines from bottom to top
+    j2d_glPixelZoom(1, -1);
+
+    j2d_glDrawPixels(ginfo->width, ginfo->height, GL_BGRA, GL_UNSIGNED_BYTE,
+                     ginfo->image);
+
+    // restoring state
+    j2d_glPixelZoom(1, 1);
 
     return JNI_TRUE;
 }
@@ -1358,14 +1232,9 @@ OGLTR_DrawGlyphList(JNIEnv *env, OGLContext *oglc, OGLSDOps *dstOps,
 {
     int glyphCounter;
     GLuint dstTextureID = 0;
-    jlong time;
     jboolean fontSmoothing = JNI_FALSE;
 
     J2dTraceLn(J2D_TRACE_INFO, "OGLTR_DrawGlyphList");
-    if (graphicsPrimitive_traceflags & J2D_PTRACE_TIME) {
-        J2dTracePrimitive("OGLTR_DrawGlyphList");
-        time = J2dTraceNanoTime();
-    }
 
     RETURN_IF_NULL(oglc);
     RETURN_IF_NULL(dstOps);
@@ -1374,11 +1243,12 @@ OGLTR_DrawGlyphList(JNIEnv *env, OGLContext *oglc, OGLSDOps *dstOps,
         RETURN_IF_NULL(positions);
     }
 
+    glyphMode = MODE_NOT_INITED;
     isCachedDestValid = JNI_FALSE;
 
     // We have to obtain an information about destination content
     // in order to render lcd glyphs. It could be done by copying
-    // a part of desitination buffer into an intermediate texture
+    // a part of destination buffer into an intermediate texture
     // using glCopyTexSubImage2D(). However, on macosx this path is
     // slow, and it dramatically reduces the overall speed of lcd
     // text rendering.
@@ -1440,7 +1310,9 @@ OGLTR_DrawGlyphList(JNIEnv *env, OGLContext *oglc, OGLSDOps *dstOps,
         }
 
         if (ginfo->format == sun_font_StrikeCache_PIXEL_FORMAT_GREYSCALE) {
-            OGLMTVertexCache_disable();
+            if (oglc->grayRenderHints == NULL) {
+                OGLContext_InitGrayRenderHints(env, oglc);
+            }
             // grayscale or monochrome glyph data
             int rx = ginfo->subpixelResolutionX;
             int ry = ginfo->subpixelResolutionY;
@@ -1458,7 +1330,6 @@ OGLTR_DrawGlyphList(JNIEnv *env, OGLContext *oglc, OGLSDOps *dstOps,
                 ok = OGLTR_DrawGrayscaleGlyphNoCache(oglc, ginfo, x, y, subimage);
             }
         } else if (ginfo->format == sun_font_StrikeCache_PIXEL_FORMAT_BGRA) {
-            OGLMTVertexCache_disable();
             // color glyph data
             ok = OGLTR_DrawColorGlyphNoCache(oglc, ginfo, x, y);
         } else {
@@ -1477,12 +1348,12 @@ OGLTR_DrawGlyphList(JNIEnv *env, OGLContext *oglc, OGLSDOps *dstOps,
                 ginfo->width <= OGLTR_CACHE_CELL_WIDTH &&
                 ginfo->height <= OGLTR_CACHE_CELL_HEIGHT)
             {
-                ok = OGLTR_DrawLCDGlyphViaCache(oglc, dstOps, ginfo, x, y,
+                ok = OGLTR_DrawLCDGlyphViaCache(oglc, dstOps,
+                                                ginfo, x, y,
                                                 glyphCounter, totalGlyphs,
                                                 rgbOrder, lcdContrast,
                                                 dstTextureID);
             } else {
-                OGLMTVertexCache_disable();
                 ok = OGLTR_DrawLCDGlyphNoCache(oglc, dstOps,
                                                ginfo, x, y,
                                                rowBytesOffset,
@@ -1490,13 +1361,13 @@ OGLTR_DrawGlyphList(JNIEnv *env, OGLContext *oglc, OGLSDOps *dstOps,
                                                dstTextureID);
             }
         }
+
         if (!ok) {
             break;
         }
     }
     OGLVertexCache_FlushVertexCache();
-    OGLMTVertexCache_disable();
-    J2dTracePrimitiveTime("OGLTR_DrawGlyphList", time);
+    OGLTR_DisableGlyphModeState();
 }
 
 JNIEXPORT void JNICALL
@@ -1526,7 +1397,6 @@ Java_sun_java2d_opengl_OGLTextRenderer_drawGlyphList
                                     subPixPos, rgbOrder, lcdContrast,
                                     glyphListOrigX, glyphListOrigY,
                                     images, positions);
-                OGLTR_DisableGlyphModeState();
                 (*env)->ReleasePrimitiveArrayCritical(env, posArray,
                                                       positions, JNI_ABORT);
             }
@@ -1536,7 +1406,6 @@ Java_sun_java2d_opengl_OGLTextRenderer_drawGlyphList
                                 subPixPos, rgbOrder, lcdContrast,
                                 glyphListOrigX, glyphListOrigY,
                                 images, NULL);
-            OGLTR_DisableGlyphModeState();
         }
 
         // 6358147: reset current state, and ensure rendering is

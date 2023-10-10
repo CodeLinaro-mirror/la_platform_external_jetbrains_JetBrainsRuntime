@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -96,7 +96,6 @@ public class bug7072653 {
                 gcBounds.x + gcBounds.width / 2 - frame.getWidth() / 2,
                 gcBounds.y + gcBounds.height / 2 - frame.getHeight() / 2);
 
-        final int ROW_COUNT = 400;
         combobox = new JComboBox(new DefaultComboBoxModel() {
             @Override
             public Object getElementAt(int index) {
@@ -105,15 +104,16 @@ public class bug7072653 {
 
             @Override
             public int getSize() {
-                return ROW_COUNT;
+                return 400;
             }
         });
 
-        combobox.setMaximumRowCount(ROW_COUNT);
+        combobox.setMaximumRowCount(400);
         combobox.putClientProperty("JComboBox.isPopDown", true);
         frame.getContentPane().add(combobox);
         frame.setVisible(true);
-        robot.delay(3000);
+        robot.delay(3000); // wait some time to stabilize the size of the
+                           // screen insets after the window is shown
         combobox.addPopupMenuListener(new PopupMenuListener() {
             @Override
             public void popupMenuWillBecomeVisible(PopupMenuEvent e) {

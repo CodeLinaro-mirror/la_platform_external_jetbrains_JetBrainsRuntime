@@ -106,3 +106,4 @@ class TestErrorException extends RuntimeException {
         super("Unexpected error: " + msg);
     }
 }
+

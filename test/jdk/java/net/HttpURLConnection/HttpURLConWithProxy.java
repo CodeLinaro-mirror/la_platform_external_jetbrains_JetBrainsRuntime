@@ -24,10 +24,12 @@
  /*
  * @test
  * @bug 8161016 8183369
+ * @library /test/lib
  * @summary When proxy is set HttpURLConnection should not use DIRECT connection.
  * @run main/othervm HttpURLConWithProxy
  */
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.net.ProxySelector;
@@ -38,6 +40,7 @@ import java.net.URL;
 import java.net.HttpURLConnection;
 import java.util.ArrayList;
 import java.util.List;
+import jdk.test.lib.net.URIBuilder;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -48,11 +51,12 @@ public class HttpURLConWithProxy {
     private static Logger logger =
         Logger.getLogger("sun.net.www.protocol.http.HttpURLConnection");
 
-    public static void main(String... arg) {
+    public static void main(String... arg) throws Exception {
         // Remove the default nonProxyHosts to use localhost for testing
         System.setProperty("http.nonProxyHosts", "");
 
-        System.setProperty("http.proxyHost", "1.1.1.1");
+        // 240.0.0.0/4 is unallocated and "reserved for future use" (RFC 1112, Section 4)
+        System.setProperty("http.proxyHost", "240.0.0.1");
         System.setProperty("http.proxyPort", "1111");
 
         // Use the logger to help verify the Proxy was used
@@ -64,11 +68,18 @@ public class HttpURLConWithProxy {
         ServerSocket ss;
         URL url;
         HttpURLConnection con;
+        InetAddress loopback = InetAddress.getLoopbackAddress();
+        InetSocketAddress address = new InetSocketAddress(loopback, 0);
 
         // Test1: using Proxy set by System Property:
         try {
-            ss = new ServerSocket(0);
-            url = new URL("http://localhost:" + ss.getLocalPort());
+            ss = new ServerSocket();
+            ss.bind(address);
+            url = URIBuilder.newBuilder()
+                .scheme("http")
+                .loopback()
+                .port(ss.getLocalPort())
+                .toURL();
             con = (HttpURLConnection) url.openConnection();
             con.setConnectTimeout(10 * 1000);
             con.connect();
@@ -90,8 +101,13 @@ public class HttpURLConWithProxy {
         MyProxySelector myProxySel = new MyProxySelector();
         ProxySelector.setDefault(myProxySel);
         try {
-            ss = new ServerSocket(0);
-            url = new URL("http://localhost:" + ss.getLocalPort());
+            ss = new ServerSocket();
+            ss.bind(address);
+            url = URIBuilder.newBuilder()
+                .scheme("http")
+                .loopback()
+                .port(ss.getLocalPort())
+                .toURL();
             con = (HttpURLConnection) url.openConnection();
             con.setConnectTimeout(10 * 1000);
             con.connect();
@@ -116,8 +132,9 @@ class MyProxySelector extends ProxySelector {
     List<Proxy> proxies = new ArrayList<>();
 
     MyProxySelector() {
-        Proxy p1 = new Proxy(Proxy.Type.HTTP, new InetSocketAddress("2.2.2.2", 2222));
-        Proxy p2 = new Proxy(Proxy.Type.HTTP, new InetSocketAddress("3.3.3.3", 3333));
+        // 240.0.0.0/4 is unallocated and "reserved for future use" (RFC 1112, Section 4)
+        Proxy p1 = new Proxy(Proxy.Type.HTTP, new InetSocketAddress("240.0.0.2", 2222));
+        Proxy p2 = new Proxy(Proxy.Type.HTTP, new InetSocketAddress("240.0.0.3", 3333));
         proxies.add(p1);
         proxies.add(p2);
     }

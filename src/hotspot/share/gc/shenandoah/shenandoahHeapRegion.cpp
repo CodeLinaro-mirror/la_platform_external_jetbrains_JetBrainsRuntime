@@ -1,5 +1,7 @@
 /*
+ * Copyright (c) 2023, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2013, 2019, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -22,21 +24,25 @@
  */
 
 #include "precompiled.hpp"
-#include "memory/allocation.hpp"
+#include "gc/shared/space.inline.hpp"
+#include "gc/shared/tlab_globals.hpp"
 #include "gc/shenandoah/shenandoahHeapRegionSet.inline.hpp"
 #include "gc/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc/shenandoah/shenandoahMarkingContext.inline.hpp"
-#include "gc/shared/space.inline.hpp"
 #include "jfr/jfrEvents.hpp"
+#include "memory/allocation.hpp"
 #include "memory/iterator.inline.hpp"
 #include "memory/resourceArea.hpp"
 #include "memory/universe.hpp"
 #include "oops/oop.inline.hpp"
+#include "runtime/atomic.hpp"
+#include "runtime/globals_extension.hpp"
 #include "runtime/java.hpp"
 #include "runtime/mutexLocker.hpp"
 #include "runtime/os.hpp"
 #include "runtime/safepoint.hpp"
+#include "utilities/powerOfTwo.hpp"
 
 size_t ShenandoahHeapRegion::RegionCount = 0;
 size_t ShenandoahHeapRegion::RegionSizeBytes = 0;
@@ -54,7 +60,7 @@ ShenandoahHeapRegion::ShenandoahHeapRegion(HeapWord* start, size_t index, bool c
   _index(index),
   _bottom(start),
   _end(start + RegionSizeWords),
-  _new_top(NULL),
+  _new_top(nullptr),
   _empty_time(os::elapsedTime()),
   _state(committed ? _empty_committed : _empty_uncommitted),
   _top(start),
@@ -72,11 +78,10 @@ ShenandoahHeapRegion::ShenandoahHeapRegion(HeapWord* start, size_t index, bool c
 }
 
 void ShenandoahHeapRegion::report_illegal_transition(const char *method) {
-  ResourceMark rm;
   stringStream ss;
   ss.print("Illegal region state transition from \"%s\", at %s\n  ", region_state_to_string(_state), method);
   print_on(&ss);
-  fatal("%s", ss.as_string());
+  fatal("%s", ss.freeze());
 }
 
 void ShenandoahHeapRegion::make_regular_allocation() {
@@ -346,7 +351,7 @@ void ShenandoahHeapRegion::print_on(outputStream* st) const {
       st->print("|CS ");
       break;
     case _trash:
-      st->print("|T  ");
+      st->print("|TR ");
       break;
     case _pinned:
       st->print("|P  ");
@@ -357,11 +362,14 @@ void ShenandoahHeapRegion::print_on(outputStream* st) const {
     default:
       ShouldNotReachHere();
   }
-  st->print("|BTE " INTPTR_FORMAT_W(12) ", " INTPTR_FORMAT_W(12) ", " INTPTR_FORMAT_W(12),
+
+#define SHR_PTR_FORMAT "%12" PRIxPTR
+
+  st->print("|BTE " SHR_PTR_FORMAT  ", " SHR_PTR_FORMAT ", " SHR_PTR_FORMAT,
             p2i(bottom()), p2i(top()), p2i(end()));
-  st->print("|TAMS " INTPTR_FORMAT_W(12),
+  st->print("|TAMS " SHR_PTR_FORMAT,
             p2i(ShenandoahHeap::heap()->marking_context()->top_at_mark_start(const_cast<ShenandoahHeapRegion*>(this))));
-  st->print("|UWM " INTPTR_FORMAT_W(12),
+  st->print("|UWM " SHR_PTR_FORMAT,
             p2i(_update_watermark));
   st->print("|U " SIZE_FORMAT_W(5) "%1s", byte_size_in_proper_unit(used()),                proper_unit_for_byte_size(used()));
   st->print("|T " SIZE_FORMAT_W(5) "%1s", byte_size_in_proper_unit(get_tlab_allocs()),     proper_unit_for_byte_size(get_tlab_allocs()));
@@ -370,6 +378,8 @@ void ShenandoahHeapRegion::print_on(outputStream* st) const {
   st->print("|L " SIZE_FORMAT_W(5) "%1s", byte_size_in_proper_unit(get_live_data_bytes()), proper_unit_for_byte_size(get_live_data_bytes()));
   st->print("|CP " SIZE_FORMAT_W(3), pin_count());
   st->cr();
+
+#undef SHR_PTR_FORMAT
 }
 
 void ShenandoahHeapRegion::oop_iterate(OopIterateClosure* blk) {
@@ -387,7 +397,7 @@ void ShenandoahHeapRegion::oop_iterate_objects(OopIterateClosure* blk) {
   HeapWord* t = top();
   // Could call objects iterate, but this is easier.
   while (obj_addr < t) {
-    oop obj = oop(obj_addr);
+    oop obj = cast_to_oop(obj_addr);
     obj_addr += obj->oop_iterate_size(blk);
   }
 }
@@ -397,7 +407,7 @@ void ShenandoahHeapRegion::oop_iterate_humongous(OopIterateClosure* blk) {
   // Find head.
   ShenandoahHeapRegion* r = humongous_start_region();
   assert(r->is_humongous_start(), "need humongous head here");
-  oop obj = oop(r->bottom());
+  oop obj = cast_to_oop(r->bottom());
   obj->oop_iterate(blk, MemRegion(bottom(), top()));
 }
 
@@ -443,9 +453,9 @@ HeapWord* ShenandoahHeapRegion::block_start(const void* p) const {
     HeapWord* cur = last;
     while (cur <= p) {
       last = cur;
-      cur += oop(cur)->size();
+      cur += cast_to_oop(cur)->size();
     }
-    shenandoah_assert_correct(NULL, oop(last));
+    shenandoah_assert_correct(nullptr, cast_to_oop(last));
     return last;
   }
 }
@@ -455,7 +465,7 @@ size_t ShenandoahHeapRegion::block_size(const HeapWord* p) const {
          "p (" PTR_FORMAT ") not in space [" PTR_FORMAT ", " PTR_FORMAT ")",
          p2i(p), p2i(bottom()), p2i(end()));
   if (p < top()) {
-    return oop(p)->size();
+    return cast_to_oop(p)->size();
   } else {
     assert(p == top(), "just checking");
     return pointer_delta(end(), (HeapWord*) p);
@@ -543,12 +553,12 @@ size_t ShenandoahHeapRegion::setup_sizes(size_t max_heap_size) {
   // region size to regular page size.
 
   // Figure out page size to use, and aligns up heap to page size
-  int page_size = os::vm_page_size();
+  size_t page_size = os::vm_page_size();
   if (UseLargePages) {
     size_t large_page_size = os::large_page_size();
     max_heap_size = align_up(max_heap_size, large_page_size);
     if ((max_heap_size / align_up(region_size, large_page_size)) >= MIN_NUM_REGIONS) {
-      page_size = (int)large_page_size;
+      page_size = large_page_size;
     } else {
       // Should have been checked during argument initialization
       assert(!ShenandoahUncommit, "Uncommit requires region size aligns to large page size");
@@ -559,7 +569,8 @@ size_t ShenandoahHeapRegion::setup_sizes(size_t max_heap_size) {
 
   // Align region size to page size
   region_size = align_up(region_size, page_size);
-  int region_size_log = log2_long((jlong) region_size);
+
+  int region_size_log = log2i(region_size);
   // Recalculate the region size to make sure it's a power of
   // 2. This means that region_size is the largest power of 2 that's
   // <= what we've calculated so far.
@@ -622,13 +633,6 @@ size_t ShenandoahHeapRegion::setup_sizes(size_t max_heap_size) {
   MaxTLABSizeBytes = MaxTLABSizeWords * HeapWordSize;
   assert (MaxTLABSizeBytes > MinTLABSize, "should be larger");
 
-  log_info(gc, init)("Regions: " SIZE_FORMAT " x " SIZE_FORMAT "%s",
-                     RegionCount, byte_size_in_proper_unit(RegionSizeBytes), proper_unit_for_byte_size(RegionSizeBytes));
-  log_info(gc, init)("Humongous object threshold: " SIZE_FORMAT "%s",
-                     byte_size_in_proper_unit(HumongousThresholdBytes), proper_unit_for_byte_size(HumongousThresholdBytes));
-  log_info(gc, init)("Max TLAB size: " SIZE_FORMAT "%s",
-                     byte_size_in_proper_unit(MaxTLABSizeBytes), proper_unit_for_byte_size(MaxTLABSizeBytes));
-
   return max_heap_size;
 }
 
@@ -648,7 +652,7 @@ void ShenandoahHeapRegion::do_commit() {
 
 void ShenandoahHeapRegion::do_uncommit() {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
-  if (!heap->is_heap_region_special() && !os::uncommit_memory((char *) bottom(), RegionSizeBytes, !ExecMem)) {
+  if (!heap->is_heap_region_special() && !os::uncommit_memory((char *) bottom(), RegionSizeBytes)) {
     report_java_out_of_memory("Unable to uncommit region");
   }
   if (!heap->uncommit_bitmap_slice(this)) {
@@ -660,7 +664,7 @@ void ShenandoahHeapRegion::do_uncommit() {
 void ShenandoahHeapRegion::set_state(RegionState to) {
   EventShenandoahHeapRegionStateChange evt;
   if (evt.should_commit()){
-    evt.set_index((unsigned)index());
+    evt.set_index((unsigned) index());
     evt.set_start((uintptr_t)bottom());
     evt.set_used(used());
     evt.set_from(_state);
@@ -671,12 +675,12 @@ void ShenandoahHeapRegion::set_state(RegionState to) {
 }
 
 void ShenandoahHeapRegion::record_pin() {
-  Atomic::add((size_t)1, &_critical_pins);
+  Atomic::add(&_critical_pins, (size_t)1);
 }
 
 void ShenandoahHeapRegion::record_unpin() {
   assert(pin_count() > 0, "Region " SIZE_FORMAT " should have non-zero pins", index());
-  Atomic::sub((size_t)1, &_critical_pins);
+  Atomic::sub(&_critical_pins, (size_t)1);
 }
 
 size_t ShenandoahHeapRegion::pin_count() const {

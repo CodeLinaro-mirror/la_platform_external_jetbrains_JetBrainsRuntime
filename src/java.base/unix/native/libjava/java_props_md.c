@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,7 +23,7 @@
  * questions.
  */
 
-#if defined(__linux__) || defined(_ALLBSD_SOURCE) || defined(_AIX)
+#if defined(__linux__) || defined(_ALLBSD_SOURCE)
 #include <stdio.h>
 #include <ctype.h>
 #endif
@@ -313,27 +313,6 @@ static int ParseLocale(JNIEnv* env, int cat, char ** std_language, char ** std_s
         }
 #endif
 
-#ifdef __solaris__
-        if (strcmp(p,"eucJP") == 0) {
-            /* For Solaris use customized vendor defined character
-             * customized EUC-JP converter
-             */
-            *std_encoding = "eucJP-open";
-        } else if (strcmp(p, "Big5") == 0 || strcmp(p, "BIG5") == 0) {
-            /*
-             * Remap the encoding string to Big5_Solaris which augments
-             * the default converter for Solaris Big5 locales to include
-             * seven additional ideographic characters beyond those included
-             * in the Java "Big5" converter.
-             */
-            *std_encoding = "Big5_Solaris";
-        } else if (strcmp(p, "Big5-HKSCS") == 0) {
-            /*
-             * Solaris uses HKSCS2001
-             */
-            *std_encoding = "Big5-HKSCS-2001";
-        }
-#endif
 #ifdef MACOSX
         /*
          * For the case on MacOS X where encoding is set to US-ASCII, but we
@@ -367,45 +346,6 @@ static int ParseLocale(JNIEnv* env, int cat, char ** std_language, char ** std_s
     return 1;
 }
 
-#ifdef _AIX
-
-/*
- * AIX doesn't have strcasestr. Implement it locally in this file.
- *
- * Finds string 'needle' in 'haystack'. Returns a pointer to the
- * first occurrance of 'needle' or NULL if not found. If string
- * needle is of length 0, a pointer to haystack is returned.
- */
-static const char*
-strcasestr(const char* haystack, const char* needle) {
-    if (haystack == NULL || needle == NULL) {
-        return NULL;
-    }
-    if (strlen(needle) == 0) {
-        return haystack;
-    }
-    int i, j, k;
-    i = j = k = 0;
-    int haystack_len = strlen(haystack);
-    int needle_len = strlen(needle);
-    while (i < (haystack_len - needle_len + 1)) {
-        j = 0;
-        k = i;
-        while (k < haystack_len && j < needle_len &&
-               tolower(haystack[k]) == tolower(needle[j])) {
-            j++; k++;
-        }
-        if (j == needle_len) {
-            // found the substring
-            return &haystack[i];
-        }
-        i++;
-    }
-    return NULL;
-}
-
-#endif // _AIX
-
 /* This function gets called very early, before VM_CALLS are setup.
  * Do not use any of the VM_CALLS entries!!!
  */
@@ -413,7 +353,6 @@ java_props_t *
 GetJavaProperties(JNIEnv *env)
 {
     static java_props_t sprops;
-    char *v; /* tmp var */
 
     if (sprops.user_dir) {
         return &sprops;
@@ -430,32 +369,8 @@ GetJavaProperties(JNIEnv *env)
     }
 #endif /* MACOSX */
 
-    /* Printing properties */
-#ifdef MACOSX
-    sprops.printerJob = "sun.lwawt.macosx.CPrinterJob";
-#else
-    sprops.printerJob = "sun.print.PSPrinterJob";
-#endif
-
     /* patches/service packs installed */
-    sprops.patch_level = "unknown";
-
-    /* Java 2D/AWT properties */
-#ifdef MACOSX
-    // Always the same GraphicsEnvironment and Toolkit on Mac OS X
-    sprops.graphics_env = "sun.awt.CGraphicsEnvironment";
-    sprops.awt_toolkit = "sun.lwawt.macosx.LWCToolkit";
-
-    // check if we're in a GUI login session and set java.awt.headless=true if not
-    sprops.awt_headless = isInAquaSession() ? NULL : "true";
-#else
-    sprops.graphics_env = "sun.awt.X11GraphicsEnvironment";
-    sprops.awt_toolkit = "sun.awt.X11.XToolkit";
-#endif
-
-    /* This is used only for debugging of font problems. */
-    v = getenv("JAVA2D_FONTPATH");
-    sprops.font_dir = v ? v : NULL;
+    sprops.patch_level = NULL;      // leave it undefined
 
 #ifdef SI_ISALIST
     /* supported instruction sets */
@@ -502,15 +417,6 @@ GetJavaProperties(JNIEnv *env)
 #endif /* MACOSX */
 
         sprops.os_arch = ARCHPROPNAME;
-        char* curr_desktop = getenv("XDG_CURRENT_DESKTOP");
-
-        if (getenv("GNOME_DESKTOP_SESSION_ID") != NULL
-            || (curr_desktop != NULL && strcasestr(curr_desktop, "gnome") != NULL)) {
-            sprops.desktop = "gnome";
-        }
-        else {
-            sprops.desktop = NULL;
-        }
     }
 
     /* ABI property (optional) */
@@ -529,19 +435,15 @@ GetJavaProperties(JNIEnv *env)
                     &(sprops.format_variant),
                     &(sprops.encoding))) {
         ParseLocale(env, LC_MESSAGES,
-                    &(sprops.language),
-                    &(sprops.script),
-                    &(sprops.country),
-                    &(sprops.variant),
+                    &(sprops.display_language),
+                    &(sprops.display_script),
+                    &(sprops.display_country),
+                    &(sprops.display_variant),
                     NULL);
     } else {
-        sprops.language = "en";
+        sprops.display_language = "en";
         sprops.encoding = "ISO8859-1";
     }
-    sprops.display_language = sprops.language;
-    sprops.display_script = sprops.script;
-    sprops.display_country = sprops.country;
-    sprops.display_variant = sprops.variant;
 
     /* ParseLocale failed with OOME */
     JNU_CHECK_EXCEPTION_RETURN(env, NULL);
@@ -551,6 +453,12 @@ GetJavaProperties(JNIEnv *env)
 #else
     sprops.sun_jnu_encoding = sprops.encoding;
 #endif
+    if (isatty(STDOUT_FILENO) == 1) {
+        sprops.stdout_encoding = sprops.encoding;
+    }
+    if (isatty(STDERR_FILENO) == 1) {
+        sprops.stderr_encoding = sprops.encoding;
+    }
 
 #ifdef _ALLBSD_SOURCE
 #if BYTE_ORDER == _LITTLE_ENDIAN
@@ -579,23 +487,25 @@ GetJavaProperties(JNIEnv *env)
 #else
         sprops.user_home = pwent ? strdup(pwent->pw_dir) : NULL;
 #endif
-        if (sprops.user_home == NULL) {
-            sprops.user_home = "?";
+        if (sprops.user_home == NULL || sprops.user_home[0] == '\0' ||
+            sprops.user_home[1] == '\0') {
+            // If the OS supplied home directory is not defined or less than two characters long
+            // $HOME is the backup source for the home directory, if defined
+            char* user_home = getenv("HOME");
+            if ((user_home != NULL) && (user_home[0] != '\0')) {
+                sprops.user_home = user_home;
+            } else {
+                sprops.user_home = "?";
+            }
         }
     }
 
-    /* User TIMEZONE */
-    {
-        /*
-         * We defer setting up timezone until it's actually necessary.
-         * Refer to TimeZone.getDefault(). However, the system
-         * property is necessary to be able to be set by the command
-         * line interface -D. Here temporarily set a null string to
-         * timezone.
-         */
-        tzset();        /* for compatibility */
-        sprops.timezone = "";
-    }
+    /* User TIMEZONE
+     * We defer setting up timezone until it's actually necessary.
+     * Refer to TimeZone.getDefault(). The system property
+     * is able to be set by the command line interface -Duser.timezone.
+     */
+    tzset();        /* for compatibility */
 
     /* Current directory */
     {

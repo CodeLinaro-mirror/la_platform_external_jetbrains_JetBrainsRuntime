@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -56,10 +56,10 @@ public:
     static jfieldID autoRequestFocusID;
     static jfieldID securityWarningWidthID;
     static jfieldID securityWarningHeightID;
+    static jfieldID customTitleBarHitTestID;
+    static jfieldID customTitleBarHitTestQueryID;
 
     /* sun.awt.windows.WWindowPeer field and method IDs */
-    static jfieldID sysInsetsID;
-
     static jfieldID windowTypeID;
     static jmethodID notifyWindowStateChangedMID;
 
@@ -67,6 +67,9 @@ public:
     static jmethodID getWarningStringMID;
     static jmethodID calculateSecurityWarningPositionMID;
     static jmethodID windowTypeNameMID;
+    static jmethodID internalCustomTitleBarHeightMID;
+
+    static jfieldID sysInsetsID;
 
     AwtWindow();
     virtual ~AwtWindow();
@@ -133,7 +136,8 @@ public:
     virtual void RecalcNonClient();
     virtual void RedrawNonClient();
     virtual int  GetScreenImOn();
-    virtual void CheckIfOnNewScreen(BOOL force);
+    virtual BOOL CheckIfOnNewScreen(BOOL force);
+    virtual BOOL CheckIfOnNewScreenWithDifferentScale();
     virtual void Grab();
     virtual void Ungrab();
     virtual void Ungrab(BOOL doPost);
@@ -213,7 +217,7 @@ public:
                              (LPARAM) oppositeHWnd);
     }
 
-    void moveToDefaultLocation(); /* moves Window to X,Y specified by Window Manger */
+    void moveToDefaultLocation(); /* moves Window to X,Y specified by Window Manager */
 
     void UpdateWindow(JNIEnv* env, jintArray data, int width, int height,
                       HBITMAP hNewBitmap = NULL);
@@ -249,6 +253,7 @@ public:
     static void _SetFullScreenExclusiveModeState(void* param);
     static void _GetNativeWindowSize(void* param);
     static void _OverrideHandle(void *param);
+    static void _SetRoundedCorners(void* param);
 
     inline static BOOL IsResizing() {
         return sm_resizing;
@@ -266,8 +271,6 @@ public:
 
     inline HWND GetOverriddenHWnd() { return m_overriddenHwnd; }
     inline void OverrideHWnd(HWND hwnd) { m_overriddenHwnd = hwnd; }
-
-    virtual BOOL HasCustomDecoration() { return FALSE; }
 
 private:
     static int ms_instanceCounter;
@@ -337,8 +340,6 @@ private:
     void UnregisterWarningWindowClass();
     static LRESULT CALLBACK WarningWindowProc(
             HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-    static LRESULT CALLBACK InitialWindowProc(
-            HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
     static void PaintWarningWindow(HWND warningWindow);
     static void PaintWarningWindow(HWND warningWindow, HDC hdc);
@@ -379,8 +380,8 @@ public:
 protected:
     BOOL m_isResizable;
     static AwtWindow* m_grabbedWindow; // Current grabbing window
-    HICON m_hIcon;            /* Icon for this window. It can be set explicitely or inherited from the owner */
-    HICON m_hIconSm;          /* Small icon for this window. It can be set explicitely or inherited from the owner */
+    HICON m_hIcon;            /* Icon for this window. It can be set explicitly or inherited from the owner */
+    HICON m_hIconSm;          /* Small icon for this window. It can be set explicitly or inherited from the owner */
     BOOL m_iconInherited;     /* TRUE if icon is inherited from the owner */
     BOOL m_filterFocusAndActivation; /* Used in the WH_CBT hook */
 
@@ -398,6 +399,13 @@ protected:
     };
 
     inline Type GetType() { return m_windowType; }
+
+    // SetWindowPos flags to cause frame edge to be recalculated
+    static const UINT SwpFrameChangeFlags =
+            SWP_FRAMECHANGED | /* causes WM_NCCALCSIZE to be called */
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+            SWP_NOACTIVATE | SWP_NOCOPYBITS |
+            SWP_NOREPOSITION | SWP_NOSENDCHANGING;
 
 private:
     int m_screenNum;

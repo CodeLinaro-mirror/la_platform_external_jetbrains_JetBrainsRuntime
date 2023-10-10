@@ -27,7 +27,6 @@
 #define AWT_WIN32GRAPHICSCONFIG_H
 
 #include "awt.h"
-#include "awt_Win32GraphicsDevice.h"
 
 class AwtWin32GraphicsConfig {
 public:

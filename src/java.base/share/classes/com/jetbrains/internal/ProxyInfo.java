@@ -1,17 +1,26 @@
 /*
- * Copyright 2000-2021 JetBrains s.r.o.
+ * Copyright 2000-2023 JetBrains s.r.o.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
  */
 
 package com.jetbrains.internal;
@@ -19,6 +28,8 @@ package com.jetbrains.internal;
 import java.lang.invoke.MethodHandles;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Stream;
 
 import static java.lang.invoke.MethodHandles.Lookup;
 
@@ -36,16 +47,18 @@ class ProxyInfo {
     final Map<String, StaticMethodMapping> staticMethods = new HashMap<>();
 
     private ProxyInfo(RegisteredProxyInfo i) {
-        this.apiModule = i.apiModule;
-        type = i.type;
-        interFaceLookup = lookup(getInterfaceLookup(), i.interfaceName);
+        this.apiModule = i.apiModule();
+        type = i.type();
+        interFaceLookup = lookup(getInterfaceLookup(), i.interfaceName());
         interFace = interFaceLookup == null ? null : interFaceLookup.lookupClass();
-        target = i.target == null ? null : lookup(getTargetLookup(), i.target);
-        for (RegisteredProxyInfo.StaticMethodMapping m : i.staticMethods) {
-            Lookup l = lookup(getTargetLookup(), m.clazz);
-            if (l != null) {
-                staticMethods.put(m.interfaceMethodName, new StaticMethodMapping(l, m.methodName));
-            }
+        target = Stream.of(i.targets())
+                .map(t -> lookup(getTargetLookup(), t))
+                .filter(Objects::nonNull).findFirst().orElse(null);
+        for (RegisteredProxyInfo.StaticMethodMapping m : i.staticMethods()) {
+            Stream.of(m.classes())
+                    .map(t -> lookup(getTargetLookup(), t))
+                    .filter(Objects::nonNull).findFirst()
+                    .ifPresent(l -> staticMethods.put(m.interfaceMethodName(), new StaticMethodMapping(l, m.methodName())));
         }
     }
 
@@ -66,7 +79,7 @@ class ProxyInfo {
     }
 
     Lookup getInterfaceLookup() {
-        return type == Type.CLIENT_PROXY ? apiModule : JBRApi.outerLookup;
+        return type == Type.CLIENT_PROXY || type == Type.INTERNAL_SERVICE ? apiModule : JBRApi.outerLookup;
     }
 
     Lookup getTargetLookup() {
@@ -74,31 +87,21 @@ class ProxyInfo {
     }
 
     private Lookup lookup(Lookup lookup, String clazz) {
-        boolean outer = lookup == JBRApi.outerLookup;
         String[] nestedClasses = clazz.split("\\$");
         clazz = "";
         for (int i = 0; i < nestedClasses.length; i++) {
             try {
                 if (i != 0) clazz += "$";
                 clazz += nestedClasses[i];
-                lookup = MethodHandles.privateLookupIn(lookup.findClass(clazz), lookup);
-            } catch (ClassNotFoundException | IllegalAccessException e) {
-                if (outer) return null;
-                else throw new RuntimeException(e);
+                lookup = MethodHandles.privateLookupIn(Class.forName(clazz, false, lookup.lookupClass().getClassLoader()), lookup);
+            } catch (ClassNotFoundException | IllegalAccessException ignore) {
+                return null;
             }
         }
         return lookup;
     }
 
-    static class StaticMethodMapping {
-        final Lookup lookup;
-        final String methodName;
-
-        StaticMethodMapping(Lookup lookup, String methodName) {
-            this.lookup = lookup;
-            this.methodName = methodName;
-        }
-    }
+    record StaticMethodMapping(Lookup lookup, String methodName) {}
 
     /**
      * Proxy type, see {@link Proxy}
@@ -106,6 +109,15 @@ class ProxyInfo {
     enum Type {
         PROXY,
         SERVICE,
-        CLIENT_PROXY
+        CLIENT_PROXY,
+        INTERNAL_SERVICE;
+
+        public boolean isPublicApi() {
+            return this == PROXY || this == SERVICE;
+        }
+
+        public boolean isService() {
+            return this == SERVICE || this == INTERNAL_SERVICE;
+        }
     }
 }

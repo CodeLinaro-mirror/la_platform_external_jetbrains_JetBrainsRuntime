@@ -40,13 +40,18 @@ import java.security.*;
  */
 public abstract class SSLContextSpi {
     /**
+     * Constructor for subclasses to call.
+     */
+    public SSLContextSpi() {}
+
+    /**
      * Initializes this context.
      *
      * @param km the sources of authentication keys
      * @param tm the sources of peer authentication trust decisions
      * @param sr the source of randomness
      * @throws KeyManagementException if this operation fails
-     * @see SSLContext#init(KeyManager [], TrustManager [], SecureRandom)
+     * @see SSLContext#init(KeyManager[], TrustManager[], SecureRandom)
      */
     protected abstract void engineInit(KeyManager[] km, TrustManager[] tm,
         SecureRandom sr) throws KeyManagementException;
@@ -210,10 +215,9 @@ public abstract class SSLContextSpi {
      */
     protected SSLParameters engineGetSupportedSSLParameters() {
         SSLSocket socket = getDefaultSocket();
-        SSLParameters params = new SSLParameters();
+        SSLParameters params = socket.getSSLParameters();
         params.setCipherSuites(socket.getSupportedCipherSuites());
         params.setProtocols(socket.getSupportedProtocols());
         return params;
     }
-
 }

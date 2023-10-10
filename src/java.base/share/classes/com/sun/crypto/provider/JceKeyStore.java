@@ -46,6 +46,8 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.CertificateException;
 import javax.crypto.SealedObject;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 /**
  * This class provides the keystore implementation referred to as "jceks".
  * This implementation strongly protects the keystore private keys using
@@ -835,7 +837,8 @@ public final class JceKeyStore extends KeyStoreSpi {
                             ois = new ObjectInputStream(dis);
                             final ObjectInputStream ois2 = ois;
                             // Set a deserialization checker
-                            AccessController.doPrivileged(
+                            @SuppressWarnings("removal")
+                            var dummy = AccessController.doPrivileged(
                                 (PrivilegedAction<Void>)() -> {
                                     ois2.setObjectInputFilter(
                                         new DeserializationChecker(fullLength));
@@ -898,7 +901,8 @@ public final class JceKeyStore extends KeyStoreSpi {
      * hash with a bit of extra data.
      */
     private MessageDigest getPreKeyedHash(char[] password)
-    throws NoSuchAlgorithmException, UnsupportedEncodingException {
+        throws NoSuchAlgorithmException
+    {
         int i, j;
 
         MessageDigest md = MessageDigest.getInstance("SHA");
@@ -910,7 +914,7 @@ public final class JceKeyStore extends KeyStoreSpi {
         md.update(passwdBytes);
         for (i=0; i<passwdBytes.length; i++)
             passwdBytes[i] = 0;
-        md.update("Mighty Aphrodite".getBytes("UTF8"));
+        md.update("Mighty Aphrodite".getBytes(UTF_8));
         return md;
     }
 

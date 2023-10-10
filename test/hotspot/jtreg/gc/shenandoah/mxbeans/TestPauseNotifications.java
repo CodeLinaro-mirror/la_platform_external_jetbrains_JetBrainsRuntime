@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2018, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -22,11 +23,10 @@
  */
 
 /*
- * @test TestPauseNotifications
+ * @test id=passive
  * @summary Check that MX notifications are reported for all cycles
- * @key gc
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
  * @library /test/lib /
+ * @requires vm.gc.Shenandoah
  *
  * @run main/othervm -Xmx128m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCMode=passive
@@ -40,11 +40,10 @@
  */
 
 /*
- * @test TestPauseNotifications
+ * @test id=aggressive
  * @summary Check that MX notifications are reported for all cycles
- * @key gc
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
  * @library /test/lib /
+ * @requires vm.gc.Shenandoah
  *
  * @run main/othervm -Xmx128m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=aggressive
@@ -52,10 +51,10 @@
  */
 
 /*
- * @test TestPauseNotifications
+ * @test id=adaptive
  * @summary Check that MX notifications are reported for all cycles
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
  * @library /test/lib /
+ * @requires vm.gc.Shenandoah
  *
  * @run main/othervm -Xmx128m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=adaptive
@@ -63,10 +62,10 @@
  */
 
 /*
- * @test TestPauseNotifications
+ * @test id=static
  * @summary Check that MX notifications are reported for all cycles
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
  * @library /test/lib /
+ * @requires vm.gc.Shenandoah
  *
  * @run main/othervm -Xmx128m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=static
@@ -74,10 +73,10 @@
  */
 
 /*
- * @test TestPauseNotifications
+ * @test id=compact
  * @summary Check that MX notifications are reported for all cycles
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
  * @library /test/lib /
+ * @requires vm.gc.Shenandoah
  *
  * @run main/othervm -Xmx128m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=compact
@@ -85,11 +84,10 @@
  */
 
 /*
- * @test TestPauseNotifications
+ * @test id=iu
  * @summary Check that MX notifications are reported for all cycles
- * @key gc
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
  * @library /test/lib /
+ * @requires vm.gc.Shenandoah
  *
  * @run main/othervm -Xmx128m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCMode=iu -XX:ShenandoahGCHeuristics=aggressive
@@ -117,6 +115,12 @@ public class TestPauseNotifications {
 
     static volatile Object sink;
 
+    private static boolean isExpectedPauseAction(String action) {
+        return "Init Mark".equals(action) || "Final Mark".equals(action) || "Full GC".equals(action)
+            || "Degenerated GC".equals(action) || "Init Update Refs".equals(action)
+            || "Final Update Refs".equals(action) || "Final Roots".equals(action);
+    }
+
     public static void main(String[] args) throws Exception {
         final long startTime = System.currentTimeMillis();
 
@@ -131,7 +135,8 @@ public class TestPauseNotifications {
                 if (n.getType().equals(GarbageCollectionNotificationInfo.GARBAGE_COLLECTION_NOTIFICATION)) {
                     GarbageCollectionNotificationInfo info = GarbageCollectionNotificationInfo.from((CompositeData) n.getUserData());
 
-                    System.out.println("Received: " + info.getGcName());
+                    System.out.println("Received: " + info.getGcName() + "/" + info.getGcAction());
+
 
                     long d = info.getGcInfo().getDuration();
 
@@ -140,6 +145,9 @@ public class TestPauseNotifications {
                         if (name.equals("Shenandoah Pauses")) {
                             pausesCount.incrementAndGet();
                             pausesDuration.addAndGet(d);
+                            if (!isExpectedPauseAction(info.getGcAction())) {
+                                throw new IllegalStateException("Unknown action: " + info.getGcAction());
+                            }
                         } else if (name.equals("Shenandoah Cycles")) {
                             cyclesCount.incrementAndGet();
                             cyclesDuration.addAndGet(d);

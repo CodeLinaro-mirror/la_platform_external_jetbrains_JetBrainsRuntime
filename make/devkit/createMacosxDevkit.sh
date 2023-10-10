@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2015, 2020, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2015, 2021, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -62,7 +62,7 @@ mkdir -p $DEVKIT_ROOT
 
 ################################################################################
 # Copy the relevant parts of Xcode.app, removing things that are both big and
-# unecessary for our purposes, without building an impossibly long exclude list.
+# unnecessary for our purposes, without building an impossibly long exclude list.
 EXCLUDE_DIRS=" \
     Contents/_CodeSignature \
     Contents/Applications \
@@ -91,7 +91,6 @@ EXCLUDE_DIRS=" \
     Platforms/AppleTVSimulator.platform \
     Platforms/iPhoneSimulator.platform \
     Platforms/WatchSimulator.platform \
-    Contents/SharedFrameworks/LLDB.framework \
     Contents/SharedFrameworks/ModelIO.framework \
     Contents/SharedFrameworks/XCSUI.framework \
     Contents/SharedFrameworks/SceneKit.framework \
@@ -103,7 +102,7 @@ EXCLUDE_DIRS=" \
 "
 
 for ex in $EXCLUDE_DIRS; do
-    EXCLUDE_ARGS+="--exclude=$ex "
+    EXCLUDE_ARGS="$EXCLUDE_ARGS --exclude=$ex"
 done
 
 echo "Copying Xcode.app..."

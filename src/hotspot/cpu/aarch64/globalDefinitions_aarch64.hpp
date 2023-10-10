@@ -23,8 +23,8 @@
  *
  */
 
-#ifndef CPU_AARCH64_VM_GLOBALDEFINITIONS_AARCH64_HPP
-#define CPU_AARCH64_VM_GLOBALDEFINITIONS_AARCH64_HPP
+#ifndef CPU_AARCH64_GLOBALDEFINITIONS_AARCH64_HPP
+#define CPU_AARCH64_GLOBALDEFINITIONS_AARCH64_HPP
 
 const int StackAlignmentInBytes  = 16;
 
@@ -33,6 +33,13 @@ const int StackAlignmentInBytes  = 16;
 const bool CCallingConventionRequiresIntsAsLongs = false;
 
 #define SUPPORTS_NATIVE_CX8
+
+#define SUPPORT_MONITOR_COUNT
+
+// Aarch64 was not originally defined to be multi-copy-atomic, but now
+// is.  See: "Simplifying ARM Concurrency: Multicopy-atomic Axiomatic
+// and Operational Models for ARMv8"
+#define CPU_MULTI_COPY_ATOMIC
 
 // According to the ARMv8 ARM, "Concurrent modification and execution
 // of instructions can lead to the resulting instruction performing
@@ -51,8 +58,6 @@ const bool CCallingConventionRequiresIntsAsLongs = false;
 
 #define SUPPORT_RESERVED_STACK_AREA
 
-#define THREAD_LOCAL_POLL
-
 #if defined(__APPLE__) || defined(_WIN64)
 #define R18_RESERVED
 #define R18_RESERVED_ONLY(code) code
@@ -62,4 +67,6 @@ const bool CCallingConventionRequiresIntsAsLongs = false;
 #define NOT_R18_RESERVED(code) code
 #endif
 
-#endif // CPU_AARCH64_VM_GLOBALDEFINITIONS_AARCH64_HPP
+#define USE_POINTERS_TO_REGISTER_IMPL_ARRAY
+
+#endif // CPU_AARCH64_GLOBALDEFINITIONS_AARCH64_HPP

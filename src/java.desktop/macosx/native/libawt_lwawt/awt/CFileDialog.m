@@ -26,10 +26,11 @@
 #import <sys/stat.h>
 #import <Cocoa/Cocoa.h>
 
-#import "AWTWindow.h"
 #import "ThreadUtilities.h"
 #import "JNIUtilities.h"
 #import "CFileDialog.h"
+#import "AWTWindow.h"
+#import "CMenuBar.h"
 #import "ApplicationDelegate.h"
 
 #import "java_awt_FileDialog.h"
@@ -51,7 +52,7 @@ canChooseDirectories:(BOOL)inChooseDirectories
 canCreateDirectories:(BOOL)inCreateDirectories
              withEnv:(JNIEnv*)env;
 {
-    if (self == [super init]) {
+    if (self = [super init]) {
         fOwner = owner;
         [fOwner retain];
         fHasFileFilter = inHasFilter;
@@ -118,7 +119,6 @@ canCreateDirectories:(BOOL)inCreateDirectories
     } else {
         thePanel = [NSOpenPanel openPanel];
     }
-    [thePanel retain];
 
     if (thePanel != nil) {
         [thePanel setTitle:fTitle];
@@ -155,6 +155,7 @@ canCreateDirectories:(BOOL)inCreateDirectories
             }
             [editMenuItem release];
         }
+
 
         if (fOwner != nil) {
             if (fDirectory != nil) {
@@ -201,6 +202,8 @@ canCreateDirectories:(BOOL)inCreateDirectories
         else
         {
             fPanelResult = [thePanel runModalForDirectory:fDirectory file:fFile];
+            CMenuBar *menuBar = [[ApplicationDelegate sharedDelegate] defaultMenuBar];
+            [CMenuBar activate:menuBar modallyDisabled:NO];
         }
 
         if (editMenuItem != nil) {
@@ -219,7 +222,6 @@ canCreateDirectories:(BOOL)inCreateDirectories
 
         [thePanel setDelegate:nil];
     }
-    [thePanel release];
 
     [self disposer];
 }
@@ -301,8 +303,8 @@ canCreateDirectories:(BOOL)inCreateDirectories
 JNIEXPORT jobjectArray JNICALL
 Java_sun_lwawt_macosx_CFileDialog_nativeRunFileDialog
 (JNIEnv *env, jobject peer, jlong ownerPtr, jstring title, jint mode, jboolean multipleMode,
- jboolean navigateApps, jboolean chooseDirectories, jboolean chooseFiles, jboolean createDirectories, jboolean hasFilter,
- jstring directory, jstring file)
+ jboolean navigateApps, jboolean chooseDirectories, jboolean chooseFiles, jboolean createDirectories,
+ jboolean hasFilter, jstring directory, jstring file)
 {
     jobjectArray returnValue = NULL;
 

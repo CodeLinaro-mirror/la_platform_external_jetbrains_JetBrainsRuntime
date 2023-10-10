@@ -33,7 +33,7 @@
  *    . 'list' lists the token aliases
  *    . 'basic' does not run with activcard,
  * @library /test/lib ..
- * @run testng/othervm Basic
+ * @run testng/othervm -Djava.security.manager=allow Basic
  */
 
 import java.io.*;
@@ -135,7 +135,7 @@ public class Basic extends PKCS11Test {
         this.provider = p;
 
         // get private keys
-        KeyFactory kf = KeyFactory.getInstance("RSA", "SunJSSE");
+        KeyFactory kf = KeyFactory.getInstance("RSA");
         KeyFactory dsaKf = KeyFactory.getInstance("DSA", "SUN");
 
         ObjectInputStream ois1 = new ObjectInputStream

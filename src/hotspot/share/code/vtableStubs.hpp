@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,12 +22,12 @@
  *
  */
 
-#ifndef SHARE_VM_CODE_VTABLESTUBS_HPP
-#define SHARE_VM_CODE_VTABLESTUBS_HPP
+#ifndef SHARE_CODE_VTABLESTUBS_HPP
+#define SHARE_CODE_VTABLESTUBS_HPP
 
 #include "asm/macroAssembler.hpp"
 #include "code/vmreg.hpp"
-#include "memory/allocation.hpp"
+#include "memory/allStatic.hpp"
 
 // A VtableStub holds an individual code stub for a pair (vtable index, #args) for either itables or vtables
 // There's a one-to-one relationship between a VtableStub and such a pair.
@@ -106,7 +106,7 @@ class VtableStubs : AllStatic {
 
   static VtableStub* entry_point(address pc);                        // vtable stub entry point for a pc
   static bool        contains(address pc);                           // is pc within any stub?
-  static VtableStub* stub_containing(address pc);                    // stub containing pc or NULL
+  static VtableStub* stub_containing(address pc);                    // stub containing pc or nullptr
   static int         number_of_vtable_stubs() { return _number_of_vtable_stubs; }
   static void        initialize();
   static void        vtable_stub_do(void f(VtableStub*));            // iterates over all vtable stubs
@@ -131,8 +131,8 @@ class VtableStub {
   void* operator new(size_t size, int code_size) throw();
 
   VtableStub(bool is_vtable_stub, int index)
-        : _next(NULL), _is_vtable_stub(is_vtable_stub),
-          _index(index), _ame_offset(-1), _npe_offset(-1) {}
+        : _next(nullptr), _index(index), _ame_offset(-1), _npe_offset(-1),
+          _is_vtable_stub(is_vtable_stub) {}
   VtableStub* next() const                       { return _next; }
   int index() const                              { return _index; }
   static VMReg receiver_location()               { return _receiver_location; }
@@ -177,8 +177,8 @@ class VtableStub {
   bool is_null_pointer_exception(address epc)    { return epc == code_begin()+_npe_offset; }
 
   void print_on(outputStream* st) const;
-  void print() const                             { print_on(tty); }
+  void print() const;
 
 };
 
-#endif // SHARE_VM_CODE_VTABLESTUBS_HPP
+#endif // SHARE_CODE_VTABLESTUBS_HPP

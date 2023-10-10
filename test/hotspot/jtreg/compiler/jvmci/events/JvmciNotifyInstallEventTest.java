@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,18 +41,19 @@
  * @build compiler.jvmci.common.JVMCIHelpers
  * @run driver jdk.test.lib.FileInstaller ./JvmciNotifyInstallEventTest.config
  *     ./META-INF/services/jdk.vm.ci.services.JVMCIServiceLocator
- * @run driver ClassFileInstaller
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller
  *      compiler.jvmci.common.JVMCIHelpers$EmptyHotspotCompiler
  *      compiler.jvmci.common.JVMCIHelpers$EmptyCompilerFactory
  *      compiler.jvmci.common.JVMCIHelpers$EmptyCompilationRequestResult
  *      compiler.jvmci.common.JVMCIHelpers$EmptyVMEventListener
  * @run main/othervm -XX:+UnlockExperimentalVMOptions
  *     -Djvmci.Compiler=EmptyCompiler -Xbootclasspath/a:.
- *     -XX:+UseJVMCICompiler -XX:-BootstrapJVMCI
+ *     -XX:+UseJVMCICompiler -XX:-BootstrapJVMCI -XX:-UseJVMCINativeLibrary
  *     compiler.jvmci.events.JvmciNotifyInstallEventTest
  * @run main/othervm -XX:+UnlockExperimentalVMOptions
  *     -Djvmci.Compiler=EmptyCompiler -Xbootclasspath/a:.
  *     -XX:+UseJVMCICompiler -XX:-BootstrapJVMCI -XX:JVMCINMethodSizeLimit=0
+ *     -XX:-UseJVMCINativeLibrary
  *     compiler.jvmci.events.JvmciNotifyInstallEventTest
  */
 
@@ -70,6 +71,7 @@ import jdk.vm.ci.code.site.Site;
 import jdk.vm.ci.hotspot.HotSpotCodeCacheProvider;
 import jdk.vm.ci.hotspot.HotSpotCompiledCode;
 import jdk.vm.ci.hotspot.HotSpotCompiledCode.Comment;
+import jdk.vm.ci.hotspot.HotSpotCompiledNmethod;
 import jdk.vm.ci.hotspot.HotSpotJVMCIRuntime;
 import jdk.vm.ci.hotspot.HotSpotResolvedJavaMethod;
 import jdk.vm.ci.hotspot.HotSpotVMEventListener;
@@ -114,10 +116,12 @@ public class JvmciNotifyInstallEventTest extends JVMCIServiceLocator implements 
         }
         HotSpotResolvedJavaMethod method = CTVMUtilities
                 .getResolvedMethod(SimpleClass.class, testMethod);
-        HotSpotCompiledCode compiledCode = new HotSpotCompiledCode(METHOD_NAME,
+        int dataSectionAlignment = 8; // CodeBuffer::SECT_CONSTS code section alignment
+        HotSpotCompiledCode compiledCode = new HotSpotCompiledNmethod(METHOD_NAME,
                 new byte[0], 0, new Site[0], new Assumption[0],
                 new ResolvedJavaMethod[]{method}, new Comment[0], new byte[0],
-                16, new DataPatch[0], false, 0, null);
+                dataSectionAlignment, new DataPatch[0], false, 0, null,
+                method, 0, 1, 0L, false);
         codeCache.installCode(method, compiledCode, /* installedCode = */ null,
                 /* speculationLog = */ null, /* isDefault = */ false);
         Asserts.assertEQ(gotInstallNotification, 1,

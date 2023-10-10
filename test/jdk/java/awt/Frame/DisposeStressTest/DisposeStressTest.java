@@ -27,7 +27,7 @@
   @bug 4051487 4145670
   @summary Tests that disposing of an empty Frame or a Frame with a MenuBar
            while it is being created does not crash the VM.
-  @run main/timeout=7200 DisposeStressTest
+  @run main/timeout=600 DisposeStressTest
 */
 
 import java.awt.Frame;

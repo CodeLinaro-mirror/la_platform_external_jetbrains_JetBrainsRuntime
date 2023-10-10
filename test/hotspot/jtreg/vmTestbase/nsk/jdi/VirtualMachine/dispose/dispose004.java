@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -145,7 +145,7 @@ public class dispose004 {
         IOPipe pipe     = new IOPipe(debuggee);
 
         debuggee.redirectStderr(out);
-        log2("issuspended002a debuggee launched");
+        log2(debuggeeName + " debuggee launched");
         debuggee.resume();
 
         String line = pipe.readln();
@@ -222,7 +222,7 @@ public class dispose004 {
                             break ;
                     } catch ( NoSuchElementException e ) {
                         log3("ERROR: NoSuchElementException for listIterator.next()");
-                        log3("ERROR: NO THREAD2 ?????????!!!!!!!");
+                        log3("ERROR: NO MAIN THREAD ?????????!!!!!!!");
                         expresult = returnCode1;
                         break label0;
                     }

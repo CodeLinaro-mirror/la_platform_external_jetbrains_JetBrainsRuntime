@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -58,6 +58,7 @@ void JNICALL Breakpoint(jvmtiEnv *jvmti_env, JNIEnv *env,
         printf("(GetFrameLocation) unexpected error: %s (%d)\n",
                TranslateError(err), err);
         result = STATUS_FAILED;
+        return;
     }
 
     err = jvmti_env->GetLocalVariableTable(mid,
@@ -258,7 +259,7 @@ jint  Agent_Initialize(JavaVM *jvm, char *options, void *reserved) {
     jvmtiError err;
 
     res = jvm->GetEnv((void **) &jvmti, JVMTI_VERSION_1_1);
-    if ( res != JNI_OK || jvmti == NULL ) {
+    if (res != JNI_OK || jvmti == NULL) {
         printf("Wrong result of a valid call to GetEnv !\n");
         return JNI_ERR;
     }

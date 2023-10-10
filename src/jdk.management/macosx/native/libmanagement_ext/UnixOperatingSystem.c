@@ -32,7 +32,7 @@
 #include "jvm.h"
 
 JNIEXPORT jdouble JNICALL
-Java_com_sun_management_internal_OperatingSystemImpl_getSystemCpuLoad0
+Java_com_sun_management_internal_OperatingSystemImpl_getCpuLoad0
 (JNIEnv *env, jobject dummy)
 {
     // This code is influenced by the darwin top source

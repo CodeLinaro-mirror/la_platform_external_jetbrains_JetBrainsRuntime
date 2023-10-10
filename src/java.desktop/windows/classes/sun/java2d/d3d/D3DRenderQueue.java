@@ -49,7 +49,7 @@ public class D3DRenderQueue extends RenderQueue {
     public static synchronized D3DRenderQueue getInstance() {
         if (theInstance == null) {
             theInstance = new D3DRenderQueue();
-            // no need to lock, noone has reference to this instance yet
+            // no need to lock, no one has reference to this instance yet
             theInstance.flushAndInvokeNow(new Runnable() {
                 public void run() {
                     rqThread = Thread.currentThread();
@@ -154,6 +154,6 @@ public class D3DRenderQueue extends RenderQueue {
         // reset the buffer position
         buf.clear();
         // clear the set of references, since we no longer need them
-        refList.clear();
+        refSet.clear();
     }
 }

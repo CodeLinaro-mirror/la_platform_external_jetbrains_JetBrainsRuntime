@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,12 +51,17 @@ import java.security.spec.InvalidParameterSpecException;
 public abstract class AlgorithmParametersSpi {
 
     /**
+     * Constructor for subclasses to call.
+     */
+    public AlgorithmParametersSpi() {}
+
+    /**
      * Initializes this parameters object using the parameters
      * specified in {@code paramSpec}.
      *
      * @param paramSpec the parameter specification.
      *
-     * @exception InvalidParameterSpecException if the given parameter
+     * @throws    InvalidParameterSpecException if the given parameter
      * specification is inappropriate for the initialization of this parameter
      * object.
      */
@@ -71,7 +76,7 @@ public abstract class AlgorithmParametersSpi {
      *
      * @param params the encoded parameters.
      *
-     * @exception IOException on decoding errors
+     * @throws    IOException on decoding errors
      */
     protected abstract void engineInit(byte[] params)
         throws IOException;
@@ -79,7 +84,7 @@ public abstract class AlgorithmParametersSpi {
     /**
      * Imports the parameters from {@code params} and
      * decodes them according to the specified decoding format.
-     * If {@code format} is null, the
+     * If {@code format} is {@code null}, the
      * primary decoding format for parameters is used. The primary decoding
      * format is ASN.1, if an ASN.1 specification for these parameters
      * exists.
@@ -88,7 +93,7 @@ public abstract class AlgorithmParametersSpi {
      *
      * @param format the name of the decoding format.
      *
-     * @exception IOException on decoding errors
+     * @throws    IOException on decoding errors
      */
     protected abstract void engineInit(byte[] params, String format)
         throws IOException;
@@ -109,7 +114,7 @@ public abstract class AlgorithmParametersSpi {
      *
      * @return the parameter specification.
      *
-     * @exception InvalidParameterSpecException if the requested parameter
+     * @throws    InvalidParameterSpecException if the requested parameter
      * specification is inappropriate for this parameter object.
      */
     protected abstract
@@ -124,13 +129,13 @@ public abstract class AlgorithmParametersSpi {
      *
      * @return the parameters encoded using their primary encoding format.
      *
-     * @exception IOException on encoding errors.
+     * @throws    IOException on encoding errors.
      */
     protected abstract byte[] engineGetEncoded() throws IOException;
 
     /**
      * Returns the parameters encoded in the specified format.
-     * If {@code format} is null, the
+     * If {@code format} is {@code null}, the
      * primary encoding format for parameters is used. The primary encoding
      * format is ASN.1, if an ASN.1 specification for these parameters
      * exists.
@@ -139,7 +144,7 @@ public abstract class AlgorithmParametersSpi {
      *
      * @return the parameters encoded using the specified encoding scheme.
      *
-     * @exception IOException on encoding errors.
+     * @throws    IOException on encoding errors.
      */
     protected abstract byte[] engineGetEncoded(String format)
         throws IOException;

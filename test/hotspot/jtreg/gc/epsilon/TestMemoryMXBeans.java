@@ -22,32 +22,32 @@
  *
  */
 
+package gc.epsilon;
+
 /**
  * @test TestMemoryMXBeans
- * @key gc
- * @requires vm.gc.Epsilon & !vm.graal.enabled
+ * @requires vm.gc.Epsilon
  * @summary Test JMX memory beans
  * @modules java.base/jdk.internal.misc
  *          java.management
  *
  * @run main/othervm -Xmx256m
  *                   -XX:+UnlockExperimentalVMOptions -XX:+UseEpsilonGC
- *                   TestMemoryMXBeans
+ *                   gc.epsilon.TestMemoryMXBeans
  *                   -1 256
  *
  * @run main/othervm -Xms256m -Xmx256m
  *                   -XX:+UnlockExperimentalVMOptions -XX:+UseEpsilonGC
- *                   TestMemoryMXBeans
+ *                   gc.epsilon.TestMemoryMXBeans
  *                   256 256
  *
  * @run main/othervm -Xms64m -Xmx256m
  *                   -XX:+UnlockExperimentalVMOptions -XX:+UseEpsilonGC
- *                   TestMemoryMXBeans
+ *                   gc.epsilon.TestMemoryMXBeans
  *                   64 256
  */
 
 import java.lang.management.*;
-import java.util.*;
 
 public class TestMemoryMXBeans {
 
@@ -69,8 +69,8 @@ public class TestMemoryMXBeans {
         MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
         long heapInit = memoryMXBean.getHeapMemoryUsage().getInit();
         long heapMax = memoryMXBean.getHeapMemoryUsage().getMax();
-        long nonHeapInit = memoryMXBean.getNonHeapMemoryUsage().getInit();
-        long nonHeapMax = memoryMXBean.getNonHeapMemoryUsage().getMax();
+        memoryMXBean.getNonHeapMemoryUsage().getInit(); // value not used
+        memoryMXBean.getNonHeapMemoryUsage().getMax();  // value not used
 
         if (initSize > 0 && heapInit != initSize) {
             throw new IllegalStateException("Init heap size is wrong: " + heapInit + " vs " + initSize);

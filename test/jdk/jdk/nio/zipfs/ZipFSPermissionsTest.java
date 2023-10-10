@@ -26,10 +26,8 @@ import org.testng.SkipException;
 import org.testng.annotations.*;
 
 import java.io.IOException;
-import java.net.URI;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
-import java.nio.file.spi.FileSystemProvider;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFileAttributeView;
@@ -175,13 +173,14 @@ public class ZipFSPermissionsTest {
      * @param zipFile Path to the Zip File to create/update
      * @param env     Properties used for creating the Zip Filesystem
      * @param source  The path of the file to add to the Zip File
-     * @throws Exception If an error occurs while creating/updating the Zip file
+     * @throws IOException If an error occurs while creating/updating the Zip file
      */
-    public void zip(Path zipFile, Map<String, String> env, Path source) throws Exception {
+    public void zip(Path zipFile, Map<String, String> env, Path source) throws IOException {
         if (DEBUG) {
             System.out.printf("File:%s, adding:%s%n", zipFile.toAbsolutePath(), source);
         }
-        try (FileSystem zipfs = FileSystems.newFileSystem(new URI("jar", zipFile.toUri().toString(), null), env)) {
+        try (FileSystem zipfs =
+                     FileSystems.newFileSystem(zipFile, env)) {
             Files.copy(source, zipfs.getPath(source.getFileName().toString()));
         }
     }

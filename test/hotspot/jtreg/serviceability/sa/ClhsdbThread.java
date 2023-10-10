@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import jdk.test.lib.apps.LingeredApp;
+import jdk.test.lib.Platform;
+import jtreg.SkippedException;
 
 /**
  * @test
@@ -76,14 +78,6 @@ public class ClhsdbThread {
                 expStrMap,
                 unExpStrMap);
 
-            if (consolidatedOutput == null) {
-                // Output could be null due to attach permission issues.
-                System.out.println(
-                    "Output is empty. Probably due to attach permission issues.");
-                LingeredApp.stopApp(theApp);
-                return;
-            }
-
             // Test the thread <id> command now. Obtain <id> from the
             // output of the previous 'threads' command. The word before
             // the token 'Finalizer' should denote the thread id of the
@@ -103,12 +97,21 @@ public class ClhsdbThread {
             System.out.println("Thread Id obtained is: " + threadIdObtained);
 
             String cmd = "thread " + threadIdObtained;
-            expStrMap.put(cmd, List.of(
-                "Base of Stack:",
-                "State:",
-                "Last_Java_SP"));
+            if (Platform.isWindows()) {
+                // On windows thread IDs are not guaranteed to be the same each time you attach,
+                // so the ID we gleaned above for the Finalizer thread may not actually be for
+                // the Finalizer thread when we attach for the following "thread" command, so we
+                // choose not to check the result on Windows.
+            } else {
+                expStrMap.put(cmd, List.of(
+                    "Base of Stack:",
+                    "State:",
+                    "Last_Java_SP"));
+            }
             cmds = List.of(cmd);
             test.run(theApp.getPid(), cmds, expStrMap, null);
+        } catch (SkippedException se) {
+            throw se;
         } catch (Exception ex) {
             throw new RuntimeException("Test ERROR " + ex, ex);
         } finally {

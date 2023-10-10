@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -173,7 +173,9 @@ public class XRGlyphCache implements GlyphDisposedListener {
 
     private void uploadGlyphs(int glyphSet, GlyphList glyphList,
                               List<XRGlyphCacheEntry> cacheEntries) {
-        if (cacheEntries == null || cacheEntries.isEmpty()) return;
+        if (cacheEntries == null || cacheEntries.isEmpty()) {
+            return;
+        }
         /*
          * Some XServers crash when uploading multiple glyphs at once. TODO:
          * Implement build-switch in local case for distributors who know their
@@ -181,9 +183,8 @@ public class XRGlyphCache implements GlyphDisposedListener {
          */
         if (batchGlyphUpload) {
             con.XRenderAddGlyphs(glyphSet, glyphList, cacheEntries,
-                                 generateGlyphImageStream(cacheEntries));
-        }
-        else {
+                    generateGlyphImageStream(cacheEntries));
+        } else {
             ArrayList<XRGlyphCacheEntry> tmpList = new ArrayList<>(1);
             tmpList.add(null);
             for (XRGlyphCacheEntry entry : cacheEntries) {
@@ -212,7 +213,7 @@ public class XRGlyphCache implements GlyphDisposedListener {
     }
 
     /**
-     * Copies the glyph-images into a continous buffer, required for uploading.
+     * Copies the glyph-images into a continuous buffer, required for uploading.
      */
     protected byte[] generateGlyphImageStream(List<XRGlyphCacheEntry> glyphList) {
         boolean isLCDGlyph = glyphList.get(0).getGlyphSet() == lcdGlyphSet;
@@ -232,14 +233,16 @@ public class XRGlyphCache implements GlyphDisposedListener {
          * something not that stupid ;)
          */
         ArrayList<XRGlyphCacheEntry> cacheList = new ArrayList<XRGlyphCacheEntry>(cacheMap.values());
-        Collections.sort(cacheList, new Comparator<XRGlyphCacheEntry>() {
+        cacheList.sort(new Comparator<XRGlyphCacheEntry>() {
             public int compare(XRGlyphCacheEntry e1, XRGlyphCacheEntry e2) {
                 return e2.getLastUsed() - e1.getLastUsed();
             }
         });
 
         for (XRGlyphCacheEntry glyph : glyphs) {
-            if(glyph != null) glyph.setPinned();
+            if (glyph != null) {
+                glyph.setPinned();
+            }
         }
 
         GrowableIntArray deleteGlyphList = new GrowableIntArray(1, 10);
@@ -255,7 +258,9 @@ public class XRGlyphCache implements GlyphDisposedListener {
         }
 
         for (XRGlyphCacheEntry glyph : glyphs) {
-            if(glyph != null) glyph.setUnpinned();
+            if (glyph != null) {
+                glyph.setUnpinned();
+            }
         }
 
         freeGlyphs(deleteGlyphList);
@@ -286,8 +291,7 @@ public class XRGlyphCache implements GlyphDisposedListener {
             } else if (entry.getGlyphSet() == BGRA_GLYPH_SET) {
                 if (removedBGRAGlyphPtrs == null) {
                     removedBGRAGlyphPtrs = new long[10];
-                }
-                else if (removedBGRAGlyphPtrsCount >= removedBGRAGlyphPtrs.length) {
+                } else if (removedBGRAGlyphPtrsCount >= removedBGRAGlyphPtrs.length) {
                     long[] n = new long[removedBGRAGlyphPtrs.length * 2];
                     System.arraycopy(removedBGRAGlyphPtrs, 0, n, 0,
                                      removedBGRAGlyphPtrs.length);
@@ -328,6 +332,7 @@ public class XRGlyphCache implements GlyphDisposedListener {
      */
     private static class GlyphIDAllocator {
 
+        @SuppressWarnings({"unchecked", "rawtypes"})
         private List<Integer>[] freeIDsByCapacity = new List[]{
                 new ArrayList<>(255)
         };

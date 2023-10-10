@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -58,8 +58,8 @@ class DerIndefLenConverter {
     // actual length and the position value is substituted with a calculated
     // length octets. At the end, the new DER encoding is a concatenation of
     // all existing tags, existing definite length octets, existing contents,
-    // and the newly created definte length octets in this list.
-    private ArrayList<Object> ndefsList = new ArrayList<Object>();
+    // and the newly created definite length octets in this list.
+    private final ArrayList<Object> ndefsList = new ArrayList<>();
 
     // Length of extra bytes needed to convert indefinite encoding to definite.
     // For each resolved indefinite length encoding, the starting 0x80 byte
@@ -77,9 +77,9 @@ class DerIndefLenConverter {
     }
 
     /*
-     * Default package private constructor
+     * Private constructor
      */
-    DerIndefLenConverter() { }
+    private DerIndefLenConverter() { }
 
     /**
      * Checks whether the given length byte is of the form
@@ -303,7 +303,7 @@ class DerIndefLenConverter {
     // Returns the number of bytes needed to represent the given length
     // in ASN.1 notation
     private int getNumOfLenBytes(int len) {
-        int numOfLenBytes = 0;
+        int numOfLenBytes;
 
         if (len < 128) {
             numOfLenBytes = 1;
@@ -329,8 +329,8 @@ class DerIndefLenConverter {
     }
 
     /**
-     * Converts a indefinite length DER encoded byte array to
-     * a definte length DER encoding.
+     * Converts an indefinite length DER encoded byte array to
+     * a definite length DER encoding.
      *
      * @param indefData the byte array holding the indefinite
      *        length encoding.
@@ -394,19 +394,18 @@ class DerIndefLenConverter {
      * This may block.
      *
      * @param in the input stream with tag and lenByte already read
-     * @param lenByte the length of the length field to remember
      * @param tag the tag to remember
      * @return a DER byte array
      * @throws IOException if not all indef len BER
      *         can be resolved or another I/O error happens
      */
-    public static byte[] convertStream(InputStream in, byte lenByte, byte tag)
+    public static byte[] convertStream(InputStream in, byte tag)
             throws IOException {
         int offset = 2;     // for tag and length bytes
         int readLen = in.available();
         byte[] indefData = new byte[readLen + offset];
         indefData[0] = tag;
-        indefData[1] = lenByte;
+        indefData[1] = (byte)0x80;
         while (true) {
             int bytesRead = in.readNBytes(indefData, offset, readLen);
             if (bytesRead != readLen) {

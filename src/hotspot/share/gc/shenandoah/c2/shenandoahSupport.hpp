@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2015, 2018, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2015, 2021, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -24,6 +25,7 @@
 #ifndef SHARE_GC_SHENANDOAH_C2_SHENANDOAHSUPPORT_HPP
 #define SHARE_GC_SHENANDOAH_C2_SHENANDOAHSUPPORT_HPP
 
+#include "gc/shenandoah/shenandoahBarrierSet.hpp"
 #include "memory/allocation.hpp"
 #include "opto/addnode.hpp"
 #include "opto/graphKit.hpp"
@@ -47,8 +49,7 @@ private:
   };
 
   static bool verify_helper(Node* in, Node_Stack& phis, VectorSet& visited, verify_type t, bool trace, Unique_Node_List& barriers_used);
-  static void report_verify_failure(const char* msg, Node* n1 = NULL, Node* n2 = NULL);
-  static void verify_raw_mem(RootNode* root);
+  static void report_verify_failure(const char* msg, Node* n1 = nullptr, Node* n2 = nullptr);
 #endif
   static Node* dom_mem(Node* mem, Node* ctrl, int alias, Node*& mem_ctrl, PhaseIdealLoop* phase);
   static Node* no_branches(Node* c, Node* dom, bool allow_one_proj, PhaseIdealLoop* phase);
@@ -59,10 +60,8 @@ private:
   static void test_null(Node*& ctrl, Node* val, Node*& null_ctrl, PhaseIdealLoop* phase);
   static void test_gc_state(Node*& ctrl, Node* raw_mem, Node*& heap_stable_ctrl,
                             PhaseIdealLoop* phase, int flags);
-  static void call_lrb_stub(Node*& ctrl, Node*& val, Node* load_addr, Node*& result_mem, Node* raw_mem, bool is_native, PhaseIdealLoop* phase);
-  static Node* clone_null_check(Node*& c, Node* val, Node* unc_ctrl, PhaseIdealLoop* phase);
-  static void fix_null_check(Node* unc, Node* unc_ctrl, Node* new_unc_ctrl, Unique_Node_List& uses,
-                             PhaseIdealLoop* phase);
+  static void call_lrb_stub(Node*& ctrl, Node*& val, Node* load_addr,
+                            DecoratorSet decorators, PhaseIdealLoop* phase);
   static void test_in_cset(Node*& ctrl, Node*& not_cset_ctrl, Node* val, Node* raw_mem, PhaseIdealLoop* phase);
   static void move_gc_state_test_out_of_loop(IfNode* iff, PhaseIdealLoop* phase);
   static void merge_back_to_back_tests(Node* n, PhaseIdealLoop* phase);
@@ -133,6 +132,8 @@ public:
   int alias() const { return _alias; }
 
   Node* collect_memory_for_infinite_loop(const Node* in);
+
+  void record_new_ctrl(Node* ctrl, Node* region, Node* mem, Node* mem_for_ctrl);
 };
 
 class ShenandoahCompareAndSwapPNode : public CompareAndSwapPNode {
@@ -141,10 +142,10 @@ public:
     : CompareAndSwapPNode(c, mem, adr, val, ex, mem_ord) { }
 
   virtual Node *Ideal(PhaseGVN *phase, bool can_reshape) {
-    if (in(ExpectedIn) != NULL && phase->type(in(ExpectedIn)) == TypePtr::NULL_PTR) {
+    if (in(ExpectedIn) != nullptr && phase->type(in(ExpectedIn)) == TypePtr::NULL_PTR) {
       return new CompareAndSwapPNode(in(MemNode::Control), in(MemNode::Memory), in(MemNode::Address), in(MemNode::ValueIn), in(ExpectedIn), order());
     }
-    return NULL;
+    return nullptr;
   }
 
   virtual int Opcode() const;
@@ -156,10 +157,10 @@ public:
     : CompareAndSwapNNode(c, mem, adr, val, ex, mem_ord) { }
 
   virtual Node *Ideal(PhaseGVN *phase, bool can_reshape) {
-    if (in(ExpectedIn) != NULL && phase->type(in(ExpectedIn)) == TypeNarrowOop::NULL_PTR) {
+    if (in(ExpectedIn) != nullptr && phase->type(in(ExpectedIn)) == TypeNarrowOop::NULL_PTR) {
       return new CompareAndSwapNNode(in(MemNode::Control), in(MemNode::Memory), in(MemNode::Address), in(MemNode::ValueIn), in(ExpectedIn), order());
     }
-    return NULL;
+    return nullptr;
   }
 
   virtual int Opcode() const;
@@ -171,10 +172,10 @@ public:
     : WeakCompareAndSwapPNode(c, mem, adr, val, ex, mem_ord) { }
 
   virtual Node *Ideal(PhaseGVN *phase, bool can_reshape) {
-    if (in(ExpectedIn) != NULL && phase->type(in(ExpectedIn)) == TypePtr::NULL_PTR) {
+    if (in(ExpectedIn) != nullptr && phase->type(in(ExpectedIn)) == TypePtr::NULL_PTR) {
       return new WeakCompareAndSwapPNode(in(MemNode::Control), in(MemNode::Memory), in(MemNode::Address), in(MemNode::ValueIn), in(ExpectedIn), order());
     }
-    return NULL;
+    return nullptr;
   }
 
   virtual int Opcode() const;
@@ -186,10 +187,10 @@ public:
     : WeakCompareAndSwapNNode(c, mem, adr, val, ex, mem_ord) { }
 
   virtual Node *Ideal(PhaseGVN *phase, bool can_reshape) {
-    if (in(ExpectedIn) != NULL && phase->type(in(ExpectedIn)) == TypeNarrowOop::NULL_PTR) {
+    if (in(ExpectedIn) != nullptr && phase->type(in(ExpectedIn)) == TypeNarrowOop::NULL_PTR) {
       return new WeakCompareAndSwapNNode(in(MemNode::Control), in(MemNode::Memory), in(MemNode::Address), in(MemNode::ValueIn), in(ExpectedIn), order());
     }
-    return NULL;
+    return nullptr;
   }
 
   virtual int Opcode() const;
@@ -201,10 +202,10 @@ public:
     : CompareAndExchangePNode(c, mem, adr, val, ex, at, t, mem_ord) { }
 
   virtual Node *Ideal(PhaseGVN *phase, bool can_reshape) {
-    if (in(ExpectedIn) != NULL && phase->type(in(ExpectedIn)) == TypePtr::NULL_PTR) {
+    if (in(ExpectedIn) != nullptr && phase->type(in(ExpectedIn)) == TypePtr::NULL_PTR) {
       return new CompareAndExchangePNode(in(MemNode::Control), in(MemNode::Memory), in(MemNode::Address), in(MemNode::ValueIn), in(ExpectedIn), adr_type(), bottom_type(), order());
     }
-    return NULL;
+    return nullptr;
   }
 
   virtual int Opcode() const;
@@ -216,10 +217,10 @@ public:
     : CompareAndExchangeNNode(c, mem, adr, val, ex, at, t, mem_ord) { }
 
   virtual Node *Ideal(PhaseGVN *phase, bool can_reshape) {
-    if (in(ExpectedIn) != NULL && phase->type(in(ExpectedIn)) == TypeNarrowOop::NULL_PTR) {
+    if (in(ExpectedIn) != nullptr && phase->type(in(ExpectedIn)) == TypeNarrowOop::NULL_PTR) {
       return new CompareAndExchangeNNode(in(MemNode::Control), in(MemNode::Memory), in(MemNode::Address), in(MemNode::ValueIn), in(ExpectedIn), adr_type(), bottom_type(), order());
     }
-    return NULL;
+    return nullptr;
   }
 
   virtual int Opcode() const;
@@ -232,8 +233,13 @@ public:
     ValueIn
   };
 
-  ShenandoahLoadReferenceBarrierNode(Node* ctrl, Node* val);
+private:
+  DecoratorSet _decorators;
 
+public:
+  ShenandoahLoadReferenceBarrierNode(Node* ctrl, Node* val, DecoratorSet decorators);
+
+  DecoratorSet decorators() const;
   virtual int Opcode() const;
   virtual const Type* bottom_type() const;
   virtual const Type* Value(PhaseGVN* phase) const;
@@ -245,12 +251,9 @@ public:
 
   virtual Node* Identity(PhaseGVN* phase);
 
-  uint size_of() const {
-    return sizeof(*this);
-  }
-
-  bool is_redundant();
-  CallStaticJavaNode* pin_and_expand_null_check(PhaseIterGVN& igvn);
+  virtual uint size_of() const;
+  virtual uint hash() const;
+  virtual bool cmp( const Node &n ) const;
 
 private:
   bool needs_barrier(PhaseGVN* phase, Node* n);

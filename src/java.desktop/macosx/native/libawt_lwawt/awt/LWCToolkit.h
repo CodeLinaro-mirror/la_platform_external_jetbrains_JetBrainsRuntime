@@ -29,8 +29,6 @@
 #import <assert.h>
 
 #import <Cocoa/Cocoa.h>
-#import <JavaNativeFoundation/JavaNativeFoundation.h>
-#import <Carbon/Carbon.h>
 
 //#define DEBUG 1
 
@@ -41,6 +39,7 @@ extern int gNumberOfButtons;
 extern jint* gButtonDownMasks;
 
 extern int lcdSubPixelPosSupported;
+
 extern int useFontSmoothing;
 
 @interface AWTToolkit : NSObject { }
@@ -49,14 +48,8 @@ extern int useFontSmoothing;
 + (long) getEventCount;
 + (void) eventCountPlusPlus;
 + (jint) scrollStateWithEvent: (NSEvent*) event;
-+ (NSEvent*) latestPerformKeyEquivalentEvent;
-+ (void) setLatestPerformKeyEquivalentEvent:(NSEvent *)val;
++ (BOOL) hasPreciseScrollingDeltas: (NSEvent*) event;
 @end
-
-#define JNI_EXECUTE_AND_HANDLE(jnf_method_call) \
-    JNI_COCOA_DURING(env)                       \
-    jnf_method_call;                            \
-    JNI_COCOA_HANDLE(env)
 
 /*
  * Utility Macros

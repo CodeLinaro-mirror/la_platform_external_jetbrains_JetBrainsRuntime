@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -48,8 +48,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.security.AccessControlContext;
 import java.util.function.BooleanSupplier;
 
-import jdk.internal.misc.SharedSecrets;
-import jdk.internal.misc.JavaSecurityAccess;
+import jdk.internal.access.SharedSecrets;
+import jdk.internal.access.JavaSecurityAccess;
 
 /**
  * {@code EventQueue} is a platform-independent class
@@ -96,7 +96,7 @@ import jdk.internal.misc.JavaSecurityAccess;
  * @since       1.1
  */
 public class EventQueue {
-    private static final AtomicInteger threadInitNumber = new AtomicInteger(0);
+    private static final AtomicInteger threadInitNumber = new AtomicInteger();
 
     private static final int LOW_PRIORITY = 0;
     private static final int NORM_PRIORITY = 1;
@@ -192,8 +192,6 @@ public class EventQueue {
         return eventLog;
     }
 
-    private static boolean fxAppThreadIsDispatchThread;
-
     static {
         AWTAccessor.setEventQueueAccessor(
             new AWTAccessor.EventQueueAccessor() {
@@ -235,14 +233,15 @@ public class EventQueue {
                     return eventQueue.createSecondaryLoop(cond::getAsBoolean, null, 0);
                 }
             });
-        AccessController.doPrivileged(new PrivilegedAction<Object>() {
-            public Object run() {
-                fxAppThreadIsDispatchThread =
-                        "true".equals(System.getProperty("javafx.embed.singleThread"));
-                return null;
-            }
-        });
     }
+
+    @SuppressWarnings("removal")
+    private static boolean fxAppThreadIsDispatchThread =
+            AccessController.doPrivileged(new PrivilegedAction<Boolean>() {
+                public Boolean run() {
+                    return "true".equals(System.getProperty("javafx.embed.singleThread"));
+                }
+            });
 
     /**
      * Initializes a new instance of {@code EventQueue}.
@@ -357,6 +356,7 @@ public class EventQueue {
             if (shouldNotify) {
                 if (theEvent.getSource() != AWTAutoShutdown.getInstance()) {
                     AWTAutoShutdown.getInstance().notifyThreadBusy(dispatchThread);
+                    AWTThreading.getInstance(dispatchThread).notifyEventDispatchThreadBusy();
                 }
                 pushPopCond.signalAll();
             } else if (notifyID) {
@@ -551,7 +551,7 @@ public class EventQueue {
      * returns it.  This method will block until an event has
      * been posted by another thread.
      * @return the next {@code AWTEvent}
-     * @exception InterruptedException
+     * @throws InterruptedException
      *            if any thread has interrupted this thread
      */
     public AWTEvent getNextEvent() throws InterruptedException {
@@ -569,6 +569,7 @@ public class EventQueue {
                     return event;
                 }
                 AWTAutoShutdown.getInstance().notifyThreadFree(dispatchThread);
+                AWTThreading.getInstance(dispatchThread).notifyEventDispatchThreadFree();
                 pushPopCond.await();
             } finally {
                 pushPopLock.unlock();
@@ -739,8 +740,11 @@ public class EventQueue {
             }
         };
 
+        @SuppressWarnings("removal")
         final AccessControlContext stack = AccessController.getContext();
+        @SuppressWarnings("removal")
         final AccessControlContext srcAcc = getAccessControlContextFrom(src);
+        @SuppressWarnings("removal")
         final AccessControlContext eventAcc = event.getAccessControlContext();
         if (srcAcc == null) {
             javaSecurityAccess.doIntersectionPrivilege(action, stack, eventAcc);
@@ -755,6 +759,7 @@ public class EventQueue {
         }
     }
 
+    @SuppressWarnings("removal")
     private static AccessControlContext getAccessControlContextFrom(Object src) {
         return src instanceof Component ?
             ((Component)src).getAccessControlContext() :
@@ -949,7 +954,7 @@ public class EventQueue {
      * Warning: To avoid deadlock, do not declare this method
      * synchronized in a subclass.
      *
-     * @exception EmptyStackException if no previous push was made
+     * @throws EmptyStackException if no previous push was made
      *  on this {@code EventQueue}
      * @see      java.awt.EventQueue#push
      * @since           1.2
@@ -1025,8 +1030,8 @@ public class EventQueue {
     }
 
     private class FwSecondaryLoopWrapper implements SecondaryLoop {
-        final private SecondaryLoop loop;
-        final private EventFilter filter;
+        private final SecondaryLoop loop;
+        private final EventFilter filter;
 
         public FwSecondaryLoopWrapper(SecondaryLoop loop, EventFilter filter) {
             this.loop = loop;
@@ -1111,6 +1116,7 @@ public class EventQueue {
         }
     }
 
+    @SuppressWarnings({"deprecation", "removal"})
     final void initDispatchThread() {
         pushPopLock.lock();
         try {
@@ -1126,6 +1132,7 @@ public class EventQueue {
                             t.setPriority(Thread.NORM_PRIORITY + 1);
                             t.setDaemon(false);
                             AWTAutoShutdown.getInstance().notifyThreadBusy(t);
+                            AWTThreading.getInstance(t).notifyEventDispatchThreadBusy();
                             return t;
                         }
                     }
@@ -1156,6 +1163,7 @@ public class EventQueue {
                 dispatchThread = null;
             }
             AWTAutoShutdown.getInstance().notifyThreadFree(edt);
+            AWTThreading.getInstance(edt).notifyEventDispatchThreadFree();
             /*
              * Event was posted after EDT events pumping had stopped, so start
              * another EDT to handle this event
@@ -1333,9 +1341,9 @@ public class EventQueue {
      *                  synchronously in the
      *                  {@link #isDispatchThread event dispatch thread}
      *                  of {@link Toolkit#getSystemEventQueue the system EventQueue}
-     * @exception       InterruptedException  if any thread has
+     * @throws       InterruptedException  if any thread has
      *                  interrupted this thread
-     * @exception       InvocationTargetException  if an throwable is thrown
+     * @throws       InvocationTargetException  if an throwable is thrown
      *                  when running {@code runnable}
      * @see             #invokeLater
      * @see             Toolkit#getSystemEventQueue

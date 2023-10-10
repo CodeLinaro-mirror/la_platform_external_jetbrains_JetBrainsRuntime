@@ -23,8 +23,8 @@
  */
 
 /*
- * @test TestDynamicSoftMaxHeapSize
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @test id=passive
+ * @requires vm.gc.Shenandoah
  * @library /test/lib
  *
  * @run main/othervm -Xms16m -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
@@ -41,8 +41,8 @@
  */
 
 /*
- * @test TestDynamicSoftMaxHeapSize
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @test id=aggressive
+ * @requires vm.gc.Shenandoah
  * @library /test/lib
  *
  * @run main/othervm -Xms16m -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
@@ -52,8 +52,8 @@
  */
 
 /*
- * @test TestDynamicSoftMaxHeapSize
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @test id=adaptive
+ * @requires vm.gc.Shenandoah
  * @library /test/lib
  *
  * @run main/othervm -Xms16m -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
@@ -63,8 +63,8 @@
  */
 
 /*
- * @test TestDynamicSoftMaxHeapSize
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @test id=static
+ * @requires vm.gc.Shenandoah
  * @library /test/lib
  *
  * @run main/othervm -Xms16m -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
@@ -74,8 +74,8 @@
  */
 
 /*
- * @test TestDynamicSoftMaxHeapSize
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @test id=compact
+ * @requires vm.gc.Shenandoah
  * @library /test/lib
  *
  * @run main/othervm -Xms16m -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
@@ -85,8 +85,8 @@
  */
 
 /*
- * @test TestDynamicSoftMaxHeapSize
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @test id=iu-aggressive
+ * @requires vm.gc.Shenandoah
  * @library /test/lib
  *
  * @run main/othervm -Xms16m -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
@@ -96,8 +96,8 @@
  */
 
 /*
- * @test TestDynamicSoftMaxHeapSize
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @test id=iu
+ * @requires vm.gc.Shenandoah
  * @library /test/lib
  *
  * @run main/othervm -Xms16m -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions
@@ -126,7 +126,7 @@ public class TestDynamicSoftMaxHeapSize {
 
         for (long c = 0; c < count; c += STRIDE) {
             // Sizes specifically include heaps below Xms and above Xmx to test saturation code.
-            jcmd.execute("VM.set_flag ShenandoahSoftMaxHeapSize " + r.nextInt(768*1024*1024), true);
+            jcmd.execute("VM.set_flag SoftMaxHeapSize " + r.nextInt(768*1024*1024), true);
             for (long s = 0; s < STRIDE; s++) {
                 sink = new Object();
             }

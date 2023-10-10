@@ -52,6 +52,10 @@ public class SupportedGroups extends SSLSocketTemplate {
         {{"TLSv1.2"}, {"TLSv1.2"}}
     };
 
+    public SupportedGroups() {
+        this.serverAddress = InetAddress.getLoopbackAddress();
+    }
+
     // Servers are configured before clients, increment test case after.
     @Override
     protected void configureClientSocket(SSLSocket socket) {

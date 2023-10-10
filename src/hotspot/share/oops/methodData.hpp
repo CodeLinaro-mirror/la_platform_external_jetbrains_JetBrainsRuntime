@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,27 +22,25 @@
  *
  */
 
-#ifndef SHARE_VM_OOPS_METHODDATAOOP_HPP
-#define SHARE_VM_OOPS_METHODDATAOOP_HPP
+#ifndef SHARE_OOPS_METHODDATA_HPP
+#define SHARE_OOPS_METHODDATA_HPP
 
 #include "interpreter/bytecodes.hpp"
-#include "memory/universe.hpp"
 #include "oops/metadata.hpp"
 #include "oops/method.hpp"
 #include "oops/oop.hpp"
 #include "runtime/atomic.hpp"
 #include "runtime/deoptimization.hpp"
+#include "runtime/mutex.hpp"
 #include "utilities/align.hpp"
 #include "utilities/copy.hpp"
-#if INCLUDE_JVMCI
-#include "jvmci/jvmci_globals.hpp"
-#endif
 
 class BytecodeStream;
-class KlassSizeStats;
 
 // The MethodData object collects counts and other profile information
-// during zeroth-tier (interpretive) and first-tier execution.
+// during zeroth-tier (interpreter) and third-tier (C1 with full profiling)
+// execution.
+//
 // The profile is used later by compilation heuristics.  Some heuristics
 // enable use of aggressive (or "heroic") optimizations.  An aggressive
 // optimization often has a down-side, a corner case that it handles
@@ -100,7 +98,7 @@ private:
   } _header;
 
   // The data layout has an arbitrary number of cells, each sized
-  // to accomodate a pointer or an integer.
+  // to accommodate a pointer or an integer.
   intptr_t _cells[1];
 
   // Some types of data layouts need a length field.
@@ -243,12 +241,15 @@ public:
 
   ProfileData* data_in();
 
+  int size_in_bytes() {
+    int cells = cell_count();
+    assert(cells >= 0, "invalid number of cells");
+    return DataLayout::compute_size_in_bytes(cells);
+  }
+  int cell_count();
+
   // GC support
   void clean_weak_klass_links(bool always_clean);
-
-  // Redefinition support
-  void clean_weak_method_links();
-  DEBUG_ONLY(void verify_clean_weak_method_links();)
 };
 
 
@@ -400,59 +401,59 @@ public:
 
   BitData* as_BitData() const {
     assert(is_BitData(), "wrong type");
-    return is_BitData()         ? (BitData*)        this : NULL;
+    return is_BitData()         ? (BitData*)        this : nullptr;
   }
   CounterData* as_CounterData() const {
     assert(is_CounterData(), "wrong type");
-    return is_CounterData()     ? (CounterData*)    this : NULL;
+    return is_CounterData()     ? (CounterData*)    this : nullptr;
   }
   JumpData* as_JumpData() const {
     assert(is_JumpData(), "wrong type");
-    return is_JumpData()        ? (JumpData*)       this : NULL;
+    return is_JumpData()        ? (JumpData*)       this : nullptr;
   }
   ReceiverTypeData* as_ReceiverTypeData() const {
     assert(is_ReceiverTypeData(), "wrong type");
-    return is_ReceiverTypeData() ? (ReceiverTypeData*)this : NULL;
+    return is_ReceiverTypeData() ? (ReceiverTypeData*)this : nullptr;
   }
   VirtualCallData* as_VirtualCallData() const {
     assert(is_VirtualCallData(), "wrong type");
-    return is_VirtualCallData() ? (VirtualCallData*)this : NULL;
+    return is_VirtualCallData() ? (VirtualCallData*)this : nullptr;
   }
   RetData* as_RetData() const {
     assert(is_RetData(), "wrong type");
-    return is_RetData()         ? (RetData*)        this : NULL;
+    return is_RetData()         ? (RetData*)        this : nullptr;
   }
   BranchData* as_BranchData() const {
     assert(is_BranchData(), "wrong type");
-    return is_BranchData()      ? (BranchData*)     this : NULL;
+    return is_BranchData()      ? (BranchData*)     this : nullptr;
   }
   ArrayData* as_ArrayData() const {
     assert(is_ArrayData(), "wrong type");
-    return is_ArrayData()       ? (ArrayData*)      this : NULL;
+    return is_ArrayData()       ? (ArrayData*)      this : nullptr;
   }
   MultiBranchData* as_MultiBranchData() const {
     assert(is_MultiBranchData(), "wrong type");
-    return is_MultiBranchData() ? (MultiBranchData*)this : NULL;
+    return is_MultiBranchData() ? (MultiBranchData*)this : nullptr;
   }
   ArgInfoData* as_ArgInfoData() const {
     assert(is_ArgInfoData(), "wrong type");
-    return is_ArgInfoData() ? (ArgInfoData*)this : NULL;
+    return is_ArgInfoData() ? (ArgInfoData*)this : nullptr;
   }
   CallTypeData* as_CallTypeData() const {
     assert(is_CallTypeData(), "wrong type");
-    return is_CallTypeData() ? (CallTypeData*)this : NULL;
+    return is_CallTypeData() ? (CallTypeData*)this : nullptr;
   }
   VirtualCallTypeData* as_VirtualCallTypeData() const {
     assert(is_VirtualCallTypeData(), "wrong type");
-    return is_VirtualCallTypeData() ? (VirtualCallTypeData*)this : NULL;
+    return is_VirtualCallTypeData() ? (VirtualCallTypeData*)this : nullptr;
   }
   ParametersTypeData* as_ParametersTypeData() const {
     assert(is_ParametersTypeData(), "wrong type");
-    return is_ParametersTypeData() ? (ParametersTypeData*)this : NULL;
+    return is_ParametersTypeData() ? (ParametersTypeData*)this : nullptr;
   }
   SpeculativeTrapData* as_SpeculativeTrapData() const {
     assert(is_SpeculativeTrapData(), "wrong type");
-    return is_SpeculativeTrapData() ? (SpeculativeTrapData*)this : NULL;
+    return is_SpeculativeTrapData() ? (SpeculativeTrapData*)this : nullptr;
   }
 
 
@@ -462,10 +463,6 @@ public:
   // GC support
   virtual void clean_weak_klass_links(bool always_clean) {}
 
-  // Redefinition support
-  virtual void clean_weak_method_links() {}
-  DEBUG_ONLY(virtual void verify_clean_weak_method_links() {})
-
   // CI translation: ProfileData can represent both MethodDataOop data
   // as well as CIMethodData data. This function is provided for translating
   // an oop in a ProfileData to the ci equivalent. Generally speaking,
@@ -473,7 +470,7 @@ public:
   // translation here, and the required translators are in the ci subclasses.
   virtual void translate_from(const ProfileData* data) {}
 
-  virtual void print_data_on(outputStream* st, const char* extra = NULL) const {
+  virtual void print_data_on(outputStream* st, const char* extra = nullptr) const {
     ShouldNotReachHere();
   }
 
@@ -536,7 +533,7 @@ public:
     return cell_offset(bit_cell_count);
   }
 
-  void print_data_on(outputStream* st, const char* extra = NULL) const;
+  void print_data_on(outputStream* st, const char* extra = nullptr) const;
 };
 
 // CounterData
@@ -564,8 +561,14 @@ public:
   }
 
   // Direct accessor
-  uint count() const {
-    return uint_at(count_off);
+  int count() const {
+    intptr_t raw_data = intptr_at(count_off);
+    if (raw_data > max_jint) {
+      raw_data = max_jint;
+    } else if (raw_data < min_jint) {
+      raw_data = min_jint;
+    }
+    return int(raw_data);
   }
 
   // Code generation support
@@ -576,11 +579,11 @@ public:
     return cell_offset(counter_cell_count);
   }
 
-  void set_count(uint count) {
-    set_uint_at(count_off, count);
+  void set_count(int count) {
+    set_int_at(count_off, count);
   }
 
-  void print_data_on(outputStream* st, const char* extra = NULL) const;
+  void print_data_on(outputStream* st, const char* extra = nullptr) const;
 };
 
 // JumpData
@@ -653,7 +656,7 @@ public:
   // Specific initialization.
   void post_initialize(BytecodeStream* stream, MethodData* mdo);
 
-  void print_data_on(outputStream* st, const char* extra = NULL) const;
+  void print_data_on(outputStream* st, const char* extra = nullptr) const;
 };
 
 // Entries in a ProfileData object to record types: it can either be
@@ -711,10 +714,10 @@ public:
     if (!is_type_none(k) &&
         !is_type_unknown(k)) {
       Klass* res = (Klass*)klass_part(k);
-      assert(res != NULL, "invalid");
+      assert(res != nullptr, "invalid");
       return res;
     } else {
-      return NULL;
+      return nullptr;
     }
   }
 
@@ -735,7 +738,7 @@ protected:
   const int _base_off;
 
   TypeEntries(int base_off)
-    : _base_off(base_off), _pd(NULL) {}
+    : _pd(nullptr), _base_off(base_off) {}
 
   void set_intptr_at(int index, intptr_t value) {
     _pd->set_intptr_at(index, value);
@@ -1071,7 +1074,7 @@ public:
     }
   }
 
-  virtual void print_data_on(outputStream* st, const char* extra = NULL) const;
+  virtual void print_data_on(outputStream* st, const char* extra = nullptr) const;
 };
 
 // ReceiverTypeData
@@ -1136,7 +1139,7 @@ public:
     assert(row < row_limit(), "oob");
 
     Klass* recv = (Klass*)intptr_at(receiver_cell_index(row));
-    assert(recv == NULL || recv->is_klass(), "wrong type");
+    assert(recv == nullptr || recv->is_klass(), "wrong type");
     return recv;
   }
 
@@ -1174,7 +1177,7 @@ public:
     // We do sorting a profiling info (ciCallProfile) for compilation.
     //
     set_count(0);
-    set_receiver(row, NULL);
+    set_receiver(row, nullptr);
     set_receiver_count(row, 0);
 #if INCLUDE_JVMCI
     if (!this->is_VirtualCallData()) {
@@ -1211,7 +1214,7 @@ public:
   virtual void clean_weak_klass_links(bool always_clean);
 
   void print_receiver_data_on(outputStream* st) const;
-  void print_data_on(outputStream* st, const char* extra = NULL) const;
+  void print_data_on(outputStream* st, const char* extra = nullptr) const;
 };
 
 // VirtualCallData
@@ -1230,7 +1233,7 @@ public:
   static int static_cell_count() {
     // At this point we could add more profile state, e.g., for arguments.
     // But for now it's the same size as the base record type.
-    return ReceiverTypeData::static_cell_count() JVMCI_ONLY(+ (uint) MethodProfileWidth * receiver_type_row_cell_count);
+    return ReceiverTypeData::static_cell_count();
   }
 
   virtual int cell_count() const {
@@ -1242,63 +1245,8 @@ public:
     return cell_offset(static_cell_count());
   }
 
-#if INCLUDE_JVMCI
-  static ByteSize method_offset(uint row) {
-    return cell_offset(method_cell_index(row));
-  }
-  static ByteSize method_count_offset(uint row) {
-    return cell_offset(method_count_cell_index(row));
-  }
-  static int method_cell_index(uint row) {
-    return receiver0_offset + (row + TypeProfileWidth) * receiver_type_row_cell_count;
-  }
-  static int method_count_cell_index(uint row) {
-    return count0_offset + (row + TypeProfileWidth) * receiver_type_row_cell_count;
-  }
-  static uint method_row_limit() {
-    return MethodProfileWidth;
-  }
-
-  Method* method(uint row) const {
-    assert(row < method_row_limit(), "oob");
-
-    Method* method = (Method*)intptr_at(method_cell_index(row));
-    assert(method == NULL || method->is_method(), "must be");
-    return method;
-  }
-
-  uint method_count(uint row) const {
-    assert(row < method_row_limit(), "oob");
-    return uint_at(method_count_cell_index(row));
-  }
-
-  void set_method(uint row, Method* m) {
-    assert((uint)row < method_row_limit(), "oob");
-    set_intptr_at(method_cell_index(row), (uintptr_t)m);
-  }
-
-  void set_method_count(uint row, uint count) {
-    assert(row < method_row_limit(), "oob");
-    set_uint_at(method_count_cell_index(row), count);
-  }
-
-  void clear_method_row(uint row) {
-    assert(row < method_row_limit(), "oob");
-    // Clear total count - indicator of polymorphic call site (see comment for clear_row() in ReceiverTypeData).
-    set_nonprofiled_count(0);
-    set_method(row, NULL);
-    set_method_count(row, 0);
-  }
-
-  // GC support
-  virtual void clean_weak_klass_links(bool always_clean);
-
-  // Redefinition support
-  virtual void clean_weak_method_links();
-#endif // INCLUDE_JVMCI
-
   void print_method_data_on(outputStream* st) const NOT_JVMCI_RETURN;
-  void print_data_on(outputStream* st, const char* extra = NULL) const;
+  void print_data_on(outputStream* st, const char* extra = nullptr) const;
 };
 
 // VirtualCallTypeData
@@ -1430,7 +1378,7 @@ public:
     }
   }
 
-  virtual void print_data_on(outputStream* st, const char* extra = NULL) const;
+  virtual void print_data_on(outputStream* st, const char* extra = nullptr) const;
 };
 
 // RetData
@@ -1522,7 +1470,7 @@ public:
   // Specific initialization.
   void post_initialize(BytecodeStream* stream, MethodData* mdo);
 
-  void print_data_on(outputStream* st, const char* extra = NULL) const;
+  void print_data_on(outputStream* st, const char* extra = nullptr) const;
 };
 
 // BranchData
@@ -1586,7 +1534,7 @@ public:
   // Specific initialization.
   void post_initialize(BytecodeStream* stream, MethodData* mdo);
 
-  void print_data_on(outputStream* st, const char* extra = NULL) const;
+  void print_data_on(outputStream* st, const char* extra = nullptr) const;
 };
 
 // ArrayData
@@ -1658,7 +1606,7 @@ public:
 // A MultiBranchData is used to access profiling information for
 // a multi-way branch (*switch bytecodes).  It consists of a series
 // of (count, displacement) pairs, which count the number of times each
-// case was taken and specify the data displacment for each branch target.
+// case was taken and specify the data displacement for each branch target.
 class MultiBranchData : public ArrayData {
   friend class VMStructs;
   friend class JVMCIVMStructs;
@@ -1745,7 +1693,7 @@ public:
   // Specific initialization.
   void post_initialize(BytecodeStream* stream, MethodData* mdo);
 
-  void print_data_on(outputStream* st, const char* extra = NULL) const;
+  void print_data_on(outputStream* st, const char* extra = nullptr) const;
 };
 
 class ArgInfoData : public ArrayData {
@@ -1770,7 +1718,7 @@ public:
     array_set_int_at(arg, val);
   }
 
-  void print_data_on(outputStream* st, const char* extra = NULL) const;
+  void print_data_on(outputStream* st, const char* extra = nullptr) const;
 };
 
 // ParametersTypeData
@@ -1829,7 +1777,7 @@ public:
     _parameters.clean_weak_klass_links(always_clean);
   }
 
-  virtual void print_data_on(outputStream* st, const char* extra = NULL) const;
+  virtual void print_data_on(outputStream* st, const char* extra = nullptr) const;
 
   static ByteSize stack_slot_offset(int i) {
     return cell_offset(stack_slot_local_offset(i));
@@ -1899,7 +1847,7 @@ public:
     return cell_offset(speculative_trap_method);
   }
 
-  virtual void print_data_on(outputStream* st, const char* extra = NULL) const;
+  virtual void print_data_on(outputStream* st, const char* extra = nullptr) const;
 };
 
 // MethodData*
@@ -1932,10 +1880,10 @@ public:
 // During interpretation, if profiling in enabled, the interpreter
 // maintains a method data pointer (mdp), which points at the entry
 // in the array corresponding to the current bci.  In the course of
-// intepretation, when a bytecode is encountered that has profile data
+// interpretation, when a bytecode is encountered that has profile data
 // associated with it, the entry pointed to by mdp is updated, then the
 // mdp is adjusted to point to the next appropriate DataLayout.  If mdp
-// is NULL to begin with, the interpreter assumes that the current method
+// is null to begin with, the interpreter assumes that the current method
 // is not (yet) being profiled.
 //
 // In MethodData* parlance, "dp" is a "data pointer", the actual address
@@ -1950,6 +1898,42 @@ public:
   virtual bool is_live(Method* m) = 0;
 };
 
+
+#if INCLUDE_JVMCI
+// Encapsulates an encoded speculation reason. These are linked together in
+// a list that is atomically appended to during deoptimization. Entries are
+// never removed from the list.
+// @see jdk.vm.ci.hotspot.HotSpotSpeculationLog.HotSpotSpeculationEncoding
+class FailedSpeculation: public CHeapObj<mtCompiler> {
+ private:
+  // The length of HotSpotSpeculationEncoding.toByteArray(). The data itself
+  // is an array embedded at the end of this object.
+  int   _data_len;
+
+  // Next entry in a linked list.
+  FailedSpeculation* _next;
+
+  FailedSpeculation(address data, int data_len);
+
+  FailedSpeculation** next_adr() { return &_next; }
+
+  // Placement new operator for inlining the speculation data into
+  // the FailedSpeculation object.
+  void* operator new(size_t size, size_t fs_size) throw();
+
+ public:
+  char* data()         { return (char*)(((address) this) + sizeof(FailedSpeculation)); }
+  int data_len() const { return _data_len; }
+  FailedSpeculation* next() const { return _next; }
+
+  // Atomically appends a speculation from nm to the list whose head is at (*failed_speculations_address).
+  // Returns false if the FailedSpeculation object could not be allocated.
+  static bool add_failed_speculation(nmethod* nm, FailedSpeculation** failed_speculations_address, address speculation, int speculation_len);
+
+  // Frees all entries in the linked list whose head is at (*failed_speculations_address).
+  static void free_failed_speculations(FailedSpeculation** failed_speculations_address);
+};
+#endif
 
 class ciMethodData;
 
@@ -1979,7 +1963,7 @@ private:
 public:
   static MethodData* allocate(ClassLoaderData* loader_data, const methodHandle& method, TRAPS);
 
-  bool is_methodData() const volatile { return true; }
+  virtual bool is_methodData() const { return true; }
   void initialize();
 
   // Whole-method sticky bits and flags
@@ -1994,7 +1978,6 @@ public:
     friend class VMStructs;
     friend class JVMCIVMStructs;
 
-    int  _creation_mileage;           // method mileage at MDO creation
     uint _nof_decompiles;             // count of all nmethod removals
     uint _nof_overflow_recompiles;    // recompile count, excluding recomp. bits
     uint _nof_overflow_traps;         // trap count, excluding _trap_hist
@@ -2004,22 +1987,16 @@ public:
       u1 _array[JVMCI_ONLY(2 *) MethodData::_trap_hist_limit];
     } _trap_hist;
 
-    void init_trap_hist() {
-      STATIC_ASSERT(sizeof(_trap_hist) % HeapWordSize == 0); // "align"
+  public:
+    CompilerCounters() : _nof_decompiles(0), _nof_overflow_recompiles(0), _nof_overflow_traps(0) {
+#ifndef ZERO
+      // Some Zero platforms do not have expected alignment, and do not use
+      // this code. static_assert would still fire and fail for them.
+      static_assert(sizeof(_trap_hist) % HeapWordSize == 0, "align");
+#endif
       uint size_in_words = sizeof(_trap_hist) / HeapWordSize;
       Copy::zero_to_words((HeapWord*) &_trap_hist, size_in_words);
     }
-  public:
-    CompilerCounters(Method* m) : _creation_mileage(MethodData::mileage_of(m)),
-      _nof_decompiles(0), _nof_overflow_recompiles(0), _nof_overflow_traps(0) {
-      init_trap_hist();
-    }
-    CompilerCounters() : _creation_mileage(0), // for ciMethodData
-      _nof_decompiles(0), _nof_overflow_recompiles(0), _nof_overflow_traps(0) {
-      init_trap_hist();
-    }
-
-    int      creation_mileage() const { return _creation_mileage; }
 
     // Return (uint)-1 for overflow.
     uint trap_count(int reason) const {
@@ -2071,6 +2048,8 @@ private:
   intx              _arg_stack;       // bit set of stack-allocatable arguments
   intx              _arg_returned;    // bit set of returned arguments
 
+  int               _creation_mileage; // method mileage at MDO creation
+
   // How many invocations has this MDO seen?
   // These counters are used to determine the exact age of MDO.
   // We need those because in tiered a method can be concurrently
@@ -2100,7 +2079,8 @@ private:
 
 #if INCLUDE_JVMCI
   // Support for HotSpotMethodData.setCompiledIRSize(int)
-  int               _jvmci_ir_size;
+  int                _jvmci_ir_size;
+  FailedSpeculation* _failed_speculations;
 #endif
 
   // Size of _data array in bytes.  (Excludes header and extra_data fields.)
@@ -2148,14 +2128,15 @@ private:
     assert(!out_of_bounds(di), "hint_di out of bounds");
     _hint_di = di;
   }
-  ProfileData* data_before(int bci) {
+
+  DataLayout* data_layout_before(int bci) {
     // avoid SEGV on this edge case
     if (data_size() == 0)
-      return NULL;
-    int hint = hint_di();
-    if (data_layout_at(hint)->bci() <= bci)
-      return data_at(hint);
-    return first_data();
+      return nullptr;
+    DataLayout* layout = data_layout_at(hint_di());
+    if (layout->bci() <= bci)
+      return layout;
+    return data_layout_at(first_di());
   }
 
   // What is the index of the first data entry?
@@ -2176,6 +2157,7 @@ private:
 
   static bool profile_jsr292(const methodHandle& m, int bci);
   static bool profile_unsafe(const methodHandle& m, int bci);
+  static bool profile_memory_access(const methodHandle& m, int bci);
   static int profile_arguments_flag();
   static bool profile_all_arguments();
   static bool profile_arguments_for_invoke(const methodHandle& m, int bci);
@@ -2212,11 +2194,9 @@ public:
   // My size
   int size_in_bytes() const { return _size; }
   int size() const    { return align_metadata_size(align_up(_size, BytesPerWord)/BytesPerWord); }
-#if INCLUDE_SERVICES
-  void collect_statistics(KlassSizeStats *sz) const;
-#endif
 
-  int      creation_mileage() const { return _compiler_counters.creation_mileage(); }
+  int      creation_mileage() const { return _creation_mileage; }
+  void set_creation_mileage(int x)  { _creation_mileage = x; }
 
   int invocation_count() {
     if (invocation_counter()->carry()) {
@@ -2256,6 +2236,12 @@ public:
   InvocationCounter* invocation_counter()     { return &_invocation_counter; }
   InvocationCounter* backedge_counter()       { return &_backedge_counter;   }
 
+#if INCLUDE_JVMCI
+  FailedSpeculation** get_failed_speculations_address() {
+    return &_failed_speculations;
+  }
+#endif
+
 #if INCLUDE_RTM_OPT
   int rtm_state() const {
     return _rtm_state;
@@ -2264,11 +2250,11 @@ public:
     _rtm_state = (int)rstate;
   }
   void atomic_set_rtm_state(RTMState rstate) {
-    Atomic::store((int)rstate, &_rtm_state);
+    Atomic::store(&_rtm_state, (int)rstate);
   }
 
-  static int rtm_state_offset_in_bytes() {
-    return offset_of(MethodData, _rtm_state);
+  static ByteSize rtm_state_offset() {
+    return byte_offset_of(MethodData, _rtm_state);
   }
 #endif
 
@@ -2297,7 +2283,7 @@ public:
   intx arg_stack()                               { return _arg_stack; }
   intx arg_returned()                            { return _arg_returned; }
   uint arg_modified(int a)                       { ArgInfoData *aid = arg_info();
-                                                   assert(aid != NULL, "arg_info must be not null");
+                                                   assert(aid != nullptr, "arg_info must be not null");
                                                    assert(a >= 0 && a < aid->number_of_args(), "valid argument number");
                                                    return aid->arg_modified(a); }
 
@@ -2306,7 +2292,7 @@ public:
   void set_arg_stack(intx v)                     { _arg_stack = v; }
   void set_arg_returned(intx v)                  { _arg_returned = v; }
   void set_arg_modified(int a, uint v)           { ArgInfoData *aid = arg_info();
-                                                   assert(aid != NULL, "arg_info must be not null");
+                                                   assert(aid != nullptr, "arg_info must be not null");
                                                    assert(a >= 0 && a < aid->number_of_args(), "valid argument number");
                                                    aid->set_arg_modified(a, v); }
 
@@ -2322,7 +2308,7 @@ public:
 
   int parameters_size_in_bytes() const {
     ParametersTypeData* param = parameters_type_data();
-    return param == NULL ? 0 : param->size_in_bytes();
+    return param == nullptr ? 0 : param->size_in_bytes();
   }
 
   // Accessors
@@ -2334,7 +2320,9 @@ public:
   // Walk through the data in order.
   ProfileData* first_data() const { return data_at(first_di()); }
   ProfileData* next_data(ProfileData* current) const;
-  bool is_valid(ProfileData* current) const { return current != NULL; }
+  DataLayout*  next_data_layout(DataLayout* current) const;
+  bool is_valid(ProfileData* current) const { return current != nullptr; }
+  bool is_valid(DataLayout*  current) const { return current != nullptr; }
 
   // Convert a dp (data pointer) to a di (data index).
   int dp_to_di(address dp) const {
@@ -2347,30 +2335,30 @@ public:
     return dp_to_di(bci_to_dp(bci));
   }
 
-  // Get the data at an arbitrary bci, or NULL if there is none.
+  // Get the data at an arbitrary bci, or null if there is none.
   ProfileData* bci_to_data(int bci);
 
   // Same, but try to create an extra_data record if one is needed:
   ProfileData* allocate_bci_to_data(int bci, Method* m) {
-    ProfileData* data = NULL;
-    // If m not NULL, try to allocate a SpeculativeTrapData entry
-    if (m == NULL) {
+    ProfileData* data = nullptr;
+    // If m not null, try to allocate a SpeculativeTrapData entry
+    if (m == nullptr) {
       data = bci_to_data(bci);
     }
-    if (data != NULL) {
+    if (data != nullptr) {
       return data;
     }
     data = bci_to_extra_data(bci, m, true);
-    if (data != NULL) {
+    if (data != nullptr) {
       return data;
     }
     // If SpeculativeTrapData allocation fails try to allocate a
     // regular entry
     data = bci_to_data(bci);
-    if (data != NULL) {
+    if (data != nullptr) {
       return data;
     }
-    return bci_to_extra_data(bci, NULL, true);
+    return bci_to_extra_data(bci, nullptr, true);
   }
 
   // Add a handful of extra data records, for trap tracking.
@@ -2407,7 +2395,7 @@ public:
   uint inc_decompile_count() {
     uint dec_count = _compiler_counters.inc_decompile_count();
     if (dec_count > (uint)PerMethodRecompilationCutoff) {
-      method()->set_not_compilable(CompLevel_full_optimization, true, "decompile_count > PerMethodRecompilationCutoff");
+      method()->set_not_compilable("decompile_count > PerMethodRecompilationCutoff", CompLevel_full_optimization);
     }
     return dec_count;
   }
@@ -2421,7 +2409,7 @@ public:
   // Return pointer to area dedicated to parameters in MDO
   ParametersTypeData* parameters_type_data() const {
     assert(_parameters_type_data_di != parameters_uninitialized, "called too early");
-    return _parameters_type_data_di != no_parameters ? data_layout_at(_parameters_type_data_di)->data_in()->as_ParametersTypeData() : NULL;
+    return _parameters_type_data_di != no_parameters ? data_layout_at(_parameters_type_data_di)->data_in()->as_ParametersTypeData() : nullptr;
   }
 
   int parameters_type_data_di() const {
@@ -2461,8 +2449,9 @@ public:
   virtual void metaspace_pointers_do(MetaspaceClosure* iter);
   virtual MetaspaceObj::Type type() const { return MethodDataType; }
 
-  // Deallocation support - no pointer fields to deallocate
-  void deallocate_contents(ClassLoaderData* loader_data) {}
+  // Deallocation support
+  void deallocate_contents(ClassLoaderData* loader_data);
+  void release_C_heap_structures();
 
   // GC support
   void set_size(int object_size_in_bytes) { _size = object_size_in_bytes; }
@@ -2489,8 +2478,7 @@ public:
 
   void clean_method_data(bool always_clean);
   void clean_weak_method_links();
-  DEBUG_ONLY(void verify_clean_weak_method_links();)
   Mutex* extra_data_lock() { return &_extra_data_lock; }
 };
 
-#endif // SHARE_VM_OOPS_METHODDATAOOP_HPP
+#endif // SHARE_OOPS_METHODDATA_HPP

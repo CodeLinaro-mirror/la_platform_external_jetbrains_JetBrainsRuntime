@@ -35,8 +35,6 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
-import java.net.URI;
-
 
 /**
  * @test
@@ -77,9 +75,8 @@ public class LargeCompressedEntrySizeTest {
     @Test
     public void testLargeCompressedSizeWithZipFS() throws Exception {
         final Path zipFile = Path.of(ZIP_FILE_NAME);
-        final URI uri = URI.create("jar:" + zipFile.toUri());
         final long largeEntrySize = 6L * 1024L * 1024L * 1024L; // large value which exceeds Integer.MAX_VALUE
-        try (FileSystem fs = FileSystems.newFileSystem(uri, Collections.singletonMap("create", "true"))) {
+        try (FileSystem fs = FileSystems.newFileSystem(zipFile, Collections.singletonMap("create", "true"))) {
             try (OutputStream os = Files.newOutputStream(fs.getPath(LARGE_FILE_NAME))) {
                 long remaining = largeEntrySize;
                 // create a chunk of random bytes which we keep writing out

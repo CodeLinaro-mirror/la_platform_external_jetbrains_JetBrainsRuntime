@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,6 +23,10 @@
  * questions.
  */
 
+#ifdef HEADLESS
+    #error This file should not be included in headless library
+#endif
+
 #include "awt.h"
 #include "awt_util.h"
 #include "jni.h"
@@ -32,6 +36,7 @@
 #include "utility/rect.h"
 
 #include "sun_awt_X11_XlibWrapper.h"
+#include "keycode_cache.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -47,18 +52,10 @@
 #include <X11/Xos.h>
 #include <X11/Xutil.h>
 
-#define USE_KEYCODE_CACHE 1 // keep in sync with same in XWindow.c
-#ifdef USE_KEYCODE_CACHE
-extern void resetKeyCodeCache(void); // defined in XWindow.c
-#endif
-
 #if defined(AIX)
 #undef X_HAVE_UTF8_STRING
 extern Bool statusWindowEventHandler(XEvent event);
 #endif
-
-// From XWindow.c
-extern KeySym keycodeToKeysym(Display *display, KeyCode keycode, int index);
 
 #if defined(DEBUG)
 static jmethodID lockIsHeldMID = NULL;
@@ -656,61 +653,6 @@ JNIEXPORT void JNICALL Java_sun_awt_X11_XlibWrapper_XWindowEvent
     XWindowEvent( (Display *) jlong_to_ptr(display), (Window)window, event_mask, (XEvent *) jlong_to_ptr(event_return));
 }
 
-static int filteredEventsCount = 0;
-static int filteredEventsThreshold = -1;
-static const int DEFAULT_THRESHOLD = 5;
-#define KeyPressEventType   2
-#define KeyReleaseEventType 3
-
-static void checkBrokenInputMethod(XEvent * event, jboolean isEventFiltered) {
-    // Fix for JBR-2444
-    // By default filteredEventsThreshold == 5, you can turn it of with
-    // recreate.x11.input.method=false
-    if (filteredEventsThreshold < 0) {
-        filteredEventsThreshold = 0;
-
-        // read from VM-property
-        JNIEnv *env = (JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2);
-        jclass systemCls = (*env)->FindClass(env, "java/lang/System");
-        CHECK_NULL(systemCls);
-        jmethodID mid = (*env)->GetStaticMethodID(env, systemCls, "getProperty", "(Ljava/lang/String;)Ljava/lang/String;");
-        CHECK_NULL(mid);
-        jstring name = (*env)->NewStringUTF(env, "recreate.x11.input.method");
-        CHECK_NULL(name);
-        jstring jvalue = (*env)->CallStaticObjectMethod(env, systemCls, mid, name);
-        if (jvalue != NULL) {
-            const char * utf8string = (*env)->GetStringUTFChars(env, jvalue, NULL);
-            if (utf8string != NULL) {
-                const int parsedVal = atoi(utf8string);
-                if (parsedVal > 0)
-                    filteredEventsThreshold = parsedVal;
-                else if (strncmp(utf8string, "false", 5) == 0)
-                    filteredEventsThreshold = 0;
-            }
-            (*env)->ReleaseStringUTFChars(env, jvalue, utf8string);
-        } else {
-            filteredEventsThreshold = DEFAULT_THRESHOLD;
-        }
-        (*env)->DeleteLocalRef(env, name);
-    }
-    if (filteredEventsThreshold <= 0)
-        return;
-
-    if (event->type == KeyPressEventType || event->type == KeyReleaseEventType) {
-        if (isEventFiltered) {
-            filteredEventsCount++;
-        } else {
-            filteredEventsCount = 0;
-        }
-
-        if (filteredEventsCount > filteredEventsThreshold) {
-            JNIEnv *env = (JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2);
-            JNU_CallStaticMethodByName(env, NULL, "sun/awt/X11InputMethod", "recreateAllXIC", "()V");
-            filteredEventsCount = 0;
-        }
-    }
-}
-
 /*
  * Class:     sun_awt_X11_XlibWrapper
  * Method:    XFilterEvent
@@ -725,8 +667,10 @@ JNIEXPORT jboolean JNICALL Java_sun_awt_X11_XlibWrapper_XFilterEvent
         return (jboolean)True;
     }
 #endif
-    jboolean isEventFiltered = (jboolean) XFilterEvent((XEvent *) jlong_to_ptr(ptr), (Window) window);
-    checkBrokenInputMethod((XEvent *)jlong_to_ptr(ptr), isEventFiltered);
+    XEvent* const xEvent = (XEvent *)jlong_to_ptr(ptr);
+
+    const jboolean isEventFiltered = (jboolean) XFilterEvent(xEvent, (Window) window);
+
     return isEventFiltered;
 }
 
@@ -890,7 +834,7 @@ JNIEXPORT void JNICALL Java_sun_awt_X11_XlibWrapper_SetProperty
     */
     if (!JNU_IsNull(env, jstr)) {
 #ifdef X_HAVE_UTF8_STRING
-        cname = (char *) (*env)->GetStringUTFChars(env, jstr, JNI_FALSE);
+        cname = (char *) (*env)->GetStringUTFChars(env, jstr, NULL);
 #else
         cname = (char *) JNU_GetStringPlatformChars(env, jstr, NULL);
 #endif
@@ -1389,15 +1333,15 @@ JNIEXPORT jboolean JNICALL Java_sun_awt_X11_XlibWrapper_IsKanaKeyboard
     return result ? JNI_TRUE : JNI_FALSE;
 }
 
-JavaVM* jvm = NULL;
+JavaVM* jvm_xawt = NULL;
 static int ToolkitErrorHandler(Display * dpy, XErrorEvent * event) {
     JNIEnv * env;
     // First call the native synthetic error handler declared in "awt_util.h" file.
     if (current_native_xerror_handler != NULL) {
         current_native_xerror_handler(dpy, event);
     }
-    if (jvm != NULL) {
-        env = (JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2);
+    if (jvm_xawt != NULL) {
+        env = (JNIEnv *)JNU_GetEnv(jvm_xawt, JNI_VERSION_1_2);
         if (env) {
             return JNU_CallStaticMethodByName(env, NULL, "sun/awt/X11/XErrorHandlerUtil",
                 "globalErrorHandler", "(JJ)I", ptr_to_jlong(dpy), ptr_to_jlong(event)).i;
@@ -1414,7 +1358,7 @@ static int ToolkitErrorHandler(Display * dpy, XErrorEvent * event) {
 JNIEXPORT jlong JNICALL Java_sun_awt_X11_XlibWrapper_SetToolkitErrorHandler
 (JNIEnv *env, jclass clazz)
 {
-    if ((*env)->GetJavaVM(env, &jvm) < 0) {
+    if ((*env)->GetJavaVM(env, &jvm_xawt) < 0) {
         return 0;
     }
     AWT_CHECK_HAVE_LOCK_RETURN(0);
@@ -2254,11 +2198,6 @@ Java_sun_awt_X11_XlibWrapper_copyLongArray(JNIEnv *env,
     }
 }
 
-JNIEXPORT jint JNICALL
-Java_sun_awt_X11_XlibWrapper_XSynchronize(JNIEnv *env, jclass clazz, jlong display, jboolean onoff)
-{
-    return (jint) XSynchronize((Display*)jlong_to_ptr(display), (onoff == JNI_TRUE ? True : False));
-}
 
 JNIEXPORT jboolean JNICALL
 Java_sun_awt_X11_XlibWrapper_XShapeQueryExtension

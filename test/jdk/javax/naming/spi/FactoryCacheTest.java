@@ -26,8 +26,7 @@
  * @bug 8223260
  * @summary NamingManager should cache InitialContextFactory
  * @library /test/lib
- * @build jdk.test.lib.process.*
- *        jdk.test.lib.util.JarUtils
+ * @build jdk.test.lib.util.JarUtils jdk.test.lib.process.*
  *        FactoryCacheTest
  *        DummyContextFactory
  *        DummyContextFactory2

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,96 +26,105 @@
 #include "jfr/jfr.hpp"
 #include "jfr/jni/jfrJavaSupport.hpp"
 #include "jfr/recorder/jfrRecorder.hpp"
-#include "jfr/recorder/repository/jfrChunkState.hpp"
 #include "jfr/recorder/repository/jfrChunkWriter.hpp"
 #include "jfr/recorder/repository/jfrEmergencyDump.hpp"
 #include "jfr/recorder/repository/jfrRepository.hpp"
 #include "jfr/recorder/service/jfrPostBox.hpp"
+#include "logging/log.hpp"
 #include "memory/resourceArea.hpp"
+#include "runtime/javaThread.hpp"
 #include "runtime/mutex.hpp"
-#include "runtime/thread.inline.hpp"
+#include "runtime/os.hpp"
 
-static JfrRepository* _instance = NULL;
+static JfrRepository* _instance = nullptr;
 
 JfrRepository& JfrRepository::instance() {
   return *_instance;
 }
 
-static JfrChunkWriter* _chunkwriter = NULL;
+static JfrChunkWriter* _chunkwriter = nullptr;
 
-static bool initialize_chunkwriter() {
-  assert(_chunkwriter == NULL, "invariant");
-  _chunkwriter = new JfrChunkWriter();
-  return _chunkwriter != NULL && _chunkwriter->initialize();
-}
 
 JfrChunkWriter& JfrRepository::chunkwriter() {
   return *_chunkwriter;
 }
 
-JfrRepository::JfrRepository(JfrPostBox& post_box) : _path(NULL), _post_box(post_box) {}
+JfrRepository::JfrRepository(JfrPostBox& post_box) : _path(nullptr), _post_box(post_box) {}
 
 bool JfrRepository::initialize() {
-  return initialize_chunkwriter();
+  assert(_chunkwriter == nullptr, "invariant");
+  _chunkwriter = new JfrChunkWriter();
+  return _chunkwriter != nullptr;
 }
 
 JfrRepository::~JfrRepository() {
-  if (_path != NULL) {
+  if (_path != nullptr) {
     JfrCHeapObj::free(_path, strlen(_path) + 1);
-    _path = NULL;
+    _path = nullptr;
   }
 
-  if (_chunkwriter != NULL) {
+  if (_chunkwriter != nullptr) {
     delete _chunkwriter;
-    _chunkwriter = NULL;
+    _chunkwriter = nullptr;
   }
 }
 
 JfrRepository* JfrRepository::create(JfrPostBox& post_box) {
-  assert(_instance == NULL, "invariant");
+  assert(_instance == nullptr, "invariant");
   _instance = new JfrRepository(post_box);
   return _instance;
 }
 
 void JfrRepository::destroy() {
-  assert(_instance != NULL, "invariant");
+  assert(_instance != nullptr, "invariant");
   delete _instance;
-  _instance = NULL;
+  _instance = nullptr;
 }
 
 void JfrRepository::on_vm_error() {
-  assert(!JfrStream_lock->owned_by_self(), "invariant");
-  if (_path == NULL) {
+  if (_path == nullptr) {
     // completed already
     return;
   }
   JfrEmergencyDump::on_vm_error(_path);
 }
 
+void JfrRepository::on_vm_error_report(outputStream* st) {
+  JfrEmergencyDump::on_vm_error_report(st, instance()._path);
+}
+
 bool JfrRepository::set_path(const char* path) {
-  assert(path != NULL, "trying to set the repository path with a NULL string!");
-  if (_path != NULL) {
+  assert(path != nullptr, "trying to set the repository path with a null string!");
+  if (_path != nullptr) {
     // delete existing
     JfrCHeapObj::free(_path, strlen(_path) + 1);
   }
   const size_t path_len = strlen(path);
   _path = JfrCHeapObj::new_array<char>(path_len + 1);
-  if (_path == NULL) {
+  if (_path == nullptr) {
     return false;
   }
   strncpy(_path, path, path_len + 1);
   return true;
 }
 
-void JfrRepository::set_chunk_path(const char* path) {
-  assert(JfrStream_lock->owned_by_self(), "invariant");
-  chunkwriter().set_chunk_path(path);
-}
-
 void JfrRepository::notify_on_new_chunk_path() {
   if (Jfr::is_recording()) {
+    // rotations are synchronous, block until rotation completes
     instance()._post_box.post(MSG_ROTATE);
   }
+}
+
+void JfrRepository::set_chunk_path(const char* path) {
+  chunkwriter().set_path(path);
+}
+
+void JfrRepository::mark_chunk_final() {
+  chunkwriter().mark_chunk_final();
+}
+
+jlong JfrRepository::current_chunk_start_nanos() {
+  return chunkwriter().current_chunk_start_nanos();
 }
 
 /**
@@ -134,14 +143,11 @@ void JfrRepository::set_chunk_path(jstring path, JavaThread* jt) {
   DEBUG_ONLY(JfrJavaSupport::check_java_thread_in_vm(jt));
   ResourceMark rm(jt);
   const char* const canonical_chunk_path = JfrJavaSupport::c_str(path, jt);
-  {
-    MutexLockerEx stream_lock(JfrStream_lock, Mutex::_no_safepoint_check_flag);
-    if (NULL == canonical_chunk_path && !_chunkwriter->is_valid()) {
-      // new output is NULL and current output is NULL
-      return;
-    }
-    instance().set_chunk_path(canonical_chunk_path);
+  if (nullptr == canonical_chunk_path && !_chunkwriter->is_valid()) {
+    // new output is null and current output is null
+    return;
   }
+  instance().set_chunk_path(canonical_chunk_path);
   notify_on_new_chunk_path();
 }
 
@@ -149,20 +155,33 @@ void JfrRepository::set_path(jstring location, JavaThread* jt) {
   DEBUG_ONLY(JfrJavaSupport::check_java_thread_in_vm(jt));
   ResourceMark rm(jt);
   const char* const path = JfrJavaSupport::c_str(location, jt);
-  if (path != NULL) {
+  if (path != nullptr) {
     instance().set_path(path);
   }
 }
 
 bool JfrRepository::open_chunk(bool vm_error /* false */) {
-  assert(JfrStream_lock->owned_by_self(), "invariant");
   if (vm_error) {
-    ResourceMark rm;
-    _chunkwriter->set_chunk_path(JfrEmergencyDump::build_dump_path(_path));
+    _chunkwriter->set_path(JfrEmergencyDump::chunk_path(_path));
   }
   return _chunkwriter->open();
 }
 
-size_t JfrRepository::close_chunk(int64_t metadata_offset) {
-  return _chunkwriter->close(metadata_offset);
+size_t JfrRepository::close_chunk() {
+  return _chunkwriter->close();
+}
+
+void JfrRepository::flush(JavaThread* jt) {
+  DEBUG_ONLY(JfrJavaSupport::check_java_thread_in_vm(jt));
+  if (!Jfr::is_recording()) {
+    return;
+  }
+  if (!_chunkwriter->is_valid()) {
+    return;
+  }
+  instance()._post_box.post(MSG_FLUSHPOINT);
+}
+
+size_t JfrRepository::flush_chunk() {
+  return _chunkwriter->flush_chunk(true);
 }

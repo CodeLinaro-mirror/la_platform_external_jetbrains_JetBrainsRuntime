@@ -338,15 +338,40 @@ static NSDictionary* prebuiltFamilyNames() {
              @".NewYork-Black" : @".New York",
              @".NewYork-BlackItalic" : @".New York",
              @".NewYork-Bold" : @".New York",
+             @".NewYork-BoldG1" : @".New York",
+             @".NewYork-BoldG2" : @".New York",
+             @".NewYork-BoldG3" : @".New York",
+             @".NewYork-BoldG4" : @".New York",
              @".NewYork-BoldItalic" : @".New York",
+             @".NewYork-BoldItalicG1" : @".New York",
+             @".NewYork-BoldItalicG2" : @".New York",
+             @".NewYork-BoldItalicG3" : @".New York",
+             @".NewYork-BoldItalicG4" : @".New York",
              @".NewYork-Heavy" : @".New York",
              @".NewYork-HeavyItalic" : @".New York",
              @".NewYork-Medium" : @".New York",
              @".NewYork-MediumItalic" : @".New York",
              @".NewYork-Regular" : @".New York",
+             @".NewYork-RegularG1" : @".New York",
+             @".NewYork-RegularG2" : @".New York",
+             @".NewYork-RegularG3" : @".New York",
+             @".NewYork-RegularG4" : @".New York",
              @".NewYork-RegularItalic" : @".New York",
+             @".NewYork-RegularItalicG1" : @".New York",
+             @".NewYork-RegularItalicG2" : @".New York",
+             @".NewYork-RegularItalicG3" : @".New York",
+             @".NewYork-RegularItalicG4" : @".New York",
              @".NewYork-Semibold" : @".New York",
              @".NewYork-SemiboldItalic" : @".New York",
+             @".SFArabic-Black" : @".SF Arabic",
+             @".SFArabic-Bold" : @".SF Arabic",
+             @".SFArabic-Heavy" : @".SF Arabic",
+             @".SFArabic-Light" : @".SF Arabic",
+             @".SFArabic-Medium" : @".SF Arabic",
+             @".SFArabic-Regular" : @".SF Arabic",
+             @".SFArabic-Semibold" : @".SF Arabic",
+             @".SFArabic-Thin" : @".SF Arabic",
+             @".SFArabic-Ultralight" : @".SF Arabic",
              @".NotoNastaliqUrduUI" : @".Noto Nastaliq Urdu UI",
              @".NotoNastaliqUrduUI-Bold" : @".Noto Nastaliq Urdu UI",
              @".PingFangHK-Light" : @".PingFang HK",
@@ -1665,7 +1690,7 @@ static NSDictionary* prebuiltFamilyNames() {
              @"Wingdings3" : @"Wingdings 3",
              @"ZapfDingbatsITC" : @"Zapf Dingbats",
              @"Zapfino" : @"Zapfino",
-             
+
              // JetBrains fonts
              @"DroidSans" : @"Droid Sans",
              @"DroidSans-Bold" : @"Droid Sans",
@@ -1695,12 +1720,49 @@ static NSDictionary* prebuiltFamilyNames() {
              @"Inter-Bold": @"Inter",
              @"Inter-BoldItalic": @"Inter",
              @"Inter-Italic": @"Inter",
-             @"Inter-Regular": @"Inter",
-    };
+             @"Inter-Regular": @"Inter"
+             };
 }
 
 static NSDictionary* prebuiltFaceNames() {
     return @{
+             @".NewYork-Black" : @"Black",
+             @".NewYork-BlackItalic" : @"Black Italic",
+             @".NewYork-Bold" : @"Bold",
+             @".NewYork-BoldG1" : @"Bold G1",
+             @".NewYork-BoldG2" : @"Bold G2",
+             @".NewYork-BoldG3" : @"Bold G3",
+             @".NewYork-BoldG4" : @"Bold G4",
+             @".NewYork-BoldItalic" : @"Bold Italic",
+             @".NewYork-BoldItalicG1" : @"Bold Italic G1",
+             @".NewYork-BoldItalicG2" : @"Bold Italic G2",
+             @".NewYork-BoldItalicG3" : @"Bold Italic G3",
+             @".NewYork-BoldItalicG4" : @"Bold Italic G4",
+             @".NewYork-Heavy" : @"Heavy",
+             @".NewYork-HeavyItalic" : @"Heavy Italic",
+             @".NewYork-Medium" : @"Medium",
+             @".NewYork-MediumItalic" : @"Medium Italic",
+             @".NewYork-Regular" : @"Regular",
+             @".NewYork-RegularG1" : @"Regular G1",
+             @".NewYork-RegularG2" : @"Regular G2",
+             @".NewYork-RegularG3" : @"Regular G3",
+             @".NewYork-RegularG4" : @"Regular G4",
+             @".NewYork-RegularItalic" : @"Regular Italic",
+             @".NewYork-RegularItalicG1" : @"Regular Italic G1",
+             @".NewYork-RegularItalicG2" : @"Regular Italic G2",
+             @".NewYork-RegularItalicG3" : @"Regular Italic G3",
+             @".NewYork-RegularItalicG4" : @"Regular Italic G4",
+             @".NewYork-Semibold" : @"Semibold",
+             @".NewYork-SemiboldItalic" : @"Semibold Italic",
+             @".SFArabic-Black" : @"Black",
+             @".SFArabic-Bold" : @"Bold",
+             @".SFArabic-Heavy" : @"Heavy",
+             @".SFArabic-Light" : @"Light",
+             @".SFArabic-Medium" : @"Medium",
+             @".SFArabic-Regular" : @"Regular",
+             @".SFArabic-Semibold" : @"Semibold",
+             @".SFArabic-Thin" : @"Thin",
+             @".SFArabic-Ultralight" : @"Ultralight",
              @".SFNS-Black" : @"Black",
              @".SFNS-BlackItalic" : @"Black Italic",
              @".SFNS-Bold" : @"Bold",
@@ -2977,6 +3039,10 @@ static NSDictionary* prebuiltFaceNames() {
              @"SourceCodePro-BoldIt" : @"Bold Italic",
              @"SourceCodePro-It" : @"Italic",
              @"SourceCodePro-Regular" : @"Regular",
+             @"Inter-Bold": @"Bold",
+             @"Inter-BoldItalic": @"Bold Italoc",
+             @"Inter-Italic": @"Italic",
+             @"Inter-Regular": @"Regular"
             };
 }
 
@@ -3116,24 +3182,18 @@ Java_sun_font_CFontManager_getNativeFontVersion
 JNI_COCOA_ENTER(env);
     NSString *psNameStr = JavaStringToNSString(env, psName);
     CTFontRef sFont = CTFontCreateWithName(psNameStr, 13, nil);
-    if (sFont != NULL) {
-        CFStringRef sFontPSName = CTFontCopyName(sFont, kCTFontPostScriptNameKey);
-
-        // CTFontCreateWithName always returns some font,
-        // so we need to check if it is right one
-        if (sFontPSName != NULL && [psNameStr isEqualToString:sFontPSName]) {
-            CFStringRef fontVersionStr = CTFontCopyName(sFont,
-                                                        kCTFontVersionNameKey);
-            if (fontVersionStr != NULL) {
-                result = NSStringToJavaString(env, fontVersionStr);
-                CFRelease(fontVersionStr);
-            }
-        }
-        if (sFontPSName != NULL) {
-            CFRelease(sFontPSName);
-        }
-        CFRelease(sFont);
+    CFStringRef sFontPSName = CTFontCopyName(sFont, kCTFontPostScriptNameKey);
+    // CTFontCreateWithName always returns some font,
+    // so we need to check if it is right one
+    if ([psNameStr isEqualToString:sFontPSName]) {
+        CFStringRef fontVersionStr = CTFontCopyName(sFont,
+                                                    kCTFontVersionNameKey);
+        result = NSStringToJavaString(env, fontVersionStr);
+        CFRelease(fontVersionStr);
     }
+
+    CFRelease(sFontPSName);
+    CFRelease(sFont);
 JNI_COCOA_EXIT(env);
     return result;
 }
@@ -3196,6 +3256,9 @@ JNI_COCOA_ENTER(env);
     CTFontRef ctfont = (CTFontRef)nsFont;
     CFArrayRef tagsArray =
         CTFontCopyAvailableTables(ctfont, kCTFontTableOptionNoOptions);
+    if (tagsArray == NULL) {
+        return NULL;
+    }
     CFIndex numTags = CFArrayGetCount(tagsArray);
     for (i=0; i<numTags; i++) {
         if (tag ==
@@ -3351,3 +3414,14 @@ Java_sun_awt_FontDescriptor_initIDs
 {
 }
 #endif
+
+static CFStringRef EMOJI_FONT_NAME = CFSTR("Apple Color Emoji");
+
+bool IsEmojiFont(CTFontRef font)
+{
+    CFStringRef name = CTFontCopyFullName(font);
+    if (name == NULL) return false;
+    bool isFixedColor = CFStringCompare(name, EMOJI_FONT_NAME, 0) == kCFCompareEqualTo;
+    CFRelease(name);
+    return isFixedColor;
+}

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -140,8 +140,8 @@ extern "C" JNIEXPORT jboolean JNICALL AWTIsHeadless() {
 
 #define IDT_AWT_MOUSECHECK 0x101
 
-EnableNonClientDpiScalingFunc* AwtToolkit::lpEnableNonClientDpiScaling = NULL;
 AdjustWindowRectExForDpiFunc* AwtToolkit::lpAdjustWindowRectExForDpi = NULL;
+GetDpiForWindowFunc* AwtToolkit::lpGetDpiForWindow = NULL;
 
 static LPCTSTR szAwtToolkitClassName = TEXT("SunAwtToolkit");
 
@@ -270,7 +270,7 @@ extern "C" BOOL APIENTRY DllMain(HANDLE hInstance, DWORD ul_reason_for_call,
 #ifdef DEBUG
         DTrace_DisableMutex();
         DMem_DisableMutex();
-#endif DEBUG
+#endif // DEBUG
         break;
     }
     return TRUE;
@@ -348,7 +348,8 @@ AwtToolkit::AwtToolkit() {
 
     m_waitEvent = ::CreateEvent(NULL, FALSE, FALSE, NULL);
     m_inputMethodWaitEvent = ::CreateEvent(NULL, FALSE, FALSE, NULL);
-    isInDoDragDropLoop = FALSE;
+    isDnDSourceActive = FALSE;
+    isDnDTargetActive = FALSE;
     eventNumber = 0;
 }
 
@@ -533,7 +534,7 @@ void ToolkitThreadProc(void *param)
     JNIEnv *env;
     JavaVMAttachArgs attachArgs;
     attachArgs.version  = JNI_VERSION_1_2;
-    attachArgs.name     = "AWT-Windows";
+    attachArgs.name     = (char*)"AWT-Windows";
     attachArgs.group    = data->threadGroup;
 
     jint res = jvm->AttachCurrentThreadAsDaemon((void **)&env, &attachArgs);
@@ -631,7 +632,7 @@ BOOL AwtToolkit::Initialize(BOOL localPump) {
     // Set up operator new/malloc out of memory handler.
     NewHandler::init();
 
-        //\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+        //*************************************************************************
         // Bugs 4032109, 4047966, and 4071991 to fix AWT
         //      crash in 16 color display mode.  16 color mode is supported.  Less
         //      than 16 color is not.
@@ -675,8 +676,8 @@ BOOL AwtToolkit::Initialize(BOOL localPump) {
 
     HMODULE hLibUser32Dll = JDK_LoadSystemLibrary("User32.dll");
     if (hLibUser32Dll != NULL) {
-        lpEnableNonClientDpiScaling = (EnableNonClientDpiScalingFunc*)GetProcAddress(hLibUser32Dll, "EnableNonClientDpiScaling");
         lpAdjustWindowRectExForDpi = (AdjustWindowRectExForDpiFunc*)GetProcAddress(hLibUser32Dll, "AdjustWindowRectExForDpi");
+        lpGetDpiForWindow = (GetDpiForWindowFunc*)GetProcAddress(hLibUser32Dll, "GetDpiForWindow");
         ::FreeLibrary(hLibUser32Dll);
     }
 
@@ -1064,7 +1065,7 @@ LRESULT CALLBACK AwtToolkit::WndProc(HWND hWnd, UINT message,
            if (AwtWindow::IsResizing()) {
                return 0;
            }
-          // Create an artifical MouseExit message if the mouse left to
+          // Create an artificial MouseExit message if the mouse left to
           // a non-java window (bad mouse!)
           POINT pt;
           AwtToolkit& tk = AwtToolkit::GetInstance();
@@ -1092,12 +1093,8 @@ LRESULT CALLBACK AwtToolkit::WndProc(HWND hWnd, UINT message,
               AwtClipboard::LostOwnership((JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2));
           return 0;
       }
-      case WM_CHANGECBCHAIN: {
-          AwtClipboard::WmChangeCbChain(wParam, lParam);
-          return 0;
-      }
-      case WM_DRAWCLIPBOARD: {
-          AwtClipboard::WmDrawClipboard((JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2), wParam, lParam);
+      case WM_CLIPBOARDUPDATE: {
+          AwtClipboard::WmClipboardUpdate((JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2));
           return 0;
       }
       case WM_AWT_LIST_SETMULTISELECT: {
@@ -1110,9 +1107,9 @@ LRESULT CALLBACK AwtToolkit::WndProc(HWND hWnd, UINT message,
 
       // Special awt message to call Imm APIs.
       // ImmXXXX() API must be used in the main thread.
-      // In other thread these APIs does not work correctly even if
-      // it returs with no error. (This restriction is not documented)
-      // So we must use thse messages to call these APIs in main thread.
+      // In other threads these APIs do not work correctly even if
+      // it returns with no error. (This restriction is not documented)
+      // So we must use these messages to call these APIs in main thread.
       case WM_AWT_CREATECONTEXT: {
           AwtToolkit& tk = AwtToolkit::GetInstance();
           tk.m_inputMethodData = reinterpret_cast<LRESULT>(
@@ -1205,7 +1202,7 @@ LRESULT CALLBACK AwtToolkit::WndProc(HWND hWnd, UINT message,
       }
       case WM_AWT_ENDCOMPOSITION: {
           /*right now we just cancel the composition string
-          may need to commit it in the furture
+          may need to commit it in the future
           Changed to commit it according to the flag 10/29/98*/
           ImmNotifyIME((HIMC)wParam, NI_COMPOSITIONSTR,
                        (lParam ? CPS_COMPLETE : CPS_CANCEL), 0);
@@ -1623,7 +1620,7 @@ void AwtToolkit::QuitMessageLoop(int status) {
 
     /*
      * Fix for 4623377.
-     * Modal loop may not exit immediatelly after WM_CANCELMODE, so it still can
+     * Modal loop may not exit immediately after WM_CANCELMODE, so it still can
      * eat WM_QUIT message and the nested message loop will never exit.
      * The fix is to use AwtToolkit instance variables instead of WM_QUIT to
      * guarantee that we exit from the nested message loop when any possible
@@ -1776,6 +1773,8 @@ BOOL AwtToolkit::PreProcessMouseMsg(AwtComponent* p, MSG& msg)
     curPos.x = GET_X_LPARAM(dwCurPos);
     curPos.y = GET_Y_LPARAM(dwCurPos);
     HWND hWndFromPoint = ::WindowFromPoint(curPos);
+    // In case of custom title bar, WindowFromPoint will return root frame, so search further just in case
+    if (hWndFromPoint) ScreenToBottommostChild(hWndFromPoint, curPos.x, curPos.y);
     // hWndFromPoint == 0 if mouse is over a scrollbar
     AwtComponent* mouseComp =
         AwtComponent::GetComponent(hWndFromPoint);
@@ -1981,7 +1980,7 @@ HICON AwtToolkit::GetSecurityWarningIcon(UINT index, UINT w, UINT h)
     //Note: should not exceed 10 because of the current implementation.
     static const int securityWarningIconCounter = 3;
 
-    static HICON securityWarningIcon[securityWarningIconCounter]      = {NULL, NULL, NULL};;
+    static HICON securityWarningIcon[securityWarningIconCounter]      = {NULL, NULL, NULL};
     static UINT securityWarningIconWidth[securityWarningIconCounter]  = {0, 0, 0};
     static UINT securityWarningIconHeight[securityWarningIconCounter] = {0, 0, 0};
 
@@ -2189,8 +2188,8 @@ void AwtToolkit::PreloadAction::Clean(bool reInit) {
 // PreloadThread implementation
 AwtToolkit::PreloadThread::PreloadThread()
     : status(None), wrongThread(false), threadId(0),
-    pActionChain(NULL), pLastProcessedAction(NULL),
-    execFunc(NULL), execParam(NULL)
+    execFunc(NULL), execParam(NULL),
+    pActionChain(NULL), pLastProcessedAction(NULL)
 {
     hFinished = ::CreateEvent(NULL, TRUE, FALSE, NULL);
     hAwake = ::CreateEvent(NULL, FALSE, FALSE, NULL);
@@ -2527,17 +2526,6 @@ Java_sun_awt_windows_WToolkit_initIDs(JNIEnv *env, jclass cls)
     CHECK_NULL(AwtToolkit::systemSleepMID);
 
     CATCH_BAD_ALLOC;
-}
-
-
-/*
- * Class:     sun_awt_windows_Toolkit
- * Method:    disableCustomPalette
- * Signature: ()V
- */
-JNIEXPORT void JNICALL
-Java_sun_awt_windows_WToolkit_disableCustomPalette(JNIEnv *env, jclass cls) {
-    AwtPalette::DisableCustomPalette();
 }
 
 /*
@@ -2907,8 +2895,10 @@ Java_sun_awt_windows_WToolkit_loadSystemColors(JNIEnv *env, jobject self,
     jint* colorsPtr = NULL;
     try {
         colorsPtr = (jint *)env->GetPrimitiveArrayCritical(colors, 0);
-        for (int i = 0; i < (sizeof indexMap)/(sizeof *indexMap) && i < colorLen; i++) {
-            colorsPtr[i] = DesktopColor2RGB(indexMap[i]);
+        if (colorsPtr != NULL) {
+            for (int i = 0; i < (sizeof indexMap)/(sizeof *indexMap) && i < colorLen; i++) {
+                colorsPtr[i] = DesktopColor2RGB(indexMap[i]);
+            }
         }
     } catch (...) {
         if (colorsPtr != NULL) {
@@ -3059,7 +3049,7 @@ Java_sun_awt_windows_WToolkit_syncNativeQueue(JNIEnv *env, jobject self, jlong t
     tk.PostMessage(WM_SYNC_WAIT, 0, 0);
     for(long t = 2; t < timeout &&
                WAIT_TIMEOUT == ::WaitForSingleObject(tk.m_waitEvent, 2); t+=2) {
-        if (tk.isInDoDragDropLoop) {
+        if (tk.isDnDSourceActive || tk.isDnDTargetActive) {
             break;
         }
     }
@@ -3246,8 +3236,8 @@ BOOL AwtToolkit::TICloseTouchInputHandle(HTOUCHINPUT hTouchInput) {
 }
 
 /*
- * The fuction intended for access to an IME API. It posts IME message to the queue and
- * waits untill the message processing is completed.
+ * The function intended for access to an IME API. It posts IME message to the queue and
+ * waits until the message processing is completed.
  *
  * On Windows 10 the IME may process the messages send via SenMessage() from other threads
  * when the IME is called by TranslateMessage(). This may cause an reentrancy issue when
@@ -3263,7 +3253,7 @@ LRESULT AwtToolkit::InvokeInputMethodFunction(UINT msg, WPARAM wParam, LPARAM lP
      * the IME completion.
      */
     CriticalSection::Lock lock(m_inputMethodLock);
-    if (isInDoDragDropLoop) {
+    if (isDnDSourceActive || isDnDTargetActive) {
         SendMessage(msg, wParam, lParam);
         ::ResetEvent(m_inputMethodWaitEvent);
         return m_inputMethodData;
@@ -3273,6 +3263,17 @@ LRESULT AwtToolkit::InvokeInputMethodFunction(UINT msg, WPARAM wParam, LPARAM lP
             return m_inputMethodData;
         }
         return 0;
+    }
+}
+
+POINT ScreenToBottommostChild(HWND& w, LONG ncx, LONG ncy) {
+    POINT p;
+    for (;;) {
+        p = {ncx, ncy};
+        ::ScreenToClient(w, &p);
+        HWND t = ::ChildWindowFromPointEx(w, p, CWP_SKIPINVISIBLE | CWP_SKIPDISABLED | CWP_SKIPTRANSPARENT);
+        if (t == NULL || t == w) return p;
+        w = t;
     }
 }
 

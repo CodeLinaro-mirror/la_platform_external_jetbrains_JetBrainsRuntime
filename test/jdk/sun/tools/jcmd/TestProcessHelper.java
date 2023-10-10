@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,16 +21,13 @@
  * questions.
  */
 
-import jdk.internal.module.ModuleInfoWriter;
-import jdk.test.lib.JDKToolFinder;
-import jdk.test.lib.process.ProcessTools;
-import jdk.test.lib.util.JarUtils;
-import sun.tools.common.ProcessHelper;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
 import java.lang.module.ModuleDescriptor;
+import java.lang.reflect.Method;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -44,6 +41,11 @@ import java.util.jar.Manifest;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import jdk.test.lib.JDKToolFinder;
+import jdk.test.lib.process.ProcessTools;
+import jdk.test.lib.util.JarUtils;
+import jdk.test.lib.util.ModuleInfoWriter;
+
 /*
  * @test
  * @bug 8205654
@@ -51,15 +53,18 @@ import java.util.stream.Stream;
  * and checks that sun.tools.ProcessHelper.getMainClass(pid) method returns a correct main class.                                                                                                                               return a .
  *
  * @requires os.family == "linux"
- * @library /test/lib
- * @modules jdk.jcmd/sun.tools.common
+ * @modules jdk.jcmd/sun.tools.common:+open
+ *          java.base/jdk.internal.classfile
+ *          java.base/jdk.internal.classfile.attribute
+ *          java.base/jdk.internal.classfile.constantpool
  *          java.base/jdk.internal.module
+ * @library /test/lib
  * @build test.TestProcess
+ *        jdk.test.lib.util.JarUtils
+ *        jdk.test.lib.util.ModuleInfoWriter
  * @run main/othervm TestProcessHelper
  */
 public class TestProcessHelper {
-
-    private ProcessHelper PROCESS_HELPER = ProcessHelper.platformProcessHelper();
 
     private static final String TEST_PROCESS_MAIN_CLASS_NAME = "TestProcess";
     private static final String TEST_PROCESS_MAIN_CLASS_PACKAGE = "test";
@@ -88,6 +93,29 @@ public class TestProcessHelper {
             {"--upgrade-module-path", "test"}};
 
     private static final String[] PATCH_MODULE_OPTIONS = {"--patch-module", null};
+
+    private static final MethodHandle MH_GET_MAIN_CLASS = resolveMainClassMH();
+
+    private static MethodHandle resolveMainClassMH() {
+        try {
+            Method getMainClassMethod = Class
+                .forName("sun.tools.common.ProcessHelper")
+                .getDeclaredMethod("getMainClass", String.class);
+            getMainClassMethod.setAccessible(true);
+            return MethodHandles.lookup().unreflect(getMainClassMethod);
+        } catch (ClassNotFoundException | NoSuchMethodException | SecurityException | IllegalAccessException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static String callGetMainClass(Process p) {
+        try {
+            return (String)MH_GET_MAIN_CLASS.invoke(Long.toString(p.pid()));
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+
+    }
 
     public static void main(String[] args) throws Exception {
         new TestProcessHelper().runTests();
@@ -188,7 +216,7 @@ public class TestProcessHelper {
     }
 
     private void checkMainClass(Process p, String expectedMainClass) {
-        String mainClass = PROCESS_HELPER.getMainClass(Long.toString(p.pid()));
+        String mainClass = callGetMainClass(p);
         // getMainClass() may return null, e.g. due to timing issues.
         // Attempt some limited retries.
         if (mainClass == null) {
@@ -204,7 +232,7 @@ public class TestProcessHelper {
                 } catch (InterruptedException e) {
                     // ignore
                 }
-                mainClass = PROCESS_HELPER.getMainClass(Long.toString(p.pid()));
+                mainClass = callGetMainClass(p);
                 retrycount++;
                 sleepms *= 2;
             }

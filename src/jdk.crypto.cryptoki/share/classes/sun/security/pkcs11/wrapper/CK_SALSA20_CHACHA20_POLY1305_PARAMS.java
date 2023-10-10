@@ -25,6 +25,8 @@
 
 package sun.security.pkcs11.wrapper;
 
+import java.util.HexFormat;
+
 /**
  * This class represents the necessary parameters required by the
  * CKM_CHACHA20_POLY1305 and CKM_SALSA20_POLY1305 mechanisms as defined in
@@ -56,25 +58,12 @@ public class CK_SALSA20_CHACHA20_POLY1305_PARAMS {
 
         sb.append(Constants.INDENT);
         sb.append("Nonce: ");
-        if (nonce == null) {
-            sb.append("null");
-        } else {
-            sb.append("0x");
-            for (byte b: nonce) {
-                sb.append(String.format("%02x", b));
-            }
-        }
+        sb.append((nonce == null? "null" :
+            "0x" + HexFormat.of().formatHex(nonce)));
         sb.append(Constants.NEWLINE);
         sb.append(Constants.INDENT);
         sb.append("AAD: ");
-        if (aad == null) {
-            sb.append("null");
-        } else {
-            sb.append("0x");
-            for (byte b: aad) {
-                sb.append(String.format("%02x", b));
-            }
-        }
+        sb.append((aad == null? "null" : "0x" + HexFormat.of().formatHex(aad)));
         return sb.toString();
     }
 }

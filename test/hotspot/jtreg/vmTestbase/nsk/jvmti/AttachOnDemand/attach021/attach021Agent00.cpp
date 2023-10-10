@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,7 @@
 #include <jvmti.h>
 #include <aod.h>
 #include <jvmti_aod.h>
+#include "ExceptionCheckingJniEnv.hpp"
 
 extern "C" {
 
@@ -68,7 +69,16 @@ Java_nsk_jvmti_AttachOnDemand_attach021_attach021Target_setTagFor(JNIEnv * jni,
 JNIEXPORT void JNICALL
 Java_nsk_jvmti_AttachOnDemand_attach021_attach021Target_shutdownAgent(JNIEnv * jni,
         jclass klass) {
-    nsk_jvmti_aod_disableEventAndFinish(agentName, JVMTI_EVENT_OBJECT_FREE, success, jvmti, jni);
+
+    /* Flush any pending ObjectFree events, which will set global success variable to 1
+       for any pending ObjectFree events. */
+    if (jvmti->SetEventNotificationMode(JVMTI_DISABLE,
+                                        JVMTI_EVENT_OBJECT_FREE,
+                                        NULL) != JVMTI_ERROR_NONE) {
+        success = 0;
+    }
+
+    nsk_aod_agentFinished(jni, agentName, success);
 }
 
 void JNICALL objectFreeHandler(jvmtiEnv *jvmti, jlong tag) {
@@ -87,24 +97,16 @@ void JNICALL objectFreeHandler(jvmtiEnv *jvmti, jlong tag) {
      */
 }
 
-int registerNativeMethods(JNIEnv* jni) {
+void registerNativeMethods(JNIEnv* jni_env) {
+    ExceptionCheckingJniEnvPtr ec_jni(jni_env);
     jclass appClass;
     JNINativeMethod nativeMethods[] = {
-            {(char*) "setTagFor", (char*) "(Ljava/lang/Object;)Z", (void*) Java_nsk_jvmti_AttachOnDemand_attach021_attach021Target_setTagFor},
-            {(char*) "shutdownAgent", (char*) "()V", (void*) Java_nsk_jvmti_AttachOnDemand_attach021_attach021Target_shutdownAgent}};
+            { (char*) "setTagFor", (char*) "(Ljava/lang/Object;)Z", (void*) Java_nsk_jvmti_AttachOnDemand_attach021_attach021Target_setTagFor },
+            { (char*) "shutdownAgent", (char*) "()V", (void*) Java_nsk_jvmti_AttachOnDemand_attach021_attach021Target_shutdownAgent } };
     jint nativeMethodsNumber = 2;
 
-    if (!NSK_JNI_VERIFY(jni, (appClass =
-        jni->FindClass(ATTACH021_TARGET_APP_CLASS_NAME)) != NULL)) {
-        return NSK_FALSE;
-    }
-
-    if (!NSK_JNI_VERIFY(jni,
-            (jni->RegisterNatives(appClass, nativeMethods, nativeMethodsNumber) == 0))) {
-        return NSK_FALSE;
-    }
-
-    return NSK_TRUE;
+    appClass = ec_jni->FindClass(ATTACH021_TARGET_APP_CLASS_NAME, TRACE_JNI_CALL);
+    ec_jni->RegisterNatives(appClass, nativeMethods, nativeMethodsNumber, TRACE_JNI_CALL);
 }
 
 #ifdef STATIC_BUILD
@@ -124,31 +126,32 @@ Agent_OnAttach(JavaVM *vm, char *optionsString, void *reserved)
     jvmtiCapabilities caps;
     JNIEnv* jni;
 
-    if (!NSK_VERIFY((options = (Options*) nsk_aod_createOptions(optionsString)) != NULL))
+    options = (Options*) nsk_aod_createOptions(optionsString);
+    if (!NSK_VERIFY(options != NULL))
         return JNI_ERR;
 
     agentName = nsk_aod_getOptionValue(options, NSK_AOD_AGENT_NAME_OPTION);
 
-    if ((jni = (JNIEnv*) nsk_aod_createJNIEnv(vm)) == NULL)
+    jni = (JNIEnv*) nsk_aod_createJNIEnv(vm);
+    if (jni == NULL)
         return JNI_ERR;
 
-    if (!NSK_VERIFY((jvmti = nsk_jvmti_createJVMTIEnv(vm, reserved)) != NULL))
+    jvmti = nsk_jvmti_createJVMTIEnv(vm, reserved);
+    if (!NSK_VERIFY(jvmti != NULL))
         return JNI_ERR;
 
-    if (!NSK_VERIFY(registerNativeMethods(jni))) {
-        return JNI_ERR;
-    }
+    registerNativeMethods(jni);
 
     memset(&caps, 0, sizeof(caps));
     caps.can_tag_objects = 1;
     caps.can_generate_object_free_events = 1;
-    if (!NSK_JVMTI_VERIFY(jvmti->AddCapabilities(&caps)) ) {
+    if (!NSK_JVMTI_VERIFY(jvmti->AddCapabilities(&caps))) {
         return JNI_ERR;
     }
 
     memset(&eventCallbacks,0, sizeof(eventCallbacks));
     eventCallbacks.ObjectFree = objectFreeHandler;
-    if (!NSK_JVMTI_VERIFY(jvmti->SetEventCallbacks(&eventCallbacks, sizeof(eventCallbacks))) ) {
+    if (!NSK_JVMTI_VERIFY(jvmti->SetEventCallbacks(&eventCallbacks, sizeof(eventCallbacks)))) {
         return JNI_ERR;
     }
 

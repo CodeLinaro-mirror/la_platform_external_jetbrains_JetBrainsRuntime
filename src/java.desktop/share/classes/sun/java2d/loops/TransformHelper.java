@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,8 +27,8 @@ package sun.java2d.loops;
 
 import java.awt.Composite;
 import java.awt.geom.AffineTransform;
+
 import sun.java2d.SurfaceData;
-import sun.java2d.loops.GraphicsPrimitive;
 import sun.java2d.pipe.Region;
 
 /**
@@ -96,14 +96,7 @@ public class TransformHelper extends GraphicsPrimitive
                                  AffineTransform itx, int txtype,
                                  int sx1, int sy1, int sx2, int sy2,
                                  int dx1, int dy1, int dx2, int dy2,
-                                 int edges[], int dxoff, int dyoff);
-
-    public GraphicsPrimitive makePrimitive(SurfaceType srctype,
-                                           CompositeType comptype,
-                                           SurfaceType dsttype)
-    {
-        return null;
-    }
+                                 int[] edges, int dxoff, int dyoff);
 
     public GraphicsPrimitive traceWrap() {
         return new TraceTransformHelper(this);
@@ -127,17 +120,13 @@ public class TransformHelper extends GraphicsPrimitive
                               AffineTransform itx, int txtype,
                               int sx1, int sy1, int sx2, int sy2,
                               int dx1, int dy1, int dx2, int dy2,
-                              int edges[], int dxoff, int dyoff)
+                              int[] edges, int dxoff, int dyoff)
         {
-            if ((traceflags & TRACEPTIME) == 0) {
-                tracePrimitive(target);
-            }
-            long time = System.nanoTime();
+            tracePrimitive(target);
             target.Transform(output, src, dst, comp, clip, itx, txtype,
                              sx1, sy1, sx2, sy2,
                              dx1, dy1, dx2, dy2,
                              edges, dxoff, dyoff);
-            tracePrimitiveTime(target, System.nanoTime() - time);
         }
     }
 }

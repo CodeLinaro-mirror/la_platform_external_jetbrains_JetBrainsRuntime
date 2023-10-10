@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,61 +25,24 @@
 
 package sun.java2d.opengl;
 
-import sun.java2d.loops.GraphicsPrimitive;
+import java.lang.annotation.Native;
+
 import sun.java2d.pipe.BufferedContext;
 import sun.java2d.pipe.RenderBuffer;
 import sun.java2d.pipe.RenderQueue;
 import sun.java2d.pipe.hw.ContextCapabilities;
-import static sun.java2d.pipe.BufferedOpCodes.*;
-import static sun.java2d.pipe.hw.ContextCapabilities.*;
 
-import java.awt.*;
-import java.awt.geom.AffineTransform;
-import java.lang.annotation.Native;
-import java.security.AccessController;
-import java.security.PrivilegedAction;
+import static sun.java2d.pipe.BufferedOpCodes.INVALIDATE_CONTEXT;
+import static sun.java2d.pipe.BufferedOpCodes.SET_SCRATCH_SURFACE;
 
 /**
  * Note that the RenderQueue lock must be acquired before calling any of
  * the methods in this class.
  */
-public class OGLContext extends BufferedContext {
+final class OGLContext extends BufferedContext {
 
-    private final OGLGraphicsConfig config;
-
-    static {
-        EventQueue.invokeLater(() -> {
-            Integer blitTileSize = AccessController.doPrivileged((PrivilegedAction<Integer>)() ->
-                Integer.parseInt(System.getProperty("sun.java2d.opengl.blitTileSize", "128")));
-
-            if (blitTileSize < 0) {
-                int maxDeviceSize = 0;
-                try {
-                    GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-                    if (ge != null) {
-                        for (GraphicsDevice gd : ge.getScreenDevices()) {
-                            GraphicsConfiguration gc = gd.getDefaultConfiguration();
-                            if (gc == null) continue;
-                            AffineTransform tx = gc.getDefaultTransform();
-                            Rectangle bounds = gc.getBounds();
-                            maxDeviceSize = Math.max((int)(bounds.width * tx.getScaleX()), maxDeviceSize);
-                            maxDeviceSize = Math.max((int)(bounds.height * tx.getScaleY()), maxDeviceSize);
-                        }
-                    }
-                }
-                catch (HeadlessException ignore) {
-                }
-                blitTileSize = Math.max(128, Integer.highestOneBit((int)(maxDeviceSize * 1.25)));
-            }
-            init(blitTileSize);
-        });
-    }
-
-    private static native void init(int blitTileSize);
-
-    OGLContext(RenderQueue rq, OGLGraphicsConfig config) {
+    OGLContext(RenderQueue rq) {
         super(rq);
-        this.config = config;
     }
 
     /**
@@ -146,10 +109,6 @@ public class OGLContext extends BufferedContext {
         rq.flushNow();
     }
 
-    public RenderQueue getRenderQueue() {
-        return OGLRenderQueue.getInstance();
-    }
-
     /**
      * Returns a string representing adapter id (vendor, renderer, version).
      * Must be called on the rendering thread.
@@ -157,38 +116,6 @@ public class OGLContext extends BufferedContext {
      * @return an id string for the adapter
      */
     static final native String getOGLIdString();
-
-    @Override
-    public void saveState() {
-        // assert rq.lock.isHeldByCurrentThread();
-
-        // reset all attributes of this and current contexts
-        invalidateContext();
-        invalidateCurrentContext();
-
-        setScratchSurface(config);
-
-        // save the state on the native level
-        rq.ensureCapacity(4);
-        buf.putInt(SAVE_STATE);
-        rq.flushNow();
-    }
-
-    @Override
-    public void restoreState() {
-        // assert rq.lock.isHeldByCurrentThread();
-
-        // reset all attributes of this and current contexts
-        invalidateContext();
-        invalidateCurrentContext();
-
-        setScratchSurface(config);
-
-        // restore the state on the native level
-        rq.ensureCapacity(4);
-        buf.putInt(RESTORE_STATE);
-        rq.flushNow();
-    }
 
     static class OGLContextCaps extends ContextCapabilities {
         /**

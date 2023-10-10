@@ -1,12 +1,10 @@
 /*
- * Copyright (c) 2016, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2016, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ * published by the Free Software Foundation.
  *
  * This code is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
@@ -28,7 +26,7 @@ package jdk.jfr.startupargs;
 import jdk.test.lib.Asserts;
 import jdk.test.lib.process.OutputAnalyzer;
 import jdk.test.lib.process.ProcessTools;
-import sun.hotspot.WhiteBox;
+import jdk.test.whitebox.WhiteBox;
 
 /**
  * @test
@@ -40,15 +38,14 @@ import sun.hotspot.WhiteBox;
  *          java.management
  *          jdk.jfr
  *
- * @build ClassFileInstaller
- * @build sun.hotspot.WhiteBox
- * @run driver ClassFileInstaller sun.hotspot.WhiteBox
+ * @build jdk.test.whitebox.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
  * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI jdk.jfr.startupargs.TestBadOptionValues
  */
 public class TestBadOptionValues {
 
-    private static final String START_FLIGHT_RECORDING = "-XX:StartFlightRecording=";
-    private static final String FLIGHT_RECORDER_OPTIONS = "-XX:FlightRecorderOptions=";
+    private static final String START_FLIGHT_RECORDING = "-XX:StartFlightRecording:";
+    private static final String FLIGHT_RECORDER_OPTIONS = "-XX:FlightRecorderOptions:";
 
     private static void test(String prepend, String expectedOutput, String... options) throws Exception {
         ProcessBuilder pb;
@@ -96,11 +93,11 @@ public class TestBadOptionValues {
             "duration");
         test(START_FLIGHT_RECORDING, "Integer parsing error nanotime value: illegal unit",
             "delay=1000mq",
-            "duration=2000mss",
-            "maxage=-1000");
+            "duration=2000mss");
         test(START_FLIGHT_RECORDING, "Integer parsing error nanotime value: unit required",
             "delay=3037",
-            "maxage=1");
+            "maxage=1",
+            "maxage=-1000");
 
         // Memory size options
         test(START_FLIGHT_RECORDING, "Parsing error memory size value: negative values not allowed",
@@ -171,11 +168,5 @@ public class TestBadOptionValues {
         testBoolean(FLIGHT_RECORDER_OPTIONS,
             "samplethreads=falseq",
             "retransform=0");
-
-        // Not existing options
-        test(START_FLIGHT_RECORDING, "Unknown argument 'dumponexitt' in diagnostic command.",
-            "dumponexitt=true");
-        test(FLIGHT_RECORDER_OPTIONS, "Unknown argument 'notexistoption' in diagnostic command.",
-            "notexistoption");
     }
 }

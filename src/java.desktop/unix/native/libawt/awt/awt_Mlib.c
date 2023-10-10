@@ -81,8 +81,7 @@ mlib_status awt_getImagingLib(JNIEnv *env, mlibFnS_t *sMlibFns,
 }
 #else
 /*
- * This is called by awt_ImagingLib.initLib() to figure out if we
- * can use the VIS version of medialib
+ * This is called by awt_ImagingLib.initLib()
  */
 mlib_status awt_getImagingLib(JNIEnv *env, mlibFnS_t *sMlibFns,
                               mlibSysFnS_t *sMlibSysFns) {
@@ -100,21 +99,7 @@ mlib_status awt_getImagingLib(JNIEnv *env, mlibFnS_t *sMlibFns,
     mlib_status ret = MLIB_SUCCESS;
     struct utsname name;
 
-    /*
-     * Find out the machine name. If it is an SUN ultra, we
-     * can use the vis library
-     */
-    if ((uname(&name) >= 0) && (getenv("NO_VIS") == NULL) &&
-        (strncmp(name.machine, "sun4u" , 5) == 0) ||
-        ((strncmp(name.machine, "sun4v" , 5) == 0) &&
-         (getenv("USE_VIS_ON_SUN4V") != NULL)))
-    {
-        handle = dlopen(JNI_LIB_NAME("mlib_image_v"), RTLD_LAZY);
-    }
-
-    if (handle == NULL) {
-        handle = dlopen(JNI_LIB_NAME("mlib_image"), RTLD_LAZY);
-    }
+    handle = dlopen(JNI_LIB_NAME("mlib_image"), RTLD_LAZY);
 
     if (handle == NULL) {
         if (s_timeIt || s_verbose) {
@@ -124,7 +109,7 @@ mlib_status awt_getImagingLib(JNIEnv *env, mlibFnS_t *sMlibFns,
     }
 
     /* So, if we are here, then either vis or generic version of
-     * medialib library was sucessfuly loaded.
+     * medialib library was successfully loaded.
      * Let's try to initialize handlers...
      */
     if ((tempSysFns.createFP = (MlibCreateFP_t)dlsym(handle,

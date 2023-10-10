@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2018, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2018, 2019, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -43,7 +44,7 @@ ShenandoahCompactHeuristics::ShenandoahCompactHeuristics() : ShenandoahHeuristic
   SHENANDOAH_ERGO_OVERRIDE_DEFAULT(ShenandoahGarbageThreshold,     10);
 }
 
-bool ShenandoahCompactHeuristics::should_start_gc() const {
+bool ShenandoahCompactHeuristics::should_start_gc() {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
 
   size_t max_capacity = heap->max_capacity();

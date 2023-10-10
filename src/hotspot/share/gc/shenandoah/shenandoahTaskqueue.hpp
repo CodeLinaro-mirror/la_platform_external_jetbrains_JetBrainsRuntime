@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2016, 2019, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2016, 2020, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -21,14 +22,16 @@
  *
  */
 
-#ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHTASKQUEUE_HPP
-#define SHARE_VM_GC_SHENANDOAH_SHENANDOAHTASKQUEUE_HPP
+#ifndef SHARE_GC_SHENANDOAH_SHENANDOAHTASKQUEUE_HPP
+#define SHARE_GC_SHENANDOAH_SHENANDOAHTASKQUEUE_HPP
 
+#include "gc/shared/taskTerminator.hpp"
 #include "gc/shared/taskqueue.hpp"
-#include "gc/shared/taskqueue.inline.hpp"
 #include "gc/shenandoah/shenandoahPadding.hpp"
+#include "memory/allocation.hpp"
+#include "runtime/atomic.hpp"
+#include "runtime/javaThread.hpp"
 #include "runtime/mutex.hpp"
-#include "runtime/thread.hpp"
 #include "utilities/debug.hpp"
 
 template<class E, MEMFLAGS F, unsigned int N = TASKQUEUE_SIZE>
@@ -71,10 +74,14 @@ private:
 // that the block has the size of 2^pow. This requires for pow to have only 5 bits (2^32) to encode
 // all possible arrays.
 //
-//    |---------oop---------|-pow-|--chunk---|
+//    |xx-------oop---------|-pow-|--chunk---|
 //    0                    49     54        64
 //
 // By definition, chunk == 0 means "no chunk", i.e. chunking starts from 1.
+//
+// Lower bits of oop are reserved to handle "skip_live" and "strong" properties. Since this encoding
+// stores uncompressed oops, those bits are always available. These bits default to zero for "skip_live"
+// and "weak". This aligns with their frequent values: strong/counted-live references.
 //
 // This encoding gives a few interesting benefits:
 //
@@ -142,7 +149,9 @@ private:
   static const uint8_t pow_shift   = oop_bits;
   static const uint8_t chunk_shift = oop_bits + pow_bits;
 
-  static const uintptr_t oop_extract_mask       = right_n_bits(oop_bits);
+  static const uintptr_t oop_extract_mask       = right_n_bits(oop_bits) - 3;
+  static const uintptr_t skip_live_extract_mask = 1 << 0;
+  static const uintptr_t weak_extract_mask      = 1 << 1;
   static const uintptr_t chunk_pow_extract_mask = ~right_n_bits(oop_bits);
 
   static const int chunk_range_mask = right_n_bits(chunk_bits);
@@ -166,9 +175,24 @@ private:
     return (int) ((val >> pow_shift) & pow_range_mask);
   }
 
-  inline uintptr_t encode_oop(oop obj) const {
+  inline bool decode_weak(uintptr_t val) const {
+    return (val & weak_extract_mask) != 0;
+  }
+
+  inline bool decode_cnt_live(uintptr_t val) const {
+    return (val & skip_live_extract_mask) == 0;
+  }
+
+  inline uintptr_t encode_oop(oop obj, bool skip_live, bool weak) const {
     STATIC_ASSERT(oop_shift == 0);
-    return cast_from_oop<uintptr_t>(obj);
+    uintptr_t encoded = cast_from_oop<uintptr_t>(obj);
+    if (skip_live) {
+      encoded |= skip_live_extract_mask;
+    }
+    if (weak) {
+      encoded |= weak_extract_mask;
+    }
+    return encoded;
   }
 
   inline uintptr_t encode_chunk(int chunk) const {
@@ -180,37 +204,30 @@ private:
   }
 
 public:
-  ShenandoahMarkTask(oop o = NULL) {
-    uintptr_t enc = encode_oop(o);
-    assert(decode_oop(enc) == o,    "oop encoding should work: " PTR_FORMAT, p2i(o));
-    assert(decode_not_chunked(enc), "task should not be chunked");
+  ShenandoahMarkTask(oop o = nullptr, bool skip_live = false, bool weak = false) {
+    uintptr_t enc = encode_oop(o, skip_live, weak);
+    assert(decode_oop(enc) == o,     "oop encoding should work: " PTR_FORMAT, p2i(o));
+    assert(decode_cnt_live(enc) == !skip_live, "skip_live encoding should work");
+    assert(decode_weak(enc) == weak, "weak encoding should work");
+    assert(decode_not_chunked(enc),  "task should not be chunked");
     _obj = enc;
   }
 
-  ShenandoahMarkTask(oop o, int chunk, int pow) {
-    uintptr_t enc_oop = encode_oop(o);
+  ShenandoahMarkTask(oop o, bool skip_live, bool weak, int chunk, int pow) {
+    uintptr_t enc_oop = encode_oop(o, skip_live, weak);
     uintptr_t enc_chunk = encode_chunk(chunk);
     uintptr_t enc_pow = encode_pow(pow);
     uintptr_t enc = enc_oop | enc_chunk | enc_pow;
     assert(decode_oop(enc) == o,       "oop encoding should work: " PTR_FORMAT, p2i(o));
+    assert(decode_cnt_live(enc) == !skip_live, "skip_live should be true for chunked tasks");
+    assert(decode_weak(enc) == weak,   "weak encoding should work");
     assert(decode_chunk(enc) == chunk, "chunk encoding should work: %d", chunk);
     assert(decode_pow(enc) == pow,     "pow encoding should work: %d", pow);
     assert(!decode_not_chunked(enc),   "task should be chunked");
     _obj = enc;
   }
 
-  ShenandoahMarkTask(const ShenandoahMarkTask& t): _obj(t._obj) { }
-
-  ShenandoahMarkTask& operator =(const ShenandoahMarkTask& t) {
-    _obj = t._obj;
-    return *this;
-  }
-
-  volatile ShenandoahMarkTask&
-  operator =(const volatile ShenandoahMarkTask& t) volatile {
-    (void) const_cast<uintptr_t &>(_obj = t._obj);
-    return *this;
-  }
+  // Trivially copyable.
 
 public:
   inline oop  obj()            const { return decode_oop(_obj);   }
@@ -218,6 +235,8 @@ public:
   inline int  pow()            const { return decode_pow(_obj);   }
 
   inline bool is_not_chunked() const { return decode_not_chunked(_obj); }
+  inline bool is_weak()        const { return decode_weak(_obj);        }
+  inline bool count_liveness() const { return decode_cnt_live(_obj);    }
 
   DEBUG_ONLY(bool is_valid() const;) // Tasks to be pushed/popped must be valid.
 
@@ -240,37 +259,26 @@ private:
   static const int pow_max         = nth_bit(pow_bits) - 1;
 
   oop _obj;
+  bool _skip_live;
+  bool _weak;
   int _chunk;
   int _pow;
 
 public:
-  ShenandoahMarkTask(oop o = NULL, int chunk = 0, int pow = 0):
-    _obj(o), _chunk(chunk), _pow(pow) {
+  ShenandoahMarkTask(oop o = nullptr, bool skip_live = false, bool weak = false, int chunk = 0, int pow = 0):
+    _obj(o), _skip_live(skip_live), _weak(weak), _chunk(chunk), _pow(pow) {
     assert(0 <= chunk && chunk <= chunk_max, "chunk is in range: %d", chunk);
     assert(0 <= pow && pow <= pow_max, "pow is in range: %d", pow);
   }
 
-  ShenandoahMarkTask(const ShenandoahMarkTask& t): _obj(t._obj), _chunk(t._chunk), _pow(t._pow) { }
-
-  ShenandoahMarkTask& operator =(const ShenandoahMarkTask& t) {
-    _obj = t._obj;
-    _chunk = t._chunk;
-    _pow = t._pow;
-    return *this;
-  }
-
-  volatile ShenandoahMarkTask&
-  operator =(const volatile ShenandoahMarkTask& t) volatile {
-    (void)const_cast<oop&>(_obj = t._obj);
-    _chunk = t._chunk;
-    _pow = t._pow;
-    return *this;
-  }
+  // Trivially copyable.
 
   inline oop obj()             const { return _obj; }
   inline int chunk()           const { return _chunk; }
   inline int pow()             const { return _pow; }
   inline bool is_not_chunked() const { return _chunk == 0; }
+  inline bool is_weak()        const { return _weak; }
+  inline bool count_liveness() const { return !_skip_live; }
 
   DEBUG_ONLY(bool is_valid() const;) // Tasks to be pushed/popped must be valid.
 
@@ -326,15 +334,15 @@ T* ParallelClaimableQueueSet<T, F>::claim_next() {
   jint size = (jint)GenericTaskQueueSet<T, F>::size();
 
   if (_claimed_index >= size) {
-    return NULL;
+    return nullptr;
   }
 
-  jint index = Atomic::add(1, &_claimed_index);
+  jint index = Atomic::add(&_claimed_index, 1, memory_order_relaxed);
 
   if (index <= size) {
     return GenericTaskQueueSet<T, F>::queue((uint)index - 1);
   } else {
-    return NULL;
+    return nullptr;
   }
 }
 
@@ -354,58 +362,10 @@ public:
 
 class ShenandoahTerminatorTerminator : public TerminatorTerminator {
 private:
-  ShenandoahHeap* const _heap;
+  ShenandoahHeap* _heap;
 public:
   ShenandoahTerminatorTerminator(ShenandoahHeap* const heap) : _heap(heap) { }
   virtual bool should_exit_termination();
 };
 
-/*
- * This is an enhanced implementation of Google's work stealing
- * protocol, which is described in the paper:
- * Understanding and improving JVM GC work stealing at the data center scale
- * (http://dl.acm.org/citation.cfm?id=2926706)
- *
- * Instead of a dedicated spin-master, our implementation will let spin-master to relinquish
- * the role before it goes to sleep/wait, so allows newly arrived thread to compete for the role.
- * The intention of above enhancement, is to reduce spin-master's latency on detecting new tasks
- * for stealing and termination condition.
- */
-
-class ShenandoahTaskTerminator: public ParallelTaskTerminator {
-private:
-  Monitor*    _blocker;
-  Thread*     _spin_master;
-
-public:
-  ShenandoahTaskTerminator(uint n_threads, TaskQueueSetSuper* queue_set) :
-    ParallelTaskTerminator(n_threads, queue_set), _spin_master(NULL) {
-    _blocker = new Monitor(Mutex::leaf, "ShenandoahTaskTerminator", false, Monitor::_safepoint_check_never);
-  }
-
-  ~ShenandoahTaskTerminator() {
-    assert(_blocker != NULL, "Can not be NULL");
-    delete _blocker;
-  }
-
-  bool offer_termination(ShenandoahTerminatorTerminator* terminator);
-  bool offer_termination() { return offer_termination((ShenandoahTerminatorTerminator*)NULL); }
-
-private:
-  bool offer_termination(TerminatorTerminator* terminator) {
-    ShouldNotReachHere();
-    return false;
-  }
-
-private:
-  size_t tasks_in_queue_set() { return _queue_set->tasks(); }
-
-  /*
-   * Perform spin-master task.
-   * return true if termination condition is detected
-   * otherwise, return false
-   */
-  bool do_spin_master_work(ShenandoahTerminatorTerminator* terminator);
-};
-
-#endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHTASKQUEUE_HPP
+#endif // SHARE_GC_SHENANDOAH_SHENANDOAHTASKQUEUE_HPP

@@ -1,7 +1,8 @@
-#!/bin/bash -x
+#!/bin/bash
 
 #immediately exit script with an error if a command fails
 set -euo pipefail
+[[ "${SCRIPT_VERBOSE:-}" == "1" ]] && set -x
 
 export COPY_EXTENDED_ATTRIBUTES_DISABLE=true
 export COPYFILE_DISABLE=true
@@ -12,10 +13,11 @@ BACKUP_JMODS=$2.backup
 USERNAME=$3
 PASSWORD=$4
 CODESIGN_STRING=$5
-NOTARIZE=$6
-BUNDLE_ID=$7
+JB_INSTALLER_CERT=$6
+NOTARIZE=$7
+BUNDLE_ID=$8
 
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" >/dev/null && pwd)"
 
 function log() {
   echo "$(date '+[%H:%M:%S]') $*"
@@ -33,7 +35,7 @@ mkdir "$BACKUP_JMODS"
 log "Unzipping $INPUT_FILE to $EXPLODED ..."
 tar -xzvf "$INPUT_FILE" --directory $EXPLODED
 BUILD_NAME="$(ls "$EXPLODED")"
-sed -i '' s/BNDL/APPL/ $EXPLODED/$BUILD_NAME/Contents/Info.plist
+#sed -i '' s/BNDL/APPL/ $EXPLODED/$BUILD_NAME/Contents/Info.plist
 rm -f $EXPLODED/$BUILD_NAME/Contents/CodeResources
 rm "$INPUT_FILE"
 if test -d $EXPLODED/$BUILD_NAME/Contents/Home/jmods; then
@@ -42,7 +44,9 @@ fi
 
 log "$INPUT_FILE extracted and removed"
 
-APPLICATION_PATH="$EXPLODED/$BUILD_NAME"
+APP_NAME=$(basename "$INPUT_FILE" | awk -F".tar" '{ print $1 }')
+PKG_NAME="$APP_NAME.pkg"
+APPLICATION_PATH=$EXPLODED/$(ls $EXPLODED)
 
 find "$APPLICATION_PATH/Contents/Home/bin" \
   -maxdepth 1 -type f -name '*.jnilib' -print0 |
@@ -70,16 +74,18 @@ if [[ $non_plist -gt 0 ]]; then
   exit 1
 fi
 
-log "Unlocking keychain..."
-# Make sure *.p12 is imported into local KeyChain
-security unlock-keychain -p "$PASSWORD" "/Users/$USERNAME/Library/Keychains/login.keychain"
+if [[ "${JETSIGN_CLIENT:=}" == "null" ]] || [[ "$JETSIGN_CLIENT" == "" ]]; then
+  log "Unlocking keychain..."
+  # Make sure *.p12 is imported into local KeyChain
+  security unlock-keychain -p "$PASSWORD" "/Users/$USERNAME/Library/Keychains/login.keychain"
+fi
 
 attempt=1
 limit=3
 set +e
 while [[ $attempt -le $limit ]]; do
   log "Signing (attempt $attempt) $APPLICATION_PATH ..."
-  ./sign.sh "$APPLICATION_PATH" "$CODESIGN_STRING"
+  "$SCRIPT_DIR/sign.sh" "$APPLICATION_PATH" "$PKG_NAME" "$BUNDLE_ID" "$CODESIGN_STRING" "$JB_INSTALLER_CERT"
   ec=$?
   if [[ $ec -ne 0 ]]; then
     ((attempt += 1))
@@ -92,6 +98,7 @@ while [[ $attempt -le $limit ]]; do
     log "Signing done"
     codesign -v "$APPLICATION_PATH" -vvvvv
     log "Check sign done"
+    spctl -a -v $APPLICATION_PATH
     ((attempt += limit))
   fi
 done
@@ -100,20 +107,10 @@ set -e
 
 if [ "$NOTARIZE" = "yes" ]; then
   log "Notarizing..."
-  # shellcheck disable=SC1090
-  source "$HOME/.notarize_token"
-  APP_NAME=$(echo ${INPUT_FILE} | awk -F"." '{ print $1 }')
-  # Since notarization tool uses same file for upload token we have to trick it into using different folders, hence fake root
-  # Also it leaves copy of zip file in TMPDIR, so notarize.sh overrides it and uses FAKE_ROOT as location for temp TMPDIR
-  FAKE_ROOT="$(pwd)/fake-root"
-  mkdir -p "$FAKE_ROOT"
-  echo "Notarization will use fake root: $FAKE_ROOT"
-  ./notarize.sh "$APPLICATION_PATH" "$APPLE_USERNAME" "$APPLE_PASSWORD" "$APP_NAME" "$BUNDLE_ID" "$FAKE_ROOT"
-  rm -rf "$FAKE_ROOT"
-
-  set +e
+  "$SCRIPT_DIR/notarize.sh" "$PKG_NAME"
   log "Stapling..."
-  xcrun stapler staple "$APPLICATION_PATH"
+  xcrun stapler staple "$APPLICATION_PATH" ||:
+  xcrun stapler staple "$PKG_NAME" ||:
 else
   log "Notarization disabled"
   log "Stapling disabled"
@@ -124,10 +121,15 @@ log "Zipping $BUILD_NAME to $INPUT_FILE ..."
   #cd "$EXPLODED"
   #ditto -c -k --sequesterRsrc --keepParent "$BUILD_NAME" "../$INPUT_FILE"
   if test -d $BACKUP_JMODS/jmods; then
-    mv $BACKUP_JMODS/jmods $EXPLODED/$BUILD_NAME/Contents/Home
+    mv $BACKUP_JMODS/jmods $APPLICATION_PATH/Contents/Home
+  fi
+  if [[ "$APPLICATION_PATH" != "$EXPLODED/$BUILD_NAME" ]]; then
+    mv $APPLICATION_PATH $EXPLODED/$BUILD_NAME
+  else
+    echo "No move, source == destination: $APPLICATION_PATH"
   fi
 
-  tar -pczvf $INPUT_FILE --exclude='*.dSYM' --exclude='man' -C $EXPLODED $BUILD_NAME
+  tar -pczvf $INPUT_FILE --exclude='man' -C $EXPLODED $BUILD_NAME
   log "Finished zipping"
 )
 rm -rf "$EXPLODED"

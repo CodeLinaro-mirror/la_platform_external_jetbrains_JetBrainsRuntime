@@ -32,7 +32,7 @@ import java.awt.Rectangle;
 
 /**
  * @test
- * @bug 8211999
+ * @bug 8211999 8282863
  * @key headful
  * @summary verifies the full-screen window bounds and graphics configuration
  */
@@ -55,6 +55,7 @@ public final class FullscreenWindowProps {
             }
         };
         try {
+            frame.setUndecorated(true); // workaround JDK-8256257
             frame.setBackground(Color.MAGENTA);
             frame.setVisible(true);
             gd.setFullScreenWindow(frame);

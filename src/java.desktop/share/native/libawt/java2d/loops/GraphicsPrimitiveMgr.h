@@ -401,14 +401,6 @@ typedef struct _NativePrimitive {
 } NativePrimitive;
 
 /*
- * This function should be defined to return a pointer to
- * an accelerated version of a primitive function 'func_c'
- * if it exists and to return a copy of the input parameter
- * otherwise.
- */
-extern AnyFunc* MapAccelFunction(AnyFunc *func_c);
-
-/*
  * The global collection of all primitive types.  Specific NativePrimitive
  * structures can be statically initialized by pointing to these structures.
  */
@@ -493,6 +485,9 @@ extern struct _CompositeTypes {
 #define PtrPixelsRow(p, y, scanStride)    PtrAddBytes(p, \
     ((intptr_t) (y)) * (scanStride))
 
+#define PtrPixelsBand(p, y, length, elemSize)    PtrAddBytes(p, \
+    ((intptr_t) (y)) * (length) * (elemSize))
+
 /*
  * The function to call with an array of NativePrimitive structures
  * to register them with the Java GraphicsPrimitiveMgr.
@@ -560,7 +555,6 @@ JNIEXPORT extern jfieldID path2DWindingRuleID;
 JNIEXPORT extern jfieldID path2DFloatCoordsID;
 JNIEXPORT extern jfieldID sg2dStrokeHintID;
 JNIEXPORT extern jint sunHints_INTVAL_STROKE_PURE;
-JNIEXPORT extern jint graphicsPrimitive_traceflags;
 
 /*
  * Macros for using jlong variables as 32bits.32bits fractional values
@@ -655,7 +649,7 @@ JNIEXPORT extern jint graphicsPrimitive_traceflags;
     REGISTER_PRIMITIVE(DrawGlyphListLCD, SRC, COMP, DST, FUNC)
 
 #ifdef __cplusplus
-};
+}
 #endif
 
 #endif /* GraphicsPrimitiveMgr_h_Included */

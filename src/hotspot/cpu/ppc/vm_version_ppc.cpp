@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 1997, 2020, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2012, 2020 SAP SE. All rights reserved.
+ * Copyright (c) 1997, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2023 SAP SE. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,11 +24,12 @@
  */
 
 #include "precompiled.hpp"
-#include "jvm.h"
 #include "asm/assembler.inline.hpp"
 #include "asm/macroAssembler.inline.hpp"
 #include "compiler/disassembler.hpp"
+#include "jvm.h"
 #include "memory/resourceArea.hpp"
+#include "runtime/globals_extension.hpp"
 #include "runtime/java.hpp"
 #include "runtime/os.hpp"
 #include "runtime/stubCodeGenerator.hpp"
@@ -36,9 +37,11 @@
 #include "utilities/align.hpp"
 #include "utilities/defaultStream.hpp"
 #include "utilities/globalDefinitions.hpp"
+#include "utilities/powerOfTwo.hpp"
 
 #include <sys/sysinfo.h>
 #if defined(_AIX)
+#include "os_aix.hpp"
 #include <libperfstat.h>
 #endif
 
@@ -67,19 +70,19 @@ void VM_Version::initialize() {
   // If PowerArchitecturePPC64 hasn't been specified explicitly determine from features.
   if (FLAG_IS_DEFAULT(PowerArchitecturePPC64)) {
     if (VM_Version::has_brw()) {
-      FLAG_SET_ERGO(uintx, PowerArchitecturePPC64, 10);
+      FLAG_SET_ERGO(PowerArchitecturePPC64, 10);
     } else if (VM_Version::has_darn()) {
-      FLAG_SET_ERGO(uintx, PowerArchitecturePPC64, 9);
+      FLAG_SET_ERGO(PowerArchitecturePPC64, 9);
     } else if (VM_Version::has_lqarx()) {
-      FLAG_SET_ERGO(uintx, PowerArchitecturePPC64, 8);
+      FLAG_SET_ERGO(PowerArchitecturePPC64, 8);
     } else if (VM_Version::has_popcntw()) {
-      FLAG_SET_ERGO(uintx, PowerArchitecturePPC64, 7);
+      FLAG_SET_ERGO(PowerArchitecturePPC64, 7);
     } else if (VM_Version::has_cmpb()) {
-      FLAG_SET_ERGO(uintx, PowerArchitecturePPC64, 6);
+      FLAG_SET_ERGO(PowerArchitecturePPC64, 6);
     } else if (VM_Version::has_popcntb()) {
-      FLAG_SET_ERGO(uintx, PowerArchitecturePPC64, 5);
+      FLAG_SET_ERGO(PowerArchitecturePPC64, 5);
     } else {
-      FLAG_SET_ERGO(uintx, PowerArchitecturePPC64, 0);
+      FLAG_SET_ERGO(PowerArchitecturePPC64, 0);
     }
   }
 
@@ -104,29 +107,20 @@ void VM_Version::initialize() {
 
   if (!UseSIGTRAP) {
     MSG(TrapBasedICMissChecks);
-    MSG(TrapBasedNotEntrantChecks);
     MSG(TrapBasedNullChecks);
-    FLAG_SET_ERGO(bool, TrapBasedNotEntrantChecks, false);
-    FLAG_SET_ERGO(bool, TrapBasedNullChecks,       false);
-    FLAG_SET_ERGO(bool, TrapBasedICMissChecks,     false);
+    FLAG_SET_ERGO(TrapBasedNullChecks,       false);
+    FLAG_SET_ERGO(TrapBasedICMissChecks,     false);
   }
 
 #ifdef COMPILER2
   if (!UseSIGTRAP) {
     MSG(TrapBasedRangeChecks);
-    FLAG_SET_ERGO(bool, TrapBasedRangeChecks, false);
-  }
-
-  // On Power6 test for section size.
-  if (PowerArchitecturePPC64 == 6) {
-    determine_section_size();
-  // TODO: PPC port } else {
-  // TODO: PPC port PdScheduling::power6SectorSize = 0x20;
+    FLAG_SET_ERGO(TrapBasedRangeChecks, false);
   }
 
   if (PowerArchitecturePPC64 >= 8) {
     if (FLAG_IS_DEFAULT(SuperwordUseVSX)) {
-      FLAG_SET_ERGO(bool, SuperwordUseVSX, true);
+      FLAG_SET_ERGO(SuperwordUseVSX, true);
     }
   } else {
     if (SuperwordUseVSX) {
@@ -138,10 +132,21 @@ void VM_Version::initialize() {
 
   if (PowerArchitecturePPC64 >= 9) {
     if (FLAG_IS_DEFAULT(UseCountTrailingZerosInstructionsPPC64)) {
-      FLAG_SET_ERGO(bool, UseCountTrailingZerosInstructionsPPC64, true);
+      FLAG_SET_ERGO(UseCountTrailingZerosInstructionsPPC64, true);
     }
     if (FLAG_IS_DEFAULT(UseCharacterCompareIntrinsics)) {
-      FLAG_SET_ERGO(bool, UseCharacterCompareIntrinsics, true);
+      FLAG_SET_ERGO(UseCharacterCompareIntrinsics, true);
+    }
+    if (SuperwordUseVSX) {
+      if (FLAG_IS_DEFAULT(UseVectorByteReverseInstructionsPPC64)) {
+        FLAG_SET_ERGO(UseVectorByteReverseInstructionsPPC64, true);
+      }
+    } else if (UseVectorByteReverseInstructionsPPC64) {
+      warning("UseVectorByteReverseInstructionsPPC64 specified, but needs SuperwordUseVSX.");
+      FLAG_SET_DEFAULT(UseVectorByteReverseInstructionsPPC64, false);
+    }
+    if (FLAG_IS_DEFAULT(UseBASE64Intrinsics)) {
+      FLAG_SET_ERGO(UseBASE64Intrinsics, true);
     }
   } else {
     if (UseCountTrailingZerosInstructionsPPC64) {
@@ -152,11 +157,19 @@ void VM_Version::initialize() {
       warning("UseCharacterCompareIntrinsics specified, but needs at least Power9.");
       FLAG_SET_DEFAULT(UseCharacterCompareIntrinsics, false);
     }
+    if (UseVectorByteReverseInstructionsPPC64) {
+      warning("UseVectorByteReverseInstructionsPPC64 specified, but needs at least Power9.");
+      FLAG_SET_DEFAULT(UseVectorByteReverseInstructionsPPC64, false);
+    }
+    if (UseBASE64Intrinsics) {
+      warning("UseBASE64Intrinsics specified, but needs at least Power9.");
+      FLAG_SET_DEFAULT(UseBASE64Intrinsics, false);
+    }
   }
 
   if (PowerArchitecturePPC64 >= 10) {
     if (FLAG_IS_DEFAULT(UseByteReverseInstructions)) {
-      FLAG_SET_ERGO(bool, UseByteReverseInstructions, true);
+        FLAG_SET_ERGO(UseByteReverseInstructions, true);
     }
   } else {
     if (UseByteReverseInstructions) {
@@ -206,21 +219,20 @@ void VM_Version::initialize() {
   _supports_atomic_getset8 = true;
   _supports_atomic_getadd8 = true;
 
-  UseSSE = 0; // Only on x86 and x64
-
   intx cache_line_size = L1_data_cache_line_size();
+
+  if (PowerArchitecturePPC64 >= 9) {
+    if (os::supports_map_sync() == true) {
+      _data_cache_line_flush_size = cache_line_size;
+    }
+  }
 
   if (FLAG_IS_DEFAULT(AllocatePrefetchStyle)) AllocatePrefetchStyle = 1;
 
-  if (AllocatePrefetchStyle == 4) {
-    AllocatePrefetchStepSize = cache_line_size; // Need exact value.
-    if (FLAG_IS_DEFAULT(AllocatePrefetchLines)) AllocatePrefetchLines = 12; // Use larger blocks by default.
-    if (AllocatePrefetchDistance < 0) AllocatePrefetchDistance = 2*cache_line_size; // Default is not defined?
-  } else {
-    if (cache_line_size > AllocatePrefetchStepSize) AllocatePrefetchStepSize = cache_line_size;
-    if (FLAG_IS_DEFAULT(AllocatePrefetchLines)) AllocatePrefetchLines = 3; // Optimistic value.
-    if (AllocatePrefetchDistance < 0) AllocatePrefetchDistance = 3*cache_line_size; // Default is not defined?
-  }
+  if (cache_line_size > AllocatePrefetchStepSize) AllocatePrefetchStepSize = cache_line_size;
+  // PPC processors have an automatic prefetch engine.
+  if (FLAG_IS_DEFAULT(AllocatePrefetchLines)) AllocatePrefetchLines = 1;
+  if (AllocatePrefetchDistance < 0) AllocatePrefetchDistance = 3 * cache_line_size;
 
   assert(AllocatePrefetchLines > 0, "invalid value");
   if (AllocatePrefetchLines < 1) { // Set valid value in product VM.
@@ -294,6 +306,11 @@ void VM_Version::initialize() {
     FLAG_SET_DEFAULT(UseFMA, true);
   }
 
+  if (UseMD5Intrinsics) {
+    warning("MD5 intrinsics are not available on this CPU");
+    FLAG_SET_DEFAULT(UseMD5Intrinsics, false);
+  }
+
   if (has_vshasig()) {
     if (FLAG_IS_DEFAULT(UseSHA)) {
       UseSHA = true;
@@ -327,6 +344,11 @@ void VM_Version::initialize() {
     FLAG_SET_DEFAULT(UseSHA512Intrinsics, false);
   }
 
+  if (UseSHA3Intrinsics) {
+    warning("Intrinsics for SHA3-224, SHA3-256, SHA3-384 and SHA3-512 crypto hash functions not available on this CPU.");
+    FLAG_SET_DEFAULT(UseSHA3Intrinsics, false);
+  }
+
   if (!(UseSHA1Intrinsics || UseSHA256Intrinsics || UseSHA512Intrinsics)) {
     FLAG_SET_DEFAULT(UseSHA, false);
   }
@@ -357,31 +379,27 @@ void VM_Version::initialize() {
 
   // Adjust RTM (Restricted Transactional Memory) flags.
   if (UseRTMLocking) {
-    // If CPU or OS do not support TM:
-    // Can't continue because UseRTMLocking affects UseBiasedLocking flag
-    // setting during arguments processing. See use_biased_locking().
-    // VM_Version_init() is executed after UseBiasedLocking is used
-    // in Thread::allocate().
-    if (PowerArchitecturePPC64 < 8) {
+    // If CPU or OS do not support RTM:
+    if (PowerArchitecturePPC64 < 8 || PowerArchitecturePPC64 > 9) {
       vm_exit_during_initialization("RTM instructions are not available on this CPU.");
     }
 
     if (!has_tm()) {
       vm_exit_during_initialization("RTM is not supported on this OS version.");
     }
-  }
 
-  if (UseRTMLocking) {
 #if INCLUDE_RTM_OPT
     if (!FLAG_IS_CMDLINE(UseRTMLocking)) {
       // RTM locking should be used only for applications with
       // high lock contention. For now we do not use it by default.
       vm_exit_during_initialization("UseRTMLocking flag should be only set on command line");
     }
+    if (LockingMode != LM_LEGACY) {
+      warning("UseRTMLocking requires LockingMode = 1");
+      FLAG_SET_DEFAULT(UseRTMLocking, false);
+    }
 #else
     // Only C2 does RTM locking optimization.
-    // Can't continue because UseRTMLocking affects UseBiasedLocking flag
-    // setting during arguments processing. See use_biased_locking().
     vm_exit_during_initialization("RTM locking optimization is not supported in this VM");
 #endif
   } else { // !UseRTMLocking
@@ -413,7 +431,7 @@ void VM_Version::check_virtualizations() {
 #if defined(_AIX)
   int rc = 0;
   perfstat_partition_total_t pinfo;
-  rc = perfstat_partition_total(NULL, &pinfo, sizeof(perfstat_partition_total_t), 1);
+  rc = perfstat_partition_total(nullptr, &pinfo, sizeof(perfstat_partition_total_t), 1);
   if (rc == 1) {
     Abstract_VM_Version::_detected_virtualization = PowerVM;
   }
@@ -422,15 +440,15 @@ void VM_Version::check_virtualizations() {
   // system_type=...qemu indicates PowerKVM
   // e.g. system_type=IBM pSeries (emulated by qemu)
   char line[500];
-  FILE* fp = fopen(info_file, "r");
-  if (fp == NULL) {
+  FILE* fp = os::fopen(info_file, "r");
+  if (fp == nullptr) {
     return;
   }
   const char* system_type="system_type=";  // in case this line contains qemu, it is KVM
   const char* num_lpars="NumLpars="; // in case of non-KVM : if this line is found it is PowerVM
   bool num_lpars_found = false;
 
-  while (fgets(line, sizeof(line), fp) != NULL) {
+  while (fgets(line, sizeof(line), fp) != nullptr) {
     if (strncmp(line, system_type, strlen(system_type)) == 0) {
       if (strstr(line, "qemu") != 0) {
         Abstract_VM_Version::_detected_virtualization = PowerKVM;
@@ -458,7 +476,7 @@ void VM_Version::print_platform_virtualization_info(outputStream* st) {
   int rc = 0;
   perfstat_partition_total_t pinfo;
   memset(&pinfo, 0, sizeof(perfstat_partition_total_t));
-  rc = perfstat_partition_total(NULL, &pinfo, sizeof(perfstat_partition_total_t), 1);
+  rc = perfstat_partition_total(nullptr, &pinfo, sizeof(perfstat_partition_total_t), 1);
   if (rc != 1) {
     return;
   } else {
@@ -467,7 +485,7 @@ void VM_Version::print_platform_virtualization_info(outputStream* st) {
   // CPU information
   perfstat_cpu_total_t cpuinfo;
   memset(&cpuinfo, 0, sizeof(perfstat_cpu_total_t));
-  rc = perfstat_cpu_total(NULL, &cpuinfo, sizeof(perfstat_cpu_total_t), 1);
+  rc = perfstat_cpu_total(nullptr, &cpuinfo, sizeof(perfstat_cpu_total_t), 1);
   if (rc != 1) {
     return;
   }
@@ -518,32 +536,11 @@ void VM_Version::print_platform_virtualization_info(outputStream* st) {
                        "pool=", // CPU-pool number
                        "pool_capacity=",
                        "NumLpars=", // on non-KVM machines, NumLpars is not found for full partition mode machines
-                       NULL };
+                       nullptr };
   if (!print_matching_lines_from_file(info_file, st, kw)) {
     st->print_cr("  <%s Not Available>", info_file);
   }
 #endif
-}
-
-bool VM_Version::use_biased_locking() {
-#if INCLUDE_RTM_OPT
-  // RTM locking is most useful when there is high lock contention and
-  // low data contention. With high lock contention the lock is usually
-  // inflated and biased locking is not suitable for that case.
-  // RTM locking code requires that biased locking is off.
-  // Note: we can't switch off UseBiasedLocking in get_processor_features()
-  // because it is used by Thread::allocate() which is called before
-  // VM_Version::initialize().
-  if (UseRTMLocking && UseBiasedLocking) {
-    if (FLAG_IS_DEFAULT(UseBiasedLocking)) {
-      FLAG_SET_DEFAULT(UseBiasedLocking, false);
-    } else {
-      warning("Biased locking is not supported with RTM locking; ignoring UseBiasedLocking flag." );
-      UseBiasedLocking = false;
-    }
-  }
-#endif
-  return UseBiasedLocking;
 }
 
 void VM_Version::print_features() {
@@ -556,237 +553,6 @@ void VM_Version::print_features() {
     }
   }
 }
-
-#ifdef COMPILER2
-// Determine section size on power6: If section size is 8 instructions,
-// there should be a difference between the two testloops of ~15 %. If
-// no difference is detected the section is assumed to be 32 instructions.
-void VM_Version::determine_section_size() {
-
-  int unroll = 80;
-
-  const int code_size = (2* unroll * 32 + 100)*BytesPerInstWord;
-
-  // Allocate space for the code.
-  ResourceMark rm;
-  CodeBuffer cb("detect_section_size", code_size, 0);
-  MacroAssembler* a = new MacroAssembler(&cb);
-
-  uint32_t *code = (uint32_t *)a->pc();
-  // Emit code.
-  void (*test1)() = (void(*)())(void *)a->function_entry();
-
-  Label l1;
-
-  a->li(R4, 1);
-  a->sldi(R4, R4, 28);
-  a->b(l1);
-  a->align(CodeEntryAlignment);
-
-  a->bind(l1);
-
-  for (int i = 0; i < unroll; i++) {
-    // Schleife 1
-    // ------- sector 0 ------------
-    // ;; 0
-    a->nop();                   // 1
-    a->fpnop0();                // 2
-    a->fpnop1();                // 3
-    a->addi(R4,R4, -1); // 4
-
-    // ;;  1
-    a->nop();                   // 5
-    a->fmr(F6, F6);             // 6
-    a->fmr(F7, F7);             // 7
-    a->endgroup();              // 8
-    // ------- sector 8 ------------
-
-    // ;;  2
-    a->nop();                   // 9
-    a->nop();                   // 10
-    a->fmr(F8, F8);             // 11
-    a->fmr(F9, F9);             // 12
-
-    // ;;  3
-    a->nop();                   // 13
-    a->fmr(F10, F10);           // 14
-    a->fmr(F11, F11);           // 15
-    a->endgroup();              // 16
-    // -------- sector 16 -------------
-
-    // ;;  4
-    a->nop();                   // 17
-    a->nop();                   // 18
-    a->fmr(F15, F15);           // 19
-    a->fmr(F16, F16);           // 20
-
-    // ;;  5
-    a->nop();                   // 21
-    a->fmr(F17, F17);           // 22
-    a->fmr(F18, F18);           // 23
-    a->endgroup();              // 24
-    // ------- sector 24  ------------
-
-    // ;;  6
-    a->nop();                   // 25
-    a->nop();                   // 26
-    a->fmr(F19, F19);           // 27
-    a->fmr(F20, F20);           // 28
-
-    // ;;  7
-    a->nop();                   // 29
-    a->fmr(F21, F21);           // 30
-    a->fmr(F22, F22);           // 31
-    a->brnop0();                // 32
-
-    // ------- sector 32 ------------
-  }
-
-  // ;; 8
-  a->cmpdi(CCR0, R4, unroll);   // 33
-  a->bge(CCR0, l1);             // 34
-  a->blr();
-
-  // Emit code.
-  void (*test2)() = (void(*)())(void *)a->function_entry();
-  // uint32_t *code = (uint32_t *)a->pc();
-
-  Label l2;
-
-  a->li(R4, 1);
-  a->sldi(R4, R4, 28);
-  a->b(l2);
-  a->align(CodeEntryAlignment);
-
-  a->bind(l2);
-
-  for (int i = 0; i < unroll; i++) {
-    // Schleife 2
-    // ------- sector 0 ------------
-    // ;; 0
-    a->brnop0();                  // 1
-    a->nop();                     // 2
-    //a->cmpdi(CCR0, R4, unroll);
-    a->fpnop0();                  // 3
-    a->fpnop1();                  // 4
-    a->addi(R4,R4, -1);           // 5
-
-    // ;; 1
-
-    a->nop();                     // 6
-    a->fmr(F6, F6);               // 7
-    a->fmr(F7, F7);               // 8
-    // ------- sector 8 ---------------
-
-    // ;; 2
-    a->endgroup();                // 9
-
-    // ;; 3
-    a->nop();                     // 10
-    a->nop();                     // 11
-    a->fmr(F8, F8);               // 12
-
-    // ;; 4
-    a->fmr(F9, F9);               // 13
-    a->nop();                     // 14
-    a->fmr(F10, F10);             // 15
-
-    // ;; 5
-    a->fmr(F11, F11);             // 16
-    // -------- sector 16 -------------
-
-    // ;; 6
-    a->endgroup();                // 17
-
-    // ;; 7
-    a->nop();                     // 18
-    a->nop();                     // 19
-    a->fmr(F15, F15);             // 20
-
-    // ;; 8
-    a->fmr(F16, F16);             // 21
-    a->nop();                     // 22
-    a->fmr(F17, F17);             // 23
-
-    // ;; 9
-    a->fmr(F18, F18);             // 24
-    // -------- sector 24 -------------
-
-    // ;; 10
-    a->endgroup();                // 25
-
-    // ;; 11
-    a->nop();                     // 26
-    a->nop();                     // 27
-    a->fmr(F19, F19);             // 28
-
-    // ;; 12
-    a->fmr(F20, F20);             // 29
-    a->nop();                     // 30
-    a->fmr(F21, F21);             // 31
-
-    // ;; 13
-    a->fmr(F22, F22);             // 32
-  }
-
-  // -------- sector 32 -------------
-  // ;; 14
-  a->cmpdi(CCR0, R4, unroll); // 33
-  a->bge(CCR0, l2);           // 34
-
-  a->blr();
-  uint32_t *code_end = (uint32_t *)a->pc();
-  a->flush();
-
-  double loop1_seconds,loop2_seconds, rel_diff;
-  uint64_t start1, stop1;
-
-  start1 = os::current_thread_cpu_time(false);
-  (*test1)();
-  stop1 = os::current_thread_cpu_time(false);
-  loop1_seconds = (stop1- start1) / (1000 *1000 *1000.0);
-
-
-  start1 = os::current_thread_cpu_time(false);
-  (*test2)();
-  stop1 = os::current_thread_cpu_time(false);
-
-  loop2_seconds = (stop1 - start1) / (1000 *1000 *1000.0);
-
-  rel_diff = (loop2_seconds - loop1_seconds) / loop1_seconds *100;
-
-  if (PrintAssembly) {
-    ttyLocker ttyl;
-    tty->print_cr("Decoding section size detection stub at " INTPTR_FORMAT " before execution:", p2i(code));
-    Disassembler::decode((u_char*)code, (u_char*)code_end, tty);
-    tty->print_cr("Time loop1 :%f", loop1_seconds);
-    tty->print_cr("Time loop2 :%f", loop2_seconds);
-    tty->print_cr("(time2 - time1) / time1 = %f %%", rel_diff);
-
-    if (rel_diff > 12.0) {
-      tty->print_cr("Section Size 8 Instructions");
-    } else{
-      tty->print_cr("Section Size 32 Instructions or Power5");
-    }
-  }
-
-#if 0 // TODO: PPC port
-  // Set sector size (if not set explicitly).
-  if (FLAG_IS_DEFAULT(Power6SectorSize128PPC64)) {
-    if (rel_diff > 12.0) {
-      PdScheduling::power6SectorSize = 0x20;
-    } else {
-      PdScheduling::power6SectorSize = 0x80;
-    }
-  } else if (Power6SectorSize128PPC64) {
-    PdScheduling::power6SectorSize = 0x80;
-  } else {
-    PdScheduling::power6SectorSize = 0x20;
-  }
-#endif
-  if (UsePower6SchedulerPPC64) Unimplemented();
-}
-#endif // COMPILER2
 
 void VM_Version::determine_features() {
 #if defined(ABI_ELFv2)
@@ -911,7 +677,7 @@ void VM_Version::determine_features() {
   // We don't want to change this property, as user code might depend on it.
   // So the tests can not check on subversion 3.30, and we only enable RTM
   // with AIX 7.2.
-  if (has_lqarx()) { // POWER8 or above
+  if (has_lqarx() && !has_brw()) { // POWER8 or POWER9
     if (os::Aix::os_version() >= 0x07020000) { // At least AIX 7.2.
       _features |= rtm_m;
     }
@@ -1005,4 +771,19 @@ void VM_Version::allow_all() {
 
 void VM_Version::revert() {
   _features = saved_features;
+}
+
+// get cpu information.
+void VM_Version::initialize_cpu_information(void) {
+  // do nothing if cpu info has been initialized
+  if (_initialized) {
+    return;
+  }
+
+  _no_of_cores  = os::processor_count();
+  _no_of_threads = _no_of_cores;
+  _no_of_sockets = _no_of_cores;
+  snprintf(_cpu_name, CPU_TYPE_DESC_BUF_SIZE, "PowerPC POWER%lu", PowerArchitecturePPC64);
+  snprintf(_cpu_desc, CPU_DETAILED_DESC_BUF_SIZE, "PPC %s", features_string());
+  _initialized = true;
 }

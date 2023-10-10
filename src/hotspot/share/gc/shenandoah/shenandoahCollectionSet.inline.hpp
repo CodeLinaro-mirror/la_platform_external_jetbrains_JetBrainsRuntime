@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2017, 2020, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -21,10 +22,11 @@
  *
  */
 
-#ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTIONSET_INLINE_HPP
-#define SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTIONSET_INLINE_HPP
+#ifndef SHARE_GC_SHENANDOAH_SHENANDOAHCOLLECTIONSET_INLINE_HPP
+#define SHARE_GC_SHENANDOAH_SHENANDOAHCOLLECTIONSET_INLINE_HPP
 
 #include "gc/shenandoah/shenandoahCollectionSet.hpp"
+
 #include "gc/shenandoah/shenandoahHeap.hpp"
 #include "gc/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc/shenandoah/shenandoahHeapRegion.hpp"
@@ -39,16 +41,16 @@ bool ShenandoahCollectionSet::is_in(ShenandoahHeapRegion* r) const {
 }
 
 bool ShenandoahCollectionSet::is_in(oop p) const {
-  shenandoah_assert_in_heap(NULL, p);
+  shenandoah_assert_in_heap_or_null(nullptr, p);
   return is_in_loc(cast_from_oop<void*>(p));
 }
 
 bool ShenandoahCollectionSet::is_in_loc(void* p) const {
-  assert(_heap->is_in(p), "Must be in the heap");
+  assert(p == nullptr || _heap->is_in(p), "Must be in the heap");
   uintx index = ((uintx) p) >> _region_size_bytes_shift;
   // no need to subtract the bottom of the heap from p,
   // _biased_cset_map is biased
   return _biased_cset_map[index] == 1;
 }
 
-#endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTIONSET_INLINE_HPP
+#endif // SHARE_GC_SHENANDOAH_SHENANDOAHCOLLECTIONSET_INLINE_HPP

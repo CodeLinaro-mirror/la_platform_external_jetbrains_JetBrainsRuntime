@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,7 +51,7 @@ public class SystemLookAndFeelTest {
             expLAF = "com.sun.java.swing.plaf.windows.WindowsLookAndFeel";
         } else if (os.contains("macos")) {
             expLAF = "com.apple.laf.AquaLookAndFeel";
-        } else if (os.contains("linux") || os.contains("sunos")) {
+        } else if (os.contains("linux")) {
             /*
              * The implementation keys off the following desktop setting to
              * decide if GTK is an appropriate system L&F.
@@ -68,10 +68,8 @@ public class SystemLookAndFeelTest {
             if (gnome != null ||
                     (desktop != null && desktop.toLowerCase().contains("gnome"))) {
                 expLAF = "com.sun.java.swing.plaf.gtk.GTKLookAndFeel";
-            } else if (os.contains("linux")) {
+            } else {
                 expLAF = "javax.swing.plaf.metal.MetalLookAndFeel";
-            } else if (os.contains("sunos")) {
-                expLAF = "com.sun.java.swing.plaf.motif.MotifLookAndFeel";
             }
         }
         System.out.println("Expected System LAF is " + expLAF);

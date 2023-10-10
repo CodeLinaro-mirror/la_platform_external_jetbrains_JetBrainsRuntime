@@ -1,17 +1,24 @@
 /*
- * Copyright 2000-2017 JetBrains s.r.o.
+ * Copyright 2000-2023 JetBrains s.r.o.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
  */
 
 import java.awt.Point;
@@ -37,7 +44,7 @@ import javax.swing.WindowConstants;
 
 public class JDialog186 {
 
-    private static JFrame frame = new JFrame("This frame is supposed to be shown first");
+    private static JFrame frame = new JFrame("JDialog186");
     private static JDialog dialog;
     private static Process process;
     static final Object lock = new Object();
@@ -45,11 +52,11 @@ public class JDialog186 {
     private static Runnable modalDialogThread = new Runnable() {
         @Override
         public void run() {
-            dialog = new JDialog(frame, "This is a modal dialog, it is not supposed to steal the focus", true);
+            dialog = new JDialog(frame, true);
+            dialog.setTitle("Modal input");
             dialog.getContentPane().add(new JTextArea());
             dialog.setLocation(new Point(20, 100));
             dialog.setSize(350, 100);
-            dialog.setAutoRequestFocus(false);
             dialog.setVisible(true);
         }
     };
@@ -90,10 +97,12 @@ public class JDialog186 {
 
             process.getErrorStream();
             String line;
-            try (BufferedReader input = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
+            BufferedReader input = new BufferedReader(new InputStreamReader(process.getErrorStream()));
+            try {
                 while ((line = input.readLine()) != null) {
                     System.out.println(line);
                 }
+                input.close();
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -120,6 +129,7 @@ public class JDialog186 {
                 }
             }
 
+            System.out.println("launching helper");
             process = Runtime.getRuntime().exec(new String[]{javaExecutable, "-classpath",
                     System.getProperty("java.class.path"), "JDialog186Aux"});
             checkAuxProcess();
@@ -156,7 +166,7 @@ class JDialog186Aux {
         Robot robot = new Robot();
         robot.setAutoDelay(100);
 
-        JFrame frame = new JFrame("This frame takes focus from the first frame");
+        JFrame frame = new JFrame("JDialog186Aux");
         frame.addWindowFocusListener(focusListener);
         JEditorPane editorPane = new JEditorPane();
 

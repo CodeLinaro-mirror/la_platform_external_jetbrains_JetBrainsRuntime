@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,7 +40,6 @@ import javax.swing.plaf.FontUIResource;
 import sun.awt.FontConfiguration;
 import sun.awt.HeadlessToolkit;
 import sun.lwawt.macosx.*;
-import sun.util.logging.PlatformLogger;
 
 public final class CFontManager extends SunFontManager {
     private static Hashtable<String, Font2D> genericFonts = new Hashtable<String, Font2D>();
@@ -85,7 +84,7 @@ public final class CFontManager extends SunFontManager {
         String fontName = f.fullName;
         String familyName = f.familyName;
 
-        if (fontName == null || "".equals(fontName)) {
+        if (fontName == null || fontName.isEmpty()) {
             return null;
         }
 
@@ -95,8 +94,8 @@ public final class CFontManager extends SunFontManager {
         // already existing fonts in this list
         if (logicalFont || !genericFonts.containsKey(fontName)) {
             if (FontUtilities.debugFonts()) {
-                FontUtilities.getLogger().info("Add to Family "+familyName +
-                    ", Font " + fontName + " rank="+rank);
+                FontUtilities.logInfo("Add to Family " + familyName +
+                    ", Font " + fontName + " rank=" + rank);
             }
             FontFamily family = FontFamily.getFamily(familyName);
             if (family == null) {
@@ -141,49 +140,22 @@ public final class CFontManager extends SunFontManager {
     }
 
     @Override
-    protected void registerJREFonts() {
-        String[] files = AccessController.doPrivileged((PrivilegedAction<String[]>) () ->
-                new File(jreFontDirName).list(getTrueTypeFilter()));
-        if (files != null) {
-            PlatformLogger logger = FontUtilities.getLogger();
-            int [] ver = new int[3];
-            for (String f : files) {
-                boolean loadFont = true;
-                BundledFontInfo fi = getBundledFontInfo(f);
-                if (versionCheckEnabled) {
-                    if (fi != null) {
-                        String verStr = getNativeFontVersion(fi.getPsName());
-                        if (logger != null) {
-                            logger.info("Checking bundled " + fi.getPsName());
-                        }
-                        if (verStr != null && parseFontVersion(verStr, ver) && !fi.isNewerThan(ver)) {
-                            if (logger != null) {
-                                logger.info("Skip loading. Newer or same version platform font detected " +
-                                             fi.getPsName() + " " + verStr);
-                            }
-                            loadFont = false;
-                        }
-                    } else {
-                        if (logger != null) {
-                            FontUtilities.getLogger().warning("JREFonts: No BundledFontInfo for : " + f);
-                        }
-                    }
-                }
-                if (loadFont) {
-                    String fontPath = jreFontDirName + File.separator + f;
-                    loadNativeDirFonts(fontPath);
-                    if (logger != null && fi != null) {
-                        String verStr = getNativeFontVersion(fi.getPsName());
-                        logger.info("Loaded " + fi.getPsName() + " (" + verStr + ")");
-                    }
-                }
-            }
+    protected String getSystemFontVersion(TrueTypeFont bundledFont) {
+        String version = getNativeFontVersion(bundledFont.getPostscriptName());
+        return version != null ? TrueTypeFont.parseVersion(version) : "0";
+    }
+
+    @Override
+    protected void loadJREFonts(String[] fonts) {
+        for (String name : fonts) {
+            loadNativeDirFonts(name);
         }
     }
 
     protected void registerFontsInDir(final String dirName, boolean useJavaRasterizer,
                                       int fontRank, boolean defer, boolean resolveSymLinks) {
 
+        @SuppressWarnings("removal")
         String[] files = AccessController.doPrivileged((PrivilegedAction<String[]>) () -> {
             return new File(dirName).list(getTrueTypeFilter());
         });
@@ -204,18 +176,14 @@ public final class CFontManager extends SunFontManager {
 
     void registerFont(String fontName, String fontFamilyName, String faceName) {
         // Use different family for specific font faces
-        String newFontFamily = jreFamilyMap.get(fontName);
-        if (newFontFamily != null) {
-            fontFamilyName = newFontFamily;
-        }
-        final CFont font = new CFont(fontName, fontFamilyName, faceName);
-
+        final CFont font = new CFont(fontName, jreFamilyMap.getOrDefault(fontName, fontFamilyName), faceName);
         registerGenericFont(font);
     }
 
     Object waitForFontsToBeLoaded  = new Object();
     private boolean loadedAllFonts = false;
 
+    @SuppressWarnings("removal")
     public void loadFonts()
     {
         synchronized(waitForFontsToBeLoaded)
@@ -264,7 +232,7 @@ public final class CFontManager extends SunFontManager {
         if (family != null) return family;
 
         if (FontUtilities.debugFonts()) {
-            FontUtilities.getLogger().severe(
+            FontUtilities.logSevere(
                 "The fonts \"" + realName + "\" and \"" + fallbackName +
                 "\" are not available for the Java logical font \"" + logicalName +
                 "\", which may have unexpected appearance or behavior. Re-enable the \""+
@@ -280,7 +248,7 @@ public final class CFontManager extends SunFontManager {
         family = FontFamily.getFamily(fallbackName);
         if (family != null){
             if (FontUtilities.debugFonts()) {
-                FontUtilities.getLogger().warning(
+                FontUtilities.logWarning(
                     "The font \"" + realName + "\" is not available, so \"" + fallbackName +
                     "\" has been substituted, but may have unexpected appearance or behavor. Re-enable the \"" +
                     realName +"\" font to remove this warning.");
@@ -295,9 +263,9 @@ public final class CFontManager extends SunFontManager {
         if (realFamily == null) return false;
 
         Font2D realFont = realFamily.getFontWithExactStyleMatch(style);
-        if (realFont == null || !(realFont instanceof CFont)) return false;
+        if (!(realFont instanceof CFont cFont)) return false;
 
-        CFont newFont = new CFont((CFont)realFont, logicalFamilyName);
+        CFont newFont = new CFont(cFont, logicalFamilyName);
         registerGenericFont(newFont, true);
 
         return true;

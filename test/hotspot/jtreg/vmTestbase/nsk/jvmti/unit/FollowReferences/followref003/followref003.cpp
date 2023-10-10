@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -533,7 +533,7 @@ static int registerLocal(jint frame_id, jlocation location, jint slot, jlong tag
     for (idx = 1; idx <= curr_local_idx; idx++) {
         loc = &locDesc[idx];
         if (loc->frame_id == frame_id &&
-            loc->slot     == slot) {
+            loc->slot == slot) {
             if (first_followref) {
                 /* Do this check on the first FollowReferences call only */
                 FrameDesc *fr = &frameDesc[frame_id];
@@ -661,13 +661,13 @@ jint JNICALL heapReferenceCallback(
            (long) class_tag,
            (long) tag,
            (long) size,
-           (int ) length,
+           (int) length,
            ref_tag,
            (long) thr_tag,
            thr_id,
            method,
            (long) location,
-           (int ) index);
+           (int) index);
     fflush(0);
 
     if (tag_ptr == NULL) {
@@ -810,7 +810,7 @@ jint JNICALL heapReferenceCallback(
             }
             break;
 
-        case JVMTI_HEAP_REFERENCE_ARRAY_ELEMENT:
+        // case JVMTI_REFERENCE_ARRAY_ELEMENT:
         case JVMTI_HEAP_REFERENCE_JNI_GLOBAL:
         case JVMTI_HEAP_REFERENCE_SYSTEM_CLASS:
         case JVMTI_HEAP_REFERENCE_MONITOR:
@@ -842,7 +842,7 @@ jint JNICALL primitiveFieldCallback
            ref_kind_str[ref_kind],
            (long) class_tag,
            (long) DEREF(tag_ptr),
-           (int ) value_type);
+           (int) value_type);
     fflush(0);
     return 0;
 }
@@ -854,8 +854,8 @@ jint JNICALL arrayPrimitiveValueCallback
     printf(" arrayPrimitiveValueCallback: class_tag=%-3ld, tag=%-3ld, len=%d, type=%c\n",
            (long) class_tag,
            (long) DEREF(tag_ptr),
-           (int ) element_count,
-           (int ) element_type);
+           (int) element_count,
+           (int) element_type);
     fflush(0);
     return 0;
 }
@@ -867,7 +867,7 @@ jint JNICALL stringPrimitiveValueCallback
     printf("stringPrimitiveValueCallback: class_tag=%-3ld, tag=%-3ld, len=%d\n",
            (long) class_tag,
            (long) DEREF(tag_ptr),
-           (int ) value_length);
+           (int) value_length);
     fflush(0);
     return 0;
 }

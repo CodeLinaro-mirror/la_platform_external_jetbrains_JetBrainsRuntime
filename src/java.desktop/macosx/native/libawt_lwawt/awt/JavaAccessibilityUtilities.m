@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,9 +24,11 @@
  */
 
 #import "JavaAccessibilityUtilities.h"
+#import "sun_swing_AccessibleAnnouncer.h"
 #import "JNIUtilities.h"
 
 #import <AppKit/AppKit.h>
+#import "ThreadUtilities.h"
 
 static BOOL JavaAccessibilityIsSupportedAttribute(id element, NSString *attribute);
 static void JavaAccessibilityLogError(NSString *message);
@@ -39,7 +41,9 @@ static SEL JavaAccessibilityAttributeSetter(NSString *attribute);
 NSString *const JavaAccessibilityIgnore = @"JavaAxIgnore";
 
 NSMutableDictionary *sRoles = nil;
+NSMutableDictionary *sAnnouncePriorities = nil;
 void initializeRoles();
+void initializeAnnouncePriorities();
 
 // Unique
 static jclass sjc_AccessibleState = NULL;
@@ -209,40 +213,12 @@ BOOL isExpanded(JNIEnv *env, jobject axContext, jobject component)
     DECLARE_STATIC_FIELD_RETURN(jm_EXPANDED,
                                     sjc_AccessibleState,
                                     "EXPANDED",
-                                    "Ljavax/accessibility/AccessibleState;", NO);
+                                    "Ljavax/accessibility/AccessibleState;", NO );
     jobject axExpandedState = (*env)->GetStaticObjectField(env, sjc_AccessibleState, jm_EXPANDED);
     CHECK_EXCEPTION_NULL_RETURN(axExpandedState, NO);
     BOOL expanded = containsAxState(env, axContext, axExpandedState, component);
     (*env)->DeleteLocalRef(env, axExpandedState);
     return expanded;
-}
-
-BOOL isExpandable(JNIEnv *env, jobject axContext, jobject component)
-{
-    GET_ACCESSIBLESTATE_CLASS_RETURN(NO);
-    DECLARE_STATIC_FIELD_RETURN(jm_EXPANDABLE,
-                                    sjc_AccessibleState,
-                                    "EXPANDABLE",
-                                    "Ljavax/accessibility/AccessibleState;", NO);
-    jobject axExpandableState = (*env)->GetStaticObjectField(env, sjc_AccessibleState, jm_EXPANDABLE);
-    CHECK_EXCEPTION_NULL_RETURN(axExpandableState, NO);
-    BOOL expandable = containsAxState(env, axContext, axExpandableState, component);
-    (*env)->DeleteLocalRef(env, axExpandableState);
-    return expandable;
-}
-
-BOOL isCollapsed(JNIEnv *env, jobject axContext, jobject component)
-{
-    GET_ACCESSIBLESTATE_CLASS_RETURN(NO);
-    DECLARE_STATIC_FIELD_RETURN(jm_COLLAPSED,
-                                    sjc_AccessibleState,
-                                    "COLLAPSED",
-                                    "Ljavax/accessibility/AccessibleState;", NO);
-    jobject axCollapsedState = (*env)->GetStaticObjectField(env, sjc_AccessibleState, jm_COLLAPSED);
-    CHECK_EXCEPTION_NULL_RETURN(axCollapsedState, NO);
-    BOOL collapsed = containsAxState(env, axContext, axCollapsedState, component);
-    (*env)->DeleteLocalRef(env, axCollapsedState);
-    return collapsed;
 }
 
 NSPoint getAxComponentLocationOnScreen(JNIEnv *env, jobject axComponent, jobject component)
@@ -257,7 +233,6 @@ NSPoint getAxComponentLocationOnScreen(JNIEnv *env, jobject axComponent, jobject
                       axComponent, component);
     CHECK_EXCEPTION();
     if (jpoint == NULL) return NSZeroPoint;
-
     NSPoint p = NSMakePoint((*env)->GetIntField(env, jpoint, sjf_X), (*env)->GetIntField(env, jpoint, sjf_Y));
     (*env)->DeleteLocalRef(env, jpoint);
     return p;
@@ -397,6 +372,75 @@ static void JavaAccessibilityLogError(NSString *message)
     NSLog(@"!!! %@", message);
 }
 
+/*
+ * Returns Object.equals for the two items
+ * This may use LWCToolkit.invokeAndWait(); don't call while holding fLock
+ * and try to pass a component so the event happens on the correct thread.
+ */
+BOOL ObjectEquals(JNIEnv *env, jobject a, jobject b, jobject component)
+{
+    DECLARE_CLASS_RETURN(sjc_Object, "java/lang/Object", NO);
+    DECLARE_METHOD_RETURN(jm_equals, sjc_Object, "equals", "(Ljava/lang/Object;)Z", NO);
+
+    if ((a == NULL) && (b == NULL)) return YES;
+    if ((a == NULL) || (b == NULL)) return NO;
+
+    if (pthread_main_np() != 0) {
+        // If we are on the AppKit thread
+        DECLARE_CLASS_RETURN(sjc_LWCToolkit, "sun/lwawt/macosx/LWCToolkit", NO);
+        DECLARE_STATIC_METHOD_RETURN(jm_doEquals, sjc_LWCToolkit, "doEquals",
+                                     "(Ljava/lang/Object;Ljava/lang/Object;Ljava/awt/Component;)Z", NO);
+        return (*env)->CallStaticBooleanMethod(env, sjc_LWCToolkit, jm_doEquals, a, b, component);
+        CHECK_EXCEPTION();
+    }
+
+    jboolean jb = (*env)->CallBooleanMethod(env, a, jm_equals, b);
+    CHECK_EXCEPTION();
+    return jb;
+}
+
+/*
+ * The java/lang/Number concrete class could be for any of the Java primitive
+ * numerical types or some other subclass.
+ * All existing A11Y code uses Integer so that is what we look for first
+ * But all must be able to return a double and NSNumber accepts a double,
+ * so that's the fall back.
+ */
+NSNumber* JavaNumberToNSNumber(JNIEnv *env, jobject jnumber) {
+    if (jnumber == NULL) {
+        return nil;
+    }
+    DECLARE_CLASS_RETURN(jnumber_Class, "java/lang/Number", nil);
+    DECLARE_CLASS_RETURN(jinteger_Class, "java/lang/Integer", nil);
+    DECLARE_METHOD_RETURN(jm_intValue, jnumber_Class, "intValue", "()I", nil);
+    DECLARE_METHOD_RETURN(jm_doubleValue, jnumber_Class, "doubleValue", "()D", nil);
+    if ((*env)->IsInstanceOf(env, jnumber, jinteger_Class)) {
+        jint i = (*env)->CallIntMethod(env, jnumber, jm_intValue);
+        CHECK_EXCEPTION();
+        return [NSNumber numberWithInteger:i];
+    } else {
+        jdouble d = (*env)->CallDoubleMethod(env, jnumber, jm_doubleValue);
+        CHECK_EXCEPTION();
+        return [NSNumber numberWithDouble:d];
+    }
+}
+
+/*
+ * Converts an int array to an NSRange wrapped inside an NSValue
+ * takes [start, end] values and returns [start, end - start]
+ */
+NSValue *javaIntArrayToNSRangeValue(JNIEnv* env, jintArray array) {
+    jint *values = (*env)->GetIntArrayElements(env, array, 0);
+    if (values == NULL) {
+        // Note: Java will not be on the stack here so a java exception can't happen and no need to call ExceptionCheck.
+        NSLog(@"%s failed calling GetIntArrayElements", __FUNCTION__);
+        return nil;
+    }
+    NSValue *value = [NSValue valueWithRange:NSMakeRange(values[0], values[1] - values[0])];
+    (*env)->ReleaseIntArrayElements(env, array, values, 0);
+    return value;
+}
+
 // end appKit copies
 
 /*
@@ -437,7 +481,7 @@ void initializeRoles()
     [sRoles setObject:JavaAccessibilityIgnore forKey:@"frame"];
     [sRoles setObject:JavaAccessibilityIgnore forKey:@"glasspane"];
     [sRoles setObject:NSAccessibilityGroupRole forKey:@"groupbox"];
-    [sRoles setObject:NSAccessibilityStaticTextRole forKey:@"hyperlink"]; //maybe a group?
+    [sRoles setObject:NSAccessibilityLinkRole forKey:@"hyperlink"];
     [sRoles setObject:NSAccessibilityImageRole forKey:@"icon"];
     [sRoles setObject:NSAccessibilityGroupRole forKey:@"internalframe"];
     [sRoles setObject:NSAccessibilityStaticTextRole forKey:@"label"];
@@ -476,4 +520,11 @@ void initializeRoles()
     [sRoles setObject:NSAccessibilityUnknownRole forKey:@"unknown"];
     [sRoles setObject:JavaAccessibilityIgnore forKey:@"viewport"];
     [sRoles setObject:JavaAccessibilityIgnore forKey:@"window"];
+}
+
+void initializeAnnouncePriorities() {
+    sAnnouncePriorities = [[NSMutableDictionary alloc] initWithCapacity:3];
+
+    [sAnnouncePriorities setObject:[NSNumber numberWithInt:NSAccessibilityPriorityMedium] forKey:[NSNumber numberWithInt:sun_swing_AccessibleAnnouncer_ANNOUNCE_WITHOUT_INTERRUPTING_CURRENT_OUTPUT]];
+    [sAnnouncePriorities setObject:[NSNumber numberWithInt:NSAccessibilityPriorityHigh] forKey:[NSNumber numberWithInt:sun_swing_AccessibleAnnouncer_ANNOUNCE_WITH_INTERRUPTING_CURRENT_OUTPUT]];
 }

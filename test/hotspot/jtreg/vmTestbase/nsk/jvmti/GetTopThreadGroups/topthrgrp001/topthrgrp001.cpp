@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -84,6 +84,7 @@ Java_nsk_jvmti_GetTopThreadGroups_topthrgrp001_check(JNIEnv *env, jclass cls) {
         printf("(GetTopThreadGroups) unexpected error: %s (%d)\n",
                TranslateError(err), err);
         result = STATUS_FAILED;
+        return result;
     }
 
     if (printdump == JNI_TRUE) {
@@ -102,7 +103,7 @@ Java_nsk_jvmti_GetTopThreadGroups_topthrgrp001_check(JNIEnv *env, jclass cls) {
                 printf(">>>         parent: 0x%p\n", inf.parent);
                 printf(">>>   max priority: %d\n", inf.max_priority);
                 printf(">>>      is daemon: %s\n",
-                       (inf.is_daemon==JNI_TRUE) ? "true" : "false");
+                       (inf.is_daemon == JNI_TRUE) ? "true" : "false");
             }
             if (inf.parent != NULL) {
                 printf("ERROR: thread group is not parentless!\n");

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -263,19 +263,17 @@ void AwtDragSource::_DoDragDrop(void* param) {
     AwtDropTarget::SetCurrentDnDDataObject(dragSource);
 
     ::GetCursorPos(&dragSource->m_dragPoint);
-    POINT dragPoint = {dragSource->m_dragPoint.x, dragSource->m_dragPoint.y};
-    AwtWin32GraphicsDevice::ScaleDownDPoint(&dragPoint);
 
     dragSource->Signal();
 
     AwtToolkit &toolkit = AwtToolkit::GetInstance();
-    toolkit.isInDoDragDropLoop = TRUE;
+    toolkit.isDnDSourceActive = TRUE;
     res = ::DoDragDrop(dragSource,
-		    dragSource,
-		    convertActionsToDROPEFFECT(dragSource->m_actions),
-		    &effects
-		    );
-    toolkit.isInDoDragDropLoop = FALSE;
+                       dragSource,
+                       convertActionsToDROPEFFECT(dragSource->m_actions),
+                       &effects
+          );
+    toolkit.isDnDSourceActive = FALSE;
 
     if (effects == DROPEFFECT_NONE && dragSource->m_dwPerformedDropEffect != DROPEFFECT_NONE) {
         effects = dragSource->m_dwPerformedDropEffect;
@@ -284,7 +282,7 @@ void AwtDragSource::_DoDragDrop(void* param) {
 
     call_dSCddfinished(env, peer, res == DRAGDROP_S_DROP && effects != DROPEFFECT_NONE,
                        convertDROPEFFECTToActions(effects),
-                       dragPoint);
+                       dragSource->m_dragPoint);
 
     env->DeleteLocalRef(peer);
 
@@ -396,9 +394,12 @@ void AwtDragSource::LoadCache(jlongArray formats) {
         return;
     }
 
-    jboolean isCopy;
-    jlong *lFormats = env->GetLongArrayElements(formats, &isCopy),
+    jlong *lFormats = env->GetLongArrayElements(formats, 0),
         *saveFormats = lFormats;
+    if (lFormats == NULL) {
+        m_ntypes = 0;
+        return;
+    }
 
     for (i = 0, m_ntypes = 0; i < items; i++, lFormats++) {
         // Warning C4244.
@@ -424,6 +425,7 @@ void AwtDragSource::LoadCache(jlongArray formats) {
         m_types = (FORMATETC *)safe_Calloc(sizeof(FORMATETC), m_ntypes);
     } catch (std::bad_alloc&) {
         m_ntypes = 0;
+        env->ReleaseLongArrayElements(formats, saveFormats, 0);
         throw;
     }
 
@@ -644,13 +646,10 @@ HRESULT __stdcall  AwtDragSource::QueryContinueDrag(BOOL fEscapeKeyPressed, DWOR
     POINT dragPoint;
 
     ::GetCursorPos(&dragPoint);
-    POINT _dragPoint = {dragPoint.x, dragPoint.y};
-    AwtWin32GraphicsDevice::ScaleDownDPoint(&_dragPoint);
 
     if ( (dragPoint.x != m_dragPoint.x || dragPoint.y != m_dragPoint.y) &&
          m_lastmods == modifiers) {//cannot move before cursor change
-        call_dSCmouseMoved(env, m_peer,
-                           m_actions, modifiers, _dragPoint);
+        call_dSCmouseMoved(env, m_peer, m_actions, modifiers, dragPoint);
         JNU_CHECK_EXCEPTION_RETURN(env, E_UNEXPECTED);
         m_dragPoint = dragPoint;
     }
@@ -662,8 +661,7 @@ HRESULT __stdcall  AwtDragSource::QueryContinueDrag(BOOL fEscapeKeyPressed, DWOR
     } else if ((modifiers & JAVA_BUTTON_MASK) != (m_initmods & JAVA_BUTTON_MASK)) {
         return DRAGDROP_S_CANCEL;
     } else if (m_lastmods != modifiers) {
-        call_dSCchanged(env, m_peer,
-                        m_actions, modifiers, _dragPoint);
+        call_dSCchanged(env, m_peer, m_actions, modifiers, dragPoint);
         m_bRestoreNodropCustomCursor = TRUE;
     }
 
@@ -718,8 +716,6 @@ HRESULT __stdcall  AwtDragSource::GiveFeedback(DWORD dwEffect) {
     POINT curs;
 
     ::GetCursorPos(&curs);
-    POINT _curs = {curs.x, curs.y};
-    AwtWin32GraphicsDevice::ScaleDownDPoint(&_curs);
 
     m_droptarget = ::WindowFromPoint(curs);
 
@@ -728,13 +724,13 @@ HRESULT __stdcall  AwtDragSource::GiveFeedback(DWORD dwEffect) {
     if (invalid) {
         // Don't call dragExit if dragEnter and dragOver haven't been called.
         if (!m_enterpending) {
-            call_dSCexit(env, m_peer, _curs);
+            call_dSCexit(env, m_peer, curs);
         }
         m_droptarget = (HWND)NULL;
         m_enterpending = TRUE;
     } else if (m_droptarget != NULL) {
         (*(m_enterpending ? call_dSCenter : call_dSCmotion))
-            (env, m_peer, m_actions, modifiers, _curs);
+            (env, m_peer, m_actions, modifiers, curs);
 
         m_enterpending = FALSE;
     }

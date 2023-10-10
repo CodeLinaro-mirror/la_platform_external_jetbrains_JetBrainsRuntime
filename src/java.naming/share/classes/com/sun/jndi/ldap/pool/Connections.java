@@ -72,9 +72,9 @@ final class Connections implements PoolCallback {
     private static final int DEFAULT_SIZE = 10;
 
     final private int initSize;
-    final private int maxSize;
-    final private int prefSize;
-    final private List<ConnectionDesc> conns;
+    private final int maxSize;
+    private final int prefSize;
+    private final List<ConnectionDesc> conns;
     final private PooledConnectionFactory factory;
 
     private boolean closed = false;   // Closed for business

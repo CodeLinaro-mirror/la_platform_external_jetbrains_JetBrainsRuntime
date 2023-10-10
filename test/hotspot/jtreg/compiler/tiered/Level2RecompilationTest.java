@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,9 +28,11 @@
  * @modules java.base/jdk.internal.misc
  *          java.management
  *
- * @build sun.hotspot.WhiteBox
- * @run driver ClassFileInstaller sun.hotspot.WhiteBox
- *                                sun.hotspot.WhiteBox$WhiteBoxPermission
+ * @comment the test can't be run w/ TieredStopAtLevel < 4
+ * @requires vm.flavor == "server" & (vm.opt.TieredStopAtLevel == null | vm.opt.TieredStopAtLevel == 4) & vm.compMode != "Xcomp"
+ *
+ * @build jdk.test.whitebox.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
  * @run main/othervm -Xbootclasspath/a:. -XX:+TieredCompilation
  *                   -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI -XX:-UseCounterDecay
  *                   -XX:CompileCommand=compileonly,compiler.whitebox.SimpleTestCaseHelper::*
@@ -41,11 +43,12 @@
 package compiler.tiered;
 
 import compiler.whitebox.CompilerWhiteBoxTest;
+import jtreg.SkippedException;
 
 public class Level2RecompilationTest extends CompLevelsTest {
     public static void main(String[] args) throws Throwable {
         if (CompilerWhiteBoxTest.skipOnTieredCompilation(false)) {
-            throw new RuntimeException("Test isn't applicable for non-tiered mode");
+            throw new SkippedException("Test isn't applicable for non-tiered mode");
         }
         String[] testcases = {"METHOD_TEST", "OSR_STATIC_TEST"};
         CompilerWhiteBoxTest.main(Level2RecompilationTest::new, testcases);
@@ -76,7 +79,7 @@ public class Level2RecompilationTest extends CompLevelsTest {
         checkCompiled();
         checkLevel(COMP_LEVEL_LIMITED_PROFILE, getCompLevel());
 
-        for (int i=0; i<100; ++i) {
+        for (int i=0; i<1_000; ++i) {
             WHITE_BOX.enqueueMethodForCompilation(method, COMP_LEVEL_FULL_PROFILE, bci);
             waitBackgroundCompilation();
             checkLevel(COMP_LEVEL_LIMITED_PROFILE, getCompLevel());

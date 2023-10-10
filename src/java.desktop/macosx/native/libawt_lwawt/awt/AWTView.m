@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,21 +25,21 @@
 
 #import "jni_util.h"
 #import "CGLGraphicsConfig.h"
-
-#import <JavaRuntimeSupport/JavaRuntimeSupport.h>
-#import <Carbon/Carbon.h>
-
-#import "ThreadUtilities.h"
-#import "JNIUtilities.h"
 #import "AWTView.h"
+#import "AWTEvent.h"
 #import "AWTWindow.h"
-#import "JavaComponentAccessibility.h"
-#import "JavaStaticTextAccessibility.h"
+#import "a11y/CommonComponentAccessibility.h"
 #import "JavaAccessibilityUtilities.h"
 #import "GeomUtilities.h"
-#import "CGLLayer.h"
-#import "java_awt_event_KeyEvent.h"
+#import "ThreadUtilities.h"
+#import "JNIUtilities.h"
+#import "jni_util.h"
 #import "PropertiesUtilities.h"
+
+#import <Carbon/Carbon.h>
+
+#define DEFAULT_FRAME_WIDTH 1504
+#define DEFAULT_FRAME_HEIGHT 846
 
 // keyboard layout
 static NSString *kbdLayout;
@@ -51,19 +51,19 @@ static NSString *kbdLayout;
 -(void) deliverResize: (NSRect) rect;
 -(void) resetTrackingArea;
 -(void) deliverJavaKeyEventHelper: (NSEvent*) event;
--(BOOL) isCodePointInUnicodeBlockNeedingIMEvent: (unichar) codePoint;
 -(NSMutableString *) parseString : (id) complexString;
 @end
 
 // Uncomment this line to see fprintfs of each InputMethod API being called on this View
 //#define IM_DEBUG TRUE
 //#define EXTRA_DEBUG
+//#define LOG_KEY_EVENTS
 
 static BOOL shouldUsePressAndHold() {
     return YES;
 }
 
-extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, NSString * chars);
+extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, int keyCode, NSString * chars);
 
 @implementation AWTView
 
@@ -105,27 +105,6 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
         //[self setLayerContentsRedrawPolicy: NSViewLayerContentsRedrawDuringViewResize];
         //[self setLayerContentsPlacement: NSViewLayerContentsPlacementTopLeft];
         //[self setAutoresizingMask: NSViewHeightSizable | NSViewWidthSizable];
-
-#ifdef REMOTELAYER
-        CGLLayer *parentLayer = (CGLLayer*)self.cglLayer;
-        parentLayer.parentLayer = NULL;
-        parentLayer.remoteLayer = NULL;
-        if (JRSRemotePort != 0 && remoteSocketFD > 0) {
-            CGLLayer *remoteLayer = [[CGLLayer alloc] initWithJavaLayer: parentLayer.javaLayer];
-            remoteLayer.target = GL_TEXTURE_2D;
-            NSLog(@"Creating Parent=%p, Remote=%p", parentLayer, remoteLayer);
-            parentLayer.remoteLayer = remoteLayer;
-            remoteLayer.parentLayer = parentLayer;
-            remoteLayer.remoteLayer = NULL;
-            remoteLayer.jrsRemoteLayer = [remoteLayer createRemoteLayerBoundTo:JRSRemotePort];
-            [remoteLayer retain];  // REMIND
-            remoteLayer.frame = CGRectMake(0, 0, 720, 500); // REMIND
-            [remoteLayer.jrsRemoteLayer retain]; // REMIND
-            int layerID = [remoteLayer.jrsRemoteLayer layerID];
-            NSLog(@"layer id to send = %d", layerID);
-            sendLayerID(layerID);
-        }
-#endif /* REMOTELAYER */
     }
 
     return self;
@@ -170,6 +149,26 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
     }
 }
 
+- (void)setFrame:(NSRect)newFrame {
+    if (isnan(newFrame.origin.x)) {
+        newFrame.origin.x = 0;
+    }
+
+    if (isnan(newFrame.origin.y)) {
+        newFrame.origin.y = 0;
+    }
+
+    if (isnan(newFrame.size.width)) {
+        newFrame.size.width = DEFAULT_FRAME_WIDTH;
+    }
+
+    if (isnan(newFrame.size.height)) {
+        newFrame.size.height = DEFAULT_FRAME_HEIGHT;
+    }
+
+    [super setFrame:newFrame];
+}
+
 - (BOOL) acceptsFirstMouse: (NSEvent *)event {
     return YES;
 }
@@ -199,7 +198,16 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
  * MouseEvents support
  */
 
+- (BOOL)shouldDelayWindowOrderingForEvent:(NSEvent *)event {
+    return [self isWindowDisabled];
+}
+
 - (void) mouseDown: (NSEvent *)event {
+    if ([self isWindowDisabled]) {
+        [NSApp preventWindowOrdering];
+        [NSApp activateIgnoringOtherApps:YES];
+    }
+
     NSInputManager *inputManager = [NSInputManager currentInputManager];
     if ([inputManager wantsToHandleMouseEvents]) {
 #if IM_DEBUG
@@ -295,13 +303,66 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
  * KeyEvents support
  */
 
+#ifdef LOG_KEY_EVENTS
+static void debugPrintNSString(const char* name, NSString* s) {
+    if (s == nil) {
+        fprintf(stderr, "\t%s: nil\n", name);
+        return;
+    }
+    const char* utf8 = [s UTF8String];
+    int codeUnits = [s length];
+    int bytes = strlen(utf8);
+    fprintf(stderr, "\t%s: [utf8 = \"", name);
+    for (const unsigned char* c = (const unsigned char*)utf8; *c; ++c) {
+        if (*c >= 0x20 && *c <= 0x7e) {
+            fputc(*c, stderr);
+        } else {
+            fprintf(stderr, "\\x%02x", *c);
+        }
+    }
+    fprintf(stderr, "\", utf16 = \"");
+    for (int i = 0; i < codeUnits; ++i) {
+        int c = (int)[s characterAtIndex:i];
+        if (c >= 0x20 && c <= 0x7e) {
+            fputc(c, stderr);
+        } else {
+            fprintf(stderr, "\\u%04x", c);
+        }
+    }
+    fprintf(stderr, "\", bytes = %d, codeUnits = %d]\n", bytes, codeUnits);
+}
+
+static void debugPrintNSEvent(NSEvent* event, const char* comment) {
+    NSEventType type = [event type];
+    if (type == NSEventTypeKeyDown) {
+        fprintf(stderr, "[AWTView.m] keyDown in %s\n", comment);
+    } else if (type == NSEventTypeKeyUp) {
+        fprintf(stderr, "[AWTView.m] keyUp in %s\n", comment);
+    } else if (type == NSEventTypeFlagsChanged) {
+        fprintf(stderr, "[AWTView.m] flagsChanged in %s\n", comment);
+    } else {
+        fprintf(stderr, "[AWTView.m] unknown event %d in %s\n", (int)type, comment);
+        return;
+    }
+    if (type == NSEventTypeKeyDown || type == NSEventTypeKeyUp) {
+        debugPrintNSString("characters", [event characters]);
+        debugPrintNSString("charactersIgnoringModifiers", [event charactersIgnoringModifiers]);
+        fprintf(stderr, "\tkeyCode: %d (0x%02x)\n", [event keyCode], [event keyCode]);
+    }
+    fprintf(stderr, "\tmodifierFlags: 0x%08x\n", (unsigned)[event modifierFlags]);
+    TISInputSourceRef is = TISCopyCurrentKeyboardLayoutInputSource();
+    fprintf(stderr, "\tTISCopyCurrentKeyboardLayoutInputSource: %s\n", is == nil ? "(nil)" : [(NSString*) TISGetInputSourceProperty(is, kTISPropertyInputSourceID) UTF8String]);
+}
+#endif
+
 - (void) keyDown: (NSEvent *)event {
+#ifdef LOG_KEY_EVENTS
+    debugPrintNSEvent(event, "keyDown");
+#endif
     fProcessingKeystroke = YES;
     fKeyEventsNeeded = YES;
 
-    if ([event keyCode] == 24 && (([event modifierFlags] & (NSControlKeyMask | NSCommandKeyMask)) != 0)) {
-        return;
-    }
+    NSString *eventCharacters = [event characters];
 
     // Allow TSM to look at the event and potentially send back NSTextInputClient messages.
     [self interpretKeyEvents:[NSArray arrayWithObject:event]];
@@ -330,11 +391,9 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
                 case kVK_UpArrow:
                 case kVK_Home:
                 case kVK_End:
-                    if (IS_OSX_GT10_13) {
-                        // Abandon input to reset IM and unblock input after
-                        // canceling input accented symbols (macOS 10.14+ only)
-                        [self abandonInput];
-                    }
+                    // Abandon input to reset IM and unblock input after
+                    // canceling input accented symbols
+                    [self abandonInput:nil];
                     break;
             }
         }
@@ -343,86 +402,119 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
         }
     }
 
-    if ((![self hasMarkedText] && fKeyEventsNeeded)) {
+    BOOL isDeadKey = (eventCharacters != nil && [eventCharacters length] == 0);
+
+    if ((![self hasMarkedText] && fKeyEventsNeeded) || isDeadKey) {
         [self deliverJavaKeyEventHelper: event];
+    }
+
+    if (actualCharacters != nil) {
+        [actualCharacters release];
+        actualCharacters = nil;
     }
 
     fProcessingKeystroke = NO;
 }
 
 - (void) keyUp: (NSEvent *)event {
+#ifdef LOG_KEY_EVENTS
+    debugPrintNSEvent(event, "keyUp");
+#endif
     [self deliverJavaKeyEventHelper: event];
 }
 
 - (void) flagsChanged: (NSEvent *)event {
+#ifdef LOG_KEY_EVENTS
+    debugPrintNSEvent(event, "flagsChanged");
+#endif
     [self deliverJavaKeyEventHelper: event];
 }
 
 - (BOOL) performKeyEquivalent: (NSEvent *) event {
-    if ([AWTToolkit latestPerformKeyEquivalentEvent] != NULL) {
-        [[AWTToolkit latestPerformKeyEquivalentEvent] release];
-    }
-    AWTToolkit.latestPerformKeyEquivalentEvent = event;
-    [event retain];
-
-    if ([event keyCode] == 24 && [[event characters] isEqual:@"+"]) {
-        return 0;
-    }
-
-    AWTToolkit.latestPerformKeyEquivalentEvent = event;
-    NSUInteger modFlags = [event modifierFlags] &
-        (NSCommandKeyMask | NSAlternateKeyMask | NSShiftKeyMask | NSControlKeyMask);
-
-    // Workaround for JBR-3544
-    // When tabbing mode is on, macOS sends "Ctrl N" and "Cmd N" when "Ctrl Opt N" and "Cmd Opt N" are pressed
-    if ([event keyCode] == 45 && ((modFlags == NSControlKeyMask) || (modFlags == NSCommandKeyMask))) {
-        return NO;
-    }
+#ifdef LOG_KEY_EVENTS
+    debugPrintNSEvent(event, "performKeyEquivalent");
+#endif
     // if IM is active key events should be ignored
     if (![self hasMarkedText] && !fInPressAndHold) {
         [self deliverJavaKeyEventHelper: event];
     }
+
+    const NSUInteger modFlags =
+        [event modifierFlags] & (NSCommandKeyMask | NSAlternateKeyMask | NSShiftKeyMask | NSControlKeyMask);
+
+    // Workaround for JBR-3544
+    // When tabbing mode is on (jdk.allowMacOSTabbedWindows=true) and "Ctrl Opt N" / "Cmd Opt N" is pressed,
+    //   macOS first sends it, and immediately then sends "Ctrl N" / "Cmd N".
+    // The workaround is to "eat" (by returning TRUE) the "Ctrl Opt N" / "Cmd Opt N",
+    //   so macOS won't send its "fallback" version ("Ctrl N" / "Cmd N").
+    if ([event keyCode] == kVK_ANSI_N) {
+        const NSUInteger ctrlOpt = (NSControlKeyMask | NSAlternateKeyMask);
+        const NSUInteger cmdOpt = (NSCommandKeyMask | NSAlternateKeyMask);
+
+        if ((modFlags == ctrlOpt) || (modFlags == cmdOpt)) {
+            [[NSApp mainMenu] performKeyEquivalent: event]; // just in case (as in the workaround for 8020209 below)
+            return YES;
+        }
+    }
+
     // Workaround for 8020209: special case for "Cmd =" and "Cmd ."
     // because Cocoa calls performKeyEquivalent twice for these keystrokes
     if (modFlags == NSCommandKeyMask) {
         NSString *eventChars = [event charactersIgnoringModifiers];
         if ([eventChars length] == 1) {
             unichar ch = [eventChars characterAtIndex:0];
-            if (ch == '=' || ch == '.' ||
-                ch == 0x044E) { // small cyrillic u
+            if (ch == '=' || ch == '.') {
                 [[NSApp mainMenu] performKeyEquivalent: event];
                 return YES;
             }
         }
+
     }
 
-    NSUInteger deviceIndependentModifierFlagsMask =
-        [event modifierFlags] & NSDeviceIndependentModifierFlagsMask;
+    JNIEnv *env = [ThreadUtilities getJNIEnvUncached];
+    NSString *captureNextAppWinKey = [PropertiesUtilities javaSystemPropertyForKey:@"apple.awt.captureNextAppWinKey"
+                                                                           withEnv:env];
+    if ([@"true" isCaseInsensitiveLike:captureNextAppWinKey]) {
+        NSUInteger deviceIndependentModifierFlagsMask =
+            [event modifierFlags] & NSDeviceIndependentModifierFlagsMask;
+        // Why translate the key code here and not just use event.characters?
+        // The default macOS shortcut for NextWindowInApplication is Cmd+Backtick. Pressing Cmd+Dead Grave also works
+        // for layouts that have the backtick as a dead key. Unfortunately, some (but notably not all) of these layouts
+        // consider Cmd+Dead Grave to also be a dead key, which means that event.characters will be an empty string.
+        // Explicitly translating the key code with a proper underlying key layout fixes this.
+        struct KeyCodeTranslationResult translationResult = TranslateKeyCodeUsingLayout(GetCurrentUnderlyingLayout(YES), [event keyCode]);
+        if (translationResult.isSuccess && translationResult.character) {
+            return isSystemShortcut_NextWindowInApplication(deviceIndependentModifierFlagsMask, [event keyCode], [NSString stringWithCharacters:&translationResult.character length:1]) ? YES : NO;
+        }
+    }
 
-    return isSystemShortcut_NextWindowInApplication(deviceIndependentModifierFlagsMask, [event characters]);
+    return NO;
 }
 
 /**
  * Utility methods and accessors
  */
 
--(void) deliverJavaMouseEvent: (NSEvent *) event {
-    BOOL isEnabled = YES;
+-(BOOL) isWindowDisabled {
     NSWindow* window = [self window];
     if ([window isKindOfClass: [AWTWindow_Panel class]] || [window isKindOfClass: [AWTWindow_Normal class]]) {
-        isEnabled = [(AWTWindow*)[window delegate] isEnabled];
+        return ![(AWTWindow*)[window delegate] isEnabled];
+    } else {
+        return NO;
     }
+}
 
-    if (!isEnabled) {
+-(void) deliverJavaMouseEvent: (NSEvent *) event {
+    if ([self isWindowDisabled]) {
         return;
     }
 
     NSEventType type = [event type];
 
     // check synthesized mouse entered/exited events
-    if ((type == NSMouseEntered && mouseIsOver) || (type == NSMouseExited && !mouseIsOver)) {
+    if ((type == NSEventTypeMouseEntered && mouseIsOver) || (type == NSEventTypeMouseExited && !mouseIsOver)) {
         return;
-    }else if ((type == NSMouseEntered && !mouseIsOver) || (type == NSMouseExited && mouseIsOver)) {
+    }else if ((type == NSEventTypeMouseEntered && !mouseIsOver) || (type == NSEventTypeMouseExited && mouseIsOver)) {
         mouseIsOver = !mouseIsOver;
     }
 
@@ -435,17 +527,17 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
     NSPoint absP = [NSEvent mouseLocation];
 
     // Convert global numbers between Cocoa's coordinate system and Java.
-    // TODO: need consitent way for doing that both with global as well as with local coordinates.
+    // TODO: need consistent way for doing that both with global as well as with local coordinates.
     // The reason to do it here is one more native method for getting screen dimension otherwise.
 
     NSRect screenRect = [[[NSScreen screens] objectAtIndex:0] frame];
     absP.y = screenRect.size.height - absP.y;
     jint clickCount;
 
-    if (type == NSMouseEntered ||
-        type == NSMouseExited ||
-        type == NSScrollWheel ||
-        type == NSMouseMoved) {
+    if (type == NSEventTypeMouseEntered ||
+        type == NSEventTypeMouseExited  ||
+        type == NSEventTypeScrollWheel  ||
+        type == NSEventTypeMouseMoved)  {
         clickCount = 0;
     } else {
         clickCount = [event clickCount];
@@ -522,138 +614,23 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
     [AWTToolkit eventCountPlusPlus];
     JNIEnv *env = [ThreadUtilities getJNIEnv];
 
-    TISInputSourceRef sourceRef = TISCopyCurrentKeyboardLayoutInputSource();
-    CFDataRef keyLayoutPtr = (CFDataRef)TISGetInputSourceProperty(
-    sourceRef, kTISPropertyUnicodeKeyLayoutData);
-    CFRelease( sourceRef);
-
-    const UCKeyboardLayout *keyboardLayout =  (UCKeyboardLayout*)CFDataGetBytePtr(keyLayoutPtr);
-
-    UInt32 isDeadKeyPressed = 0;
-    UInt32 lengthOfBuffer = 8;
-    UniChar stringWithChars[lengthOfBuffer];
-    UniCharCount actualLength = 0;
-
-    OSStatus status =  UCKeyTranslate(
-                   keyboardLayout,
-                   [event keyCode],
-                   kUCKeyActionDown,
-                   0,
-                   LMGetKbdType(),
-                   0,
-                   &isDeadKeyPressed,
-                   lengthOfBuffer,
-                   &actualLength,
-                   stringWithChars);
-
-    NSString*  charactersIgnoringModifiersAndShiftAsNsString = [NSString stringWithCharacters:stringWithChars length:actualLength];
-
     jstring characters = NULL;
-    jstring charactersIgnoringModifiers = NULL;
-    jstring charactersIgnoringModifiersAndShift = NULL;
-
-    if ([event type] != NSFlagsChanged) {
+    if ([event type] != NSEventTypeFlagsChanged) {
         characters = NSStringToJavaString(env, [event characters]);
-        charactersIgnoringModifiers = NSStringToJavaString(env, [event charactersIgnoringModifiers]);
-        charactersIgnoringModifiersAndShift = NSStringToJavaString(env, charactersIgnoringModifiersAndShiftAsNsString);
     }
-
-    jint javaDeadKeyCode = 0;
-
-    if (status == noErr && isDeadKeyPressed != 0) {
-
-        status = UCKeyTranslate(
-                    keyboardLayout,
-                    kVK_Space,
-                    kUCKeyActionDown,
-                    0,
-                    LMGetKbdType(),
-                    0,
-                    &isDeadKeyPressed,
-                    lengthOfBuffer,
-                    &actualLength,
-                    stringWithChars);
-
-        charactersIgnoringModifiersAndShift = NSStringToJavaString(env, [NSString stringWithCharacters:stringWithChars length:actualLength]);
-
-        switch ([event keyCode]) {
-            case 0x0060:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_GRAVE;
-               break;
-            case 0x00B4:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_ACUTE;
-               break;
-            case 0x0384:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_ACUTE;
-               break;
-            case 0x005E:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_CIRCUMFLEX;
-               break;
-            case 0x007E:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_TILDE;
-               break;
-            case 0x02DC:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_TILDE;
-               break;
-            case 0x00AF:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_MACRON;
-               break;
-            case 0x02D8:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_BREVE;
-               break;
-            case 0x02D9:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_ABOVEDOT;
-               break;
-            case 0x00A8:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_DIAERESIS;
-               break;
-            case 0x02DA:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_ABOVERING;
-               break;
-            case 0x02DD:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_DOUBLEACUTE;
-               break;
-            case 0x02C7:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_CARON;
-               break;
-            case 0x00B8:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_CEDILLA;
-               break;
-            case 0x02DB:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_OGONEK;
-               break;
-            case 0x037A:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_IOTA;
-               break;
-            case 0x309B:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_VOICED_SOUND;
-               break;
-            case 0x309C:
-               javaDeadKeyCode = java_awt_event_KeyEvent_VK_DEAD_SEMIVOICED_SOUND;
-                break;
-        }
-    }
-
-    jstring oldCharacters = NULL;
-    jstring oldCharactersIgnoringModifiers = NULL;
-    if ([event type] != NSFlagsChanged) {
-        oldCharacters = NSStringToJavaString(env, [event characters]);
-        oldCharactersIgnoringModifiers = NSStringToJavaString(env, [event charactersIgnoringModifiers]);
+    jstring jActualCharacters = NULL;
+    if (actualCharacters != nil) {
+        jActualCharacters = NSStringToJavaString(env, actualCharacters);
     }
 
     DECLARE_CLASS(jc_NSEvent, "sun/lwawt/macosx/NSEvent");
-    DECLARE_METHOD(jctor_NSEvent, jc_NSEvent, "<init>", "(IISLjava/lang/String;Ljava/lang/String;Ljava/lang/String;ZILjava/lang/String;Ljava/lang/String;)V");
+    DECLARE_METHOD(jctor_NSEvent, jc_NSEvent, "<init>", "(IISLjava/lang/String;Ljava/lang/String;)V");
     jobject jEvent = (*env)->NewObject(env, jc_NSEvent, jctor_NSEvent,
-                                  [event type],
-                                  [event modifierFlags],
-                                  [event keyCode],
-                                  characters,
-                                  charactersIgnoringModifiers,
-                                  charactersIgnoringModifiersAndShift,
-                                  isDeadKeyPressed,
-                                  javaDeadKeyCode,
-                                  oldCharacters,
-                                  oldCharactersIgnoringModifiers);
+                                       [event type],
+                                       [event modifierFlags],
+                                       [event keyCode],
+                                       characters,
+                                       jActualCharacters);
     CHECK_NULL(jEvent);
 
     DECLARE_CLASS(jc_PlatformView, "sun/lwawt/macosx/CPlatformView");
@@ -667,6 +644,9 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
     }
     if (characters != NULL) {
         (*env)->DeleteLocalRef(env, characters);
+    }
+    if (jActualCharacters != NULL) {
+        (*env)->DeleteLocalRef(env, jActualCharacters);
     }
     (*env)->DeleteLocalRef(env, jEvent);
 }
@@ -726,20 +706,6 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
     }
 }
 
--(BOOL) isCodePointInUnicodeBlockNeedingIMEvent: (unichar) codePoint {
-    if ((codePoint == 0x0024) || (codePoint == 0x00A3) ||
-        (codePoint == 0x00A5) ||
-        ((codePoint >= 0x20A3) && (codePoint <= 0x20BF)) ||
-        ((codePoint >= 0x3000) && (codePoint <= 0x303F)) ||
-        ((codePoint >= 0xFF00) && (codePoint <= 0xFFEF))) {
-        // Code point is in 'CJK Symbols and Punctuation' or
-        // 'Halfwidth and Fullwidth Forms' Unicode block or
-        // currency symbols unicode
-        return YES;
-    }
-    return NO;
-}
-
 -(NSMutableString *) parseString : (id) complexString {
     if ([complexString isKindOfClass:[NSString class]]) {
         return [complexString mutableCopy];
@@ -797,12 +763,14 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
         return nil;
     }
     jobject jcomponent = [self awtComponent:env];
-    id ax = [[[JavaComponentAccessibility alloc] initWithParent:self withEnv:env withAccessible:jcomponent withIndex:-1 withView:self withJavaRole:nil] autorelease];
+    id ax = [[[CommonComponentAccessibility alloc] initWithParent:self withEnv:env withAccessible:jcomponent withIndex:-1 withView:self withJavaRole:nil] autorelease];
     (*env)->DeleteLocalRef(env, jcomponent);
     return ax;
 }
 
-- (NSArray *)accessibilityChildren {
+// NSAccessibility messages
+- (id)accessibilityChildren
+{
     AWT_ASSERT_APPKIT_THREAD;
     JNIEnv *env = [ThreadUtilities getJNIEnv];
 
@@ -815,9 +783,8 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
     return result;
 }
 
-// NSAccessibility messages
-// attribute methods
-- (BOOL)isAccessibilityElement {
+- (BOOL)isAccessibilityElement
+{
     return NO;
 }
 
@@ -860,6 +827,13 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
     return [focused accessibilitySelectedText];
 }
 
+- (void)setAccessibilitySelectedText:(NSString *)accessibilitySelectedText {
+    id focused = [self accessibilityFocusedUIElement];
+    if ([focused respondsToSelector:@selector(setAccessibilitySelectedText:)]) {
+    [focused setAccessibilitySelectedText:accessibilitySelectedText];
+}
+}
+
 // same as above, but converts to RTFD
 - (NSData *)accessibleSelectedTextAsRTFD
 {
@@ -870,13 +844,6 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, N
                                 @{NSDocumentTypeDocumentAttribute: NSRTFTextDocumentType}];
     [styledText release];
     return rtfdData;
-}
-
-- (void)setAccessibilitySelectedText:(NSString *)accessibilitySelectedText {
-    id focused = [self accessibilityFocusedUIElement];
-    if ([focused respondsToSelector:@selector(setAccessibilitySelectedText:)]) {
-    [focused setAccessibilitySelectedText:accessibilitySelectedText];
-}
 }
 
 // finds the focused accessible element, and if it is a text element, sets the text in it
@@ -1149,59 +1116,48 @@ static jclass jc_CInputMethod = NULL;
     // Unicode value.
 
     NSMutableString * useString = [self parseString:aString];
-    NSUInteger utf16Length = [useString lengthOfBytesUsingEncoding:NSUTF16StringEncoding];
-    NSUInteger utf8Length = [useString lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
-    BOOL aStringIsComplex = NO;
-
-    unichar codePoint = [useString characterAtIndex:0];
+    BOOL usingComplexIM = [self hasMarkedText] || !fProcessingKeystroke;
 
 #ifdef IM_DEBUG
+    NSUInteger utf16Length = [useString lengthOfBytesUsingEncoding:NSUTF16StringEncoding];
+    NSUInteger utf8Length = [useString lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+
     NSLog(@"insertText kbdlayout %@ ",(NSString *)kbdLayout);
+
+    NSLog(@"utf8Length %lu utf16Length %lu", (unsigned long)utf8Length, (unsigned long)utf16Length);
 #endif // IM_DEBUG
 
-    if ((utf16Length > 2) ||
-        ((utf8Length > 1) && [self isCodePointInUnicodeBlockNeedingIMEvent:codePoint]) ||
-        ((codePoint == 0x5c) && ([(NSString *)kbdLayout containsString:@"Kotoeri"]))) {
-        aStringIsComplex = YES;
+    JNIEnv *env = [ThreadUtilities getJNIEnv];
+
+    GET_CIM_CLASS();
+    // We need to select the previous glyph so that it is overwritten.
+    if (fPAHNeedsToSelect) {
+        DECLARE_METHOD(jm_selectPreviousGlyph, jc_CInputMethod, "selectPreviousGlyph", "()V");
+        (*env)->CallVoidMethod(env, fInputMethodLOCKABLE, jm_selectPreviousGlyph);
+        CHECK_EXCEPTION();
+        fPAHNeedsToSelect = NO;
     }
 
-    if ([self hasMarkedText] || !fProcessingKeystroke || aStringIsComplex) {
-        JNIEnv *env = [ThreadUtilities getJNIEnv];
-
-        GET_CIM_CLASS();
-        DECLARE_METHOD(jm_selectPreviousGlyph, jc_CInputMethod, "selectPreviousGlyph", "()V");
-        // We need to select the previous glyph so that it is overwritten.
-        if (fPAHNeedsToSelect) {
-            (*env)->CallVoidMethod(env, fInputMethodLOCKABLE, jm_selectPreviousGlyph);
-            CHECK_EXCEPTION();
-            fPAHNeedsToSelect = NO;
-        }
-
+    if (usingComplexIM) {
         DECLARE_METHOD(jm_insertText, jc_CInputMethod, "insertText", "(Ljava/lang/String;)V");
         jstring insertedText =  NSStringToJavaString(env, useString);
         (*env)->CallVoidMethod(env, fInputMethodLOCKABLE, jm_insertText, insertedText);
         CHECK_EXCEPTION();
         (*env)->DeleteLocalRef(env, insertedText);
-
-        // The input method event will create psuedo-key events for each character in the committed string.
-        // We also don't want to send the character that triggered the insertText, usually a return. [3337563]
         fKeyEventsNeeded = NO;
-    }
-    else {
-        // Need to set back the fKeyEventsNeeded flag so that the string following the
-        // marked text is not ignored by keyDown
-        if ([useString length] > 0) {
-            fKeyEventsNeeded = YES;
+    } else {
+        if (actualCharacters != nil) {
+            [actualCharacters release];
         }
+        actualCharacters = [useString copy];
+        fKeyEventsNeeded = YES;
     }
     fPAHNeedsToSelect = NO;
 
     // Abandon input to reset IM and unblock input after entering accented
-    // symbols (macOS 10.14+ only)
+    // symbols
 
-    if (IS_OSX_GT10_13) {
-        [self abandonInput];
-    }
+    [self abandonInput:nil];
 }
 
 + (void)keyboardInputSourceChanged:(NSNotification *)notification
@@ -1245,7 +1201,7 @@ static jclass jc_CInputMethod = NULL;
 
     // NSInputContext already did the analysis of the TSM event and created attributes indicating
     // the underlining and color that should be done to the string.  We need to look at the underline
-    // style and color to determine what kind of Java hilighting needs to be done.
+    // style and color to determine what kind of Java highlighting needs to be done.
     jstring inProcessText = NSStringToJavaString(env, incomingString);
     (*env)->CallVoidMethod(env, fInputMethodLOCKABLE, jm_startIMUpdate, inProcessText);
     CHECK_EXCEPTION();
@@ -1295,7 +1251,11 @@ static jclass jc_CInputMethod = NULL;
     }
 }
 
-- (void) unmarkText
+- (void) unmarkText {
+    [self unmarkText:nil];
+}
+
+- (void) unmarkText:(jobject) component
 {
 #ifdef IM_DEBUG
     fprintf(stderr, "AWTView InputMethod Selector Called : [unmarkText]\n");
@@ -1308,8 +1268,8 @@ static jclass jc_CInputMethod = NULL;
     // unmarkText cancels any input in progress and commits it to the text field.
     JNIEnv *env = [ThreadUtilities getJNIEnv];
     GET_CIM_CLASS();
-    DECLARE_METHOD(jm_unmarkText, jc_CInputMethod, "unmarkText", "()V");
-    (*env)->CallVoidMethod(env, fInputMethodLOCKABLE, jm_unmarkText);
+    DECLARE_METHOD(jm_unmarkText, jc_CInputMethod, "unmarkText", "(Ljava/awt/Component;)V");
+    (*env)->CallVoidMethod(env, fInputMethodLOCKABLE, jm_unmarkText, component);
     CHECK_EXCEPTION();
 }
 
@@ -1363,9 +1323,6 @@ static jclass jc_CInputMethod = NULL;
         return nil;
     }
 
-    if (!fInputMethodLOCKABLE) {
-        return NULL;
-    }
     JNIEnv *env = [ThreadUtilities getJNIEnv];
     GET_CIM_CLASS_RETURN(nil);
     DECLARE_METHOD_RETURN(jm_substringFromRange, jc_CInputMethod, "attributedSubstringFromRange", "(II)Ljava/lang/String;", nil);
@@ -1462,7 +1419,7 @@ static jclass jc_CInputMethod = NULL;
     return range;
 }
 
-/* This method returns the first frame of rects for theRange in screen coordindate system.
+/* This method returns the first frame of rects for theRange in screen coordinate system.
  */
 - (NSRect) firstRectForCharacterRange:(NSRange)theRange actualRange:(NSRangePointer)actualRange
 {
@@ -1573,20 +1530,41 @@ static jclass jc_CInputMethod = NULL;
                                              object:nil];
 }
 
-- (void)abandonInput
+- (void)abandonInput:(jobject) component
 {
 #ifdef IM_DEBUG
     fprintf(stderr, "AWTView InputMethod Selector Called : [abandonInput]\n");
 #endif // IM_DEBUG
 
     [ThreadUtilities performOnMainThread:@selector(markedTextAbandoned:) on:[NSInputManager currentInputManager] withObject:self waitUntilDone:YES];
-    [self unmarkText];
+    [self unmarkText:component];
 }
 
 /********************************   END NSTextInputClient Protocol   ********************************/
 
+- (void)viewDidChangeBackingProperties {
+    JNIEnv *env = [ThreadUtilities getJNIEnv];
+    if ((*env)->IsSameObject(env, m_cPlatformView, NULL)) {
+        return;
+    }
+    static double debugScale = -2.0;
+    if (debugScale == -2.0) { // default debugScale value in SGE is -1.0
+        debugScale = JNU_CallStaticMethodByName(env, NULL, "sun/java2d/SunGraphicsEnvironment",
+                                                "getDebugScale", "()D").d;
+    }
 
-
+    if (self.window.backingScaleFactor > 0 && debugScale < 0) {
+        if (self.layer.contentsScale != self.window.backingScaleFactor) {
+            self.layer.contentsScale = self.window.backingScaleFactor;
+            DECLARE_CLASS(jc_CPlatformView, "sun/lwawt/macosx/CPlatformView");
+            DECLARE_METHOD(deliverChangeBackingProperties, jc_CPlatformView, "deliverChangeBackingProperties", "(F)V");
+            jobject jlocal = (*env)->NewLocalRef(env, m_cPlatformView);
+            (*env)->CallVoidMethod(env, jlocal, deliverChangeBackingProperties, self.window.backingScaleFactor);
+            CHECK_EXCEPTION();
+            (*env)->DeleteLocalRef(env, jlocal);
+        }
+    }
+}
 
 @end // AWTView
 

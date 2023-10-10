@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,15 +23,15 @@
  */
 
 #include "precompiled.hpp"
-#include "asm/assembler.hpp"
+#include "asm/assembler.inline.hpp"
 #include "asm/macroAssembler.inline.hpp"
-#include "assembler_arm.inline.hpp"
 #include "code/vtableStubs.hpp"
 #include "interp_masm_arm.hpp"
 #include "memory/resourceArea.hpp"
 #include "oops/compiledICHolder.hpp"
 #include "oops/instanceKlass.hpp"
 #include "oops/klassVtable.hpp"
+#include "oops/klass.inline.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "vmreg_arm.inline.hpp"
 #ifdef COMPILER2
@@ -51,9 +51,9 @@ VtableStub* VtableStubs::create_vtable_stub(int vtable_index) {
   // Read "A word on VtableStub sizing" in share/code/vtableStubs.hpp for details on stub sizing.
   const int stub_code_length = code_size_limit(true);
   VtableStub* s = new(stub_code_length) VtableStub(true, vtable_index);
-  // Can be NULL if there is no free space in the code cache.
-  if (s == NULL) {
-    return NULL;
+  // Can be null if there is no free space in the code cache.
+  if (s == nullptr) {
+    return nullptr;
   }
 
   // Count unused bytes in instruction sequences of variable size.
@@ -89,10 +89,10 @@ VtableStub* VtableStubs::create_vtable_stub(int vtable_index) {
   start_pc = __ pc();
   { // lookup virtual method
     int entry_offset = in_bytes(Klass::vtable_start_offset()) + vtable_index * vtableEntry::size_in_bytes();
-    int method_offset = vtableEntry::method_offset_in_bytes() + entry_offset;
+    int method_offset = in_bytes(vtableEntry::method_offset()) + entry_offset;
 
     assert ((method_offset & (wordSize - 1)) == 0, "offset should be aligned");
-    int offset_mask = AARCH64_ONLY(0xfff << LogBytesPerWord) NOT_AARCH64(0xfff);
+    int offset_mask = 0xfff;
     if (method_offset & ~offset_mask) {
       __ add(tmp, tmp, method_offset & ~offset_mask);
     }
@@ -109,12 +109,7 @@ VtableStub* VtableStubs::create_vtable_stub(int vtable_index) {
 #endif
 
   address ame_addr = __ pc();
-#ifdef AARCH64
-  __ ldr(tmp, Address(Rmethod, Method::from_compiled_offset()));
-  __ br(tmp);
-#else
   __ ldr(PC, Address(Rmethod, Method::from_compiled_offset()));
-#endif // AARCH64
 
   masm->flush();
   bookkeeping(masm, tty, s, npe_addr, ame_addr, true, vtable_index, slop_bytes, 0);
@@ -126,9 +121,9 @@ VtableStub* VtableStubs::create_itable_stub(int itable_index) {
   // Read "A word on VtableStub sizing" in share/code/vtableStubs.hpp for details on stub sizing.
   const int stub_code_length = code_size_limit(false);
   VtableStub* s = new(stub_code_length) VtableStub(false, itable_index);
-  // Can be NULL if there is no free space in the code cache.
-  if (s == NULL) {
-    return NULL;
+  // Can be null if there is no free space in the code cache.
+  if (s == nullptr) {
+    return nullptr;
   }
   // Count unused bytes in instruction sequences of variable size.
   // We add them to the computed buffer size in order to avoid
@@ -150,9 +145,9 @@ VtableStub* VtableStubs::create_itable_stub(int itable_index) {
   assert(VtableStub::receiver_location() == R0->as_VMReg(), "receiver expected in R0");
 
   // R0-R3 / R0-R7 registers hold the arguments and cannot be spoiled
-  const Register Rclass  = AARCH64_ONLY(R9)  NOT_AARCH64(R4);
-  const Register Rintf   = AARCH64_ONLY(R10) NOT_AARCH64(R5);
-  const Register Rscan   = AARCH64_ONLY(R11) NOT_AARCH64(R6);
+  const Register Rclass  = R4;
+  const Register Rintf   = R5;
+  const Register Rscan   = R6;
 
   Label L_no_such_interface;
 
@@ -200,12 +195,7 @@ VtableStub* VtableStubs::create_itable_stub(int itable_index) {
 
   address ame_addr = __ pc();
 
-#ifdef AARCH64
-  __ ldr(Rtemp, Address(Rmethod, Method::from_compiled_offset()));
-  __ br(Rtemp);
-#else
   __ ldr(PC, Address(Rmethod, Method::from_compiled_offset()));
-#endif // AARCH64
 
   __ bind(L_no_such_interface);
   // Handle IncompatibleClassChangeError in itable stubs.
@@ -213,7 +203,7 @@ VtableStub* VtableStubs::create_itable_stub(int itable_index) {
   // We force resolving of the call site by jumping to the "handle
   // wrong method" stub, and so let the interpreter runtime do all the
   // dirty work.
-  assert(SharedRuntime::get_handle_wrong_method_stub() != NULL, "check initialization order");
+  assert(SharedRuntime::get_handle_wrong_method_stub() != nullptr, "check initialization order");
   __ jump(SharedRuntime::get_handle_wrong_method_stub(), relocInfo::runtime_call_type, Rtemp);
 
   masm->flush();

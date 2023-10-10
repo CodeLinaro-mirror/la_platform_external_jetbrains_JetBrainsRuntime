@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2016, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,7 +41,10 @@ import java.util.Deque;
 import java.util.List;
 
 import jdk.jfr.internal.consumer.ChunkHeader;
+import jdk.jfr.internal.consumer.FileAccess;
 import jdk.jfr.internal.consumer.RecordingInput;
+import jdk.jfr.internal.util.UserDataException;
+import jdk.jfr.internal.util.UserSyntaxException;
 
 final class Disassemble extends Command {
 
@@ -76,7 +79,7 @@ final class Disassemble extends Command {
 
     @Override
     public String getDescription() {
-        return "Disassamble a recording file into smaller files/chunks";
+        return "Disassemble a recording file into smaller files/chunks";
     }
 
     @Override
@@ -163,7 +166,7 @@ final class Disassemble extends Command {
     }
 
     private List<Long> findChunkSizes(Path p) throws IOException {
-        try (RecordingInput input = new RecordingInput(p.toFile())) {
+        try (RecordingInput input = new RecordingInput(p.toFile(), FileAccess.UNPRIVILEGED)) {
             List<Long> sizes = new ArrayList<>();
             ChunkHeader ch = new ChunkHeader(input);
             sizes.add(ch.getSize());
@@ -181,19 +184,13 @@ final class Disassemble extends Command {
         long fileSize = sizes.get(0);
         for (int i = 1; i < sizes.size(); i++) {
             long size = sizes.get(i);
-            if (fileSize + size > maxSize) {
+            if (fileSize + size > maxSize || chunks == maxChunks) {
                 reduced.add(fileSize);
                 chunks = 1;
                 fileSize = size;
                 continue;
             }
             fileSize += size;
-            if (chunks == maxChunks) {
-                reduced.add(fileSize);
-                fileSize = 0;
-                chunks = 1;
-                continue;
-            }
             chunks++;
         }
         if (fileSize != 0) {

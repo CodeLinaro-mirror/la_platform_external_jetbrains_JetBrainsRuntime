@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,54 +26,23 @@
 package com.sun.jndi.ldap;
 
 import java.util.Hashtable;
-import java.util.List;
 import java.util.Vector;
 import java.util.Enumeration;
 
 import javax.naming.*;
 import javax.naming.directory.*;
-
+import javax.naming.ldap.spi.LdapDnsProviderResult;
 import javax.naming.spi.ObjectFactory;
-
-import jdk.internal.misc.Unsafe;
-
 import javax.naming.spi.InitialContextFactory;
 import javax.naming.ldap.Control;
 
 import com.sun.jndi.url.ldap.ldapURLContextFactory;
 
-final public class LdapCtxFactory implements ObjectFactory, InitialContextFactory {
+public final class LdapCtxFactory implements ObjectFactory, InitialContextFactory {
     /**
      * The type of each address in an LDAP reference.
      */
-    public final static String ADDRESS_TYPE = "URL";
-
-    /**
-     * Access to LDAP DNS providers implementing abstract service class
-     * com.sun.jndi.ldap.spi.LdapDnsProvider of module jdk.naming.ldap
-     */
-    private static LdapDnsProviderServiceInternal ldapDNSService = null;
-
-    // trigger initialization of class LdapDnsProviderService which implements
-    // LdapDnsProviderServiceInternal and registers itself by calling
-    // registerLdapDnsProviderService
-    static {
-        try {
-            Class<?> c = Class.forName("com.sun.jndi.ldap.dns.LdapDnsProviderService");
-            Unsafe.getUnsafe().ensureClassInitialized(c);
-        } catch (ClassNotFoundException e) {
-            // ignore
-        }
-    }
-
-    /**
-     * Register the LDAP DNS provider service.
-     *
-     * @param theService Implementation of LdapDnsProviderServiceInternal to be registered
-     */
-    public static void registerLdapDnsProviderService(LdapDnsProviderServiceInternal theService) {
-        ldapDNSService = theService;
-    }
+    public static final String ADDRESS_TYPE = "URL";
 
     // ----------------- ObjectFactory interface --------------------
 
@@ -193,14 +162,8 @@ final public class LdapCtxFactory implements ObjectFactory, InitialContextFactor
             throws NamingException
     {
         try {
-            LdapDnsProviderResultInternal r = (ldapDNSService != null) ?
-                    ldapDNSService.lookupEndpointsInternal(url, env) : null;
-
-            if (r == null) {
-                r = new DefaultLdapDnsProvider().lookupEndpoints(url, env)
-                        .orElse(new LdapDnsProviderResultInternal("", List.of()));
-            }
-
+            LdapDnsProviderResult r =
+                LdapDnsProviderService.getInstance().lookupEndpoints(url, env);
             LdapCtx ctx;
             NamingException lastException = null;
 
@@ -226,6 +189,10 @@ final public class LdapCtxFactory implements ObjectFactory, InitialContextFactor
                     ctx = getLdapCtxFromUrl(
                             r.getDomainName(), url, new LdapURL(u), env);
                     return ctx;
+                } catch (AuthenticationException e) {
+                    // do not retry on a different endpoint to avoid blocking
+                    // the user if authentication credentials are wrong.
+                    throw e;
                 } catch (NamingException e) {
                     // try the next element
                     lastException = e;
@@ -278,6 +245,10 @@ final public class LdapCtxFactory implements ObjectFactory, InitialContextFactor
         for (String u : urls) {
             try {
                 return getUsingURL(u, env);
+            } catch (AuthenticationException e) {
+                // do not retry on a different URL to avoid blocking
+                // the user if authentication credentials are wrong.
+                throw e;
             } catch (NamingException e) {
                 ex = e;
             }

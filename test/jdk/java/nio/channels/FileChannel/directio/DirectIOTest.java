@@ -25,8 +25,7 @@
  * @test
  * @bug 8164900
  * @summary Test for ExtendedOpenOption.DIRECT flag
- * @requires (os.family == "linux" | os.family == "solaris"
- *         | os.family == "aix")
+ * @requires (os.family == "linux" | os.family == "aix")
  * @library /test/lib
  * @build jdk.test.lib.Platform
  * @run main/native DirectIOTest
@@ -85,20 +84,6 @@ public class DirectIOTest {
             Paths.get(System.getProperty("test.dir", ".")), "test", null);
     }
 
-    public static boolean isDirectIOSupportedByFS(Path p) throws Exception {
-        boolean supported = true;
-        if (Platform.isSolaris()) {
-            String fsType = Files.getFileStore(p).type();
-            if (!fsType.equals("nfs") && !fsType.equals("ufs")) {
-                // print a message and return without failing
-                System.out.format("Skipping test: file system type %s of "
-                    + "FileStore of %s is neither nfs nor ufs.%n", fsType, p);
-                supported = false;
-            }
-        }
-        return supported;
-    }
-
     private static boolean isFileInCache(int size, Path p) {
         String path = p.toString();
         return isFileInCache0(size, path);
@@ -109,11 +94,6 @@ public class DirectIOTest {
     public static void main(String[] args) throws Exception {
         Path p = createTempFile();
         long blockSize = Files.getFileStore(p).getBlockSize();
-
-        if (!isDirectIOSupportedByFS(p)) {
-            Files.delete(p);
-            return;
-        }
 
         System.loadLibrary("DirectIO");
 

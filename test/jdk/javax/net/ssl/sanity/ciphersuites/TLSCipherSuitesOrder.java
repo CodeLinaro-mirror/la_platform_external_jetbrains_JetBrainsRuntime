@@ -128,8 +128,9 @@ public class TLSCipherSuitesOrder extends SSLSocketTemplate {
         TLSv13("TLSv1.3",
                 new String[]{
                     "TLS_AES_256_GCM_SHA384",
-                    "TLS_AES_128_GCM_SHA256"},
-                new String[]{
+                    "TLS_AES_128_GCM_SHA256",
+                    "TLS_CHACHA20_POLY1305_SHA256"},
+                new String[]{"TLS_CHACHA20_POLY1305_SHA256",
                     "TLS_AES_128_GCM_SHA256",
                     "TLS_AES_256_GCM_SHA384"}),
         TLSv12("TLSv1.2",

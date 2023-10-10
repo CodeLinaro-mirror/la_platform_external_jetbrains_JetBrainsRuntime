@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -49,8 +49,8 @@ class OperatingSystemImpl extends BaseOperatingSystemImpl
     private ContainerCpuTicks processLoadTicks = new ProcessCpuTicks();
 
     private abstract class ContainerCpuTicks {
-        private long usageTicks = 0;
-        private long totalTicks = 0;
+        private volatile long usageTicks;
+        private volatile long totalTicks;
 
         private double getUsageDividesTotal(long usageTicks, long totalTicks) {
             // If cpu quota or cpu shares are in effect. Calculate the cpu load
@@ -88,15 +88,8 @@ class OperatingSystemImpl extends BaseOperatingSystemImpl
                 long numPeriods = containerMetrics.getCpuNumPeriods();
                 long quotaNanos = TimeUnit.MICROSECONDS.toNanos(quota * numPeriods);
                 return getUsageDividesTotal(cpuUsageSupplier().getAsLong(), quotaNanos);
-            } else if (share > 0) {
-                long hostTicks = getHostTotalCpuTicks0();
-                int totalCPUs = getHostOnlineCpuCount0();
-                int containerCPUs = getAvailableProcessors();
-                // scale the total host load to the actual container cpus
-                hostTicks = hostTicks * containerCPUs / totalCPUs;
-                return getUsageDividesTotal(cpuUsageSupplier().getAsLong(), hostTicks);
             } else {
-                // If CPU quotas and shares are not active then find the average load for
+                // If CPU quotas are not active then find the average load for
                 // all online CPUs that are allowed to run this container.
 
                 // If the cpuset is the same as the host's one there is no need to iterate over each CPU
@@ -152,7 +145,7 @@ class OperatingSystemImpl extends BaseOperatingSystemImpl
 
         @Override
         protected DoubleSupplier defaultCpuLoadSupplier() {
-            return () -> getSystemCpuLoad0();
+            return () -> getCpuLoad0();
         }
 
         @Override
@@ -195,8 +188,7 @@ class OperatingSystemImpl extends BaseOperatingSystemImpl
             // it can use as much memory as the host's OS allows.
             long memLimit = containerMetrics.getMemoryLimit();
             if (limit >= 0 && memLimit >= 0) {
-                // we see a limit == 0 on some machines where "kernel does not support swap limit capabilities"
-                return (limit < memLimit) ? 0 : limit - memLimit;
+                return limit - memLimit; // might potentially be 0 for limit == memLimit
             }
         }
         return getTotalSwapSpaceSize0();
@@ -238,7 +230,7 @@ class OperatingSystemImpl extends BaseOperatingSystemImpl
         return getProcessCpuTime0();
     }
 
-    public long getFreePhysicalMemorySize() {
+    public long getFreeMemorySize() {
         if (containerMetrics != null) {
             long usage = containerMetrics.getMemoryUsage();
             long limit = containerMetrics.getMemoryLimit();
@@ -246,17 +238,17 @@ class OperatingSystemImpl extends BaseOperatingSystemImpl
                 return limit - usage;
             }
         }
-        return getFreePhysicalMemorySize0();
+        return getFreeMemorySize0();
     }
 
-    public long getTotalPhysicalMemorySize() {
+    public long getTotalMemorySize() {
         if (containerMetrics != null) {
             long limit = containerMetrics.getMemoryLimit();
             if (limit >= 0) {
                 return limit;
             }
         }
-        return getTotalPhysicalMemorySize0();
+        return getTotalMemorySize0();
     }
 
     public long getOpenFileDescriptorCount() {
@@ -267,11 +259,11 @@ class OperatingSystemImpl extends BaseOperatingSystemImpl
         return getMaxFileDescriptorCount0();
     }
 
-    public double getSystemCpuLoad() {
+    public double getCpuLoad() {
         if (containerMetrics != null) {
             return systemLoadTicks.getContainerCpuLoad();
         }
-        return getSystemCpuLoad0();
+        return getCpuLoad0();
     }
 
     public double getProcessCpuLoad() {
@@ -282,7 +274,7 @@ class OperatingSystemImpl extends BaseOperatingSystemImpl
     }
 
     private boolean isCpuSetSameAsHostCpuSet() {
-        if (containerMetrics != null) {
+        if (containerMetrics != null && containerMetrics.getCpuSetCpus() != null) {
             return containerMetrics.getCpuSetCpus().length == getHostOnlineCpuCount0();
         }
         return false;
@@ -290,14 +282,14 @@ class OperatingSystemImpl extends BaseOperatingSystemImpl
 
     /* native methods */
     private native long getCommittedVirtualMemorySize0();
-    private native long getFreePhysicalMemorySize0();
+    private native long getFreeMemorySize0();
     private native long getFreeSwapSpaceSize0();
     private native long getMaxFileDescriptorCount0();
     private native long getOpenFileDescriptorCount0();
     private native long getProcessCpuTime0();
     private native double getProcessCpuLoad0();
-    private native double getSystemCpuLoad0();
-    private native long getTotalPhysicalMemorySize0();
+    private native double getCpuLoad0();
+    private native long getTotalMemorySize0();
     private native long getTotalSwapSpaceSize0();
     private native double getSingleCpuLoad0(int cpuNum);
     private native int getHostConfiguredCpuCount0();

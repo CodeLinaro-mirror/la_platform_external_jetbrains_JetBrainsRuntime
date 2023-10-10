@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2016, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,8 +22,8 @@
  *
  */
 
-#ifndef SHARE_VM_JFR_RECORDER_CHECKPOINT_TYPES_JFRTYPESET_HPP
-#define SHARE_VM_JFR_RECORDER_CHECKPOINT_TYPES_JFRTYPESET_HPP
+#ifndef SHARE_JFR_RECORDER_CHECKPOINT_TYPES_JFRTYPESET_HPP
+#define SHARE_JFR_RECORDER_CHECKPOINT_TYPES_JFRTYPESET_HPP
 
 #include "jfr/utilities/jfrAllocation.hpp"
 
@@ -32,7 +32,8 @@ class JfrCheckpointWriter;
 class JfrTypeSet : AllStatic {
  public:
   static void clear();
-  static size_t serialize(JfrCheckpointWriter* writer, JfrCheckpointWriter* leakp_writer, bool class_unload);
+  static size_t serialize(JfrCheckpointWriter* writer, JfrCheckpointWriter* leakp_writer, bool class_unload, bool flushpoint);
+  static size_t on_unloading_classes(JfrCheckpointWriter* writer);
 };
 
-#endif // SHARE_VM_JFR_RECORDER_CHECKPOINT_TYPES_JFRTYPESET_HPP
+#endif // SHARE_JFR_RECORDER_CHECKPOINT_TYPES_JFRTYPESET_HPP

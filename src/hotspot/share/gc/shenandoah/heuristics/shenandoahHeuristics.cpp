@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2018, 2020, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -22,7 +23,6 @@
  */
 
 #include "precompiled.hpp"
-
 #include "gc/shared/gcCause.hpp"
 #include "gc/shenandoah/shenandoahCollectionSet.inline.hpp"
 #include "gc/shenandoah/shenandoahCollectorPolicy.hpp"
@@ -32,6 +32,7 @@
 #include "gc/shenandoah/heuristics/shenandoahHeuristics.hpp"
 #include "logging/log.hpp"
 #include "logging/logTag.hpp"
+#include "runtime/globals_extension.hpp"
 
 int ShenandoahHeuristics::compare_by_garbage(RegionData a, RegionData b) {
   if (a._garbage > b._garbage)
@@ -42,14 +43,14 @@ int ShenandoahHeuristics::compare_by_garbage(RegionData a, RegionData b) {
 }
 
 ShenandoahHeuristics::ShenandoahHeuristics() :
-  _region_data(NULL),
+  _region_data(nullptr),
   _degenerated_cycles_in_a_row(0),
   _successful_cycles_in_a_row(0),
   _cycle_start(os::elapsedTime()),
   _last_cycle_end(0),
   _gc_times_learned(0),
   _gc_time_penalties(0),
-  _gc_time_history(new TruncatedSeq(5)),
+  _gc_time_history(new TruncatedSeq(10, ShenandoahAdaptiveDecayFactor)),
   _metaspace_oom()
 {
   // No unloading during concurrent mark? Communicate that to heuristics
@@ -118,7 +119,7 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
       // Reclaim humongous regions here, and count them as the immediate garbage
 #ifdef ASSERT
       bool reg_live = region->has_live();
-      bool bm_live = ctx->is_marked(oop(region->bottom()));
+      bool bm_live = ctx->is_marked(cast_to_oop(region->bottom()));
       assert(reg_live == bm_live,
              "Humongous liveness and marks should agree. Region live: %s; Bitmap live: %s; Region Live Words: " SIZE_FORMAT,
              BOOL_TO_STR(reg_live), BOOL_TO_STR(bm_live), region->get_live_data_words());
@@ -181,7 +182,7 @@ void ShenandoahHeuristics::record_cycle_end() {
   _last_cycle_end = os::elapsedTime();
 }
 
-bool ShenandoahHeuristics::should_start_gc() const {
+bool ShenandoahHeuristics::should_start_gc() {
   // Perform GC to cleanup metaspace
   if (has_metaspace_oom()) {
     // Some of vmTestbase/metaspace tests depend on following line to count GC cycles
@@ -254,18 +255,6 @@ void ShenandoahHeuristics::record_requested_gc() {
   // Assume users call System.gc() when external state changes significantly,
   // which forces us to re-learn the GC timings and allocation rates.
   _gc_times_learned = 0;
-}
-
-bool ShenandoahHeuristics::can_process_references() {
-  if (ShenandoahRefProcFrequency == 0) return false;
-  return true;
-}
-
-bool ShenandoahHeuristics::should_process_references() {
-  if (!can_process_references()) return false;
-  size_t cycle = ShenandoahHeap::heap()->shenandoah_policy()->cycle_counter();
-  // Process references every Nth GC cycle.
-  return cycle % ShenandoahRefProcFrequency == 0;
 }
 
 bool ShenandoahHeuristics::can_unload_classes() {

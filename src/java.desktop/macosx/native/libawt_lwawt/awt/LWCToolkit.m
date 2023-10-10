@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,8 +40,13 @@
 #import "sun_lwawt_macosx_LWCToolkit.h"
 
 #import "sizecalc.h"
+#import "AWTWindow.h"
 
 #import <JavaRuntimeSupport/JavaRuntimeSupport.h>
+#import <Carbon/Carbon.h>
+
+#include <IOKit/hidsystem/IOHIDShared.h>
+#include <IOKit/hidsystem/IOHIDParameter.h>
 
 // SCROLL PHASE STATE
 #define SCROLL_PHASE_UNSUPPORTED 1
@@ -69,15 +74,7 @@ static BOOL sAppKitStarted = NO;
 static pthread_mutex_t sAppKitStarted_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t sAppKitStarted_cv = PTHREAD_COND_INITIALIZER;
 
-static time_t YEAR_SECONDS = 60 * 60 * 24 * 365;
-
 @implementation AWTToolkit
-
-static NSEvent* latestPerformKeyEquivalentEvent;
-+ (NSEvent*) latestPerformKeyEquivalentEvent
-{ @synchronized(self) { return latestPerformKeyEquivalentEvent; } }
-+ (void) setLatestPerformKeyEquivalentEvent:(NSEvent*) e
-{ @synchronized(self) { latestPerformKeyEquivalentEvent = e; } }
 
 static long eventCount;
 static BOOL inDoDragDropLoop;
@@ -108,7 +105,7 @@ static BOOL inDoDragDropLoop;
 
 + (jint) scrollStateWithEvent: (NSEvent*) event {
 
-    if ([event type] != NSScrollWheel) {
+    if ([event type] != NSEventTypeScrollWheel) {
         return 0;
     }
 
@@ -136,7 +133,7 @@ static BOOL inDoDragDropLoop;
 }
 
 + (BOOL) hasPreciseScrollingDeltas: (NSEvent*) event {
-    return [event type] == NSScrollWheel
+    return [event type] == NSEventTypeScrollWheel
         && [event respondsToSelector:@selector(hasPreciseScrollingDeltas)]
         && [event hasPreciseScrollingDeltas];
 }
@@ -588,8 +585,7 @@ JNI_COCOA_EXIT(env);
 JNIEXPORT jboolean JNICALL Java_sun_lwawt_macosx_LWCToolkit_doAWTRunLoopImpl
 (JNIEnv *env, jclass clz, jlong mediator, jboolean processEvents, jboolean inAWT, jint timeoutSeconds/*(-1) for infinite*/)
 {
-AWT_ASSERT_APPKIT_THREAD;
-
+    AWT_ASSERT_APPKIT_THREAD;
     jboolean result = JNI_TRUE;
 JNI_COCOA_ENTER(env);
 
@@ -597,17 +593,21 @@ JNI_COCOA_ENTER(env);
 
     if (mediatorObject == nil) return JNI_TRUE;
 
-    time_t timeThreshold = timeoutSeconds < 0 ? time(NULL) + YEAR_SECONDS : time(NULL) + timeoutSeconds;
+    NSDate *date = timeoutSeconds > 0 ? [NSDate dateWithTimeIntervalSinceNow:timeoutSeconds] : nil;
 
     // Don't use acceptInputForMode because that doesn't setup autorelease pools properly
     BOOL isRunning = true;
     while (![mediatorObject shouldEndRunLoop] && isRunning) {
         isRunning = [[NSRunLoop currentRunLoop] runMode:(inAWT ? [ThreadUtilities javaRunLoopMode] : NSDefaultRunLoopMode)
                                              beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.010]];
-        if (difftime(timeThreshold, time(NULL)) < 0) {
-            result = JNI_FALSE;
-            break;
+
+        if (date != nil) {
+            NSDate *now = [[NSDate alloc] init];
+            if ([date compare:(now)] == NSOrderedAscending) result = JNI_FALSE;
+            [now release];
+            if (result == JNI_FALSE) break;
         }
+
         if (processEvents) {
             //We do not spin a runloop here as date is nil, so does not matter which mode to use
             // Processing all events excluding NSApplicationDefined which need to be processed
@@ -617,13 +617,18 @@ JNI_COCOA_ENTER(env);
                                            untilDate:nil
                                               inMode:NSDefaultRunLoopMode
                                              dequeue:YES]) != nil) {
-                [NSApp sendEvent:event];
+                if ([event.window isKindOfClass:[AWTWindow_Normal class]]) {
+                    // Filter only events from AWTWindow (to skip events from ScreenMenu)
+                    // See https://youtrack.jetbrains.com/issue/IDEA-305287/Implement-non-blocking-ScreenMenu.invokeOpenLater#focus=Comments-27-6614719.0-0
+                    [NSApp sendEvent:event];
+                }
             }
 
         }
     }
     [mediatorObject release];
 JNI_COCOA_EXIT(env);
+
     return result;
 }
 
@@ -649,6 +654,8 @@ JNIEXPORT void JNICALL Java_sun_lwawt_macosx_LWCToolkit_stopAWTRunLoop
 JNI_COCOA_ENTER(env);
 
     AWTRunLoopObject* mediatorObject = (AWTRunLoopObject*)jlong_to_ptr(mediator);
+
+    if (mediatorObject == nil) return;
 
     [ThreadUtilities performOnMainThread:@selector(endRunLoop) on:mediatorObject withObject:nil waitUntilDone:NO];
 
@@ -718,18 +725,17 @@ JNIEXPORT jboolean JNICALL Java_sun_lwawt_macosx_LWCToolkit_isCapsLockOn
 JNIEXPORT jboolean JNICALL Java_sun_lwawt_macosx_LWCToolkit_isApplicationActive
 (JNIEnv *env, jclass clazz)
 {
-        __block jboolean active = JNI_FALSE;
+    __block jboolean active = JNI_FALSE;
 
-AWT_ASSERT_NOT_APPKIT_THREAD;
 JNI_COCOA_ENTER(env);
 
-        [ThreadUtilities performOnMainThreadWaiting:YES block:^() {
-                active = (jboolean)[NSRunningApplication currentApplication].active;
-        }];
+    [ThreadUtilities performOnMainThreadWaiting:YES block:^() {
+        active = (jboolean)[NSRunningApplication currentApplication].active;
+    }];
 
 JNI_COCOA_EXIT(env);
 
-        return active;
+    return active;
 }
 
 /*
@@ -807,7 +813,7 @@ Java_sun_lwawt_macosx_LWCToolkit_initIDs
     CHECK_NULL(getButtonDownMasksID);
     jintArray obj = (jintArray)(*env)->CallStaticObjectMethod(env, inputEventClazz, getButtonDownMasksID);
     CHECK_EXCEPTION();
-    jint * tmp = (*env)->GetIntArrayElements(env, obj, JNI_FALSE);
+    jint * tmp = (*env)->GetIntArrayElements(env, obj, NULL);
     CHECK_NULL(tmp);
 
     gButtonDownMasks = (jint*)SAFE_SIZE_ARRAY_ALLOC(malloc, sizeof(jint), gNumberOfButtons);
@@ -882,54 +888,14 @@ Java_sun_lwawt_macosx_LWCToolkit_isEmbedded
 }
 
 /*
- * Class:     sun_lwawt_macosx_LWCToolkit
- * Method:    getKeyboardLayoutNativeId
- * Signature: ()Ljava/lang/String;
- */
-JNIEXPORT jstring JNICALL
-JNICALL Java_sun_lwawt_macosx_LWCToolkit_getKeyboardLayoutNativeId(JNIEnv *env, jclass cls)
-{
-JNI_COCOA_ENTER(env);
-__block NSString * layoutId;
-[ThreadUtilities performOnMainThreadWaiting:YES block:^(){
-    TISInputSourceRef source = TISCopyCurrentKeyboardInputSource();
-    layoutId = TISGetInputSourceProperty(source, kTISPropertyInputSourceID);
-}];
-return NSStringToJavaString(env, layoutId);
-JNI_COCOA_EXIT(env);
-}
-
-/*
- * Class:     sun_lwawt_macosx_LWCToolkit
- * Method:    switchKeyboardLayoutNative
- * Signature: (Ljava/lang/String;)V
- */
-JNIEXPORT void JNICALL
-JNICALL Java_sun_lwawt_macosx_LWCToolkit_switchKeyboardLayoutNative(JNIEnv *env, jclass cls, jstring jLayoutId)
-{
-JNI_COCOA_ENTER(env);
-__block NSString* layoutId = [JavaStringToNSString(env, jLayoutId) retain];
-[ThreadUtilities performOnMainThreadWaiting:NO block:^(){
-    NSArray* sources = CFBridgingRelease(TISCreateInputSourceList((__bridge CFDictionaryRef)@{ (__bridge NSString*)kTISPropertyInputSourceID : layoutId }, FALSE));
-    TISInputSourceRef source = (__bridge TISInputSourceRef)sources[0];
-    OSStatus status = TISSelectInputSource(source);
-    if (status != noErr) {
-        NSLog(@"error during keyboard layout switch");
-    }
-    [layoutId release];
-}];
-JNI_COCOA_EXIT(env);
-}
-
-/*
- * Class:     sun_lwawt_macosx_LWCToolkit
+ * Class:     sun_awt_PlatformGraphicsInfo
  * Method:    isInAquaSession
  * Signature: ()Z
  */
 JNIEXPORT jboolean JNICALL
-Java_sun_lwawt_macosx_LWCToolkit_isInAquaSession
+Java_sun_awt_PlatformGraphicsInfo_isInAquaSession
 (JNIEnv *env, jclass klass) {
-    // copied from java.base/macosx/native/libjava/java_props_macosx.c
+    // originally from java.base/macosx/native/libjava/java_props_macosx.c
     // environment variable to bypass the aqua session check
     char *ev = getenv("AWT_FORCE_HEADFUL");
     if (ev && (strncasecmp(ev, "true", 4) == 0)) {
@@ -949,3 +915,156 @@ Java_sun_lwawt_macosx_LWCToolkit_isInAquaSession
     return JNI_FALSE;
 }
 
+/*
+ * Class:     sun_lwawt_macosx_LWCToolkit
+ * Method:    getMultiClickTime
+ * Signature: ()I
+ */
+JNIEXPORT jint JNICALL
+Java_sun_lwawt_macosx_LWCToolkit_getMultiClickTime(JNIEnv *env, jclass klass) {
+    __block jint multiClickTime = 0;
+    JNI_COCOA_ENTER(env);
+    [ThreadUtilities performOnMainThreadWaiting:YES block:^(){
+        multiClickTime = (jint)([NSEvent doubleClickInterval] * 1000);
+    }];
+    JNI_COCOA_EXIT(env);
+    return multiClickTime;
+}
+
+/*
+ * Class:     sun_lwawt_macosx_LWCToolkit
+ * Method:    getKeyboardLayoutNativeId
+ * Signature: ()Ljava/lang/String;
+ */
+JNIEXPORT jstring JNICALL
+JNICALL Java_sun_lwawt_macosx_LWCToolkit_getKeyboardLayoutNativeId(JNIEnv *env, jclass cls) {
+    __block NSString * layoutId = NULL;
+    JNI_COCOA_ENTER(env);
+        [ThreadUtilities performOnMainThreadWaiting:YES block:^(){
+            TISInputSourceRef source = TISCopyCurrentKeyboardInputSource();
+            layoutId = TISGetInputSourceProperty(source, kTISPropertyInputSourceID);
+        }];
+    JNI_COCOA_EXIT(env);
+    return NSStringToJavaString(env, layoutId);
+}
+
+/*
+ * Class:     sun_lwawt_macosx_LWCToolkit
+ * Method:    switchKeyboardLayoutNative
+ * Signature: (Ljava/lang/String;)V
+ */
+JNIEXPORT jboolean JNICALL
+JNICALL Java_sun_lwawt_macosx_LWCToolkit_switchKeyboardLayoutNative(JNIEnv *env, jclass cls, jstring jLayoutId) {
+    __block OSStatus status = noErr;
+    JNI_COCOA_ENTER(env);
+        __block NSString* layoutId = JavaStringToNSString(env, jLayoutId);
+        [ThreadUtilities performOnMainThreadWaiting:YES block:^(){
+            NSArray* sources = CFBridgingRelease(TISCreateInputSourceList((__bridge CFDictionaryRef)@{ (__bridge NSString*)kTISPropertyInputSourceID : layoutId }, FALSE));
+            TISInputSourceRef source = (__bridge TISInputSourceRef)sources[0];
+            status = TISSelectInputSource(source);
+            if (status != noErr) {
+                NSLog(@"failed to switch to keyboard layout %@, error code %d", layoutId, status);
+            }
+        }];
+    JNI_COCOA_EXIT(env);
+    return status == noErr;
+}
+
+/*
+ * Class:     sun_lwawt_macosx_LWCToolkit
+ * Method:    getKeyboardLayoutListNative
+ * Signature: (Z)[Ljava/lang/String;
+ */
+JNIEXPORT jarray JNICALL
+JNICALL Java_sun_lwawt_macosx_LWCToolkit_getKeyboardLayoutListNative(JNIEnv *env, jclass cls, jboolean includeAll) {
+    __block jarray out = NULL;
+    jclass stringClazz = (*env)->FindClass(env, "java/lang/String");
+    JNI_COCOA_ENTER(env);
+    [ThreadUtilities performOnMainThreadWaiting:YES block:^(){
+        NSArray* sources = CFBridgingRelease(TISCreateInputSourceList(nil, includeAll));
+        int numOfSources = (int)[sources count];
+        out = (*env)->NewObjectArray(env, numOfSources, stringClazz, NULL);
+        for (int i = 0; i < numOfSources; ++i) {
+            id layout = [sources objectAtIndex:i];
+            NSString* layoutId = TISGetInputSourceProperty((TISInputSourceRef)layout, kTISPropertyInputSourceID);
+            jstring layoutIdJava = NSStringToJavaString(env, layoutId);
+            (*env)->SetObjectArrayElement(env, out, i, layoutIdJava);
+        }
+    }];
+    JNI_COCOA_EXIT(env);
+    return out;
+}
+
+/*
+ * Class:     sun_lwawt_macosx_LWCToolkit
+ * Method:    enableKeyboardLayoutNative
+ * Signature: (Ljava/lang/String;)V
+ */
+JNIEXPORT jboolean JNICALL
+JNICALL Java_sun_lwawt_macosx_LWCToolkit_enableKeyboardLayoutNative(JNIEnv *env, jclass cls, jstring jLayoutId) {
+    __block OSStatus status = noErr;
+    JNI_COCOA_ENTER(env);
+        __block NSString* layoutId = JavaStringToNSString(env, jLayoutId);
+        [ThreadUtilities performOnMainThreadWaiting:YES block:^(){
+            NSArray* sources = CFBridgingRelease(TISCreateInputSourceList((__bridge CFDictionaryRef)@{ (__bridge NSString*)kTISPropertyInputSourceID : layoutId }, YES));
+            TISInputSourceRef source = (__bridge TISInputSourceRef)sources[0];
+            status = TISEnableInputSource(source);
+            if (status != noErr) {
+                NSLog(@"failed to enable keyboard layout %@, error code %d", layoutId, status);
+            }
+        }];
+    JNI_COCOA_EXIT(env);
+    return status == noErr;
+}
+
+/*
+ * Class:     sun_lwawt_macosx_LWCToolkit
+ * Method:    disableKeyboardLayoutNative
+ * Signature: (Ljava/lang/String;)V
+ */
+JNIEXPORT jboolean JNICALL
+JNICALL Java_sun_lwawt_macosx_LWCToolkit_disableKeyboardLayoutNative(JNIEnv *env, jclass cls, jstring jLayoutId) {
+    __block OSStatus status = noErr;
+    JNI_COCOA_ENTER(env);
+        __block NSString* layoutId = JavaStringToNSString(env, jLayoutId);
+        [ThreadUtilities performOnMainThreadWaiting:YES block:^(){
+            NSArray* sources = CFBridgingRelease(TISCreateInputSourceList((__bridge CFDictionaryRef)@{ (__bridge NSString*)kTISPropertyInputSourceID : layoutId }, YES));
+            TISInputSourceRef source = (__bridge TISInputSourceRef)sources[0];
+            status = TISDisableInputSource(source);
+            if (status != noErr) {
+                NSLog(@"failed to disable keyboard layout %@, error code %d", layoutId, status);
+            }
+        }];
+    JNI_COCOA_EXIT(env);
+    return status == noErr;
+}
+
+/*
+ * Class:     sun_lwawt_macosx_LWCToolkit
+ * Method:    setCapsLockState
+ * Signature: (Z)Z
+ */
+JNIEXPORT jboolean JNICALL
+JNICALL Java_sun_lwawt_macosx_LWCToolkit_setCapsLockState(JNIEnv *env, jclass cls, jboolean on) {
+    __block kern_return_t err = KERN_SUCCESS;
+    JNI_COCOA_ENTER(env);
+        [ThreadUtilities performOnMainThreadWaiting:YES block:^() {
+            io_service_t ioHIDService = IOServiceGetMatchingService(kIOMasterPortDefault,
+                                                                    IOServiceMatching(kIOHIDSystemClass));
+            if (!ioHIDService) {
+                err = KERN_FAILURE;
+                return;
+            }
+
+            io_connect_t ioHIDConnect;
+            err = IOServiceOpen(ioHIDService, mach_task_self(), kIOHIDParamConnectType, &ioHIDConnect);
+            if (err == KERN_SUCCESS) {
+                err = IOHIDSetModifierLockState(ioHIDConnect, kIOHIDCapsLockState, on);
+                IOServiceClose(ioHIDConnect);
+            }
+
+            IOObjectRelease(ioHIDService);
+        }];
+    JNI_COCOA_EXIT(env);
+    return err == KERN_SUCCESS;
+}

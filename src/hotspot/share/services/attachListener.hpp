@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,13 +22,14 @@
  *
  */
 
-#ifndef SHARE_VM_SERVICES_ATTACHLISTENER_HPP
-#define SHARE_VM_SERVICES_ATTACHLISTENER_HPP
+#ifndef SHARE_SERVICES_ATTACHLISTENER_HPP
+#define SHARE_SERVICES_ATTACHLISTENER_HPP
 
-#include "memory/allocation.hpp"
-#include "metaprogramming/isRegisteredEnum.hpp"
+#include "memory/allStatic.hpp"
 #include "runtime/atomic.hpp"
+#include "runtime/globals.hpp"
 #include "utilities/debug.hpp"
+#include "utilities/exceptions.hpp"
 #include "utilities/globalDefinitions.hpp"
 #include "utilities/macros.hpp"
 #include "utilities/ostream.hpp"
@@ -57,8 +58,6 @@ enum AttachListenerState {
   AL_INITIALIZED
 };
 
-template<> struct IsRegisteredEnum<AttachListenerState> : public TrueType {};
-
 class AttachListener: AllStatic {
  public:
   static void vm_start() NOT_SERVICES_RETURN;
@@ -86,7 +85,7 @@ class AttachListener: AllStatic {
 
  public:
   static void set_state(AttachListenerState new_state) {
-    Atomic::store(new_state, &_state);
+    Atomic::store(&_state, new_state);
   }
 
   static AttachListenerState get_state() {
@@ -95,7 +94,7 @@ class AttachListener: AllStatic {
 
   static AttachListenerState transit_state(AttachListenerState new_state,
                                            AttachListenerState cmp_state) {
-    return Atomic::cmpxchg(new_state, &_state, cmp_state);
+    return Atomic::cmpxchg(&_state, cmp_state, new_state);
   }
 
   static bool is_initialized() {
@@ -103,7 +102,7 @@ class AttachListener: AllStatic {
   }
 
   static void set_initialized() {
-    Atomic::store(AL_INITIALIZED, &_state);
+    Atomic::store(&_state, AL_INITIALIZED);
   }
 
   // indicates if this VM supports attach-on-demand
@@ -153,7 +152,7 @@ class AttachOperation: public CHeapObj<mtInternal> {
   const char* name() const                      { return _name; }
 
   // set the operation name
-  void set_name(char* name) {
+  void set_name(const char* name) {
     assert(strlen(name) <= name_length_max, "exceeds maximum name length");
     size_t len = MIN2(strlen(name), (size_t)name_length_max);
     memcpy(_name, name, len);
@@ -169,7 +168,7 @@ class AttachOperation: public CHeapObj<mtInternal> {
   // set an argument value
   void set_arg(int i, char* arg) {
     assert(i>=0 && i<arg_count_max, "invalid argument index");
-    if (arg == NULL) {
+    if (arg == nullptr) {
       _arg[i][0] = '\0';
     } else {
       assert(strlen(arg) <= arg_length_max, "exceeds maximum argument length");
@@ -180,10 +179,10 @@ class AttachOperation: public CHeapObj<mtInternal> {
   }
 
   // create an operation of a given name
-  AttachOperation(char* name) {
+  AttachOperation(const char* name) {
     set_name(name);
     for (int i=0; i<arg_count_max; i++) {
-      set_arg(i, NULL);
+      set_arg(i, nullptr);
     }
   }
 
@@ -192,4 +191,4 @@ class AttachOperation: public CHeapObj<mtInternal> {
 };
 #endif // INCLUDE_SERVICES
 
-#endif // SHARE_VM_SERVICES_ATTACHLISTENER_HPP
+#endif // SHARE_SERVICES_ATTACHLISTENER_HPP

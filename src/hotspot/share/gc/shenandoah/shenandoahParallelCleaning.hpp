@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2019, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2019, 2021, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -24,25 +25,42 @@
 #ifndef SHARE_GC_SHENANDOAH_SHENANDOAHPARALLELCLEANING_HPP
 #define SHARE_GC_SHENANDOAH_SHENANDOAHPARALLELCLEANING_HPP
 
-#include "gc/shared/workgroup.hpp"
-#include "gc/shenandoah/parallelCleaning.hpp"
-#include "gc/shenandoah/shenandoahRootProcessor.hpp"
+#include "gc/shared/parallelCleaning.hpp"
+#include "gc/shared/weakProcessor.hpp"
+#include "gc/shared/workerThread.hpp"
+#include "gc/shenandoah/shenandoahPhaseTimings.hpp"
 #include "memory/iterator.hpp"
 
 // Perform weak root cleaning at a pause
 template <typename IsAlive, typename KeepAlive>
-class ShenandoahParallelWeakRootsCleaningTask : public AbstractGangTask {
+class ShenandoahParallelWeakRootsCleaningTask : public WorkerTask {
 protected:
-  ShenandoahPhaseTimings::Phase _phase;
-  ShenandoahWeakRoots     _weak_roots;
-  IsAlive*                _is_alive;
-  KeepAlive*              _keep_alive;
+  ShenandoahPhaseTimings::Phase const _phase;
+  WeakProcessor::Task                 _weak_processing_task;
+  IsAlive*                            _is_alive;
+  KeepAlive*                          _keep_alive;
+
 public:
   ShenandoahParallelWeakRootsCleaningTask(ShenandoahPhaseTimings::Phase phase,
                                           IsAlive* is_alive,
                                           KeepAlive* keep_alive,
                                           uint num_workers);
   ~ShenandoahParallelWeakRootsCleaningTask();
+
+  void work(uint worker_id);
+};
+
+// Perform class unloading at a pause
+class ShenandoahClassUnloadingTask : public WorkerTask {
+private:
+  ShenandoahPhaseTimings::Phase const _phase;
+  bool                                _unloading_occurred;
+  CodeCacheUnloadingTask              _code_cache_task;
+  KlassCleaningTask                   _klass_cleaning_task;
+public:
+  ShenandoahClassUnloadingTask(ShenandoahPhaseTimings::Phase phase,
+                               uint num_workers,
+                               bool unloading_occurred);
 
   void work(uint worker_id);
 };

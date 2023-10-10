@@ -350,6 +350,11 @@ public abstract class FlowView extends BoxView {
      * @since 1.3
      */
     public static class FlowStrategy {
+        /**
+         * Constructs a {@code FlowStrategy}.
+         */
+        public FlowStrategy() {}
+
         Position damageStart = null;
         Vector<View> viewBuffer;
 

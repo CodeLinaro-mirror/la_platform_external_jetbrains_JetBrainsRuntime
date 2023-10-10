@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,10 +26,6 @@
 #ifndef _AWT_H_
 #define _AWT_H_
 
-#ifndef _WIN32_WINNT
-#define _WIN32_WINNT 0x0600
-#endif
-
 #ifndef _WIN32_IE
 #define _WIN32_IE 0x0600
 #endif
@@ -46,17 +42,14 @@ extern COLORREF DesktopColor2RGB(int colorIndex);
 
 #ifndef PROCESS_DPI_AWARENESS //_WIN32_WINNT_WINBLUE
 typedef enum _PROCESS_DPI_AWARENESS {
-    PROCESS_DPI_UNAWARE               = 0,
-    PROCESS_SYSTEM_DPI_AWARE          = 1,
-    PROCESS_PER_MONITOR_DPI_AWARE     = 2,
-    PROCESS_PER_MONITOR_DPI_AWARE_V2  = 3
+    PROCESS_DPI_UNAWARE            = 0,
+    PROCESS_SYSTEM_DPI_AWARE       = 1,
+    PROCESS_PER_MONITOR_DPI_AWARE  = 2
 } PROCESS_DPI_AWARENESS;
 #endif
 
-//#ifndef _WIN32_WINNT_WIN10
-typedef BOOL(WINAPI EnableNonClientDpiScalingFunc)(HWND);
 typedef BOOL(WINAPI AdjustWindowRectExForDpiFunc)(LPRECT, DWORD, BOOL, DWORD, UINT);
-//#endif
+typedef UINT(WINAPI GetDpiForWindowFunc)(HWND);
 
 class AwtObject;
 typedef AwtObject* PDATA;
@@ -205,7 +198,7 @@ typedef AwtObject* PDATA;
 #define LO_INT(l)           ((int)(short)(l))
 #define HI_INT(l)           ((int)(short)(((DWORD)(l) >> 16) & 0xFFFF))
 
-extern "C" JavaVM *jvm;
+extern JavaVM *jvm;
 
 // Platform encoding is Unicode (UTF-16), re-define JNU_ functions
 // to proper JNI functions.
@@ -351,7 +344,7 @@ class JavaStringBuffer
 protected:
     LPWSTR m_pStr;
     jsize  m_dwSize;
-    LPWSTR getNonEmptyString() {
+    LPCWSTR getNonEmptyString() {
         return (NULL==m_pStr)
                 ? L""
                 : m_pStr;
@@ -392,9 +385,9 @@ public:
         m_pStr = (LPWSTR)SAFE_SIZE_ARRAY_REALLOC(safe_Realloc, m_pStr, m_dwSize+1, sizeof(WCHAR) );
     }
     //we are in UNICODE now, so LPWSTR:=:LPTSTR
-    operator LPWSTR() { return getNonEmptyString(); }
+    operator LPCWSTR() { return getNonEmptyString(); }
     operator LPARAM() { return (LPARAM)getNonEmptyString(); }
-    void *GetData() { return (void *)getNonEmptyString(); }
+    const void *GetData() { return (const void *)getNonEmptyString(); }
     jsize  GetSize() { return m_dwSize; }
 };
 

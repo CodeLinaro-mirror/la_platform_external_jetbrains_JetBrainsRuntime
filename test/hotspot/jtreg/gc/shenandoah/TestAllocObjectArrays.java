@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2016, 2018, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -22,10 +23,11 @@
  */
 
 /*
- * @test TestAllocObjectArrays
+ * @test id=passive
  * @summary Acceptance tests: collector can withstand allocation
- * @key gc
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @key randomness
+ * @requires vm.gc.Shenandoah
+ * @library /test/lib
  *
  * @run main/othervm -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx1g -Xms1g
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCMode=passive
@@ -46,12 +48,14 @@
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCMode=passive
  *      -XX:-ShenandoahDegeneratedGC
  *      TestAllocObjectArrays
+ */
 
 /*
- * @test TestAllocObjectArrays
+ * @test id=aggressive
  * @summary Acceptance tests: collector can withstand allocation
- * @key gc
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @key randomness
+ * @requires vm.gc.Shenandoah
+ * @library /test/lib
  *
  * @run main/othervm -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx1g -Xms1g
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=aggressive
@@ -79,9 +83,10 @@
  */
 
 /*
- * @test TestAllocObjectArrays
+ * @test id=adaptive
  * @summary Acceptance tests: collector can withstand allocation
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @key randomness
+ * @requires vm.gc.Shenandoah
  * @library /test/lib
  *
  * @run main/othervm -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx1g -Xms1g
@@ -95,9 +100,10 @@
  */
 
 /*
- * @test TestAllocObjectArrays
+ * @test id=static
  * @summary Acceptance tests: collector can withstand allocation
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @key randomness
+ * @requires vm.gc.Shenandoah
  * @library /test/lib
  *
  * @run main/othervm -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx1g -Xms1g
@@ -106,9 +112,10 @@
  */
 
 /*
- * @test TestAllocObjectArrays
+ * @test id=compact
  * @summary Acceptance tests: collector can withstand allocation
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @key randomness
+ * @requires vm.gc.Shenandoah
  * @library /test/lib
  *
  * @run main/othervm -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx1g -Xms1g
@@ -117,9 +124,10 @@
  */
 
 /*
- * @test TestAllocObjectArrays
+ * @test id=no-tlab
  * @summary Acceptance tests: collector can withstand allocation
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @key randomness
+ * @requires vm.gc.Shenandoah
  * @library /test/lib
  *
  * @run main/othervm -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx1g -Xms1g
@@ -129,10 +137,11 @@
  */
 
 /*
- * @test TestAllocObjectArrays
+ * @test id=iu-aggressive
  * @summary Acceptance tests: collector can withstand allocation
- * @key gc
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @key randomness
+ * @requires vm.gc.Shenandoah
+ * @library /test/lib
  *
  * @run main/othervm -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx1g -Xms1g
  *      -XX:+UseShenandoahGC -XX:ShenandoahGCMode=iu -XX:ShenandoahGCHeuristics=aggressive
@@ -160,9 +169,10 @@
  */
 
 /*
- * @test TestAllocObjectArrays
+ * @test id=iu
  * @summary Acceptance tests: collector can withstand allocation
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @key randomness
+ * @requires vm.gc.Shenandoah
  * @library /test/lib
  *
  * @run main/othervm -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx1g -Xms1g
@@ -176,6 +186,7 @@
  */
 
 import java.util.Random;
+import jdk.test.lib.Utils;
 
 public class TestAllocObjectArrays {
 
@@ -188,7 +199,7 @@ public class TestAllocObjectArrays {
         final int max = 384 * 1024;
         long count = TARGET_MB * 1024 * 1024 / (16 + 4 * (min + (max - min) / 2));
 
-        Random r = new Random();
+        Random r = Utils.getRandomInstance();
         for (long c = 0; c < count; c++) {
             sink = new Object[min + r.nextInt(max - min)];
         }

@@ -4,9 +4,7 @@
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ * published by the Free Software Foundation.
  *
  * This code is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
@@ -105,12 +103,12 @@ public class TestInstrumentation implements ClassFileTransformer {
         "java/io/FileOutputStream::write::(I)V",
         "java/io/FileOutputStream::write::([B)V",
         "java/io/FileOutputStream::write::([BII)V",
-        "java/net/SocketInputStream::read::()I",
-        "java/net/SocketInputStream::read::([BII)I",
-        "java/net/SocketInputStream::close::()V",
-        "java/net/SocketOutputStream::write::(I)V",
-        "java/net/SocketOutputStream::write::([BII)V",
-        "java/net/SocketOutputStream::close::()V",
+        "java/net/Socket$SocketInputStream::read::()I",
+        "java/net/Socket$SocketInputStream::read::([BII)I",
+        "java/net/Socket$SocketInputStream::close::()V",
+        "java/net/Socket$SocketOutputStream::write::(I)V",
+        "java/net/Socket$SocketOutputStream::write::([BII)V",
+        "java/net/Socket$SocketOutputStream::close::()V",
         "java/nio/channels/FileChannel::read::([Ljava/nio/ByteBuffer;)J",
         "java/nio/channels/FileChannel::write::([Ljava/nio/ByteBuffer;)J",
         "java/nio/channels/SocketChannel::open::()Ljava/nio/channels/SocketChannel;",
@@ -327,7 +325,7 @@ public class TestInstrumentation implements ClassFileTransformer {
         private String className;
 
         public CallbackClassVisitor(ClassVisitor cv) {
-            super(Opcodes.ASM5, cv);
+            super(Opcodes.ASM7, cv);
         }
 
         @Override
@@ -356,7 +354,7 @@ public class TestInstrumentation implements ClassFileTransformer {
         private String logMessage;
 
         public CallbackMethodVisitor(MethodVisitor mv, String logMessage) {
-            super(Opcodes.ASM5, mv);
+            super(Opcodes.ASM7, mv);
             this.logMessage = logMessage;
         }
 

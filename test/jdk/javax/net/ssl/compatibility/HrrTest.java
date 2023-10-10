@@ -88,7 +88,8 @@ public class HrrTest extends ExtInteropTest {
         List<TestCase<ExtUseCase>> testCases = new ArrayList<>();
         for (CipherSuite cipherSuite : new CipherSuite[] {
                 CipherSuite.TLS_AES_128_GCM_SHA256,
-                CipherSuite.TLS_AES_256_GCM_SHA384}) {
+                CipherSuite.TLS_AES_256_GCM_SHA384,
+                CipherSuite.TLS_CHACHA20_POLY1305_SHA256}) {
             testCases.add(createTestCase(cipherSuite));
         }
         return testCases;

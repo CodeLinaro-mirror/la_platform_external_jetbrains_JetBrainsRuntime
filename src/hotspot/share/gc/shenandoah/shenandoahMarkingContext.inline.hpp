@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2018, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2018, 2019, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -21,28 +22,39 @@
  *
  */
 
-#ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHMARKINGCONTEXT_INLINE_HPP
-#define SHARE_VM_GC_SHENANDOAH_SHENANDOAHMARKINGCONTEXT_INLINE_HPP
+#ifndef SHARE_GC_SHENANDOAH_SHENANDOAHMARKINGCONTEXT_INLINE_HPP
+#define SHARE_GC_SHENANDOAH_SHENANDOAHMARKINGCONTEXT_INLINE_HPP
 
 #include "gc/shenandoah/shenandoahMarkingContext.hpp"
 
-inline MarkBitMap* ShenandoahMarkingContext::mark_bit_map() {
-  return &_mark_bit_map;
+#include "gc/shenandoah/shenandoahMarkBitMap.inline.hpp"
+
+inline bool ShenandoahMarkingContext::mark_strong(oop obj, bool& was_upgraded) {
+  return !allocated_after_mark_start(obj) && _mark_bit_map.mark_strong(cast_from_oop<HeapWord*>(obj), was_upgraded);
 }
 
-inline bool ShenandoahMarkingContext::mark(oop obj) {
-  shenandoah_assert_not_forwarded(NULL, obj);
-  HeapWord* addr = (HeapWord*) obj;
-  return (! allocated_after_mark_start(addr)) && _mark_bit_map.parMark(addr);
+inline bool ShenandoahMarkingContext::mark_weak(oop obj) {
+  return !allocated_after_mark_start(obj) && _mark_bit_map.mark_weak(cast_from_oop<HeapWord *>(obj));
 }
 
 inline bool ShenandoahMarkingContext::is_marked(oop obj) const {
-  HeapWord* addr = (HeapWord*) obj;
-  return allocated_after_mark_start(addr) || _mark_bit_map.isMarked(addr);
+  return allocated_after_mark_start(obj) || _mark_bit_map.is_marked(cast_from_oop<HeapWord *>(obj));
+}
+
+inline bool ShenandoahMarkingContext::is_marked_strong(oop obj) const {
+  return allocated_after_mark_start(obj) || _mark_bit_map.is_marked_strong(cast_from_oop<HeapWord*>(obj));
+}
+
+inline bool ShenandoahMarkingContext::is_marked_weak(oop obj) const {
+  return allocated_after_mark_start(obj) || _mark_bit_map.is_marked_weak(cast_from_oop<HeapWord *>(obj));
+}
+
+inline HeapWord* ShenandoahMarkingContext::get_next_marked_addr(HeapWord* start, HeapWord* limit) const {
+  return _mark_bit_map.get_next_marked_addr(start, limit);
 }
 
 inline bool ShenandoahMarkingContext::allocated_after_mark_start(oop obj) const {
-  HeapWord* addr = (HeapWord*) obj;
+  HeapWord* addr = cast_from_oop<HeapWord*>(obj);
   return allocated_after_mark_start(addr);
 }
 
@@ -83,4 +95,4 @@ inline void ShenandoahMarkingContext::reset_top_bitmap(ShenandoahHeapRegion* r) 
   _top_bitmaps[r->index()] = r->bottom();
 }
 
-#endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHMARKINGCONTEXT_INLINE_HPP
+#endif // SHARE_GC_SHENANDOAH_SHENANDOAHMARKINGCONTEXT_INLINE_HPP

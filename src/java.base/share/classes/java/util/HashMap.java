@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,7 +35,7 @@ import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import jdk.internal.misc.SharedSecrets;
+import jdk.internal.access.SharedSecrets;
 
 /**
  * Hash table based implementation of the {@code Map} interface.  This
@@ -139,6 +139,7 @@ import jdk.internal.misc.SharedSecrets;
 public class HashMap<K,V> extends AbstractMap<K,V>
     implements Map<K,V>, Cloneable, Serializable {
 
+    @java.io.Serial
     private static final long serialVersionUID = 362498820763181265L;
 
     /*
@@ -307,13 +308,10 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         public final boolean equals(Object o) {
             if (o == this)
                 return true;
-            if (o instanceof Map.Entry) {
-                Map.Entry<?,?> e = (Map.Entry<?,?>)o;
-                if (Objects.equals(key, e.getKey()) &&
-                    Objects.equals(value, e.getValue()))
-                    return true;
-            }
-            return false;
+
+            return o instanceof Map.Entry<?, ?> e
+                    && Objects.equals(key, e.getKey())
+                    && Objects.equals(value, e.getValue());
         }
     }
 
@@ -435,6 +433,10 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * Constructs an empty {@code HashMap} with the specified initial
      * capacity and load factor.
      *
+     * @apiNote
+     * To create a {@code HashMap} with an initial capacity that accommodates
+     * an expected number of mappings, use {@link #newHashMap(int) newHashMap}.
+     *
      * @param  initialCapacity the initial capacity
      * @param  loadFactor      the load factor
      * @throws IllegalArgumentException if the initial capacity is negative
@@ -456,6 +458,10 @@ public class HashMap<K,V> extends AbstractMap<K,V>
     /**
      * Constructs an empty {@code HashMap} with the specified initial
      * capacity and the default load factor (0.75).
+     *
+     * @apiNote
+     * To create a {@code HashMap} with an initial capacity that accommodates
+     * an expected number of mappings, use {@link #newHashMap(int) newHashMap}.
      *
      * @param  initialCapacity the initial capacity.
      * @throws IllegalArgumentException if the initial capacity is negative.
@@ -497,14 +503,19 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         int s = m.size();
         if (s > 0) {
             if (table == null) { // pre-size
-                float ft = ((float)s / loadFactor) + 1.0F;
-                int t = ((ft < (float)MAXIMUM_CAPACITY) ?
-                         (int)ft : MAXIMUM_CAPACITY);
+                double dt = Math.ceil(s / (double)loadFactor);
+                int t = ((dt < (double)MAXIMUM_CAPACITY) ?
+                         (int)dt : MAXIMUM_CAPACITY);
                 if (t > threshold)
                     threshold = tableSizeFor(t);
+            } else {
+                // Because of linked-list bucket constraints, we cannot
+                // expand all at once, but can reduce total resize
+                // effort by repeated doubling now vs later
+                while (s > threshold && table.length < MAXIMUM_CAPACITY)
+                    resize();
             }
-            else if (s > threshold)
-                resize();
+
             for (Map.Entry<? extends K, ? extends V> e : m.entrySet()) {
                 K key = e.getKey();
                 V value = e.getValue();
@@ -550,20 +561,19 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      */
     public V get(Object key) {
         Node<K,V> e;
-        return (e = getNode(hash(key), key)) == null ? null : e.value;
+        return (e = getNode(key)) == null ? null : e.value;
     }
 
     /**
      * Implements Map.get and related methods.
      *
-     * @param hash hash for key
      * @param key the key
      * @return the node, or null if none
      */
-    final Node<K,V> getNode(int hash, Object key) {
-        Node<K,V>[] tab; Node<K,V> first, e; int n; K k;
+    final Node<K,V> getNode(Object key) {
+        Node<K,V>[] tab; Node<K,V> first, e; int n, hash; K k;
         if ((tab = table) != null && (n = tab.length) > 0 &&
-            (first = tab[(n - 1) & hash]) != null) {
+            (first = tab[(n - 1) & (hash = hash(key))]) != null) {
             if (first.hash == hash && // always check first node
                 ((k = first.key) == key || (key != null && key.equals(k))))
                 return first;
@@ -589,7 +599,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * key.
      */
     public boolean containsKey(Object key) {
-        return getNode(hash(key), key) != null;
+        return getNode(key) != null;
     }
 
     /**
@@ -907,6 +917,74 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         return ks;
     }
 
+    /**
+     * Prepares the array for {@link Collection#toArray(Object[])} implementation.
+     * If supplied array is smaller than this map size, a new array is allocated.
+     * If supplied array is bigger than this map size, a null is written at size index.
+     *
+     * @param a an original array passed to {@code toArray()} method
+     * @param <T> type of array elements
+     * @return an array ready to be filled and returned from {@code toArray()} method.
+     */
+    @SuppressWarnings("unchecked")
+    final <T> T[] prepareArray(T[] a) {
+        int size = this.size;
+        if (a.length < size) {
+            return (T[]) java.lang.reflect.Array
+                    .newInstance(a.getClass().getComponentType(), size);
+        }
+        if (a.length > size) {
+            a[size] = null;
+        }
+        return a;
+    }
+
+    /**
+     * Fills an array with this map keys and returns it. This method assumes
+     * that input array is big enough to fit all the keys. Use
+     * {@link #prepareArray(Object[])} to ensure this.
+     *
+     * @param a an array to fill
+     * @param <T> type of array elements
+     * @return supplied array
+     */
+    <T> T[] keysToArray(T[] a) {
+        Object[] r = a;
+        Node<K,V>[] tab;
+        int idx = 0;
+        if (size > 0 && (tab = table) != null) {
+            for (Node<K,V> e : tab) {
+                for (; e != null; e = e.next) {
+                    r[idx++] = e.key;
+                }
+            }
+        }
+        return a;
+    }
+
+    /**
+     * Fills an array with this map values and returns it. This method assumes
+     * that input array is big enough to fit all the values. Use
+     * {@link #prepareArray(Object[])} to ensure this.
+     *
+     * @param a an array to fill
+     * @param <T> type of array elements
+     * @return supplied array
+     */
+    <T> T[] valuesToArray(T[] a) {
+        Object[] r = a;
+        Node<K,V>[] tab;
+        int idx = 0;
+        if (size > 0 && (tab = table) != null) {
+            for (Node<K,V> e : tab) {
+                for (; e != null; e = e.next) {
+                    r[idx++] = e.value;
+                }
+            }
+        }
+        return a;
+    }
+
     final class KeySet extends AbstractSet<K> {
         public final int size()                 { return size; }
         public final void clear()               { HashMap.this.clear(); }
@@ -918,6 +996,15 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         public final Spliterator<K> spliterator() {
             return new KeySpliterator<>(HashMap.this, 0, -1, 0, 0);
         }
+
+        public Object[] toArray() {
+            return keysToArray(new Object[size]);
+        }
+
+        public <T> T[] toArray(T[] a) {
+            return keysToArray(prepareArray(a));
+        }
+
         public final void forEach(Consumer<? super K> action) {
             Node<K,V>[] tab;
             if (action == null)
@@ -966,6 +1053,15 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         public final Spliterator<V> spliterator() {
             return new ValueSpliterator<>(HashMap.this, 0, -1, 0, 0);
         }
+
+        public Object[] toArray() {
+            return valuesToArray(new Object[size]);
+        }
+
+        public <T> T[] toArray(T[] a) {
+            return valuesToArray(prepareArray(a));
+        }
+
         public final void forEach(Consumer<? super V> action) {
             Node<K,V>[] tab;
             if (action == null)
@@ -1010,16 +1106,14 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             return new EntryIterator();
         }
         public final boolean contains(Object o) {
-            if (!(o instanceof Map.Entry))
+            if (!(o instanceof Map.Entry<?, ?> e))
                 return false;
-            Map.Entry<?,?> e = (Map.Entry<?,?>) o;
             Object key = e.getKey();
-            Node<K,V> candidate = getNode(hash(key), key);
+            Node<K,V> candidate = getNode(key);
             return candidate != null && candidate.equals(e);
         }
         public final boolean remove(Object o) {
-            if (o instanceof Map.Entry) {
-                Map.Entry<?,?> e = (Map.Entry<?,?>) o;
+            if (o instanceof Map.Entry<?, ?> e) {
                 Object key = e.getKey();
                 Object value = e.getValue();
                 return removeNode(hash(key), key, value, true, true) != null;
@@ -1050,7 +1144,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
     @Override
     public V getOrDefault(Object key, V defaultValue) {
         Node<K,V> e;
-        return (e = getNode(hash(key), key)) == null ? defaultValue : e.value;
+        return (e = getNode(key)) == null ? defaultValue : e.value;
     }
 
     @Override
@@ -1066,7 +1160,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
     @Override
     public boolean replace(K key, V oldValue, V newValue) {
         Node<K,V> e; V v;
-        if ((e = getNode(hash(key), key)) != null &&
+        if ((e = getNode(key)) != null &&
             ((v = e.value) == oldValue || (v != null && v.equals(oldValue)))) {
             e.value = newValue;
             afterNodeAccess(e);
@@ -1078,7 +1172,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
     @Override
     public V replace(K key, V value) {
         Node<K,V> e;
-        if ((e = getNode(hash(key), key)) != null) {
+        if ((e = getNode(key)) != null) {
             V oldValue = e.value;
             e.value = value;
             afterNodeAccess(e);
@@ -1169,8 +1263,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         if (remappingFunction == null)
             throw new NullPointerException();
         Node<K,V> e; V oldValue;
-        int hash = hash(key);
-        if ((e = getNode(hash, key)) != null &&
+        if ((e = getNode(key)) != null &&
             (oldValue = e.value) != null) {
             int mc = modCount;
             V v = remappingFunction.apply(key, oldValue);
@@ -1180,8 +1273,10 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                 afterNodeAccess(e);
                 return v;
             }
-            else
+            else {
+                int hash = hash(key);
                 removeNode(hash, key, null, false, true);
+            }
         }
         return null;
     }
@@ -1264,9 +1359,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
     @Override
     public V merge(K key, V value,
                    BiFunction<? super V, ? super V, ? extends V> remappingFunction) {
-        if (value == null)
-            throw new NullPointerException();
-        if (remappingFunction == null)
+        if (value == null || remappingFunction == null)
             throw new NullPointerException();
         int hash = hash(key);
         Node<K,V>[] tab; Node<K,V> first; int n, i;
@@ -1309,8 +1402,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             else
                 removeNode(hash, key, null, false, true);
             return v;
-        }
-        if (value != null) {
+        } else {
             if (t != null)
                 t.putTreeVal(this, tab, hash, key, value);
             else {
@@ -1321,8 +1413,8 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             ++modCount;
             ++size;
             afterNodeInsertion(true);
+            return value;
         }
-        return value;
     }
 
     @Override
@@ -1402,6 +1494,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      *             for each key-value mapping.  The key-value mappings are
      *             emitted in no particular order.
      */
+    @java.io.Serial
     private void writeObject(java.io.ObjectOutputStream s)
         throws IOException {
         int buckets = capacity();
@@ -1419,6 +1512,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      *         could not be found
      * @throws IOException if an I/O error occurs
      */
+    @java.io.Serial
     private void readObject(ObjectInputStream s)
         throws IOException, ClassNotFoundException {
 
@@ -1429,7 +1523,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         if (lf <= 0 || Float.isNaN(lf))
             throw new InvalidObjectException("Illegal load factor: " + lf);
 
-        lf = Math.min(Math.max(0.25f, lf), 4.0f);
+        lf = Math.clamp(lf, 0.25f, 4.0f);
         HashMap.UnsafeHolder.putLoadFactor(this, lf);
 
         reinitialize();
@@ -1441,12 +1535,12 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         } else if (mappings == 0) {
             // use defaults
         } else if (mappings > 0) {
-            float fc = (float)mappings / lf + 1.0f;
-            int cap = ((fc < DEFAULT_INITIAL_CAPACITY) ?
+            double dc = Math.ceil(mappings / (double)lf);
+            int cap = ((dc < DEFAULT_INITIAL_CAPACITY) ?
                        DEFAULT_INITIAL_CAPACITY :
-                       (fc >= MAXIMUM_CAPACITY) ?
+                       (dc >= MAXIMUM_CAPACITY) ?
                        MAXIMUM_CAPACITY :
-                       tableSizeFor((int)fc));
+                       tableSizeFor((int)dc));
             float ft = (float)cap * lf;
             threshold = ((cap < MAXIMUM_CAPACITY && ft < MAXIMUM_CAPACITY) ?
                          (int)ft : Integer.MAX_VALUE);
@@ -2457,6 +2551,37 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                 return false;
             return true;
         }
+    }
+
+    /**
+     * Calculate initial capacity for HashMap based classes, from expected size and default load factor (0.75).
+     *
+     * @param numMappings the expected number of mappings
+     * @return initial capacity for HashMap based classes.
+     * @since 19
+     */
+    static int calculateHashMapCapacity(int numMappings) {
+        return (int) Math.ceil(numMappings / (double) DEFAULT_LOAD_FACTOR);
+    }
+
+    /**
+     * Creates a new, empty HashMap suitable for the expected number of mappings.
+     * The returned map uses the default load factor of 0.75, and its initial capacity is
+     * generally large enough so that the expected number of mappings can be added
+     * without resizing the map.
+     *
+     * @param numMappings the expected number of mappings
+     * @param <K>         the type of keys maintained by the new map
+     * @param <V>         the type of mapped values
+     * @return the newly created map
+     * @throws IllegalArgumentException if numMappings is negative
+     * @since 19
+     */
+    public static <K, V> HashMap<K, V> newHashMap(int numMappings) {
+        if (numMappings < 0) {
+            throw new IllegalArgumentException("Negative number of mappings: " + numMappings);
+        }
+        return new HashMap<>(calculateHashMapCapacity(numMappings));
     }
 
 }

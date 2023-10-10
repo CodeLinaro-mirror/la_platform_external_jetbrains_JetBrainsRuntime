@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2013, 2019, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -21,16 +22,16 @@
  *
  */
 
-#ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGION_HPP
-#define SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGION_HPP
+#ifndef SHARE_GC_SHENANDOAH_SHENANDOAHHEAPREGION_HPP
+#define SHARE_GC_SHENANDOAH_SHENANDOAHHEAPREGION_HPP
 
+#include "gc/shared/gc_globals.hpp"
 #include "gc/shared/spaceDecorator.hpp"
 #include "gc/shenandoah/shenandoahAllocRequest.hpp"
 #include "gc/shenandoah/shenandoahAsserts.hpp"
 #include "gc/shenandoah/shenandoahHeap.hpp"
 #include "gc/shenandoah/shenandoahPacer.hpp"
 #include "gc/shenandoah/shenandoahPadding.hpp"
-#include "memory/universe.hpp"
 #include "utilities/sizes.hpp"
 
 class VMStructs;
@@ -333,7 +334,7 @@ public:
     return _index;
   }
 
-  // Allocation (return NULL if full)
+  // Allocation (return null if full)
   inline HeapWord* allocate(size_t word_size, ShenandoahAllocRequest::Type type);
 
   inline void clear_live_data();
@@ -399,4 +400,4 @@ private:
   void set_state(RegionState to);
 };
 
-#endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGION_HPP
+#endif // SHARE_GC_SHENANDOAH_SHENANDOAHHEAPREGION_HPP

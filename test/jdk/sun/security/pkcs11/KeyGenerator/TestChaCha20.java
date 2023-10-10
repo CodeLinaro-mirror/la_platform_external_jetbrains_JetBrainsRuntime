@@ -33,6 +33,7 @@ import java.security.Provider;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidParameterException;
 import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
@@ -83,7 +84,7 @@ public class TestChaCha20 extends PKCS11Test {
         //kg.init(256);
         SecretKey key = kg.generateKey();
         byte[] keyValue = key.getEncoded();
-        System.out.println("Key: " + toHexString(keyValue));
+        System.out.println("Key: " + HexFormat.of().formatHex(keyValue));
         if (keyValue.length != 32) {
             throw new RuntimeException("The size of generated key must be 256");
         }

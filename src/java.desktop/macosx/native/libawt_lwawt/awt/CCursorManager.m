@@ -111,23 +111,23 @@ JNI_COCOA_ENTER(env);
 JNI_COCOA_EXIT(env);
 }
 
-JNIEXPORT void JNICALL
+JNIEXPORT jobject JNICALL
 Java_sun_lwawt_macosx_CCursorManager_nativeGetCursorPosition
-(JNIEnv *env, jclass class, jintArray jPos)
+(JNIEnv *env, jclass class)
 {
-    jint *pos = (*env)->GetPrimitiveArrayCritical(env, jPos, 0);
-    if (pos == NULL)  return;
+    jobject jpt = NULL;
 
 JNI_COCOA_ENTER(env);
 
     CGEventRef event = CGEventCreate(NULL);
     CGPoint globalPos = CGEventGetLocation(event);
     CFRelease(event);
-    pos[0] = (jint)globalPos.x;
-    pos[1] = (jint)globalPos.y;
+
+    jpt = NSToJavaPoint(env, globalPos);
 
 JNI_COCOA_EXIT(env);
-    (*env)->ReleasePrimitiveArrayCritical(env, jPos, pos, 0);
+
+    return jpt;
 }
 
 

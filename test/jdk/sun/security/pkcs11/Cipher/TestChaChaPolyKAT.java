@@ -44,13 +44,13 @@ import java.nio.ByteBuffer;
 import jdk.test.lib.Convert;
 
 public class TestChaChaPolyKAT extends PKCS11Test {
-
     public static class TestData {
         public TestData(String name, String keyStr, String nonceStr, int ctr,
                 int dir, String inputStr, String aadStr, String outStr) {
             testName = Objects.requireNonNull(name);
-            key = HexToBytes(Objects.requireNonNull(keyStr));
-            nonce = HexToBytes(Objects.requireNonNull(nonceStr));
+            HexFormat hex = HexFormat.of();
+            key = hex.parseHex(Objects.requireNonNull(keyStr));
+            nonce = hex.parseHex(Objects.requireNonNull(nonceStr));
             if ((counter = ctr) < 0) {
                 throw new IllegalArgumentException(
                         "counter must be 0 or greater");
@@ -61,9 +61,9 @@ public class TestChaChaPolyKAT extends PKCS11Test {
                 throw new IllegalArgumentException(
                         "Direction must be ENCRYPT_MODE or DECRYPT_MODE");
             }
-            input = HexToBytes(Objects.requireNonNull(inputStr));
-            aad = (aadStr != null) ? HexToBytes(aadStr) : null;
-            expOutput = HexToBytes(Objects.requireNonNull(outStr));
+            input = hex.parseHex(Objects.requireNonNull(inputStr));
+            aad = (aadStr != null) ? hex.parseHex(aadStr) : null;
+            expOutput = hex.parseHex(Objects.requireNonNull(outStr));
         }
 
         public final String testName;

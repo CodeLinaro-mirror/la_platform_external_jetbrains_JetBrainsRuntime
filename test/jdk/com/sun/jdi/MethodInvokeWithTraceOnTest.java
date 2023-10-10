@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,10 +36,9 @@ import com.sun.jdi.*;
 import com.sun.jdi.event.*;
 import com.sun.jdi.request.*;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.*;
+
+import static lib.jdb.JdbTest.*;
 
 /********** target program **********/
 
@@ -103,29 +102,8 @@ public class MethodInvokeWithTraceOnTest extends TestScaffold {
         vm().setDebugTraceMode(VirtualMachine.TRACE_ALL);
     }
 
-    // Parses the specified source file for "@{id} breakpoint" tags and returns
-    // list of the line numbers containing the tag.
-    // Example:
-    //   System.out.println("BP is here");  // @1 breakpoint
-    private static List<Integer> parseBreakpoints(String filePath, int id) {
-        final String pattern = "@" + id + " breakpoint";
-        int lineNum = 1;
-        List<Integer> result = new LinkedList<>();
-        try {
-            for (String line: Files.readAllLines(Paths.get(filePath))) {
-                if (line.contains(pattern)) {
-                    result.add(lineNum);
-                }
-                lineNum++;
-            }
-        } catch (IOException ex) {
-            throw new RuntimeException("failed to parse " + filePath, ex);
-        }
-        return result;
-    }
-
     private BreakpointEvent resumeToBreakpoint(boolean suspendThread, int breakpointId) throws Exception {
-        int bkpLine = parseBreakpoints(Paths.get(System.getProperty("test.src")).resolve("MethodInvokeWithTraceOnTest.java").toString(), breakpointId).get(0);
+        int bkpLine = parseBreakpoints(getTestSourcePath("MethodInvokeWithTraceOnTest.java"), breakpointId).get(0);
         System.out.println("Running to line: " + bkpLine);
         return resumeTo("MethodInvokeWithTraceOnTestTarg", bkpLine, suspendThread);
     }
@@ -138,6 +116,7 @@ public class MethodInvokeWithTraceOnTest extends TestScaffold {
         LocalVariable threadVar = frame.visibleVariableByName("thread");
         ThreadReference threadObj = (ThreadReference) frame.getValue(threadVar);
         StringReference stringObj = vm().mirrorOf("test string");
+        stringObj.disableCollection();
         int invokeOptions = getMethodInvokeOptions(be);
 
         testInstanceMethod1(thread, thisObj, stringObj, threadObj, invokeOptions);

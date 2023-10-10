@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,12 +21,13 @@
  * questions.
  */
 
-import jdk.testlibrary.OutputAnalyzer;
-import jdk.testlibrary.ProcessTools;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
+
+import jdk.test.lib.process.OutputAnalyzer;
+import jdk.test.lib.process.ProcessTools;
 
 /**
  * Base class.
@@ -142,6 +143,13 @@ public abstract class Test {
     static final String NOT_YET_VALID_CERT_VERIFYING_WARNING
             = "This jar contains entries "
             + "whose signer certificate is not yet valid.";
+
+    static final String WEAK_ALGORITHM_WARNING
+            = "algorithm is considered a security risk. "
+            + "This algorithm will be disabled in a future update.";
+
+    static final String WEAK_KEY_WARNING
+            = "This key size will be disabled in a future update.";
 
     static final String JAR_SIGNED = "jar signed.";
 
@@ -263,7 +271,9 @@ public abstract class Test {
         cmd.add(tool);
         cmd.add("-J-Duser.language=en");
         cmd.add("-J-Duser.country=US");
-        cmd.addAll(Arrays.asList(args));
+        cmd.addAll(Arrays.asList(args).stream().filter(arg -> {
+            return arg != null && !arg.isEmpty();
+        }).collect(Collectors.toList()));
         return ProcessTools.executeCommand(cmd.toArray(new String[cmd.size()]));
     }
 }

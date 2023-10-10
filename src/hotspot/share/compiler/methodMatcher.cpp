@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2016, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,9 +23,13 @@
  */
 
 #include "precompiled.hpp"
+#include "classfile/symbolTable.hpp"
+#include "classfile/vmSymbols.hpp"
+#include "compiler/compilerOracle.hpp"
 #include "compiler/methodMatcher.hpp"
 #include "memory/oopFactory.hpp"
 #include "memory/resourceArea.hpp"
+#include "oops/method.hpp"
 #include "oops/oop.inline.hpp"
 
 // The JVM specification defines the allowed characters.
@@ -68,21 +72,21 @@
 #define RANGESLASH "[*" RANGEBASE "/]"
 
 MethodMatcher::MethodMatcher():
-    _class_mode(Exact)
-  , _method_mode(Exact)
-  , _class_name(NULL)
-  , _method_name(NULL)
-  , _signature(NULL) {
+    _class_name(nullptr)
+  , _method_name(nullptr)
+  , _signature(nullptr)
+  , _class_mode(Exact)
+  , _method_mode(Exact) {
 }
 
 MethodMatcher::~MethodMatcher() {
-  if (_class_name != NULL) {
+  if (_class_name != nullptr) {
     _class_name->decrement_refcount();
   }
-  if (_method_name != NULL) {
+  if (_method_name != nullptr) {
     _method_name->decrement_refcount();
   }
-  if (_signature != NULL) {
+  if (_signature != nullptr) {
     _signature->decrement_refcount();
   }
 }
@@ -99,7 +103,7 @@ void MethodMatcher::init(Symbol* class_name, Mode class_mode,
 
 bool MethodMatcher::canonicalize(char * line, const char *& error_msg) {
   char* colon = strstr(line, "::");
-  bool have_colon = (colon != NULL);
+  bool have_colon = (colon != nullptr);
   if (have_colon) {
     // Don't allow multiple '::'
     if (colon[2] != '\0') {
@@ -109,16 +113,15 @@ bool MethodMatcher::canonicalize(char * line, const char *& error_msg) {
       }
     }
 
-    bool in_signature = false;
     char* pos = line;
-    if (pos != NULL) {
+    if (pos != nullptr) {
       for (char* lp = pos + 1; *lp != '\0'; lp++) {
         if (*lp == '(') {
           break;
         }
 
         if (*lp == '/') {
-          error_msg = "Method pattern uses '/' together with '::'";
+          error_msg = "Method pattern uses '/' together with '::' (tips: replace '/' with '+' for hidden classes)";
           return false;
         }
       }
@@ -127,7 +130,7 @@ bool MethodMatcher::canonicalize(char * line, const char *& error_msg) {
     // Don't allow mixed package separators
     char* pos = strchr(line, '.');
     bool in_signature = false;
-    if (pos != NULL) {
+    if (pos != nullptr) {
       for (char* lp = pos + 1; *lp != '\0'; lp++) {
         if (*lp == '(') {
           in_signature = true;
@@ -207,7 +210,7 @@ bool MethodMatcher::match(Symbol* candidate, Symbol* match, Mode match_mode) con
   }
 
   case Substring:
-    return strstr(candidate_string, match_string) != NULL;
+    return strstr(candidate_string, match_string) != nullptr;
 
   default:
     return false;
@@ -235,7 +238,7 @@ static MethodMatcher::Mode check_mode(char name[], const char*& error_msg) {
     return MethodMatcher::Any;
   }
 
-  if (strstr(name, "*") != NULL) {
+  if (strstr(name, "*") != nullptr) {
     error_msg = " Embedded * not allowed";
     return MethodMatcher::Unknown;
   }
@@ -261,37 +264,58 @@ void MethodMatcher::parse_method_pattern(char*& line, const char*& error_msg, Me
   int bytes_read = 0;
   int total_bytes_read = 0;
 
-  assert(error_msg == NULL, "Dont call here with error_msg already set");
+  assert(error_msg == nullptr, "Dont call here with error_msg already set");
 
   if (!MethodMatcher::canonicalize(line, error_msg)) {
-    assert(error_msg != NULL, "Message must be set if parsing failed");
+    assert(error_msg != nullptr, "Message must be set if parsing failed");
     return;
   }
 
   skip_leading_spaces(line, &total_bytes_read);
+  if (*line == '\0') {
+    error_msg = "Method pattern missing from command";
+    return;
+  }
 
   if (2 == sscanf(line, "%255" RANGESLASH "%*[ ]" "%255"  RANGE0 "%n", class_name, method_name, &bytes_read)) {
     c_match = check_mode(class_name, error_msg);
     m_match = check_mode(method_name, error_msg);
 
-    if ((strchr(class_name, '<') != NULL) || (strchr(class_name, '>') != NULL)) {
+    // Over-consumption
+    // method_name points to an option type or option name because the method name is not specified by users.
+    // In very rare case, the method name happens to be same as option type/name, so look ahead to make sure
+    // it doesn't show up again.
+    if ((OptionType::Unknown != CompilerOracle::parse_option_type(method_name) ||
+        CompileCommand::Unknown != CompilerOracle::parse_option_name(method_name)) &&
+        *(line + bytes_read) != '\0' &&
+        strstr(line + bytes_read, method_name) == nullptr) {
+      error_msg = "Did not specify any method name";
+      method_name[0] = '\0';
+      return;
+    }
+
+    if ((strchr(class_name, JVM_SIGNATURE_SPECIAL) != nullptr) ||
+        (strchr(class_name, JVM_SIGNATURE_ENDSPECIAL) != nullptr)) {
       error_msg = "Chars '<' and '>' not allowed in class name";
       return;
     }
-    if ((strchr(method_name, '<') != NULL) || (strchr(method_name, '>') != NULL)) {
-      if ((strncmp("<init>", method_name, 255) != 0) && (strncmp("<clinit>", method_name, 255) != 0)) {
+
+    if ((strchr(method_name, JVM_SIGNATURE_SPECIAL) != nullptr) ||
+        (strchr(method_name, JVM_SIGNATURE_ENDSPECIAL) != nullptr)) {
+      if (!vmSymbols::object_initializer_name()->equals(method_name) &&
+          !vmSymbols::class_initializer_name()->equals(method_name)) {
         error_msg = "Chars '<' and '>' only allowed in <init> and <clinit>";
         return;
       }
     }
 
     if (c_match == MethodMatcher::Unknown || m_match == MethodMatcher::Unknown) {
-      assert(error_msg != NULL, "Must have been set by check_mode()");
+      assert(error_msg != nullptr, "Must have been set by check_mode()");
       return;
     }
 
     EXCEPTION_MARK;
-    Symbol* signature = NULL;
+    Symbol* signature = nullptr;
     line += bytes_read;
     bytes_read = 0;
 
@@ -304,16 +328,16 @@ void MethodMatcher::parse_method_pattern(char*& line, const char*& error_msg, Me
       sig[0] = '(';
       // scan the rest
       if (1 == sscanf(line, "%1022[[);/" RANGEBASE "]%n", sig+1, &bytes_read)) {
-        if (strchr(sig, '*') != NULL) {
+        if (strchr(sig, '*') != nullptr) {
           error_msg = " Wildcard * not allowed in signature";
           return;
         }
         line += bytes_read;
       }
-      signature = SymbolTable::new_symbol(sig, CHECK);
+      signature = SymbolTable::new_symbol(sig);
     }
-    Symbol* c_name = SymbolTable::new_symbol(class_name, CHECK);
-    Symbol* m_name = SymbolTable::new_symbol(method_name, CHECK);
+    Symbol* c_name = SymbolTable::new_symbol(class_name);
+    Symbol* m_name = SymbolTable::new_symbol(method_name);
 
     matcher->init(c_name, c_match, m_name, m_match, signature);
     return;
@@ -329,7 +353,7 @@ bool MethodMatcher::matches(const methodHandle& method) const {
 
   if (match(class_name, this->class_name(), _class_mode) &&
       match(method_name, this->method_name(), _method_mode) &&
-      ((this->signature() == NULL) || match(signature, this->signature(), Prefix))) {
+      ((this->signature() == nullptr) || match(signature, this->signature(), Prefix))) {
     return true;
   }
   return false;
@@ -353,33 +377,34 @@ void MethodMatcher::print_base(outputStream* st) {
   print_symbol(st, class_name(), _class_mode);
   st->print(".");
   print_symbol(st, method_name(), _method_mode);
-  if (signature() != NULL) {
+  if (signature() != nullptr) {
     signature()->print_utf8_on(st);
   }
 }
 
-BasicMatcher* BasicMatcher::parse_method_pattern(char* line, const char*& error_msg) {
-  assert(error_msg == NULL, "Don't call here with error_msg already set");
+BasicMatcher* BasicMatcher::parse_method_pattern(char* line, const char*& error_msg, bool expect_trailing_chars) {
+  assert(error_msg == nullptr, "Don't call here with error_msg already set");
   BasicMatcher* bm = new BasicMatcher();
   MethodMatcher::parse_method_pattern(line, error_msg, bm);
-  if (error_msg != NULL) {
+  if (error_msg != nullptr) {
     delete bm;
-    return NULL;
+    return nullptr;
   }
-
-  // check for bad trailing characters
-  int bytes_read = 0;
-  sscanf(line, "%*[ \t]%n", &bytes_read);
-  if (line[bytes_read] != '\0') {
-    error_msg = "Unrecognized trailing text after method pattern";
-    delete bm;
-    return NULL;
+  if (!expect_trailing_chars) {
+    // check for bad trailing characters
+    int bytes_read = 0;
+    sscanf(line, "%*[ \t]%n", &bytes_read);
+    if (line[bytes_read] != '\0') {
+      error_msg = "Unrecognized trailing text after method pattern";
+      delete bm;
+      return nullptr;
+    }
   }
   return bm;
 }
 
 bool BasicMatcher::match(const methodHandle& method) {
-  for (BasicMatcher* current = this; current != NULL; current = current->next()) {
+  for (BasicMatcher* current = this; current != nullptr; current = current->next()) {
     if (current->matches(method)) {
       return true;
     }
@@ -397,18 +422,18 @@ void InlineMatcher::print(outputStream* st) {
 }
 
 InlineMatcher* InlineMatcher::parse_method_pattern(char* line, const char*& error_msg) {
-  assert(error_msg == NULL, "Dont call here with error_msg already set");
+  assert(error_msg == nullptr, "Dont call here with error_msg already set");
   InlineMatcher* im = new InlineMatcher();
   MethodMatcher::parse_method_pattern(line, error_msg, im);
-  if (error_msg != NULL) {
+  if (error_msg != nullptr) {
     delete im;
-    return NULL;
+    return nullptr;
   }
   return im;
 }
 
 bool InlineMatcher::match(const methodHandle& method, int inline_action) {
-  for (InlineMatcher* current = this; current != NULL; current = current->next()) {
+  for (InlineMatcher* current = this; current != nullptr; current = current->next()) {
     if (current->matches(method)) {
       return (current->_inline_action == inline_action);
     }
@@ -428,16 +453,15 @@ InlineMatcher* InlineMatcher::parse_inline_pattern(char* str, const char*& error
      break;
    default:
      error_msg = "Missing leading inline type (+/-)";
-     return NULL;
+     return nullptr;
    }
    str++;
 
-   int bytes_read = 0;
-   assert(error_msg== NULL, "error_msg must not be set yet");
+   assert(error_msg == nullptr, "error_msg must not be set yet");
    InlineMatcher* im = InlineMatcher::parse_method_pattern(str, error_msg);
-   if (im == NULL) {
-     assert(error_msg != NULL, "Must have error message");
-     return NULL;
+   if (im == nullptr) {
+     assert(error_msg != nullptr, "Must have error message");
+     return nullptr;
    }
    im->set_action(_inline_action);
    return im;
@@ -449,15 +473,15 @@ InlineMatcher* InlineMatcher::clone() {
    m->_method_mode = _method_mode;
    m->_inline_action = _inline_action;
    m->_class_name = _class_name;
-   if(_class_name != NULL) {
+   if(_class_name != nullptr) {
      _class_name->increment_refcount();
    }
    m->_method_name = _method_name;
-   if (_method_name != NULL) {
+   if (_method_name != nullptr) {
      _method_name->increment_refcount();
    }
    m->_signature = _signature;
-   if (_signature != NULL) {
+   if (_signature != nullptr) {
      _signature->increment_refcount();
    }
    return m;

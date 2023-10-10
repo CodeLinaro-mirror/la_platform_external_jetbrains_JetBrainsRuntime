@@ -1,21 +1,32 @@
 /*
- * Copyright 2000-2021 JetBrains s.r.o.
+ * Copyright 2000-2023 JetBrains s.r.o.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
  */
 
 package com.jetbrains.internal;
 
+import java.io.Serial;
+import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -86,6 +97,7 @@ import static java.lang.invoke.MethodHandles.Lookup;
  * user to directly create proxy object.
  */
 public class JBRApi {
+    static final boolean VERBOSE = Boolean.getBoolean("jetbrains.api.verbose");
 
     private static final Map<String, RegisteredProxyInfo> registeredProxyInfoByInterfaceName = new HashMap<>();
     private static final Map<String, RegisteredProxyInfo> registeredProxyInfoByTargetName = new HashMap<>();
@@ -104,15 +116,18 @@ public class JBRApi {
         JBRApi.outerLookup = outerLookup;
         try {
             Class<?> metadataClass = outerLookup.findClass("com.jetbrains.JBR$Metadata");
-            Lookup metadataLookup = MethodHandles.privateLookupIn(metadataClass, outerLookup);
-            knownServices = Set.of((String[]) metadataLookup.findStaticVarHandle(metadataClass,
+            Lookup lookup = MethodHandles.privateLookupIn(metadataClass, outerLookup);
+            knownServices = Set.of((String[]) lookup.findStaticVarHandle(metadataClass,
                     "KNOWN_SERVICES", String[].class).get());
-            knownProxies = Set.of((String[]) metadataLookup.findStaticVarHandle(metadataClass,
+            knownProxies = Set.of((String[]) lookup.findStaticVarHandle(metadataClass,
                     "KNOWN_PROXIES", String[].class).get());
         } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
             e.printStackTrace();
             knownServices = Set.of();
             knownProxies = Set.of();
+        }
+        if (VERBOSE) {
+            System.out.println("JBR API init\nKNOWN_SERVICES = " + knownServices + "\nKNOWN_PROXIES = " + knownProxies);
         }
     }
 
@@ -135,7 +150,12 @@ public class JBRApi {
             RegisteredProxyInfo info = registeredProxyInfoByInterfaceName.get(i.getName());
             if (info == null) return null;
             ProxyInfo resolved = ProxyInfo.resolve(info);
-            return resolved != null ? new Proxy<>(resolved) : null;
+            if (resolved == null) {
+                if (VERBOSE) {
+                    System.err.println("Couldn't resolve proxy info: " + i.getName());
+                }
+                return null;
+            } else return new Proxy<>(resolved);
         });
     }
 
@@ -158,10 +178,46 @@ public class JBRApi {
         RegisteredProxyInfo info = registeredProxyInfoByTargetName.get(targetName);
         if (info == null) return null;
         try {
-            return (info.type == ProxyInfo.Type.CLIENT_PROXY ? info.apiModule : outerLookup)
-                    .findClass(info.interfaceName);
-        } catch (ClassNotFoundException | IllegalAccessException e) {
+            return Class.forName(info.interfaceName(), true,
+                    (info.type().isPublicApi() ? outerLookup : info.apiModule()).lookupClass().getClassLoader());
+        } catch (ClassNotFoundException e) {
+            if (VERBOSE) e.printStackTrace();
             return null;
+        }
+    }
+
+    public static InternalServiceBuilder internalServiceBuilder(Lookup interFace, String... targets) {
+        return new InternalServiceBuilder(new RegisteredProxyInfo(
+                interFace, interFace.lookupClass().getName(), targets, ProxyInfo.Type.INTERNAL_SERVICE, new ArrayList<>()));
+    }
+
+    public static class InternalServiceBuilder {
+
+        private final RegisteredProxyInfo info;
+
+        private InternalServiceBuilder(RegisteredProxyInfo info) {
+            this.info = info;
+        }
+
+        public InternalServiceBuilder withStatic(String interfaceMethodName, String methodName, String... classes) {
+            info.staticMethods().add(
+                    new RegisteredProxyInfo.StaticMethodMapping(interfaceMethodName, methodName, classes));
+            return this;
+        }
+
+        public Object build() {
+            ProxyInfo info = ProxyInfo.resolve(this.info);
+            if (info == null) return null;
+            ProxyGenerator generator = new ProxyGenerator(info);
+            if (!generator.areAllMethodsImplemented()) return null;
+            generator.defineClasses();
+            MethodHandle constructor = generator.findConstructor();
+            generator.init();
+            try {
+                return constructor.invoke();
+            } catch (Throwable e) {
+                throw new RuntimeException(e);
+            }
         }
     }
 
@@ -183,22 +239,24 @@ public class JBRApi {
             this.lookup = lookup;
         }
 
-        private ModuleRegistry addProxy(String interfaceName, String target, ProxyInfo.Type type) {
-            lastProxy = new RegisteredProxyInfo(lookup, interfaceName, target, type, new ArrayList<>());
+        private ModuleRegistry addProxy(ProxyInfo.Type type, String interfaceName, String... targets) {
+            lastProxy = new RegisteredProxyInfo(lookup, interfaceName, targets, type, new ArrayList<>());
             registeredProxyInfoByInterfaceName.put(interfaceName, lastProxy);
-            if (target != null) {
+            for (String target : targets) {
                 registeredProxyInfoByTargetName.put(target, lastProxy);
-                validate2WayMapping(lastProxy, registeredProxyInfoByInterfaceName.get(target));
+            }
+            if (targets.length == 1) {
+                validate2WayMapping(lastProxy, registeredProxyInfoByInterfaceName.get(targets[0]));
                 validate2WayMapping(lastProxy, registeredProxyInfoByTargetName.get(interfaceName));
             }
             return this;
         }
         private static void validate2WayMapping(RegisteredProxyInfo p, RegisteredProxyInfo reverse) {
             if (reverse != null &&
-                    (!p.interfaceName.equals(reverse.target) || !p.target.equals(reverse.interfaceName))) {
+                    (!p.interfaceName().equals(reverse.targets()[0]) || !p.targets()[0].equals(reverse.interfaceName()))) {
                 throw new IllegalArgumentException("Invalid 2-way proxy mapping: " +
-                        p.interfaceName + " -> " + p.target + " & " +
-                        reverse.interfaceName + " -> " + reverse.target);
+                        p.interfaceName() + " -> " + p.targets()[0] + " & " +
+                        reverse.interfaceName() + " -> " + reverse.targets()[0]);
             }
         }
 
@@ -209,12 +267,12 @@ public class JBRApi {
          * it's converted to corresponding {@code interFace} type by creating a proxy object
          * that implements {@code interFace} and delegates method calls to {@code target}.
          * @param interFace interface name in {@link com.jetbrains.JBR jetbrains.api} module.
-         * @param target corresponding class/interface name in current JBR module.
+         * @param targets corresponding class/interface names in current JBR module, first found will be used. This must not be empty.
          * @apiNote class name example: {@code pac.ka.ge.Outer$Inner}
          */
-        public ModuleRegistry proxy(String interFace, String target) {
-            Objects.requireNonNull(target);
-            return addProxy(interFace, target, ProxyInfo.Type.PROXY);
+        public ModuleRegistry proxy(String interFace, String... targets) {
+            if (targets.length == 0) throw new IllegalArgumentException("Proxy must have at least one target");
+            return addProxy(ProxyInfo.Type.PROXY, interFace, targets);
         }
 
         /**
@@ -222,11 +280,11 @@ public class JBRApi {
          * <p>
          * Service is a singleton, which may be accessed by client using {@link com.jetbrains.JBR} class.
          * @param interFace interface name in {@link com.jetbrains.JBR jetbrains.api} module.
-         * @param target corresponding implementation class name in current JBR module, or null.
+         * @param targets corresponding implementation class names in current JBR module, first found will be used.
          * @apiNote class name example: {@code pac.ka.ge.Outer$Inner}
          */
-        public ModuleRegistry service(String interFace, String target) {
-            return addProxy(interFace, target, ProxyInfo.Type.SERVICE);
+        public ModuleRegistry service(String interFace, String... targets) {
+            return addProxy(ProxyInfo.Type.SERVICE, interFace, targets);
         }
 
         /**
@@ -242,7 +300,7 @@ public class JBRApi {
          */
         public ModuleRegistry clientProxy(String interFace, String target) {
             Objects.requireNonNull(target);
-            return addProxy(interFace, target, ProxyInfo.Type.CLIENT_PROXY);
+            return addProxy(ProxyInfo.Type.CLIENT_PROXY, interFace, target);
         }
 
         /**
@@ -263,20 +321,24 @@ public class JBRApi {
         }
 
         /**
-         * Delegate interface "{@code methodName}" calls to static "{@code methodName}" in "{@code clazz}".
-         * @see #withStatic(String, String, String)
+         * Delegate "{@code interfaceMethodName}" method calls to first found static "{@code methodName}" in "{@code classes}".
          */
-        public ModuleRegistry withStatic(String methodName, String clazz) {
-            return withStatic(methodName, clazz, methodName);
-        }
-
-        /**
-         * Delegate "{@code interfaceMethodName}" method calls to static "{@code methodName}" in "{@code clazz}".
-         */
-        public ModuleRegistry withStatic(String interfaceMethodName, String clazz, String methodName) {
-            lastProxy.staticMethods.add(
-                    new RegisteredProxyInfo.StaticMethodMapping(interfaceMethodName, clazz, methodName));
+        public ModuleRegistry withStatic(String interfaceMethodName, String methodName, String... classes) {
+            lastProxy.staticMethods().add(
+                    new RegisteredProxyInfo.StaticMethodMapping(interfaceMethodName, methodName, classes));
             return this;
         }
+    }
+
+    /**
+     * Thrown by service implementations indicating that the service is not available for some reason
+     */
+    public static class ServiceNotAvailableException extends RuntimeException {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        public ServiceNotAvailableException() { super(); }
+        public ServiceNotAvailableException(String message) { super(message); }
+        public ServiceNotAvailableException(String message, Throwable cause) { super(message, cause); }
+        public ServiceNotAvailableException(Throwable cause) { super(cause); }
     }
 }

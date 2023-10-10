@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,12 +26,9 @@
 package java.net;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.File;
-import java.io.OutputStream;
-import java.util.Hashtable;
+import java.util.Locale;
+import java.util.Objects;
 import sun.net.util.IPAddressUtil;
-import sun.net.www.ParseUtil;
 
 /**
  * The abstract class {@code URLStreamHandler} is the common
@@ -51,6 +48,11 @@ import sun.net.www.ParseUtil;
  */
 public abstract class URLStreamHandler {
     /**
+     * Constructor for subclasses to call.
+     */
+    public URLStreamHandler() {}
+
+    /**
      * Opens a connection to the object referenced by the
      * {@code URL} argument.
      * This method should be overridden by a subclass.
@@ -65,7 +67,7 @@ public abstract class URLStreamHandler {
      *
      * @param      u   the URL that this connects to.
      * @return     a {@code URLConnection} object for the {@code URL}.
-     * @exception  IOException  if an I/O error occurs while opening the
+     * @throws     IOException  if an I/O error occurs while opening the
      *               connection.
      */
     protected abstract URLConnection openConnection(URL u) throws IOException;
@@ -76,23 +78,31 @@ public abstract class URLStreamHandler {
      * support proxying will ignore the proxy parameter and make a
      * normal connection.
      *
-     * Calling this method preempts the system's default
+     * <p> Calling this method preempts the system's default
      * {@link java.net.ProxySelector ProxySelector} settings.
+     *
+     * @implSpec
+     * The default implementation of this method first checks that the given
+     * {@code URL} and {@code Proxy} are not null, then throws {@code
+     * UnsupportedOperationException}. Subclasses should override this method
+     * with an appropriate implementation.
      *
      * @param      u   the URL that this connects to.
      * @param      p   the proxy through which the connection will be made.
      *                 If direct connection is desired, Proxy.NO_PROXY
      *                 should be specified.
      * @return     a {@code URLConnection} object for the {@code URL}.
-     * @exception  IOException  if an I/O error occurs while opening the
+     * @throws     IOException  if an I/O error occurs while opening the
      *               connection.
-     * @exception  IllegalArgumentException if either u or p is null,
+     * @throws     IllegalArgumentException if either u or p is null,
      *               or p has the wrong type.
-     * @exception  UnsupportedOperationException if the subclass that
+     * @throws     UnsupportedOperationException if the subclass that
      *               implements the protocol doesn't support this method.
      * @since      1.5
      */
     protected URLConnection openConnection(URL u, Proxy p) throws IOException {
+        if (u == null || p == null)
+            throw new IllegalArgumentException("null " + (u == null ? "url" : "proxy"));
         throw new UnsupportedOperationException("Method not implemented.");
     }
 
@@ -120,6 +130,10 @@ public abstract class URLStreamHandler {
      *                  end of the string or the position of the
      *                  "{@code #}" character, if present. All information
      *                  after the sharp sign indicates an anchor.
+     * @throws IllegalArgumentException if the implementation of the protocol
+     *                  handler rejects any of the given parameters
+     * @throws NullPointerException if {@code u} is {@code null},
+     *                  or if {@code start < limit} and {@code spec} is {@code null}
      */
     protected void parseURL(URL u, String spec, int start, int limit) {
         // These fields may receive context content if this was relative URL
@@ -144,13 +158,12 @@ public abstract class URLStreamHandler {
             queryOnly = queryStart == start;
             if ((queryStart != -1) && (queryStart < limit)) {
                 query = spec.substring(queryStart+1, limit);
-                if (limit > queryStart)
-                    limit = queryStart;
+                limit = queryStart;
                 spec = spec.substring(0, queryStart);
             }
         }
 
-        int i = 0;
+        int i;
         // Parse the authority part if any
         boolean isUNCName = (start <= limit - 4) &&
                         (spec.charAt(start) == '/') &&
@@ -235,7 +248,7 @@ public abstract class URLStreamHandler {
             start = i;
             // If the authority is defined then the path is defined by the
             // spec only; See RFC 2396 Section 5.2.4.
-            if (authority != null && !authority.isEmpty())
+            if (!authority.isEmpty())
                 path = "";
         }
 
@@ -245,26 +258,27 @@ public abstract class URLStreamHandler {
 
         // Parse the file path if any
         if (start < limit) {
+            String specStr = spec.substring(start, limit);
             if (spec.charAt(start) == '/') {
-                path = spec.substring(start, limit);
+                path = specStr;
             } else if (path != null && !path.isEmpty()) {
                 isRelPath = true;
                 int ind = path.lastIndexOf('/');
-                String seperator = "";
-                if (ind == -1 && authority != null)
-                    seperator = "/";
-                path = path.substring(0, ind + 1) + seperator +
-                         spec.substring(start, limit);
-
+                if (ind == -1 && authority != null) {
+                    path = "/".concat(specStr);
+                } else {
+                    path = path.substring(0, ind + 1).concat(specStr);
+                }
             } else {
-                String seperator = (authority != null) ? "/" : "";
-                path = seperator + spec.substring(start, limit);
+                path = (authority != null) ? "/".concat(specStr) : specStr;
             }
         } else if (queryOnly && path != null) {
             int ind = path.lastIndexOf('/');
-            if (ind < 0)
-                ind = 0;
-            path = path.substring(0, ind) + "/";
+            if (ind < 0) {
+                path = "/";
+            } else {
+                path = path.substring(0, ind + 1);
+            }
         }
         if (path == null)
             path = "";
@@ -285,7 +299,7 @@ public abstract class URLStreamHandler {
                  */
                 if (i > 0 && (limit = path.lastIndexOf('/', i - 1)) >= 0 &&
                     (path.indexOf("/../", limit) != 0)) {
-                    path = path.substring(0, limit) + path.substring(i + 3);
+                    path = path.substring(0, limit).concat(path.substring(i + 3));
                     i = 0;
                 } else {
                     i = i + 3;
@@ -314,7 +328,7 @@ public abstract class URLStreamHandler {
 
     /**
      * Returns the default port for a URL parsed by this handler. This method
-     * is meant to be overidden by handlers with default port numbers.
+     * is meant to be overridden by handlers with default port numbers.
      * @return the default port for a {@code URL} parsed by this handler.
      * @since 1.3
      */
@@ -323,26 +337,23 @@ public abstract class URLStreamHandler {
     }
 
     /**
-     * Provides the default equals calculation. May be overidden by handlers
+     * Provides the default equals calculation. May be overridden by handlers
      * for other protocols that have different requirements for equals().
      * This method requires that none of its arguments is null. This is
      * guaranteed by the fact that it is only called by java.net.URL class.
      * @param u1 a URL object
      * @param u2 a URL object
      * @return {@code true} if the two urls are
-     * considered equal, ie. they refer to the same
+     * considered equal, i.e. they refer to the same
      * fragment in the same file.
      * @since 1.3
      */
     protected boolean equals(URL u1, URL u2) {
-        String ref1 = u1.getRef();
-        String ref2 = u2.getRef();
-        return (ref1 == ref2 || (ref1 != null && ref1.equals(ref2))) &&
-               sameFile(u1, u2);
+        return Objects.equals(u1.getRef(), u2.getRef()) && sameFile(u1, u2);
     }
 
     /**
-     * Provides the default hash calculation. May be overidden by handlers for
+     * Provides the default hash calculation. May be overridden by handlers for
      * other protocols that have different requirements for hashCode
      * calculation.
      * @param u a URL object
@@ -364,7 +375,7 @@ public abstract class URLStreamHandler {
         } else {
             String host = u.getHost();
             if (host != null)
-                h += host.toLowerCase().hashCode();
+                h += host.toLowerCase(Locale.ROOT).hashCode();
         }
 
         // Generate the file part.
@@ -489,8 +500,11 @@ public abstract class URLStreamHandler {
      * @param   path      the path component of the URL.
      * @param   query     the query part for the URL.
      * @param   ref       the reference.
-     * @exception       SecurityException       if the protocol handler of the URL is
+     * @throws          SecurityException       if the protocol handler of the URL is
      *                                  different from this one
+     * @throws IllegalArgumentException if the implementation of the protocol
+     *                    handler rejects any of the given parameters
+     * @throws NullPointerException if {@code u} is {@code null}
      * @since 1.3
      */
     protected void setURL(URL u, String protocol, String host, int port,
@@ -498,10 +512,23 @@ public abstract class URLStreamHandler {
                              String query, String ref) {
         if (this != u.handler) {
             throw new SecurityException("handler for url different from " +
-                                        "this handler");
-        } else if (host != null && u.isBuiltinStreamHandler(this)) {
-            String s = IPAddressUtil.checkHostString(host);
-            if (s != null) throw new IllegalArgumentException(s);
+                    "this handler");
+        }
+        // if early parsing, perform additional checks here rather than waiting
+        // for openConnection()
+        boolean earlyURLParsing = IPAddressUtil.earlyURLParsing();
+        boolean isBuiltInHandler = u.isBuiltinStreamHandler(this);
+        if (host != null && isBuiltInHandler) {
+            String errMsg = IPAddressUtil.checkHostString(host);
+            if (errMsg != null) throw new IllegalArgumentException(errMsg);
+        }
+        if (userInfo != null && isBuiltInHandler && earlyURLParsing) {
+            String errMsg = IPAddressUtil.checkUserInfo(userInfo);
+            if (errMsg != null) throw new IllegalArgumentException(errMsg);
+        }
+        if (authority != null && isBuiltInHandler && earlyURLParsing) {
+            String errMsg = IPAddressUtil.checkAuth(authority);
+            if (errMsg != null) throw new IllegalArgumentException(errMsg);
         }
         // ensure that no one can reset the protocol on a given URL.
         u.set(u.getProtocol(), host, port, authority, userInfo, path, query, ref);
@@ -518,8 +545,11 @@ public abstract class URLStreamHandler {
      * @param   port      the port on the remote machine.
      * @param   file      the file.
      * @param   ref       the reference.
-     * @exception       SecurityException       if the protocol handler of the URL is
+     * @throws          SecurityException       if the protocol handler of the URL is
      *                                  different from this one
+     * @throws IllegalArgumentException if the implementation of the protocol
+     *                    handler rejects any of the given parameters
+     * @throws NullPointerException if {@code u} is {@code null}
      * @deprecated Use setURL(URL, String, String, int, String, String, String,
      *             String);
      */

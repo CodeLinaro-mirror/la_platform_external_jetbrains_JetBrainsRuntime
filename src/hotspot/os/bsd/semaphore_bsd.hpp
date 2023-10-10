@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,8 +22,8 @@
  *
  */
 
-#ifndef OS_BSD_VM_SEMAPHORE_BSD_HPP
-#define OS_BSD_VM_SEMAPHORE_BSD_HPP
+#ifndef OS_BSD_SEMAPHORE_BSD_HPP
+#define OS_BSD_SEMAPHORE_BSD_HPP
 
 #include "utilities/globalDefinitions.hpp"
 
@@ -32,7 +32,7 @@
 # include "semaphore_posix.hpp"
 
 #else
-// OS X doesn't support unamed POSIX semaphores, so the implementation in os_posix.cpp can't be used.
+// OS X doesn't support unnamed POSIX semaphores, so the implementation in os_posix.cpp can't be used.
 # include "memory/allocation.hpp"
 # include <mach/semaphore.h>
 
@@ -50,14 +50,13 @@ class OSXSemaphore : public CHeapObj<mtInternal>{
   void wait();
 
   bool trywait();
-  bool timedwait(unsigned int sec, int nsec);
 
- private:
-  static int64_t currenttime();
+  // wait until the given relative time elapses
+  bool timedwait(int64_t millis);
 };
 
 typedef OSXSemaphore SemaphoreImpl;
 
 #endif // __APPLE__
 
-#endif // OS_BSD_VM_SEMAPHORE_BSD_HPP
+#endif // OS_BSD_SEMAPHORE_BSD_HPP

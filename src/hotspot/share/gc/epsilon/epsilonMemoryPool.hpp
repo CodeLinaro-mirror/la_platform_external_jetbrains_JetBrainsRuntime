@@ -22,8 +22,8 @@
  *
  */
 
-#ifndef SHARE_VM_GC_EPSILON_EPSILONMEMORYPOOL_HPP
-#define SHARE_VM_GC_EPSILON_EPSILONMEMORYPOOL_HPP
+#ifndef SHARE_GC_EPSILON_EPSILONMEMORYPOOL_HPP
+#define SHARE_GC_EPSILON_EPSILONMEMORYPOOL_HPP
 
 #include "gc/epsilon/epsilonHeap.hpp"
 #include "services/memoryPool.hpp"
@@ -42,4 +42,4 @@ public:
   MemoryUsage get_memory_usage();
 };
 
-#endif // SHARE_VM_GC_EPSILON_EPSILONMEMORYPOOL_HPP
+#endif // SHARE_GC_EPSILON_EPSILONMEMORYPOOL_HPP

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,7 +23,6 @@
 
 import jdk.test.lib.SecurityTools;
 import sun.security.util.KnownOIDs;
-import sun.security.util.ObjectIdentifier;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,14 +32,12 @@ import java.util.Map;
 
 import static jdk.test.lib.security.DerUtils.*;
 import static sun.security.util.KnownOIDs.*;
-import static sun.security.x509.AlgorithmId.*;
 
 /*
  * @test
- * @bug 8076190 8153005 8266293
+ * @bug 8076190 8242151 8153005 8266293
  * @library /test/lib
  * @modules java.base/sun.security.pkcs
- *          java.base/sun.security.x509
  *          java.base/sun.security.util
  * @summary Checks the preferences order of pkcs12 params, whether it's
  *          a system property or a security property, whether the name has
@@ -57,7 +54,7 @@ public class ParamsPreferences {
                 Map.of(),
                 PBES2, HmacSHA256, AES_256$CBC$NoPadding, 10000,
                 PBES2, HmacSHA256, AES_256$CBC$NoPadding, 10000,
-                SHA_1, 100000);
+                SHA_256, 10000);
 
         // legacy settings
         test(c++,
@@ -107,7 +104,7 @@ public class ParamsPreferences {
                         "keystore.pkcs12.macAlgorithm", "NONE"),
                 PBEWithSHA1AndDESede, 10000,
                 PBES2, HmacSHA256, AES_256$CBC$NoPadding, 10000,
-                SHA_256, 100000);
+                SHA_256, 10000);
 
         // back to with storepass by using "" to force hardcoded default
         test(c++,
@@ -119,7 +116,7 @@ public class ParamsPreferences {
                         "keystore.pkcs12.macAlgorithm", "NONE"),
                 PBES2, HmacSHA256, AES_256$CBC$NoPadding, 10000,
                 PBES2, HmacSHA256, AES_256$CBC$NoPadding, 10000,
-                SHA_1, 100000);
+                SHA_256, 10000);
 
         // change everything with system property
         test(c++,
@@ -173,21 +170,21 @@ public class ParamsPreferences {
                 Map.of("keystore.PKCS12.keyProtectionAlgorithm", "PBEWithSHA1AndRC2_128"),
                 PBES2, HmacSHA256, AES_256$CBC$NoPadding, 10000,
                 PBEWithSHA1AndRC2_128, 10000,
-                SHA_1, 100000);
+                SHA_256, 10000);
         test(c++,
                 Map.of(),
                 Map.of("keystore.PKCS12.keyProtectionAlgorithm", "PBEWithSHA1AndRC2_128",
                         "keystore.pkcs12.keyProtectionAlgorithm", "PBEWithSHA1AndRC2_40"),
                 PBES2, HmacSHA256, AES_256$CBC$NoPadding, 10000,
                 PBEWithSHA1AndRC2_40, 10000,
-                SHA_1, 100000);
+                SHA_256, 10000);
         test(c++,
                 Map.of("keystore.PKCS12.keyProtectionAlgorithm", "PBEWithSHA1AndRC4_128"),
                 Map.of("keystore.PKCS12.keyProtectionAlgorithm", "PBEWithSHA1AndRC2_128",
                         "keystore.pkcs12.keyProtectionAlgorithm", "PBEWithSHA1AndRC2_40"),
                 PBES2, HmacSHA256, AES_256$CBC$NoPadding, 10000,
                 PBEWithSHA1AndRC4_128, 10000,
-                SHA_1, 100000);
+                SHA_256, 10000);
         test(c++,
                 Map.of("keystore.PKCS12.keyProtectionAlgorithm", "PBEWithSHA1AndRC4_128",
                         "keystore.pkcs12.keyProtectionAlgorithm", "PBEWithSHA1AndRC4_40"),
@@ -195,7 +192,7 @@ public class ParamsPreferences {
                         "keystore.pkcs12.keyProtectionAlgorithm", "PBEWithSHA1AndRC2_40"),
                 PBES2, HmacSHA256, AES_256$CBC$NoPadding, 10000,
                 PBEWithSHA1AndRC4_40, 10000,
-                SHA_1, 100000);
+                SHA_256, 10000);
 
         // 8266293
         test(c++,
@@ -204,7 +201,7 @@ public class ParamsPreferences {
                 Map.of(),
                 PBEWithMD5AndDES, 10000,
                 PBEWithMD5AndDES, 10000,
-                SHA_1, 100000);
+                SHA_256, 10000);
     }
 
     /**
@@ -218,6 +215,7 @@ public class ParamsPreferences {
     static void test(int n, Map<String, ?> sysProps,
                      Map<String, ?> secProps,
                      Object... args) throws Exception {
+
         String cmd = "-keystore ks" + n + " -genkeypair -keyalg EC "
                 + "-alias a -dname CN=A -storepass changeit "
                 + "-J-Djava.security.properties=" + n + ".conf";
@@ -247,8 +245,8 @@ public class ParamsPreferences {
             checkAlg(data, "110c110110", certAlg);
             if (certAlg == PBES2) {
                 checkAlg(data, "110c11011100", PBKDF2WithHmacSHA1);
-                checkAlg(data, "110c1101110130", args[i++]);
-                checkAlg(data, "110c11011110", args[i++]);
+                checkAlg(data, "110c1101110130", (KnownOIDs)args[i++]);
+                checkAlg(data, "110c11011110", (KnownOIDs)args[i++]);
                 checkInt(data, "110c110111011", (int) args[i++]);
             } else {
                 checkInt(data, "110c1101111", (int) args[i++]);
@@ -260,8 +258,8 @@ public class ParamsPreferences {
         checkAlg(data, "110c010c01000", keyAlg);
         if (keyAlg == PBES2) {
             checkAlg(data, "110c010c0100100", PBKDF2WithHmacSHA1);
-            checkAlg(data, "110c010c010010130", args[i++]);
-            checkAlg(data, "110c010c0100110", args[i++]);
+            checkAlg(data, "110c010c010010130", (KnownOIDs)args[i++]);
+            checkAlg(data, "110c010c0100110", (KnownOIDs)args[i++]);
             checkInt(data, "110c010c01001011", (int) args[i++]);
         } else {
             checkInt(data, "110c010c010011", (int) args[i++]);

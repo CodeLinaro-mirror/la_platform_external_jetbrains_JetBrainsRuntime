@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2017, 2018, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2017, 2022, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -21,15 +22,17 @@
  *
  */
 
-#ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHWORKERPOLICY_HPP
-#define SHARE_VM_GC_SHENANDOAH_SHENANDOAHWORKERPOLICY_HPP
+#ifndef SHARE_GC_SHENANDOAH_SHENANDOAHWORKERPOLICY_HPP
+#define SHARE_GC_SHENANDOAH_SHENANDOAHWORKERPOLICY_HPP
 
-#include "memory/allocation.hpp"
+#include "memory/allStatic.hpp"
 
 class ShenandoahWorkerPolicy : AllStatic {
 private:
   static uint _prev_par_marking;
   static uint _prev_conc_marking;
+  static uint _prev_conc_root_proc;
+  static uint _prev_conc_refs_proc;
   static uint _prev_conc_evac;
   static uint _prev_fullgc;
   static uint _prev_degengc;
@@ -48,6 +51,12 @@ public:
   // Calculate the number of workers for final marking
   static uint calc_workers_for_final_marking();
 
+  // Calculate workers for concurrent root processing
+  static uint calc_workers_for_conc_root_processing();
+
+  // Calculate workers for concurrent refs processing
+  static uint calc_workers_for_conc_refs_processing();
+
   // Calculate workers for concurrent evacuation (concurrent GC)
   static uint calc_workers_for_conc_evac();
 
@@ -63,9 +72,6 @@ public:
   // Calculate workers for parallel/final reference update
   static uint calc_workers_for_final_update_ref();
 
-  // Calculate workers for concurrent precleaning
-  static uint calc_workers_for_conc_preclean();
-
   // Calculate workers for concurrent cleanup
   static uint calc_workers_for_conc_cleanup();
 
@@ -73,4 +79,4 @@ public:
   static uint calc_workers_for_conc_reset();
 };
 
-#endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHWORKERPOLICY_HPP
+#endif // SHARE_GC_SHENANDOAH_SHENANDOAHWORKERPOLICY_HPP

@@ -24,6 +24,7 @@
 /* @test
  * @bug 8258077
  * @summary verify multiple release calls on a copied array work when checked
+ * @requires vm.flagless
  * @library /test/lib
  * @run main/native TestCheckedReleaseArrayElements launch
  */
@@ -48,7 +49,7 @@ public class TestCheckedReleaseArrayElements {
             // that might generate output on stderr (which should be empty for this test).
             ProcessBuilder pb =
                 ProcessTools.createJavaProcessBuilder("-Xcheck:jni",
-                                                      "-Djava.library.path=" + System.getProperty("test.nativepath"),
+                                                      "-Djava.library.path=" + Utils.TEST_NATIVE_PATH,
                                                       "TestCheckedReleaseArrayElements");
             OutputAnalyzer output = ProcessTools.executeProcess(pb);
             output.shouldHaveExitValue(0);

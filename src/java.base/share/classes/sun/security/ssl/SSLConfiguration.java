@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,13 +29,9 @@ import java.security.AccessControlContext;
 import java.security.AccessController;
 import java.security.AlgorithmConstraints;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
+import java.util.*;
 import java.util.function.BiFunction;
+import javax.crypto.KeyGenerator;
 import javax.net.ssl.HandshakeCompletedListener;
 import javax.net.ssl.SNIMatcher;
 import javax.net.ssl.SNIServerName;
@@ -66,7 +62,10 @@ final class SSLConfiguration implements Cloneable {
 
     // The configured signature schemes for "signature_algorithms" and
     // "signature_algorithms_cert" extensions
-    List<SignatureScheme>       signatureSchemes;
+    String[]                   signatureSchemes;
+
+    // the configured named groups for the "supported_groups" extensions
+    String[]                   namedGroups;
 
     // the maximum protocol version of enabled protocols
     ProtocolVersion             maximumProtocolVersion;
@@ -79,6 +78,7 @@ final class SSLConfiguration implements Cloneable {
     BiFunction<SSLSocket, List<String>, String> socketAPSelector;
     BiFunction<SSLEngine, List<String>, String> engineAPSelector;
 
+    @SuppressWarnings("removal")
     HashMap<HandshakeCompletedListener, AccessControlContext>
                                 handshakeListeners;
 
@@ -96,7 +96,7 @@ final class SSLConfiguration implements Cloneable {
     static final boolean allowLegacyMasterSecret =
         Utilities.getBooleanProperty("jdk.tls.allowLegacyMasterSecret", true);
 
-    // Allow full handshake without Extended Master Secret extension.
+    // Use TLS1.3 middlebox compatibility mode.
     static final boolean useCompatibilityMode = Utilities.getBooleanProperty(
             "jdk.tls.client.useCompatibilityMode", true);
 
@@ -112,13 +112,20 @@ final class SSLConfiguration implements Cloneable {
     static final int maxCertificateChainLength = GetIntegerAction.privilegedGetProperty(
             "jdk.tls.maxCertificateChainLength", 10);
 
+    // To switch off the supported_groups extension for DHE cipher suite.
+    static final boolean enableFFDHE =
+            Utilities.getBooleanProperty("jsse.enableFFDHE", true);
+
+    static final boolean enableDtlsResumeCookie = Utilities.getBooleanProperty(
+            "jdk.tls.enableDtlsResumeCookie", true);
+
     // Is the extended_master_secret extension supported?
     static {
         boolean supportExtendedMasterSecret = Utilities.getBooleanProperty(
                     "jdk.tls.useExtendedMasterSecret", true);
         if (supportExtendedMasterSecret) {
             try {
-                JsseJce.getKeyGenerator("SunTlsExtendedMasterSecret");
+                KeyGenerator.getInstance("SunTlsExtendedMasterSecret");
             } catch (NoSuchAlgorithmException nae) {
                 supportExtendedMasterSecret = false;
             }
@@ -138,9 +145,9 @@ final class SSLConfiguration implements Cloneable {
         this.clientAuthType = ClientAuthType.CLIENT_AUTH_NONE;
 
         this.identificationProtocol = null;
-        this.serverNames = Collections.<SNIServerName>emptyList();
-        this.sniMatchers = Collections.<SNIMatcher>emptyList();
-        this.preferLocalCipherSuites = false;
+        this.serverNames = Collections.emptyList();
+        this.sniMatchers = Collections.emptyList();
+        this.preferLocalCipherSuites = true;
 
         this.applicationProtocols = new String[0];
         this.enableRetransmissions = sslContext.isDTLS();
@@ -149,6 +156,7 @@ final class SSLConfiguration implements Cloneable {
         this.signatureSchemes = isClientMode ?
                 CustomizedClientSignatureSchemes.signatureSchemes :
                 CustomizedServerSignatureSchemes.signatureSchemes;
+        this.namedGroups = NamedGroup.SupportedGroups.namedGroups;
         this.maximumProtocolVersion = ProtocolVersion.NONE;
         for (ProtocolVersion pv : enabledProtocols) {
             if (pv.compareTo(maximumProtocolVersion) > 0) {
@@ -203,6 +211,8 @@ final class SSLConfiguration implements Cloneable {
         params.setUseCipherSuitesOrder(this.preferLocalCipherSuites);
         params.setEnableRetransmissions(this.enableRetransmissions);
         params.setMaximumPacketSize(this.maximumPacketSize);
+        params.setSignatureSchemes(this.signatureSchemes);
+        params.setNamedGroups(this.namedGroups);
 
         return params;
     }
@@ -260,12 +270,29 @@ final class SSLConfiguration implements Cloneable {
             this.applicationProtocols = sa;
         }   // otherwise, use the default values
 
+        String[] ss = params.getSignatureSchemes();
+        if (ss != null) {
+            // Note if 'ss' is empty, then no signature schemes should be
+            // specified over the connections.
+            this.signatureSchemes = ss;
+        }   // Otherwise, use the default values
+
+        String[] ngs = params.getNamedGroups();
+        if (ngs != null) {
+            // Note if 'ngs' is empty, then no named groups should be
+            // specified over the connections.
+            this.namedGroups = ngs;
+        } else {    // Otherwise, use the default values.
+            this.namedGroups = NamedGroup.SupportedGroups.namedGroups;
+        }
+
         this.preferLocalCipherSuites = params.getUseCipherSuitesOrder();
         this.enableRetransmissions = params.getEnableRetransmissions();
         this.maximumPacketSize = params.getMaximumPacketSize();
     }
 
     // SSLSocket only
+    @SuppressWarnings("removal")
     void addHandshakeCompletedListener(
             HandshakeCompletedListener listener) {
 
@@ -367,8 +394,7 @@ final class SSLConfiguration implements Cloneable {
      */
     SSLExtension[] getEnabledExtensions(
             SSLHandshake handshakeType, ProtocolVersion protocolVersion) {
-        return getEnabledExtensions(
-            handshakeType, Arrays.asList(protocolVersion));
+        return getEnabledExtensions(handshakeType, List.of(protocolVersion));
     }
 
     /**
@@ -402,14 +428,19 @@ final class SSLConfiguration implements Cloneable {
     void toggleClientMode() {
         this.isClientMode ^= true;
 
-        // reset the signature schemes
-        this.signatureSchemes = isClientMode ?
-                CustomizedClientSignatureSchemes.signatureSchemes :
-                CustomizedServerSignatureSchemes.signatureSchemes;
+        // Reset the signature schemes, if it was configured with SSLParameters.
+        if (Arrays.equals(signatureSchemes,
+                CustomizedClientSignatureSchemes.signatureSchemes) ||
+            Arrays.equals(signatureSchemes,
+                    CustomizedServerSignatureSchemes.signatureSchemes)) {
+            this.signatureSchemes = isClientMode ?
+                    CustomizedClientSignatureSchemes.signatureSchemes :
+                    CustomizedServerSignatureSchemes.signatureSchemes;
+        }
     }
 
     @Override
-    @SuppressWarnings({"unchecked", "CloneDeclaresCloneNotSupported"})
+    @SuppressWarnings({"removal","unchecked", "CloneDeclaresCloneNotSupported"})
     public Object clone() {
         // Note that only references to the configurations are copied.
         try {
@@ -433,7 +464,7 @@ final class SSLConfiguration implements Cloneable {
     //
     // See Effective Java Second Edition: Item 71.
     private static final class CustomizedClientSignatureSchemes {
-        private static List<SignatureScheme> signatureSchemes =
+        private static final String[] signatureSchemes =
                 getCustomizedSignatureScheme("jdk.tls.client.SignatureSchemes");
     }
 
@@ -441,7 +472,7 @@ final class SSLConfiguration implements Cloneable {
     //
     // See Effective Java Second Edition: Item 71.
     private static final class CustomizedServerSignatureSchemes {
-        private static List<SignatureScheme> signatureSchemes =
+        private static final String[] signatureSchemes =
                 getCustomizedSignatureScheme("jdk.tls.server.SignatureSchemes");
     }
 
@@ -449,14 +480,12 @@ final class SSLConfiguration implements Cloneable {
      * Get the customized signature schemes specified by the given
      * system property.
      */
-    private static List<SignatureScheme> getCustomizedSignatureScheme(
-            String propertyName) {
-
+    private static String[] getCustomizedSignatureScheme(String propertyName) {
         String property = GetPropertyAction.privilegedGetProperty(propertyName);
         if (SSLLogger.isOn && SSLLogger.isOn("ssl,sslctx")) {
             SSLLogger.fine(
                     "System property " + propertyName + " is set to '" +
-                    property + "'");
+                            property + "'");
         }
         if (property != null && !property.isEmpty()) {
             // remove double quote marks from beginning/end of the property
@@ -468,31 +497,34 @@ final class SSLConfiguration implements Cloneable {
 
         if (property != null && !property.isEmpty()) {
             String[] signatureSchemeNames = property.split(",");
-            List<SignatureScheme> signatureSchemes =
-                        new ArrayList<>(signatureSchemeNames.length);
-            for (int i = 0; i < signatureSchemeNames.length; i++) {
-                signatureSchemeNames[i] = signatureSchemeNames[i].trim();
-                if (signatureSchemeNames[i].isEmpty()) {
+            List<String> signatureSchemes =
+                    new ArrayList<>(signatureSchemeNames.length);
+            for (String schemeName : signatureSchemeNames) {
+                schemeName = schemeName.trim();
+                if (schemeName.isEmpty()) {
                     continue;
                 }
 
-                SignatureScheme scheme =
-                    SignatureScheme.nameOf(signatureSchemeNames[i]);
+                // Check the availability
+                SignatureScheme scheme = SignatureScheme.nameOf(schemeName);
                 if (scheme != null && scheme.isAvailable) {
-                    signatureSchemes.add(scheme);
+                    signatureSchemes.add(schemeName);
                 } else {
                     if (SSLLogger.isOn && SSLLogger.isOn("ssl,sslctx")) {
                         SSLLogger.fine(
-                                "The current installed providers do not " +
-                                "support signature scheme: " +
-                                signatureSchemeNames[i]);
+                        "The current installed providers do not " +
+                              "support signature scheme: " + schemeName);
                     }
                 }
             }
 
-            return signatureSchemes;
+            if (!signatureSchemes.isEmpty()) {
+                return signatureSchemes.toArray(new String[0]);
+            }
         }
 
-        return Collections.emptyList();
+        // Note that if the System Property value is not defined (JDK
+        // default value) or empty, the provider-specific default is used.
+        return null;
     }
 }

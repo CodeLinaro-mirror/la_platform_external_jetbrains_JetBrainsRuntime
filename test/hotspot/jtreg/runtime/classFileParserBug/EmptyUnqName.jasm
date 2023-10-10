@@ -21,7 +21,7 @@
  * questions.
  */
 
-super public class EmptyUnqName version 55:0 {
+super public class EmptyUnqName version 56:0 {
 
     public Method "<init>":"()V" stack 1 locals 1 {
         aload_0;

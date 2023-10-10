@@ -33,6 +33,7 @@ import java.util.*;
 import com.sun.java.swing.SwingUtilities3;
 import sun.awt.AWTAccessor;
 
+import com.jetbrains.desktop.ConstrainableGraphics2D;
 import sun.awt.SubRegionShowable;
 import sun.java2d.SunGraphics2D;
 import sun.java2d.pipe.hw.ExtendedBufferCapabilities;
@@ -51,7 +52,7 @@ class BufferStrategyPaintManager extends RepaintManager.PaintManager {
     // (endPaint) the region that was painted is flushed to the screen
     // (using BufferStrategy.show).
     //
-    // PaintManager.show is overriden to show directly from the
+    // PaintManager.show is overridden to show directly from the
     // BufferStrategy (when using blit), if successful true is
     // returned and a paint event will not be generated.  To avoid
     // showing from the buffer while painting a locking scheme is
@@ -149,8 +150,8 @@ class BufferStrategyPaintManager extends RepaintManager.PaintManager {
      * Cleans up any created BufferStrategies.
      */
     protected void dispose() {
-        // dipose can be invoked at any random time. To avoid
-        // threading dependancies we do the actual diposing via an
+        // dispose can be invoked at any random time. To avoid
+        // threading dependencies we do the actual disposing via an
         // invokeLater.
         SwingUtilities.invokeLater(new Runnable() {
             public void run() {
@@ -242,6 +243,15 @@ class BufferStrategyPaintManager extends RepaintManager.PaintManager {
                 }
                 ((SunGraphics2D)bsg).constrain(xOffset + cx, yOffset + cy,
                                                x + w, y + h);
+                bsg.setClip(x, y, w, h);
+                paintingComponent.paintToOffscreen(bsg, x, y, w, h,
+                                                   x + w, y + h);
+                accumulate(xOffset + x, yOffset + y, w, h);
+                return true;
+            } else if ((g instanceof ConstrainableGraphics2D) &&
+                    ((ConstrainableGraphics2D)g).getDestination() == root) {
+                ((ConstrainableGraphics2D)bsg).constrain(new Rectangle.Double(xOffset, yOffset,
+                                                                              x + w, y + h));
                 bsg.setClip(x, y, w, h);
                 paintingComponent.paintToOffscreen(bsg, x, y, w, h,
                                                    x + w, y + h);
@@ -495,11 +505,6 @@ class BufferStrategyPaintManager extends RepaintManager.PaintManager {
                         LOGGER.finer("prepare: contents lost on expose");
                     }
                 }
-
-                if (bsg != null && !c.isOpaque() &&
-                        ((SunGraphics2D)bsg).getSurfaceData().getTransparency() ==
-                                Transparency.OPAQUE) return false;
-
                 if (isPaint && c == rootJ && x == 0 && y == 0 &&
                       c.getWidth() == w && c.getHeight() == h) {
                     bufferInfo.setInSync(true);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -68,6 +68,8 @@
 
 package sun.font;
 
+import com.jetbrains.desktop.FontExtensions;
+
 import java.lang.ref.SoftReference;
 import java.awt.Font;
 import java.awt.font.FontRenderContext;
@@ -76,6 +78,7 @@ import java.awt.geom.AffineTransform;
 import java.awt.geom.NoninvertibleTransformException;
 import java.awt.geom.Point2D;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static java.lang.Character.*;
@@ -97,7 +100,6 @@ public final class GlyphLayout {
     private FontStrikeDesc _sd;
     private float[] _mat;
     private float ptSize;
-    private int _typo_flags;
     private int _offset;
 
     public static final class LayoutEngineKey {
@@ -173,8 +175,8 @@ public final class GlyphLayout {
          * If the GVData does not have room for the glyphs, throws an IndexOutOfBoundsException and
          * leave pt and the gvdata unchanged.
          */
-        public void layout(FontStrikeDesc sd, float[] mat, float ptSize, int gmask,
-                           int baseIndex, TextRecord text, int typo_flags, Point2D.Float pt, GVData data);
+        public void layout(FontStrikeDesc sd, float[] mat, float ptSize, int gmask, int baseIndex, TextRecord text,
+                           boolean ltrDirection, Map<String, Integer> features, Point2D.Float pt, GVData data);
     }
 
     /**
@@ -213,7 +215,6 @@ public final class GlyphLayout {
         public FontRenderContext key_frc;
 
         public AffineTransform dtx;
-        public AffineTransform invdtx;
         public AffineTransform gtx;
         public Point2D.Float delta;
         public FontStrikeDesc sd;
@@ -229,14 +230,6 @@ public final class GlyphLayout {
             dtx.setTransform(dtx.getScaleX(), dtx.getShearY(),
                              dtx.getShearX(), dtx.getScaleY(),
                              0, 0);
-            if (!dtx.isIdentity()) {
-                try {
-                    invdtx = dtx.createInverse();
-                }
-                catch (NoninvertibleTransformException e) {
-                    throw new InternalError(e);
-                }
-            }
 
             float ptSize = font.getSize2D();
             if (font.isTransformed()) {
@@ -355,9 +348,9 @@ public final class GlyphLayout {
      * @param text the text, including optional context before start and after start + count
      * @param offset the start of the text to lay out
      * @param count the length of the text to lay out
-     * @param flags bidi and context flags {@see #java.awt.Font}
+     * @param flags bidi and context flags {@link java.awt.Font}
      * @param result a StandardGlyphVector to modify, can be null
-     * @return the layed out glyphvector, if result was passed in, it is returned
+     * @return the laid out glyphvector, if result was passed in, it is returned
      */
     public StandardGlyphVector layout(Font font, FontRenderContext frc,
                                       char[] text, int offset, int count,
@@ -368,14 +361,6 @@ public final class GlyphLayout {
         }
 
         init(count);
-
-        // need to set after init
-        // go through the back door for this
-        if (font.hasLayoutAttributes()) {
-            AttributeValues values = ((AttributeMap)font.getAttributes()).getValues();
-            if (values.getKerning() != 0) _typo_flags |= 0x1;
-            if (values.getLigatures() != 0) _typo_flags |= 0x2;
-        }
 
         _offset = offset;
 
@@ -393,9 +378,11 @@ public final class GlyphLayout {
 
         int min = 0;
         int max = text.length;
+        boolean ltrDirection = true;
+
         if (flags != 0) {
             if ((flags & Font.LAYOUT_RIGHT_TO_LEFT) != 0) {
-              _typo_flags |= 0x80000000; // RTL
+                ltrDirection = false; // RTL
             }
 
             if ((flags & Font.LAYOUT_NO_START_CONTEXT) != 0) {
@@ -410,7 +397,7 @@ public final class GlyphLayout {
         int lang = -1; // default for now
 
         Font2D font2D = FontUtilities.getFont2D(font);
-        if (Font2D.fontSubstitutionEnabled && font2D instanceof FontSubstitution) {
+        if (font2D instanceof FontSubstitution) {
             font2D = ((FontSubstitution)font2D).getCompositeFont2D();
         }
 
@@ -453,7 +440,7 @@ public final class GlyphLayout {
         int stop = _ercount;
         int dir = 1;
 
-        if (_typo_flags < 0) { // RTL
+        if (!ltrDirection) { // RTL
             ix = stop - 1;
             stop = -1;
             dir = -1;
@@ -465,7 +452,7 @@ public final class GlyphLayout {
             EngineRecord er = _erecords.get(ix);
             for (;;) {
                 try {
-                    er.layout();
+                    er.layout(ltrDirection, FontExtensions.getFeatures(font));
                     break;
                 }
                 catch (IndexOutOfBoundsException e) {
@@ -480,10 +467,6 @@ public final class GlyphLayout {
             }
         }
 
-        //        if (txinfo.invdtx != null) {
-        //            _gvdata.adjustPositions(txinfo.invdtx);
-        //        }
-
         // If layout fails (negative glyph count) create an un-laid out GV instead.
         // ie default positions. This will be a lot better than the alternative of
         // a complete blank layout.
@@ -491,8 +474,7 @@ public final class GlyphLayout {
         if (_gvdata._count < 0) {
             gv = new StandardGlyphVector(font, text, offset, count, frc);
             if (FontUtilities.debugFonts()) {
-               FontUtilities.getLogger().warning("OpenType layout failed on font: " +
-                                                 font);
+               FontUtilities.logWarning("OpenType layout failed on font: " + font);
             }
         } else {
             gv = _gvdata.createGlyphVector(font, frc, result);
@@ -517,7 +499,6 @@ public final class GlyphLayout {
     }
 
     private void init(int capacity) {
-        this._typo_flags = 0;
         this._ercount = 0;
         this._gvdata.init(capacity);
     }
@@ -577,10 +558,6 @@ public final class GlyphLayout {
             int[] nindices = new int[size];
             System.arraycopy(_indices, 0, nindices, 0, _count);
             _indices = nindices;
-        }
-
-        public void adjustPositions(AffineTransform invdtx) {
-            invdtx.transform(_positions, 0, _positions, 0, _count);
         }
 
         public StandardGlyphVector createGlyphVector(Font font, FontRenderContext frc, StandardGlyphVector result) {
@@ -681,11 +658,11 @@ public final class GlyphLayout {
             this.engine = _lef.getEngine(key); // flags?
         }
 
-        void layout() {
+        void layout(boolean ltrDirection, Map<String, Integer> features) {
             _textRecord.start = start;
             _textRecord.limit = limit;
             engine.layout(_sd, _mat, ptSize, gmask, start - _offset, _textRecord,
-                          _typo_flags | eflags, _pt, _gvdata);
+                    ltrDirection, features, _pt, _gvdata);
         }
     }
 }

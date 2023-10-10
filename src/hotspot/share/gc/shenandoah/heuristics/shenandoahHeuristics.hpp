@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2018, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2018, 2019, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -21,8 +22,8 @@
  *
  */
 
-#ifndef SHARE_VM_GC_SHENANDOAH_HEURISTICS_SHENANDOAHHEURISTICS_HPP
-#define SHARE_VM_GC_SHENANDOAH_HEURISTICS_SHENANDOAHHEURISTICS_HPP
+#ifndef SHARE_GC_SHENANDOAH_HEURISTICS_SHENANDOAHHEURISTICS_HPP
+#define SHARE_GC_SHENANDOAH_HEURISTICS_SHENANDOAHHEURISTICS_HPP
 
 #include "gc/shenandoah/shenandoahHeap.hpp"
 #include "gc/shenandoah/shenandoahPhaseTimings.hpp"
@@ -103,7 +104,7 @@ public:
 
   virtual void record_cycle_end();
 
-  virtual bool should_start_gc() const;
+  virtual bool should_start_gc();
 
   virtual bool should_degenerate_cycle();
 
@@ -119,9 +120,6 @@ public:
 
   virtual void choose_collection_set(ShenandoahCollectionSet* collection_set);
 
-  virtual bool can_process_references();
-  virtual bool should_process_references();
-
   virtual bool can_unload_classes();
   virtual bool can_unload_classes_normal();
   virtual bool should_unload_classes();
@@ -134,4 +132,4 @@ public:
   double time_since_last_gc() const;
 };
 
-#endif // SHARE_VM_GC_SHENANDOAH_HEURISTICS_SHENANDOAHHEURISTICS_HPP
+#endif // SHARE_GC_SHENANDOAH_HEURISTICS_SHENANDOAHHEURISTICS_HPP

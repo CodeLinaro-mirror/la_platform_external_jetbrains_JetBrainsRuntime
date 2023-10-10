@@ -1,8 +1,8 @@
 diff --git jb/project/tools/common/modules.list jb/project/tools/common/modules.list
-index 33375b527c4..76539cbc0e0 100644
+index 522acb7cb43..c40e689d5de 100644
 --- jb/project/tools/common/modules.list
 +++ jb/project/tools/common/modules.list
-@@ -55,4 +55,7 @@ jdk.unsupported,
+@@ -51,4 +51,7 @@ jdk.unsupported.desktop,
  jdk.xml.dom,
  jdk.zipfs,
  jdk.hotspot.agent,
@@ -12,10 +12,10 @@ index 33375b527c4..76539cbc0e0 100644
 +gluegen.rt,
 +jogl.all
 diff --git src/java.desktop/share/classes/module-info.java src/java.desktop/share/classes/module-info.java
-index b663b382f52..3e9acdc0c27 100644
+index 897647ee368..781d1809493 100644
 --- src/java.desktop/share/classes/module-info.java
 +++ src/java.desktop/share/classes/module-info.java
-@@ -109,7 +109,11 @@ module java.desktop {
+@@ -116,7 +116,11 @@ module java.desktop {
      // see make/GensrcModuleInfo.gmk
      exports sun.awt to
          jdk.accessibility,

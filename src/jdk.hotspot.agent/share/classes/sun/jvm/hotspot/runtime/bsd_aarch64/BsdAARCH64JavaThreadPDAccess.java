@@ -35,12 +35,14 @@ import sun.jvm.hotspot.runtime.*;
 import sun.jvm.hotspot.runtime.aarch64.*;
 import sun.jvm.hotspot.types.*;
 import sun.jvm.hotspot.utilities.*;
+import sun.jvm.hotspot.utilities.Observable;
+import sun.jvm.hotspot.utilities.Observer;
 
 public class BsdAARCH64JavaThreadPDAccess implements JavaThreadPDAccess {
   private static AddressField  lastJavaFPField;
   private static AddressField  osThreadField;
 
-  // Field from OSThread
+  // Fields from OSThread
   private static CIntegerField osThreadThreadIDField;
   private static CIntegerField osThreadUniqueThreadIDField;
 
@@ -64,7 +66,7 @@ public class BsdAARCH64JavaThreadPDAccess implements JavaThreadPDAccess {
     lastJavaFPField         = anchorType.getAddressField("_last_Java_fp");
 
     Type osThreadType = db.lookupType("OSThread");
-    osThreadThreadIDField   = osThreadType.getCIntegerField("_thread_id");
+    osThreadThreadIDField = osThreadType.getCIntegerField("_thread_id");
     osThreadUniqueThreadIDField = osThreadType.getCIntegerField("_unique_thread_id");
   }
 

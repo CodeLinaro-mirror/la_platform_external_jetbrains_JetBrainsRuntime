@@ -1,4 +1,25 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+/*
+ * Copyright 2000-2023 JetBrains s.r.o.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
+ */
 
 /*
  * @test
@@ -21,7 +42,7 @@ import com.apple.concurrent.Dispatch;
 
 public class DeadlockTest {
     static final int COUNTER_THRESHOLD = 2;
-    static final int WAIT_SECONDS = 20;
+    static final int WAIT_SECONDS = 10;
 
     static final AtomicInteger COUNTER_1 = new AtomicInteger(0);
     static final AtomicInteger COUNTER_2 = new AtomicInteger(0);
@@ -48,7 +69,6 @@ public class DeadlockTest {
 
     static void showInstructions() {
         JFrame frame = new JFrame("Test Instructions");
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setLayout(new BorderLayout());
         JLabel label = new JLabel("Start VoiceOver (Cmd + F5) and press \"Test\".");
         label.setBorder(BorderFactory.createEmptyBorder(20, 10, 20, 10));

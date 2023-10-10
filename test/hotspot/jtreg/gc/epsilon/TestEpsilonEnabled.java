@@ -21,19 +21,19 @@
  * questions.
  */
 
+package gc.epsilon;
+
 /**
  * @test TestAlwaysPretouch
- * @key gc
- * @requires vm.gc.Epsilon & !vm.graal.enabled
+ * @requires vm.gc.Epsilon
  * @summary Basic sanity test for Epsilon
  * @library /test/lib
  *
  * @run main/othervm -Xmx256m
  *                   -XX:+UnlockExperimentalVMOptions -XX:+UseEpsilonGC
- *                   TestEpsilonEnabled
+ *                   gc.epsilon.TestEpsilonEnabled
  */
 
-import jdk.test.lib.Platform;
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 

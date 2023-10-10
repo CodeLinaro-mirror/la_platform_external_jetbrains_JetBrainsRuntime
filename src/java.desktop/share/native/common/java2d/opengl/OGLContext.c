@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -48,8 +48,6 @@ extern jboolean OGLSD_InitOGLWindow(JNIEnv *env, OGLSDOps *oglsdo);
 extern OGLContext *OGLSD_MakeOGLContextCurrent(JNIEnv *env,
                                                OGLSDOps *srcOps,
                                                OGLSDOps *dstOps);
-
-int OGLContext_BlitTileSize = 128;
 
 /**
  * This table contains the standard blending rules (or Porter-Duff compositing
@@ -574,16 +572,10 @@ OGLContext_InitBlitTileTexture(OGLContext *oglc)
 {
     J2dTraceLn(J2D_TRACE_INFO, "OGLContext_InitBlitTileTexture");
 
-    GLint texMax;
-    j2d_glGetIntegerv(GL_MAX_TEXTURE_SIZE, &texMax);
-    if (OGLContext_BlitTileSize > (int)texMax) {
-        OGLContext_BlitTileSize = texMax;
-        J2dTraceLn1(J2D_TRACE_INFO, "OGLContext_InitBlitTileTexture: reset OGLContext_BlitTileSize to %d", (int)texMax);
-    }
     oglc->blitTextureID =
         OGLContext_CreateBlitTexture(GL_RGBA8, GL_RGBA,
-                                     OGLContext_BlitTileSize,
-                                     OGLContext_BlitTileSize);
+                                     OGLC_BLIT_TILE_SIZE,
+                                     OGLC_BLIT_TILE_SIZE);
 
     return JNI_TRUE;
 }
@@ -1047,7 +1039,7 @@ JNIEXPORT jstring JNICALL Java_sun_java2d_opengl_OGLContext_getOGLIdString
     char *vendor, *renderer, *version;
     char *pAdapterId;
     jobject ret = NULL;
-    int len;
+    size_t len;
 
     J2dTraceLn(J2D_TRACE_INFO, "OGLContext_getOGLIdString");
 
@@ -1081,16 +1073,96 @@ JNIEXPORT jstring JNICALL Java_sun_java2d_opengl_OGLContext_getOGLIdString
     return ret;
 }
 
-/*
- * Class:     sun_java2d_opengl_OGLContext
- * Method:    init
- * Signature: (J)V;
- */
-JNIEXPORT void JNICALL Java_sun_java2d_opengl_OGLContext_init
-        (JNIEnv *env, jclass oglcc, jint blitTileSize)
-{
-    OGLContext_BlitTileSize = blitTileSize;
-    J2dTraceLn1(J2D_TRACE_INFO, "OGLContext_init: set OGLContext_BlitTileSize to %d", OGLContext_BlitTileSize);
+static int JVM_GetIntProperty(JNIEnv *env, const char* name,  int defaultValue) {
+    static jclass systemCls = NULL;
+    if (systemCls == NULL) {
+        systemCls = (*env)->FindClass(env, "java/lang/System");
+        if (systemCls == NULL) {
+            return defaultValue;
+        }
+    }
+
+    static jmethodID mid = NULL;
+
+    if (mid == NULL) {
+        mid = (*env)->GetStaticMethodID(env, systemCls, "getProperty",
+                                        "(Ljava/lang/String;)Ljava/lang/String;");
+        if (mid == NULL) {
+            return defaultValue;
+        }
+    }
+
+    jstring jName = (*env)->NewStringUTF(env, name);
+    if (jName == NULL) {
+        return defaultValue;
+    }
+
+    int result = defaultValue;
+    jstring jvalue = (*env)->CallStaticObjectMethod(env, systemCls, mid, jName);
+    if (jvalue != NULL) {
+        const char *utf8string = (*env)->GetStringUTFChars(env, jvalue, NULL);
+        if (utf8string != NULL) {
+            const int parsedVal = atoi(utf8string);
+            if (parsedVal > 0) {
+                result = parsedVal;
+            }
+        }
+        (*env)->ReleaseStringUTFChars(env, jvalue, utf8string);
+    }
+    (*env)->DeleteLocalRef(env, jName);
+    return result;
+}
+
+void OGLContext_InitGrayRenderHints(JNIEnv *env, OGLContext *oglc) {
+    static GrayRenderHints *grayRenderHints = NULL;
+    static GrayRenderHints defaultRenderHints[] = {
+            // hints for "use font smoothing" option
+            // disabled
+            {1.666f, 0.333f, 1.0f, 1.25f},
+            // enabled
+            {1.666f, 0.333f, 0.454f, 1.4f}
+    };
+
+    if (grayRenderHints == NULL) {
+
+        // read from VM-properties
+        int val = JVM_GetIntProperty(env, "awt.font.nosm.light_gamma", 0);
+        if (val > 0) {
+            defaultRenderHints[0].light_gamma = val / 1000.0;
+        }
+        val = JVM_GetIntProperty(env, "awt.font.nosm.dark_gamma", 0);
+        if (val > 0) {
+            defaultRenderHints[0].dark_gamma = val / 1000.0;
+        }
+        val = JVM_GetIntProperty(env, "awt.font.nosm.light_exp", 0);
+        if (val > 0) {
+            defaultRenderHints[0].light_exp = val / 1000.0;
+        }
+        val = JVM_GetIntProperty(env, "awt.font.nosm.dark_exp", 0);
+        if (val > 0) {
+            defaultRenderHints[0].dark_exp = val / 1000.0;
+        }
+
+        val = JVM_GetIntProperty(env, "awt.font.sm.light_gamma", 0);
+        if (val > 0) {
+            defaultRenderHints[1].light_gamma = val / 1000.0;
+        }
+        val = JVM_GetIntProperty(env, "awt.font.sm.dark_gamma", 0);
+        if (val > 0) {
+            defaultRenderHints[1].dark_gamma = val / 1000.0;
+        }
+        val = JVM_GetIntProperty(env, "awt.font.sm.light_exp", 0);
+        if (val > 0) {
+            defaultRenderHints[1].light_exp = val / 1000.0;
+        }
+        val = JVM_GetIntProperty(env, "awt.font.sm.dark_exp", 0);
+        if (val > 0) {
+            defaultRenderHints[1].dark_exp = val / 1000.0;
+        }
+
+        grayRenderHints = defaultRenderHints;
+    }
+    oglc->grayRenderHints = grayRenderHints;
 }
 
 #endif /* !HEADLESS */

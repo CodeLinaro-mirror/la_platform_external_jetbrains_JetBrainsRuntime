@@ -55,28 +55,30 @@ public class VariablesDeclaredWithVarTest {
     ToolBox tb = new ToolBox();
 
     final String src =
-            "import java.util.function.*;\n" +
-            "import java.lang.annotation.ElementType;\n" +
-            "import java.lang.annotation.Target;\n" +
-            "\n" +
-            "@Target({ElementType.TYPE_USE, ElementType.PARAMETER, ElementType.LOCAL_VARIABLE})\n" +
-            "@interface A {}\n" +
-            "\n" +
-            "class Test {\n" +
-            "    void kaa() {\n" +
-            "        @A var c = g(1, 1L);\n" +
-            "    }\n" +
-            "\n" +
-            "    <X> X g(X a, X b) {\n" +
-            "        return a;\n" +
-            "    }\n" +
-            "\n" +
-            "    void foo() {\n" +
-            "        bar((@A var s) -> s);\n" +
-            "    }\n" +
-            "\n" +
-            "    void bar(Function<String, String> f) {}\n" +
-            "}\n";
+            """
+            import java.util.function.*;
+            import java.lang.annotation.ElementType;
+            import java.lang.annotation.Target;
+
+            @Target({ElementType.TYPE_USE, ElementType.PARAMETER, ElementType.LOCAL_VARIABLE})
+            @interface A {}
+
+            class Test {
+                void kaa() {
+                    @A var c = g(1, 1L);
+                }
+
+                <X> X g(X a, X b) {
+                    return a;
+                }
+
+                void foo() {
+                    bar((@A var s) -> s);
+                }
+
+                void bar(Function<String, String> f) {}
+            }
+            """;
 
     public static void main(String... args) throws Exception {
         new VariablesDeclaredWithVarTest().run();

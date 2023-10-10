@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2018, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2018, 2021, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -24,6 +25,7 @@
 #include "precompiled.hpp"
 #include "c1/c1_LIRAssembler.hpp"
 #include "c1/c1_MacroAssembler.hpp"
+#include "gc/shared/gc_globals.hpp"
 #include "gc/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc/shenandoah/shenandoahBarrierSetAssembler.hpp"
 #include "gc/shenandoah/c1/shenandoahBarrierSetC1.hpp"
@@ -39,7 +41,7 @@ void LIR_OpShenandoahCompareAndSwap::emit_code(LIR_Assembler* masm) {
   Register tmp2 = _tmp2->as_register();
   Register result = result_opr()->as_register();
   assert(cmpval == rax, "wrong register");
-  assert(newval != NULL, "new val must be register");
+  assert(newval != noreg, "new val must be register");
   assert(cmpval != newval, "cmp and new values must be in different registers");
   assert(cmpval != addr, "cmp and addr must be in different registers");
   assert(newval != addr, "new value and addr must be in different registers");
@@ -106,11 +108,11 @@ LIR_Opr ShenandoahBarrierSetC1::atomic_xchg_at_resolved(LIRAccess& access, LIRIt
   // Because we want a 2-arg form of xchg and xadd
   __ move(value_opr, result);
 
-  assert(type == T_INT || type == T_OBJECT || type == T_ARRAY LP64_ONLY( || type == T_LONG ), "unexpected type");
+  assert(type == T_INT || is_reference_type(type) LP64_ONLY( || type == T_LONG ), "unexpected type");
   __ xchg(access.resolved_addr(), result, result, LIR_OprFact::illegalOpr);
 
   if (access.is_oop()) {
-    result = load_reference_barrier(access.gen(), result, LIR_OprFact::addressConst(0));
+    result = load_reference_barrier(access.gen(), result, LIR_OprFact::addressConst(0), access.decorators());
     LIR_Opr tmp = gen->new_register(type);
     __ move(result, tmp);
     result = tmp;

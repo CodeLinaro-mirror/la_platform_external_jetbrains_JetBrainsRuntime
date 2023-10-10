@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2023, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2014, 2020, Red Hat Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -30,6 +30,8 @@
 #include "memory/resourceArea.hpp"
 #include "prims/jniFastGetField.hpp"
 #include "prims/jvm_misc.hpp"
+#include "prims/jvmtiExport.hpp"
+#include "runtime/javaThread.inline.hpp"
 #include "runtime/safepoint.hpp"
 #include "runtime/threadWXSetters.inline.hpp"
 
@@ -71,12 +73,12 @@ template<> struct BasicTypeToJni<T_LONG>    { static const jlong    jni_type; };
 template<> struct BasicTypeToJni<T_FLOAT>   { static const jfloat   jni_type; };
 template<> struct BasicTypeToJni<T_DOUBLE>  { static const jdouble  jni_type; };
 
-template<int BType>
-decltype(BasicTypeToJni<BType>::jni_type) static_fast_get_field_wrapper(JNIEnv *env, jobject obj, jfieldID fieldID) {
+template<int BType, typename JniType = decltype(BasicTypeToJni<BType>::jni_type)>
+JniType static_fast_get_field_wrapper(JNIEnv *env, jobject obj, jfieldID fieldID) {
   JavaThread* thread = JavaThread::thread_from_jni_environment(env);
   ThreadWXEnable wx(WXExec, thread);
   address get_field_addr = generated_fast_get_field[BType - T_BOOLEAN];
-  return ((decltype(BasicTypeToJni<BType>::jni_type)(*)(JNIEnv *env, jobject obj, jfieldID fieldID))get_field_addr)(env, obj, fieldID);
+  return ((JniType(*)(JNIEnv *env, jobject obj, jfieldID fieldID))get_field_addr)(env, obj, fieldID);
 }
 
 template<int BType>
@@ -106,7 +108,7 @@ address JNI_FastGetField::generate_fast_get_int_field0(BasicType type) {
     case T_FLOAT:   name = "jni_fast_GetFloatField";   break;
     case T_DOUBLE:  name = "jni_fast_GetDoubleField";  break;
     default:        ShouldNotReachHere();
-      name = NULL;  // unreachable
+      name = nullptr;  // unreachable
   }
   ResourceMark rm;
   BufferBlob* blob = BufferBlob::create(name, BUFFER_SIZE);
@@ -122,33 +124,54 @@ address JNI_FastGetField::generate_fast_get_int_field0(BasicType type) {
   Address safepoint_counter_addr(rcounter_addr, offset);
   __ ldrw(rcounter, safepoint_counter_addr);
   __ tbnz(rcounter, 0, slow);
-  __ eor(robj, c_rarg1, rcounter);
-  __ eor(robj, robj, rcounter);               // obj, since
-                                              // robj ^ rcounter ^ rcounter == robj
-                                              // robj is address dependent on rcounter.
 
+  // It doesn't need to issue a full barrier here even if the field
+  // is volatile, since it has already used "ldar" for it.
+  if (JvmtiExport::can_post_field_access()) {
+    // Using barrier to order wrt. JVMTI check and load of result.
+    __ membar(Assembler::LoadLoad);
+
+    // Check to see if a field access watch has been set before we
+    // take the fast path.
+    uint64_t offset2;
+    __ adrp(result,
+            ExternalAddress((address) JvmtiExport::get_field_access_count_addr()),
+            offset2);
+    __ ldrw(result, Address(result, offset2));
+    __ cbnzw(result, slow);
+
+    __ mov(robj, c_rarg1);
+  } else {
+    // Using address dependency to order wrt. load of result.
+    __ eor(robj, c_rarg1, rcounter);
+    __ eor(robj, robj, rcounter);         // obj, since
+                                          // robj ^ rcounter ^ rcounter == robj
+                                          // robj is address dependent on rcounter.
+  }
+
+  // Both robj and rscratch1 are clobbered by try_resolve_jobject_in_native.
   BarrierSetAssembler* bs = BarrierSet::barrier_set()->barrier_set_assembler();
   bs->try_resolve_jobject_in_native(masm, c_rarg0, robj, rscratch1, slow);
 
   __ lsr(roffset, c_rarg2, 2);                // offset
+  __ add(result, robj, roffset);
 
   assert(count < LIST_CAPACITY, "LIST_CAPACITY too small");
   speculative_load_pclist[count] = __ pc();   // Used by the segfault handler
+  // Using acquire: Order JVMTI check and load of result wrt. succeeding check
+  // (LoadStore for volatile field).
   switch (type) {
-    case T_BOOLEAN: __ ldrb    (result, Address(robj, roffset)); break;
-    case T_BYTE:    __ ldrsb   (result, Address(robj, roffset)); break;
-    case T_CHAR:    __ ldrh    (result, Address(robj, roffset)); break;
-    case T_SHORT:   __ ldrsh   (result, Address(robj, roffset)); break;
-    case T_FLOAT:   __ ldrw    (result, Address(robj, roffset)); break;
-    case T_INT:     __ ldrsw   (result, Address(robj, roffset)); break;
+    case T_BOOLEAN: __ ldarb(result, result); break;
+    case T_BYTE:    __ ldarb(result, result); __ sxtb(result, result); break;
+    case T_CHAR:    __ ldarh(result, result); break;
+    case T_SHORT:   __ ldarh(result, result); __ sxth(result, result); break;
+    case T_FLOAT:   __ ldarw(result, result); break;
+    case T_INT:     __ ldarw(result, result); __ sxtw(result, result); break;
     case T_DOUBLE:
-    case T_LONG:    __ ldr     (result, Address(robj, roffset)); break;
+    case T_LONG:    __ ldar (result, result); break;
     default:        ShouldNotReachHere();
   }
 
-  // counter_addr is address dependent on result.
-  __ eor(rcounter_addr, rcounter_addr, result);
-  __ eor(rcounter_addr, rcounter_addr, result);
   __ ldrw(rscratch1, safepoint_counter_addr);
   __ cmpw(rcounter, rscratch1);
   __ br (Assembler::NE, slow);
@@ -173,14 +196,13 @@ address JNI_FastGetField::generate_fast_get_int_field0(BasicType type) {
     case T_FLOAT:   slow_case_addr = jni_GetFloatField_addr();   break;
     case T_DOUBLE:  slow_case_addr = jni_GetDoubleField_addr();  break;
     default:        ShouldNotReachHere();
-      slow_case_addr = NULL;  // unreachable
+      slow_case_addr = nullptr;  // unreachable
   }
 
   {
     __ enter();
     __ lea(rscratch1, ExternalAddress(slow_case_addr));
     __ blr(rscratch1);
-    __ maybe_isb();
     __ leave();
     __ ret(lr);
   }

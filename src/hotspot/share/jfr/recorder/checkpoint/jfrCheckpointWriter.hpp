@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2016, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,8 +22,8 @@
  *
  */
 
-#ifndef SHARE_VM_JFR_RECORDER_CHECKPOINT_JFRCHECKPOINTWRITER_HPP
-#define SHARE_VM_JFR_RECORDER_CHECKPOINT_JFRCHECKPOINTWRITER_HPP
+#ifndef SHARE_JFR_RECORDER_CHECKPOINT_JFRCHECKPOINTWRITER_HPP
+#define SHARE_JFR_RECORDER_CHECKPOINT_JFRCHECKPOINTWRITER_HPP
 
 #include "jfr/recorder/storage/jfrBuffer.hpp"
 #include "jfr/utilities/jfrBlob.hpp"
@@ -54,23 +54,25 @@ struct JfrCheckpointContext {
 };
 
 class JfrCheckpointWriter : public JfrCheckpointWriterBase {
+  friend class JfrCheckpointManager;
   friend class JfrSerializerRegistration;
+  friend class JfrTypeManager;
  private:
   JfrTicks _time;
   int64_t _offset;
   u4 _count;
-  bool _flushpoint;
+  JfrCheckpointType _type;
   bool _header;
 
   u4 count() const;
   void set_count(u4 count);
   void increment();
-  void set_flushpoint(bool flushpoint);
-  bool is_flushpoint() const;
-  const u1* session_data(size_t* size, bool move = false, const JfrCheckpointContext* ctx = NULL);
+  const u1* session_data(size_t* size, bool move = false, const JfrCheckpointContext* ctx = nullptr);
   void release();
- public:
-  JfrCheckpointWriter(bool flushpoint, bool header, Thread* thread);
+  JfrCheckpointWriter(bool previous_epoch, Thread* thread, JfrCheckpointType type = GENERIC);
+public:
+  JfrCheckpointWriter(bool header = true, JfrCheckpointType mode = GENERIC, JfrCheckpointBufferKind kind = JFR_GLOBAL);
+  JfrCheckpointWriter(Thread* thread, bool header = true, JfrCheckpointType mode = GENERIC, JfrCheckpointBufferKind kind = JFR_GLOBAL);
   ~JfrCheckpointWriter();
   void write_type(JfrTypeId type_id);
   void write_count(u4 nof_entries);
@@ -79,8 +81,8 @@ class JfrCheckpointWriter : public JfrCheckpointWriterBase {
   const JfrCheckpointContext context() const;
   void set_context(const JfrCheckpointContext ctx);
   bool has_data() const;
-  JfrBlobHandle copy(const JfrCheckpointContext* ctx = NULL);
-  JfrBlobHandle move(const JfrCheckpointContext* ctx = NULL);
+  JfrBlobHandle copy(const JfrCheckpointContext* ctx = nullptr);
+  JfrBlobHandle move(const JfrCheckpointContext* ctx = nullptr);
 };
 
-#endif // SHARE_VM_JFR_RECORDER_CHECKPOINT_JFRCHECKPOINTWRITER_HPP
+#endif // SHARE_JFR_RECORDER_CHECKPOINT_JFRCHECKPOINTWRITER_HPP

@@ -54,12 +54,12 @@ typedef struct {
 
 /* descriptions of tested threads */
 static ThreadDesc threadsDesc[THREADS_COUNT] = {
-    {"threadRunning", "testedMethod", "()V", NULL, NULL, NULL, NSK_JVMTI_INVALID_JLOCATION},
-    {"threadEntering", "testedMethod", "()V", NULL, NULL, NULL, NSK_JVMTI_INVALID_JLOCATION},
-    {"threadWaiting", "testedMethod", "()V", NULL, NULL, NULL, NSK_JVMTI_INVALID_JLOCATION},
-    {"threadSleeping", "testedMethod", "()V", NULL, NULL, NULL, NSK_JVMTI_INVALID_JLOCATION},
-    {"threadRunningInterrupted", "testedMethod", "()V", NULL, NULL, NULL, NSK_JVMTI_INVALID_JLOCATION},
-    {"threadRunningNative", "testedMethod", "()V", NULL, NULL, NULL, NSK_JVMTI_INVALID_JLOCATION}
+    { "threadRunning", "testedMethod", "()V", NULL, NULL, NULL, NSK_JVMTI_INVALID_JLOCATION },
+    { "threadEntering", "testedMethod", "()V", NULL, NULL, NULL, NSK_JVMTI_INVALID_JLOCATION },
+    { "threadWaiting", "testedMethod", "()V", NULL, NULL, NULL, NSK_JVMTI_INVALID_JLOCATION },
+    { "threadSleeping", "testedMethod", "()V", NULL, NULL, NULL, NSK_JVMTI_INVALID_JLOCATION },
+    { "threadRunningInterrupted", "testedMethod", "()V", NULL, NULL, NULL, NSK_JVMTI_INVALID_JLOCATION },
+    { "threadRunningNative", "testedMethod", "()V", NULL, NULL, NULL, NSK_JVMTI_INVALID_JLOCATION }
 };
 
 /* indexes of known threads */
@@ -260,8 +260,8 @@ static int suspendThreadsIndividually(int suspend) {
 /**
  * Testcase: check tested threads
  *    - call GetFrameCount() and getStackTrace()
- *    - compare numbers of stack frame returned
- *    - find stck frane with expected methodID
+ *    - for suspended thread compare number of stack frames returned
+ *    - find stack frames with expected methodID
  *
  * Returns NSK_TRUE if test may continue; or NSK_FALSE for test break.
  */
@@ -295,13 +295,14 @@ static int checkThreads(int suspended, const char* kind) {
 
         NSK_DISPLAY1("    stack depth: %d\n", (int)frameStackSize);
 
-        /* check stack size */
-        if (frameStackSize < frameCount) {
-            NSK_COMPLAIN5("Too small stack of %s thread #%d (%s):\n"
-                            "#   got ctack frames:  %d\n"
-                            "#   got framesCount:   %d\n",
-                            kind, i, threadsDesc[i].threadName,
-                            (int)frameStackSize, (int)frameCount);
+        /*  Only check for suspended threads: running threads might have different
+            frames between stack grabbing calls. */
+        if (suspended && (frameStackSize != frameCount)) {
+            NSK_COMPLAIN5("Different frames count for %s thread #%d (%s):\n"
+                          "#   getStackTrace(): %d\n"
+                          "#   getFrameCount(): %d\n",
+                          kind, i, threadsDesc[i].threadName,
+                          (int)frameStackSize, (int)frameCount);
             nsk_jvmti_setFailStatus();
         }
 

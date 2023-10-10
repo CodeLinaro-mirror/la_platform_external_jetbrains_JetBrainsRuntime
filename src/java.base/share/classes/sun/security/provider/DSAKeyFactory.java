@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,7 +30,6 @@ import java.security.PublicKey;
 import java.security.PrivateKey;
 import java.security.KeyFactorySpi;
 import java.security.InvalidKeyException;
-import java.security.AccessController;
 import java.security.interfaces.DSAParams;
 import java.security.spec.DSAPublicKeySpec;
 import java.security.spec.DSAPrivateKeySpec;
@@ -38,8 +37,7 @@ import java.security.spec.KeySpec;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
 import java.security.spec.PKCS8EncodedKeySpec;
-
-import sun.security.action.GetPropertyAction;
+import java.util.Arrays;
 
 /**
  * This class implements the DSA key factory of the Sun provider.
@@ -51,29 +49,6 @@ import sun.security.action.GetPropertyAction;
  */
 
 public class DSAKeyFactory extends KeyFactorySpi {
-
-    // package private for DSAKeyPairGenerator
-    static final boolean SERIAL_INTEROP;
-    private static final String SERIAL_PROP = "sun.security.key.serial.interop";
-
-    static {
-
-        /**
-         * Check to see if we need to maintain interoperability for serialized
-         * keys between JDK 5.0 -> JDK 1.4.  In other words, determine whether
-         * a key object serialized in JDK 5.0 must be deserializable in
-         * JDK 1.4.
-         *
-         * If true, then we generate sun.security.provider.DSAPublicKey.
-         * If false, then we generate sun.security.provider.DSAPublicKeyImpl.
-         *
-         * By default this is false.
-         * This incompatibility was introduced by 4532506.
-         */
-        String prop = GetPropertyAction.privilegedGetProperty(SERIAL_PROP);
-        SERIAL_INTEROP = "true".equalsIgnoreCase(prop);
-    }
-
     /**
      * Generates a public key object from the provided key specification
      * (key material).
@@ -88,27 +63,14 @@ public class DSAKeyFactory extends KeyFactorySpi {
     protected PublicKey engineGeneratePublic(KeySpec keySpec)
     throws InvalidKeySpecException {
         try {
-            if (keySpec instanceof DSAPublicKeySpec) {
-                DSAPublicKeySpec dsaPubKeySpec = (DSAPublicKeySpec)keySpec;
-                if (SERIAL_INTEROP) {
-                    return new DSAPublicKey(dsaPubKeySpec.getY(),
-                                        dsaPubKeySpec.getP(),
-                                        dsaPubKeySpec.getQ(),
-                                        dsaPubKeySpec.getG());
-                } else {
-                    return new DSAPublicKeyImpl(dsaPubKeySpec.getY(),
-                                        dsaPubKeySpec.getP(),
-                                        dsaPubKeySpec.getQ(),
-                                        dsaPubKeySpec.getG());
-                }
+            if (keySpec instanceof DSAPublicKeySpec dsaPubKeySpec) {
+                return new DSAPublicKeyImpl(dsaPubKeySpec.getY(),
+                                    dsaPubKeySpec.getP(),
+                                    dsaPubKeySpec.getQ(),
+                                    dsaPubKeySpec.getG());
             } else if (keySpec instanceof X509EncodedKeySpec) {
-                if (SERIAL_INTEROP) {
-                    return new DSAPublicKey
-                        (((X509EncodedKeySpec)keySpec).getEncoded());
-                } else {
-                    return new DSAPublicKeyImpl
-                        (((X509EncodedKeySpec)keySpec).getEncoded());
-                }
+                return new DSAPublicKeyImpl
+                    (((X509EncodedKeySpec)keySpec).getEncoded());
             } else {
                 throw new InvalidKeySpecException
                     ("Inappropriate key specification");
@@ -131,19 +93,21 @@ public class DSAKeyFactory extends KeyFactorySpi {
      * is inappropriate for this key factory to produce a private key.
      */
     protected PrivateKey engineGeneratePrivate(KeySpec keySpec)
-    throws InvalidKeySpecException {
+            throws InvalidKeySpecException {
         try {
-            if (keySpec instanceof DSAPrivateKeySpec) {
-                DSAPrivateKeySpec dsaPrivKeySpec = (DSAPrivateKeySpec)keySpec;
+            if (keySpec instanceof DSAPrivateKeySpec dsaPrivKeySpec) {
                 return new DSAPrivateKey(dsaPrivKeySpec.getX(),
                                          dsaPrivKeySpec.getP(),
                                          dsaPrivKeySpec.getQ(),
                                          dsaPrivKeySpec.getG());
 
             } else if (keySpec instanceof PKCS8EncodedKeySpec) {
-                return new DSAPrivateKey
-                    (((PKCS8EncodedKeySpec)keySpec).getEncoded());
-
+                byte[] encoded = ((PKCS8EncodedKeySpec)keySpec).getEncoded();
+                try {
+                    return new DSAPrivateKey(encoded);
+                } finally {
+                    Arrays.fill(encoded, (byte) 0);
+                }
             } else {
                 throw new InvalidKeySpecException
                     ("Inappropriate key specification");
@@ -221,8 +185,12 @@ public class DSAKeyFactory extends KeyFactorySpi {
                                                               params.getG()));
 
                 } else if (keySpec.isAssignableFrom(pkcs8KeySpec)) {
-                    return keySpec.cast(new PKCS8EncodedKeySpec(key.getEncoded()));
-
+                    byte[] encoded = key.getEncoded();
+                    try {
+                        return keySpec.cast(new PKCS8EncodedKeySpec(encoded));
+                    } finally {
+                        Arrays.fill(encoded, (byte)0);
+                    }
                 } else {
                     throw new InvalidKeySpecException
                         ("Inappropriate key specification");

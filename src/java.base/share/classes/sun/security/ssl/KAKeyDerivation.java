@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -70,7 +70,7 @@ public class KAKeyDerivation implements SSLKeyDerivation {
     private SecretKey t12DeriveKey(String algorithm,
             AlgorithmParameterSpec params) throws IOException {
         try {
-            KeyAgreement ka = JsseJce.getKeyAgreement(algorithmName);
+            KeyAgreement ka = KeyAgreement.getInstance(algorithmName);
             ka.init(localPrivateKey);
             ka.doPhase(peerPublicKey, true);
             SecretKey preMasterSecret
@@ -88,8 +88,7 @@ public class KAKeyDerivation implements SSLKeyDerivation {
                     context, preMasterSecret);
             return kd.deriveKey("MasterSecret", params);
         } catch (GeneralSecurityException gse) {
-            throw (SSLHandshakeException) new SSLHandshakeException(
-                    "Could not generate secret").initCause(gse);
+            throw new SSLHandshakeException("Could not generate secret", gse);
         }
     }
 
@@ -99,7 +98,7 @@ public class KAKeyDerivation implements SSLKeyDerivation {
     private SecretKey t13DeriveKey(String algorithm,
             AlgorithmParameterSpec params) throws IOException {
         try {
-            KeyAgreement ka = JsseJce.getKeyAgreement(algorithmName);
+            KeyAgreement ka = KeyAgreement.getInstance(algorithmName);
             ka.init(localPrivateKey);
             ka.doPhase(peerPublicKey, true);
             SecretKey sharedSecret
@@ -125,8 +124,7 @@ public class KAKeyDerivation implements SSLKeyDerivation {
             // derive handshake secret
             return hkdf.extract(saltSecret, sharedSecret, algorithm);
         } catch (GeneralSecurityException gse) {
-            throw (SSLHandshakeException) new SSLHandshakeException(
-                    "Could not generate secret").initCause(gse);
+            throw new SSLHandshakeException("Could not generate secret", gse);
         }
     }
 }

@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2017, 2018, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2022, Red Hat, Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,25 +25,32 @@
 
 #include "precompiled.hpp"
 #include "gc/epsilon/epsilonHeap.hpp"
+#include "gc/epsilon/epsilonInitLogger.hpp"
 #include "gc/epsilon/epsilonMemoryPool.hpp"
 #include "gc/epsilon/epsilonThreadLocalData.hpp"
+#include "gc/shared/gcArguments.hpp"
+#include "gc/shared/locationPrinter.inline.hpp"
+#include "logging/log.hpp"
 #include "memory/allocation.hpp"
 #include "memory/allocation.inline.hpp"
+#include "memory/metaspaceUtils.hpp"
 #include "memory/resourceArea.hpp"
+#include "memory/universe.hpp"
+#include "runtime/atomic.hpp"
+#include "runtime/globals.hpp"
 
 jint EpsilonHeap::initialize() {
-  size_t align = _policy->heap_alignment();
-  size_t init_byte_size = align_up(_policy->initial_heap_byte_size(), align);
-  size_t max_byte_size  = align_up(_policy->max_heap_byte_size(), align);
+  size_t align = HeapAlignment;
+  size_t init_byte_size = align_up(InitialHeapSize, align);
+  size_t max_byte_size  = align_up(MaxHeapSize, align);
 
   // Initialize backing storage
-  ReservedSpace heap_rs = Universe::reserve_heap(max_byte_size, align);
+  ReservedHeapSpace heap_rs = Universe::reserve_heap(max_byte_size, align);
   _virtual_space.initialize(heap_rs, init_byte_size);
 
   MemRegion committed_region((HeapWord*)_virtual_space.low(),          (HeapWord*)_virtual_space.high());
-  MemRegion  reserved_region((HeapWord*)_virtual_space.low_boundary(), (HeapWord*)_virtual_space.high_boundary());
 
-  initialize_reserved_region(reserved_region.start(), reserved_region.end());
+  initialize_reserved_region(heap_rs);
 
   _space = new ContiguousSpace();
   _space->initialize(committed_region, /* clear_space = */ true, /* mangle_space = */ true);
@@ -62,30 +70,9 @@ jint EpsilonHeap::initialize() {
   BarrierSet::set_barrier_set(new EpsilonBarrierSet());
 
   // All done, print out the configuration
-  if (init_byte_size != max_byte_size) {
-    log_info(gc)("Resizeable heap; starting at " SIZE_FORMAT "M, max: " SIZE_FORMAT "M, step: " SIZE_FORMAT "M",
-                 init_byte_size / M, max_byte_size / M, EpsilonMinHeapExpand / M);
-  } else {
-    log_info(gc)("Non-resizeable heap; start/max: " SIZE_FORMAT "M", init_byte_size / M);
-  }
-
-  if (UseTLAB) {
-    log_info(gc)("Using TLAB allocation; max: " SIZE_FORMAT "K", _max_tlab_size * HeapWordSize / K);
-    if (EpsilonElasticTLAB) {
-      log_info(gc)("Elastic TLABs enabled; elasticity: %.2fx", EpsilonTLABElasticity);
-    }
-    if (EpsilonElasticTLABDecay) {
-      log_info(gc)("Elastic TLABs decay enabled; decay time: " SIZE_FORMAT "ms", EpsilonTLABDecayTime);
-    }
-  } else {
-    log_info(gc)("Not using TLAB allocation");
-  }
+  EpsilonInitLogger::print();
 
   return JNI_OK;
-}
-
-void EpsilonHeap::post_initialize() {
-  CollectedHeap::post_initialize();
 }
 
 void EpsilonHeap::initialize_serviceability() {
@@ -112,30 +99,27 @@ size_t EpsilonHeap::unsafe_max_tlab_alloc(Thread* thr) const {
 }
 
 EpsilonHeap* EpsilonHeap::heap() {
-  CollectedHeap* heap = Universe::heap();
-  assert(heap != NULL, "Uninitialized access to EpsilonHeap::heap()");
-  assert(heap->kind() == CollectedHeap::Epsilon, "Not an Epsilon heap");
-  return (EpsilonHeap*)heap;
+  return named_heap<EpsilonHeap>(CollectedHeap::Epsilon);
 }
 
-HeapWord* EpsilonHeap::allocate_work(size_t size) {
+HeapWord* EpsilonHeap::allocate_work(size_t size, bool verbose) {
   assert(is_object_aligned(size), "Allocation size should be aligned: " SIZE_FORMAT, size);
 
-  HeapWord* res = NULL;
+  HeapWord* res = nullptr;
   while (true) {
     // Try to allocate, assume space is available
     res = _space->par_allocate(size);
-    if (res != NULL) {
+    if (res != nullptr) {
       break;
     }
 
     // Allocation failed, attempt expansion, and retry:
     {
-      MutexLockerEx ml(Heap_lock);
+      MutexLocker ml(Heap_lock);
 
       // Try to allocate under the lock, assume another thread was able to expand
       res = _space->par_allocate(size);
-      if (res != NULL) {
+      if (res != nullptr) {
         break;
       }
 
@@ -154,7 +138,7 @@ HeapWord* EpsilonHeap::allocate_work(size_t size) {
         assert(expand, "Should be able to expand");
       } else {
         // No space left:
-        return NULL;
+        return nullptr;
       }
 
       _space->set_end((HeapWord *) _virtual_space.high());
@@ -164,17 +148,17 @@ HeapWord* EpsilonHeap::allocate_work(size_t size) {
   size_t used = _space->used();
 
   // Allocation successful, update counters
-  {
+  if (verbose) {
     size_t last = _last_counter_update;
-    if ((used - last >= _step_counter_update) && Atomic::cmpxchg(used, &_last_counter_update, last) == last) {
+    if ((used - last >= _step_counter_update) && Atomic::cmpxchg(&_last_counter_update, last, used) == last) {
       _monitoring_support->update_counters();
     }
   }
 
   // ...and print the occupancy line, if needed
-  {
+  if (verbose) {
     size_t last = _last_heap_print;
-    if ((used - last >= _step_heap_print) && Atomic::cmpxchg(used, &_last_heap_print, last) == last) {
+    if ((used - last >= _step_heap_print) && Atomic::cmpxchg(&_last_heap_print, last, used) == last) {
       print_heap_info(used);
       print_metaspace_info();
     }
@@ -222,7 +206,7 @@ HeapWord* EpsilonHeap::allocate_new_tlab(size_t min_size,
   }
 
   // Always honor boundaries
-  size = MAX2(min_size, MIN2(_max_tlab_size, size));
+  size = clamp(size, min_size, _max_tlab_size);
 
   // Always honor alignment
   size = align_up(size, MinObjAlignment);
@@ -252,7 +236,7 @@ HeapWord* EpsilonHeap::allocate_new_tlab(size_t min_size,
   // All prepared, let's do it!
   HeapWord* res = allocate_work(size);
 
-  if (res != NULL) {
+  if (res != nullptr) {
     // Allocation successful
     *actual_size = size;
     if (EpsilonElasticTLABDecay) {
@@ -275,6 +259,11 @@ HeapWord* EpsilonHeap::allocate_new_tlab(size_t min_size,
 HeapWord* EpsilonHeap::mem_allocate(size_t size, bool *gc_overhead_limit_was_exceeded) {
   *gc_overhead_limit_was_exceeded = false;
   return allocate_work(size);
+}
+
+HeapWord* EpsilonHeap::allocate_loaded_archive_space(size_t size) {
+  // Cannot use verbose=true because Metaspace is not initialized
+  return allocate_work(size, /* verbose = */false);
 }
 
 void EpsilonHeap::collect(GCCause::Cause cause) {
@@ -300,20 +289,25 @@ void EpsilonHeap::do_full_collection(bool clear_all_soft_refs) {
   collect(gc_cause());
 }
 
-void EpsilonHeap::safe_object_iterate(ObjectClosure *cl) {
-  _space->safe_object_iterate(cl);
+void EpsilonHeap::object_iterate(ObjectClosure *cl) {
+  _space->object_iterate(cl);
 }
 
 void EpsilonHeap::print_on(outputStream *st) const {
   st->print_cr("Epsilon Heap");
 
-  // Cast away constness:
-  ((VirtualSpace)_virtual_space).print_on(st);
+  _virtual_space.print_on(st);
 
-  st->print_cr("Allocation space:");
-  _space->print_on(st);
+  if (_space != nullptr) {
+    st->print_cr("Allocation space:");
+    _space->print_on(st);
+  }
 
   MetaspaceUtils::print_on(st);
+}
+
+bool EpsilonHeap::print_location(outputStream* st, void* addr) const {
+  return BlockLocationPrinter<EpsilonHeap>::print_location(st, addr);
 }
 
 void EpsilonHeap::print_tracing_info() const {
@@ -339,9 +333,10 @@ void EpsilonHeap::print_heap_info(size_t used) const {
 }
 
 void EpsilonHeap::print_metaspace_info() const {
-  size_t reserved  = MetaspaceUtils::reserved_bytes();
-  size_t committed = MetaspaceUtils::committed_bytes();
-  size_t used      = MetaspaceUtils::used_bytes();
+  MetaspaceCombinedStats stats = MetaspaceUtils::get_combined_statistics();
+  size_t reserved  = stats.reserved();
+  size_t committed = stats.committed();
+  size_t used      = stats.used();
 
   if (reserved != 0) {
     log_info(gc, metaspace)("Metaspace: " SIZE_FORMAT "%s reserved, " SIZE_FORMAT "%s (%.2f%%) committed, "

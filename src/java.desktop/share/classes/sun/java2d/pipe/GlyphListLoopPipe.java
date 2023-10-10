@@ -41,41 +41,49 @@ public abstract class GlyphListLoopPipe extends GlyphListPipe
 {
     protected void drawGlyphList(SunGraphics2D sg2d, GlyphList gl,
                                  int aaHint) {
-        int prevBorder = 0;
+        int prevLimit = 0;
         byte pixelFormat = StrikeCache.PIXEL_FORMAT_UNKNOWN;
         int len = gl.getNumGlyphs();
         gl.startGlyphIteration();
-        for (int i = 0; i < len; i++) {
-            byte newFormat = gl.getPixelFormat(i);
-            if (newFormat != pixelFormat) {
-                drawGlyphListSegment(sg2d, gl, prevBorder, i, aaHint, pixelFormat);
-                prevBorder = i;
-                pixelFormat = newFormat;
+        if (GlyphList.canContainColorGlyphs()) {
+            for (int i = 0; i < len; i++) {
+                byte newFormat = gl.getPixelFormat(i);
+                if (newFormat != pixelFormat) {
+                    drawGlyphListSegment(sg2d, gl,
+                            prevLimit, i, aaHint, pixelFormat);
+                    prevLimit = i;
+                    pixelFormat = newFormat;
+                }
             }
         }
-        drawGlyphListSegment(sg2d, gl, prevBorder, len, aaHint, pixelFormat);
+        drawGlyphListSegment(sg2d, gl, prevLimit, len, aaHint, pixelFormat);
     }
 
-    private void drawGlyphListSegment(SunGraphics2D sg2d, GlyphList gl, int fromglyph, int toGlyph,
+    private void drawGlyphListSegment(SunGraphics2D sg2d, GlyphList gl,
+                                      int fromglyph, int toGlyph,
                                       int aaHint, byte pixelFormat) {
         if (fromglyph >= toGlyph) return;
         switch (pixelFormat) {
             case StrikeCache.PIXEL_FORMAT_GREYSCALE:
                 if (aaHint == SunHints.INTVAL_TEXT_ANTIALIAS_OFF) {
                     sg2d.loops.drawGlyphListLoop.
-                            DrawGlyphList(sg2d, sg2d.surfaceData, gl, fromglyph, toGlyph);
+                            DrawGlyphList(sg2d, sg2d.surfaceData,
+                                    gl, fromglyph, toGlyph);
                 } else {
                     sg2d.loops.drawGlyphListAALoop.
-                            DrawGlyphListAA(sg2d, sg2d.surfaceData, gl, fromglyph, toGlyph);
+                            DrawGlyphListAA(sg2d, sg2d.surfaceData,
+                                    gl, fromglyph, toGlyph);
                 }
                 return;
             case StrikeCache.PIXEL_FORMAT_LCD:
                 sg2d.loops.drawGlyphListLCDLoop.
-                        DrawGlyphListLCD(sg2d, sg2d.surfaceData, gl, fromglyph, toGlyph);
+                        DrawGlyphListLCD(sg2d, sg2d.surfaceData,
+                                gl, fromglyph, toGlyph);
                 return;
             case StrikeCache.PIXEL_FORMAT_BGRA:
                 sg2d.loops.drawGlyphListColorLoop.
-                        DrawGlyphListColor(sg2d, sg2d.surfaceData, gl, fromglyph, toGlyph);
+                        DrawGlyphListColor(sg2d, sg2d.surfaceData,
+                                gl, fromglyph, toGlyph);
                 return;
         }
     }

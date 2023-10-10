@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,6 +22,7 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+
 package sun.awt.X11;
 
 import java.awt.AWTEvent;
@@ -52,8 +53,6 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.event.PaintEvent;
 import java.awt.event.WindowEvent;
-import java.awt.image.ImageObserver;
-import java.awt.image.ImageProducer;
 import java.awt.image.VolatileImage;
 import java.awt.peer.ComponentPeer;
 import java.awt.peer.ContainerPeer;
@@ -61,14 +60,15 @@ import java.util.Collection;
 import java.util.Objects;
 import java.util.Set;
 
+import sun.awt.AWTAccessor;
 import sun.awt.AWTAccessor.ComponentAccessor;
-import sun.util.logging.PlatformLogger;
-import sun.awt.*;
+import sun.awt.SunToolkit;
+import sun.awt.X11GraphicsConfig;
 import sun.awt.event.IgnorePaintEvent;
 import sun.awt.image.SunVolatileImage;
-import sun.awt.image.ToolkitImage;
 import sun.java2d.BackBufferCapsProvider;
 import sun.java2d.pipe.Region;
+import sun.util.logging.PlatformLogger;
 
 
 public class XComponentPeer extends XWindow implements ComponentPeer, DropTargetPeer,
@@ -80,6 +80,9 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
     private static final PlatformLogger fontLog = PlatformLogger.getLogger("sun.awt.X11.font.XComponentPeer");
     private static final PlatformLogger enableLog = PlatformLogger.getLogger("sun.awt.X11.enable.XComponentPeer");
     private static final PlatformLogger shapeLog = PlatformLogger.getLogger("sun.awt.X11.shape.XComponentPeer");
+
+    // A lock ensuring focus requests are processed atomically
+    static final Object focusRequestLock = new Object();
 
     boolean paintPending = false;
     boolean isLayouting = false;
@@ -243,69 +246,89 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
         return AWTAccessor.getSequencedEventAccessor().create(event);
     }
 
-    // TODO: consider moving it to KeyboardFocusManagerPeerImpl
     @SuppressWarnings("deprecation")
     public final boolean requestFocus(Component lightweightChild, boolean temporary,
                                       boolean focusedWindowChangeAllowed, long time,
                                       FocusEvent.Cause cause)
     {
-        if (XKeyboardFocusManagerPeer.
-            processSynchronousLightweightTransfer(target, lightweightChild, temporary,
-                                                  focusedWindowChangeAllowed, time))
-        {
-            return true;
-        }
+        XWindowPeer wpeerToFocus = null;
+        synchronized (focusRequestLock) {
+            if (XKeyboardFocusManagerPeer.
+                processSynchronousLightweightTransfer(target, lightweightChild, temporary,
+                                                      focusedWindowChangeAllowed, time))
+            {
+                return true;
+            }
 
-        int result = XKeyboardFocusManagerPeer.
-            shouldNativelyFocusHeavyweight(target, lightweightChild,
-                                           temporary, focusedWindowChangeAllowed,
-                                           time, cause, true);
+            int result = XKeyboardFocusManagerPeer.
+                shouldNativelyFocusHeavyweight(target, lightweightChild,
+                                               temporary, focusedWindowChangeAllowed,
+                                               time, cause, true);
 
-        switch (result) {
-          case XKeyboardFocusManagerPeer.SNFH_FAILURE:
-              return false;
-          case XKeyboardFocusManagerPeer.SNFH_SUCCESS_PROCEED:
-              // Currently we just generate focus events like we deal with lightweight instead of calling
-              // XSetInputFocus on native window
-              if (focusLog.isLoggable(PlatformLogger.Level.FINER)) {
-                  focusLog.finer("Proceeding with request to " +
-                                 lightweightChild + " in " + target);
-              }
-              /**
-               * The problems with requests in non-focused window arise because shouldNativelyFocusHeavyweight
-               * checks that native window is focused while appropriate WINDOW_GAINED_FOCUS has not yet
-               * been processed - it is in EventQueue. Thus, SNFH allows native request and stores request record
-               * in requests list - and it breaks our requests sequence as first record on WGF should be the last
-               * focus owner which had focus before WLF. So, we should not add request record for such requests
-               * but store this component in mostRecent - and return true as before for compatibility.
-               */
-              Window parentWindow = SunToolkit.getContainingWindow(target);
-              if (parentWindow == null) {
-                  return rejectFocusRequestHelper("WARNING: Parent window is null");
-              }
-              XWindowPeer wpeer = AWTAccessor.getComponentAccessor()
-                                             .getPeer(parentWindow);
-              if (wpeer == null) {
-                  return rejectFocusRequestHelper("WARNING: Parent window's peer is null");
-              }
-              /*
-               * Passing null 'actualFocusedWindow' as we don't want to restore focus on it
-               * when a component inside a Frame is requesting focus.
-               * See 6314575 for details.
-               */
-              return wpeer.requestWindowFocus(null, () -> {
-                  XKeyboardFocusManagerPeer.deliverFocus(lightweightChild,
-                          (Component)target,
-                          temporary,
-                          focusedWindowChangeAllowed,
-                          time, cause);
-              }, () -> {
+            switch (result) {
+              case XKeyboardFocusManagerPeer.SNFH_FAILURE:
+                  return false;
+              case XKeyboardFocusManagerPeer.SNFH_SUCCESS_PROCEED:
+                  // Currently we just generate focus events like we deal with lightweight instead of calling
+                  // XSetInputFocus on native window
+                  if (focusLog.isLoggable(PlatformLogger.Level.FINER)) {
+                      focusLog.finer("Proceeding with request to " +
+                                     lightweightChild + " in " + target);
+                  }
+                  /**
+                   * The problems with requests in non-focused window arise because shouldNativelyFocusHeavyweight
+                   * checks that native window is focused while appropriate WINDOW_GAINED_FOCUS has not yet
+                   * been processed - it is in EventQueue. Thus, SNFH allows native request and stores request record
+                   * in requests list - and it breaks our requests sequence as first record on WGF should be the last
+                   * focus owner which had focus before WLF. So, we should not add request record for such requests
+                   * but store this component in mostRecent - and return true as before for compatibility.
+                   */
+                  Window parentWindow = SunToolkit.getContainingWindow(target);
+                  if (parentWindow == null) {
+                      return rejectFocusRequestHelper("WARNING: Parent window is null");
+                  }
+
+                  if (parentWindow.isFocused()) {
+                      if (focusLog.isLoggable(PlatformLogger.Level.FINER)) {
+                          focusLog.finer("Target window is already focused, requesting focus internally");
+                      }
+                      return XKeyboardFocusManagerPeer.deliverFocus(lightweightChild,
+                                                                    target,
+                                                                    temporary,
+                                                                    focusedWindowChangeAllowed,
+                                                                    time, cause);
+                  }
+
+                  if (!focusedWindowChangeAllowed) {
+                      return rejectFocusRequestHelper("Target window isn't focused, aborting");
+                  }
+
+                  wpeerToFocus = AWTAccessor.getComponentAccessor()
+                                            .getPeer(parentWindow);
+                  if (wpeerToFocus == null) {
+                      return rejectFocusRequestHelper("WARNING: Parent window's peer is null");
+                  }
+
                   rejectFocusRequestHelper("Waiting for asynchronous processing of the request");
-              });
-              // Motif compatibility code
-          case XKeyboardFocusManagerPeer.SNFH_SUCCESS_HANDLED:
-              // Either lightweight or excessive request - all events are generated.
-              return true;
+                  break;
+
+                  // Motif compatibility code
+              case XKeyboardFocusManagerPeer.SNFH_SUCCESS_HANDLED:
+                  // Either lightweight or excessive request - all events are generated.
+                  return true;
+            }
+        }
+        // doing this with 'focusLock' not held to avoid deadlocks
+        if (wpeerToFocus != null) {
+            /*
+             * Passing null 'actualFocusedWindow' as we don't want to restore focus on it
+             * when a component inside a Frame is requesting focus.
+             * See 6314575 for details.
+             */
+            boolean res = wpeerToFocus.requestWindowFocus(null);
+            if (focusLog.isLoggable(PlatformLogger.Level.FINER)) {
+                focusLog.finer("Requested window focus: " + res);
+            }
         }
         return false;
     }
@@ -704,24 +727,12 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
         }
     }
 
-    public Image createImage(ImageProducer producer) {
-        return new ToolkitImage(producer);
-    }
-
     public Image createImage(int width, int height) {
         return graphicsConfig.createAcceleratedImage(target, width, height);
     }
 
     public VolatileImage createVolatileImage(int width, int height) {
         return new SunVolatileImage(target, width, height);
-    }
-
-    public boolean prepareImage(Image img, int w, int h, ImageObserver o) {
-        return Toolkit.getDefaultToolkit().prepareImage(img, w, h, o);
-    }
-
-    public int checkImage(Image img, int w, int h, ImageObserver o) {
-        return Toolkit.getDefaultToolkit().checkImage(img, w, h, o);
     }
 
     public Insets getInsets() {
@@ -767,7 +778,7 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
 
     static int[] getRGBvals(Color c) {
 
-        int rgbvals[] = new int[3];
+        int[] rgbvals = new int[3];
 
         rgbvals[0] = c.getRed();
         rgbvals[1] = c.getGreen();
@@ -782,7 +793,7 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
     static final int FOREGROUND_COLOR = 3;
 
     public Color[] getGUIcolors() {
-        Color c[] = new Color[4];
+        Color[] c = new Color[4];
         float backb, highb, shadowb, hue, saturation;
         c[BACKGROUND_COLOR] = getWinBackground();
         if (c[BACKGROUND_COLOR] == null) {
@@ -901,7 +912,7 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
     /**
      * Draw a 3D oval.
      */
-    public void draw3DOval(Graphics g, Color colors[],
+    public void draw3DOval(Graphics g, Color[] colors,
                            int x, int y, int w, int h, boolean raised)
         {
         Color c = g.getColor();
@@ -912,7 +923,7 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
         g.setColor(c);
     }
 
-    public void draw3DRect(Graphics g, Color colors[],
+    public void draw3DRect(Graphics g, Color[] colors,
                            int x, int y, int width, int height, boolean raised)
         {
             Color c = g.getColor();
@@ -968,8 +979,8 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
         int v1 = thickness + (int)(f * (val - min));
         int v2 = (int)(f * vis);
         int w2 = thickness-4;
-        int tpts_x[] = new int[3];
-        int tpts_y[] = new int[3];
+        int[] tpts_x = new int[3];
+        int[] tpts_y = new int[3];
 
         if (length < 3*w2 ) {
             v1 = v2 = 0;
@@ -1336,7 +1347,10 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
 
                     int scale = getScale();
                     if (scale != 1) {
-                        shape = shape.getScaledRegion(scale, scale);
+                        Rectangle bounds = graphicsConfig.getBounds();
+                        shape = shape.getTranslatedRegion(-bounds.x, -bounds.y)
+                                .getScaledRegion(scale, scale)
+                                .getTranslatedRegion(bounds.x, bounds.y);
                     }
 
                     XlibWrapper.SetRectangularShape(
@@ -1371,8 +1385,8 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
         if (graphicsConfig != null) {
             oldVisual = graphicsConfig.getVisual();
         }
-        if (gc != null && gc instanceof X11GraphicsConfig) {
-            newVisual = ((X11GraphicsConfig)gc).getVisual();
+        if (gc instanceof X11GraphicsConfig x11Config) {
+            newVisual = x11Config.getVisual();
         }
 
         // If the new visual differs from the old one, the peer must be
@@ -1384,7 +1398,7 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
         }
 
         initGraphicsConfiguration();
-        doValidateSurface();
+        syncBounds();
         return false;
     }
 }

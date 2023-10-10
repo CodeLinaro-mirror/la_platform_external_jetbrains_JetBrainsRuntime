@@ -40,9 +40,8 @@ import jdk.test.lib.process.ProcessTools;
 /**
  * Run security tools (including jarsigner and keytool) in a new process.
  * The en_US locale is always used so a test can always match output to
- * English text. {@code /dev/urandom} is used as entropy source so tool will
- * not block because of entropy scarcity. {@code -Jvm-options} is supported
- * as an argument.
+ * English text. An argument can be a normal string,
+ * {@code -Jvm-options}, or {@code $sysProp}.
  */
 public class SecurityTools {
 
@@ -58,15 +57,14 @@ public class SecurityTools {
         JDKToolLauncher launcher = JDKToolLauncher.createUsingTestJDK(tool)
                 .addVMArg("-Duser.language=en")
                 .addVMArg("-Duser.country=US");
-        if (!Platform.isWindows()) {
-            launcher.addVMArg("-Djava.security.egd=file:/dev/./urandom");
-        }
         for (String arg : args) {
             if (arg.startsWith("-J")) {
                 launcher.addVMArg(arg.substring(2));
             } else if (Platform.isWindows() && arg.isEmpty()) {
                 // JDK-6518827: special handling for empty argument on Windows
                 launcher.addToolArg("\"\"");
+            } else if (arg.length() > 1 && arg.charAt(0) == '$') {
+                launcher.addToolArg(System.getProperty(arg.substring(1)));
             } else {
                 launcher.addToolArg(arg);
             }
@@ -224,6 +222,18 @@ public class SecurityTools {
     }
 
     /**
+     * Runs kinit.
+     *
+     * @param args arguments to kinit in a single string. The string is
+     *             converted to be List with makeList.
+     * @return an {@link OutputAnalyzer} object
+     * @throws Exception if there is an error
+     */
+    public static OutputAnalyzer kinit(String args) throws Exception {
+        return execute(getProcessBuilder("kinit", makeList(args)));
+    }
+
+    /**
      * Runs jar.
      *
      * @param args arguments to jar in a single string. The string is
@@ -305,8 +315,8 @@ public class SecurityTools {
                 ProcessTools.executeProcess("security", "list-keychains", "-s", newChain)
                         .shouldHaveExitValue(0);
             } catch (Throwable t) {
-                if (t instanceof RuntimeException) {
-                    throw (RuntimeException)t;
+                if (t instanceof RuntimeException re) {
+                    throw re;
                 } else {
                     throw new RuntimeException(t);
                 }
@@ -326,8 +336,8 @@ public class SecurityTools {
                 ProcessTools.executeProcess(cmds.toArray(new String[0]))
                         .shouldHaveExitValue(0);
             } catch (Throwable t) {
-                if (t instanceof RuntimeException) {
-                    throw (RuntimeException)t;
+                if (t instanceof RuntimeException re) {
+                    throw re;
                 } else {
                     throw new RuntimeException(t);
                 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,62 +25,40 @@
 
 package sun.java2d.opengl;
 
-import sun.lwawt.macosx.CFRetainedResource;
-import sun.lwawt.LWWindowPeer;
-
-import sun.java2d.SurfaceData;
-import sun.java2d.NullSurfaceData;
-
-import sun.awt.CGraphicsConfig;
-
-import java.awt.Rectangle;
 import java.awt.GraphicsConfiguration;
-import java.awt.Transparency;
+import sun.awt.CGraphicsConfig;
+import sun.java2d.NullSurfaceData;
+import sun.lwawt.LWWindowPeer;
+import sun.java2d.SurfaceData;
+import sun.lwawt.macosx.CFLayer;
+import sun.util.logging.PlatformLogger;
 
-public class CGLLayer extends CFRetainedResource {
+public class CGLLayer extends CFLayer {
+    private static final PlatformLogger logger = PlatformLogger.getLogger(CGLLayer.class.getName());
 
     private native long nativeCreateLayer();
     private static native void nativeSetScale(long layerPtr, double scale);
     private static native void validate(long layerPtr, CGLSurfaceData cglsd);
     private static native void blitTexture(long layerPtr);
 
-    private LWWindowPeer peer;
     private int scale = 1;
-
-    private SurfaceData surfaceData; // represents intermediate buffer (texture)
 
     public CGLLayer(LWWindowPeer peer) {
         super(0, true);
 
         setPtr(nativeCreateLayer());
         this.peer = peer;
+
+        CGraphicsConfig gc = (CGraphicsConfig)getGraphicsConfiguration();
+        if (logger.isLoggable(PlatformLogger.Level.FINE)) {
+            logger.fine("device = " + (gc != null ? gc.getDevice() : "null"));
+        }
+        if (gc != null) {
+            setScale(gc.getDevice().getScaleFactor());
+        }
     }
 
-    public long getPointer() {
-        return ptr;
-    }
-
-    public Rectangle getBounds() {
-        return peer.getBounds();
-    }
-
-    public GraphicsConfiguration getGraphicsConfiguration() {
-        return peer.getGraphicsConfiguration();
-    }
-
-    public boolean isOpaque() {
-        return !peer.isTranslucent();
-    }
-
-    public int getTransparency() {
-        return isOpaque() ? Transparency.OPAQUE : Transparency.TRANSLUCENT;
-    }
-
-    public Object getDestination() {
-        return peer.getTarget();
-    }
-
-    public SurfaceData replaceSurfaceData() {
+    public SurfaceData replaceSurfaceData(int scale) {
         if (getBounds().isEmpty()) {
             surfaceData = NullSurfaceData.theInstance;
             return surfaceData;
@@ -94,17 +72,16 @@ public class CGLLayer extends CFRetainedResource {
             return surfaceData;
         }
         surfaceData = gc.createSurfaceData(this);
-        setScale(gc.getDevice().getScaleFactor());
+        if (scale <= 0) {
+            scale = gc.getDevice().getScaleFactor();
+        }
+        setScale(scale);
         // the layer holds a reference to the buffer, which in
         // turn has a reference back to this layer
         if (surfaceData instanceof CGLSurfaceData) {
             validate((CGLSurfaceData)surfaceData);
         }
 
-        return surfaceData;
-    }
-
-    public SurfaceData getSurfaceData() {
         return surfaceData;
     }
 
@@ -122,11 +99,20 @@ public class CGLLayer extends CFRetainedResource {
     public void dispose() {
         // break the connection between the layer and the buffer
         validate(null);
+        SurfaceData oldData = surfaceData;
+        surfaceData = NullSurfaceData.theInstance;
+        if (oldData != null) {
+            oldData.flush();
+        }
         super.dispose();
     }
 
-    private void setScale(final int _scale) {
+    private void setScale(int _scale) {
         if (scale != _scale) {
+            if (logger.isLoggable(PlatformLogger.Level.FINE)) {
+                CGraphicsConfig gc = (CGraphicsConfig)getGraphicsConfiguration();
+                logger.fine("current scale = " + scale + ", new scale = " + _scale + " (device = " + (gc != null ? gc.getDevice() : "null") + ")");
+            }
             scale = _scale;
             execute(ptr -> nativeSetScale(ptr, scale));
         }

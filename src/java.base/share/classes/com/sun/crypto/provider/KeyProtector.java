@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -46,8 +46,10 @@ import javax.crypto.SealedObject;
 import javax.crypto.spec.*;
 import javax.security.auth.DestroyFailedException;
 
+import jdk.internal.access.SharedSecrets;
 import sun.security.x509.AlgorithmId;
 import sun.security.util.ObjectIdentifier;
+import sun.security.util.KnownOIDs;
 import sun.security.util.SecurityProperties;
 
 /**
@@ -66,14 +68,6 @@ import sun.security.util.SecurityProperties;
  */
 
 final class KeyProtector {
-
-    // defined by SunSoft (SKI project)
-    private static final String PBE_WITH_MD5_AND_DES3_CBC_OID
-            = "1.3.6.1.4.1.42.2.19.1";
-
-    // JavaSoft proprietary key-protection algorithm (used to protect private
-    // keys in the keystore implementation that comes with JDK 1.2)
-    private static final String KEY_PROTECTOR_OID = "1.3.6.1.4.1.42.2.17.1.1";
 
     private static final int MAX_ITERATION_COUNT = 5000000;
     private static final int MIN_ITERATION_COUNT = 10000;
@@ -154,7 +148,8 @@ final class KeyProtector {
         pbeParams.init(pbeSpec);
 
         AlgorithmId encrAlg = new AlgorithmId
-            (new ObjectIdentifier(PBE_WITH_MD5_AND_DES3_CBC_OID), pbeParams);
+            (ObjectIdentifier.of(KnownOIDs.JAVASOFT_JCEKeyProtector),
+             pbeParams);
         return new EncryptedPrivateKeyInfo(encrAlg,encrKey).getEncoded();
     }
 
@@ -169,13 +164,13 @@ final class KeyProtector {
         SecretKey sKey = null;
         try {
             String encrAlg = encrInfo.getAlgorithm().getOID().toString();
-            if (!encrAlg.equals(PBE_WITH_MD5_AND_DES3_CBC_OID)
-                && !encrAlg.equals(KEY_PROTECTOR_OID)) {
+            if (!encrAlg.equals(KnownOIDs.JAVASOFT_JCEKeyProtector.value())
+                && !encrAlg.equals(KnownOIDs.JAVASOFT_JDKKeyProtector.value())) {
                 throw new UnrecoverableKeyException("Unsupported encryption "
                                                     + "algorithm");
             }
 
-            if (encrAlg.equals(KEY_PROTECTOR_OID)) {
+            if (encrAlg.equals(KnownOIDs.JAVASOFT_JDKKeyProtector.value())) {
                 // JDK 1.2 style recovery
                 plain = recover(encrInfo.getEncryptedData());
             } else {
@@ -211,18 +206,23 @@ final class KeyProtector {
 
             // determine the private-key algorithm, and parse private key
             // using the appropriate key factory
+            PrivateKeyInfo privateKeyInfo = new PrivateKeyInfo(plain);
+            PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(plain);
             String oidName = new AlgorithmId
-                (new PrivateKeyInfo(plain).getAlgorithm().getOID()).getName();
-            KeyFactory kFac = KeyFactory.getInstance(oidName);
-            return kFac.generatePrivate(new PKCS8EncodedKeySpec(plain));
+                (privateKeyInfo.getAlgorithm().getOID()).getName();
+            try {
+                KeyFactory kFac = KeyFactory.getInstance(oidName);
+                return kFac.generatePrivate(spec);
+            } finally {
+                privateKeyInfo.clear();
+                SharedSecrets.getJavaSecuritySpecAccess().clearEncodedKeySpec(spec);
+            }
         } catch (NoSuchAlgorithmException ex) {
             // Note: this catch needed to be here because of the
             // later catch of GeneralSecurityException
             throw ex;
-        } catch (IOException ioe) {
-            throw new UnrecoverableKeyException(ioe.getMessage());
-        } catch (GeneralSecurityException gse) {
-            throw new UnrecoverableKeyException(gse.getMessage());
+        } catch (IOException | GeneralSecurityException e) {
+            throw new UnrecoverableKeyException(e.getMessage());
         } finally {
             if (plain != null) Arrays.fill(plain, (byte) 0x00);
             if (sKey != null) {
@@ -401,12 +401,8 @@ final class KeyProtector {
             // Note: this catch needed to be here because of the
             // later catch of GeneralSecurityException
             throw ex;
-        } catch (IOException ioe) {
-            throw new UnrecoverableKeyException(ioe.getMessage());
-        } catch (ClassNotFoundException cnfe) {
-            throw new UnrecoverableKeyException(cnfe.getMessage());
-        } catch (GeneralSecurityException gse) {
-            throw new UnrecoverableKeyException(gse.getMessage());
+        } catch (IOException | GeneralSecurityException | ClassNotFoundException e) {
+            throw new UnrecoverableKeyException(e.getMessage());
         } finally {
             if (sKey != null) {
                 try {

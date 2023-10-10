@@ -47,7 +47,6 @@ public interface JavaxSecurityAuthKerberosAccess {
     public KerberosPrincipal kerberosTicketGetServerAlias(KerberosTicket t);
 
     public void kerberosTicketSetServerAlias(KerberosTicket t, KerberosPrincipal a);
-
     /**
      * Returns the proxy for a KerberosTicket.
      */

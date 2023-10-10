@@ -31,6 +31,7 @@
 
 package sun.security.krb5;
 
+import sun.security.action.GetBooleanAction;
 import sun.security.krb5.internal.Krb5;
 import sun.security.util.*;
 import java.io.IOException;
@@ -47,10 +48,8 @@ import sun.security.krb5.internal.util.KerberosString;
  */
 public class Realm implements Cloneable {
 
-    public static final boolean AUTODEDUCEREALM =
-        java.security.AccessController.doPrivileged(
-                new sun.security.action.GetBooleanAction(
-                        "sun.security.krb5.autodeducerealm"));
+    public static final boolean AUTODEDUCEREALM = GetBooleanAction
+            .privilegedGetProperty("sun.security.krb5.autodeducerealm");
 
     private final String realm; // not null nor empty
 

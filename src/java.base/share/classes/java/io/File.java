@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,12 +29,13 @@ import java.net.URI;
 import java.net.URL;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
-import java.util.List;
-import java.util.ArrayList;
-import java.security.SecureRandom;
-import java.nio.file.Path;
+import java.nio.file.FileStore;
 import java.nio.file.FileSystems;
-import sun.security.action.GetPropertyAction;
+import java.nio.file.Path;
+import java.security.SecureRandom;
+import java.util.ArrayList;
+import java.util.List;
+import jdk.internal.util.StaticProperty;
 
 /**
  * An abstract representation of file and directory pathnames.
@@ -46,8 +47,8 @@ import sun.security.action.GetPropertyAction;
  *
  * <ol>
  * <li> An optional system-dependent <em>prefix</em> string,
- *      such as a disk-drive specifier, <code>"/"</code>&nbsp;for the UNIX root
- *      directory, or <code>"\\\\"</code>&nbsp;for a Microsoft Windows UNC pathname, and
+ *      such as a disk-drive specifier, {@code "/"}&nbsp;for the UNIX root
+ *      directory, or {@code "\\\\"}&nbsp;for a Microsoft Windows UNC pathname, and
  * <li> A sequence of zero or more string <em>names</em>.
  * </ol>
  *
@@ -61,7 +62,7 @@ import sun.security.action.GetPropertyAction;
  * inherently system-dependent.  When an abstract pathname is converted into a
  * pathname string, each name is separated from the next by a single copy of
  * the default <em>separator character</em>.  The default name-separator
- * character is defined by the system property <code>file.separator</code>, and
+ * character is defined by the system property {@code file.separator}, and
  * is made available in the public static fields {@link
  * #separator} and {@link #separatorChar} of this class.
  * When a pathname string is converted into an abstract pathname, the names
@@ -73,9 +74,9 @@ import sun.security.action.GetPropertyAction;
  * that no other information is required in order to locate the file that it
  * denotes.  A relative pathname, in contrast, must be interpreted in terms of
  * information taken from some other pathname.  By default the classes in the
- * <code>java.io</code> package always resolve relative pathnames against the
+ * {@code java.io} package always resolve relative pathnames against the
  * current user directory.  This directory is named by the system property
- * <code>user.dir</code>, and is typically the directory in which the Java
+ * {@code user.dir}, and is typically the directory in which the Java
  * virtual machine was invoked.
  *
  * <p> The <em>parent</em> of an abstract pathname may be obtained by invoking
@@ -94,14 +95,14 @@ import sun.security.action.GetPropertyAction;
  * <ul>
  *
  * <li> For UNIX platforms, the prefix of an absolute pathname is always
- * <code>"/"</code>.  Relative pathnames have no prefix.  The abstract pathname
- * denoting the root directory has the prefix <code>"/"</code> and an empty
+ * {@code "/"}.  Relative pathnames have no prefix.  The abstract pathname
+ * denoting the root directory has the prefix {@code "/"} and an empty
  * name sequence.
  *
  * <li> For Microsoft Windows platforms, the prefix of a pathname that contains a drive
- * specifier consists of the drive letter followed by <code>":"</code> and
- * possibly followed by <code>"\\"</code> if the pathname is absolute.  The
- * prefix of a UNC pathname is <code>"\\\\"</code>; the hostname and the share
+ * specifier consists of the drive letter followed by {@code ":"} and
+ * possibly followed by {@code "\\"} if the pathname is absolute.  The
+ * prefix of a UNC pathname is {@code "\\\\"}; the hostname and the share
  * name are the first two names in the name sequence.  A relative pathname that
  * does not specify a drive has no prefix.
  *
@@ -124,11 +125,11 @@ import sun.security.action.GetPropertyAction;
  * may apply to all other users.  The access permissions on an object may
  * cause some methods in this class to fail.
  *
- * <p> Instances of the <code>File</code> class are immutable; that is, once
- * created, the abstract pathname represented by a <code>File</code> object
+ * <p> Instances of the {@code File} class are immutable; that is, once
+ * created, the abstract pathname represented by a {@code File} object
  * will never change.
  *
- * <h3>Interoperability with {@code java.nio.file} package</h3>
+ * <h2>Interoperability with {@code java.nio.file} package</h2>
  *
  * <p> The <a href="../../java/nio/file/package-summary.html">{@code java.nio.file}</a>
  * package defines interfaces and classes for the Java virtual machine to access
@@ -141,7 +142,6 @@ import sun.security.action.GetPropertyAction;
  * additional file operations, file attributes, and I/O exceptions to help
  * diagnose errors when an operation on a file fails.
  *
- * @author  unascribed
  * @since   1.0
  */
 
@@ -152,7 +152,7 @@ public class File
     /**
      * The FileSystem object representing the platform's local file system.
      */
-    private static final FileSystem fs = DefaultFileSystem.getFileSystem();
+    private static final FileSystem FS = DefaultFileSystem.getFileSystem();
 
     /**
      * This abstract pathname's normalized pathname string. A normalized
@@ -185,7 +185,7 @@ public class File
     final boolean isInvalid() {
         PathStatus s = status;
         if (s == null) {
-            s = fs.isInvalid(this) ? PathStatus.INVALID : PathStatus.CHECKED;
+            s = FS.isInvalid(this) ? PathStatus.INVALID : PathStatus.CHECKED;
             status = s;
         }
         return s == PathStatus.INVALID;
@@ -208,38 +208,38 @@ public class File
     /**
      * The system-dependent default name-separator character.  This field is
      * initialized to contain the first character of the value of the system
-     * property <code>file.separator</code>.  On UNIX systems the value of this
-     * field is <code>'/'</code>; on Microsoft Windows systems it is <code>'\\'</code>.
+     * property {@code file.separator}.  On UNIX systems the value of this
+     * field is {@code '/'}; on Microsoft Windows systems it is {@code '\\'}.
      *
      * @see     java.lang.System#getProperty(java.lang.String)
      */
-    public static final char separatorChar = fs.getSeparator();
+    public static final char separatorChar = FS.getSeparator();
 
     /**
      * The system-dependent default name-separator character, represented as a
      * string for convenience.  This string contains a single character, namely
      * {@link #separatorChar}.
      */
-    public static final String separator = "" + separatorChar;
+    public static final String separator = String.valueOf(separatorChar);
 
     /**
      * The system-dependent path-separator character.  This field is
      * initialized to contain the first character of the value of the system
-     * property <code>path.separator</code>.  This character is used to
+     * property {@code path.separator}.  This character is used to
      * separate filenames in a sequence of files given as a <em>path list</em>.
-     * On UNIX systems, this character is <code>':'</code>; on Microsoft Windows systems it
-     * is <code>';'</code>.
+     * On UNIX systems, this character is {@code ':'}; on Microsoft Windows systems it
+     * is {@code ';'}.
      *
      * @see     java.lang.System#getProperty(java.lang.String)
      */
-    public static final char pathSeparatorChar = fs.getPathSeparator();
+    public static final char pathSeparatorChar = FS.getPathSeparator();
 
     /**
      * The system-dependent path-separator character, represented as a string
      * for convenience.  This string contains a single character, namely
      * {@link #pathSeparatorChar}.
      */
-    public static final String pathSeparator = "" + pathSeparatorChar;
+    public static final String pathSeparator = String.valueOf(pathSeparatorChar);
 
 
     /* -- Constructors -- */
@@ -259,26 +259,26 @@ public class File
      */
     private File(String child, File parent) {
         assert parent.path != null;
-        assert (!parent.path.equals(""));
-        this.path = fs.resolve(parent.path, child);
+        assert (!parent.path.isEmpty());
+        this.path = FS.resolve(parent.path, child);
         this.prefixLength = parent.prefixLength;
     }
 
     /**
-     * Creates a new <code>File</code> instance by converting the given
+     * Creates a new {@code File} instance by converting the given
      * pathname string into an abstract pathname.  If the given string is
      * the empty string, then the result is the empty abstract pathname.
      *
      * @param   pathname  A pathname string
      * @throws  NullPointerException
-     *          If the <code>pathname</code> argument is <code>null</code>
+     *          If the {@code pathname} argument is {@code null}
      */
     public File(String pathname) {
         if (pathname == null) {
             throw new NullPointerException();
         }
-        this.path = fs.normalize(pathname);
-        this.prefixLength = fs.prefixLength(this.path);
+        this.path = FS.normalize(pathname);
+        this.prefixLength = FS.prefixLength(this.path);
     }
 
     /* Note: The two-argument File constructors do not interpret an empty
@@ -289,21 +289,21 @@ public class File
        compatibility with the original behavior of this class. */
 
     /**
-     * Creates a new <code>File</code> instance from a parent pathname string
+     * Creates a new {@code File} instance from a parent pathname string
      * and a child pathname string.
      *
-     * <p> If <code>parent</code> is <code>null</code> then the new
-     * <code>File</code> instance is created as if by invoking the
-     * single-argument <code>File</code> constructor on the given
-     * <code>child</code> pathname string.
+     * <p> If {@code parent} is {@code null} then the new
+     * {@code File} instance is created as if by invoking the
+     * single-argument {@code File} constructor on the given
+     * {@code child} pathname string.
      *
-     * <p> Otherwise the <code>parent</code> pathname string is taken to denote
-     * a directory, and the <code>child</code> pathname string is taken to
-     * denote either a directory or a file.  If the <code>child</code> pathname
+     * <p> Otherwise the {@code parent} pathname string is taken to denote
+     * a directory, and the {@code child} pathname string is taken to
+     * denote either a directory or a file.  If the {@code child} pathname
      * string is absolute then it is converted into a relative pathname in a
-     * system-dependent way.  If <code>parent</code> is the empty string then
-     * the new <code>File</code> instance is created by converting
-     * <code>child</code> into an abstract pathname and resolving the result
+     * system-dependent way.  If {@code parent} is the empty string then
+     * the new {@code File} instance is created by converting
+     * {@code child} into an abstract pathname and resolving the result
      * against a system-dependent default directory.  Otherwise each pathname
      * string is converted into an abstract pathname and the child abstract
      * pathname is resolved against the parent.
@@ -311,42 +311,42 @@ public class File
      * @param   parent  The parent pathname string
      * @param   child   The child pathname string
      * @throws  NullPointerException
-     *          If <code>child</code> is <code>null</code>
+     *          If {@code child} is {@code null}
      */
     public File(String parent, String child) {
         if (child == null) {
             throw new NullPointerException();
         }
         if (parent != null) {
-            if (parent.equals("")) {
-                this.path = fs.resolve(fs.getDefaultParent(),
-                                       fs.normalize(child));
+            if (parent.isEmpty()) {
+                this.path = FS.resolve(FS.getDefaultParent(),
+                                       FS.normalize(child));
             } else {
-                this.path = fs.resolve(fs.normalize(parent),
-                                       fs.normalize(child));
+                this.path = FS.resolve(FS.normalize(parent),
+                                       FS.normalize(child));
             }
         } else {
-            this.path = fs.normalize(child);
+            this.path = FS.normalize(child);
         }
-        this.prefixLength = fs.prefixLength(this.path);
+        this.prefixLength = FS.prefixLength(this.path);
     }
 
     /**
-     * Creates a new <code>File</code> instance from a parent abstract
+     * Creates a new {@code File} instance from a parent abstract
      * pathname and a child pathname string.
      *
-     * <p> If <code>parent</code> is <code>null</code> then the new
-     * <code>File</code> instance is created as if by invoking the
-     * single-argument <code>File</code> constructor on the given
-     * <code>child</code> pathname string.
+     * <p> If {@code parent} is {@code null} then the new
+     * {@code File} instance is created as if by invoking the
+     * single-argument {@code File} constructor on the given
+     * {@code child} pathname string.
      *
-     * <p> Otherwise the <code>parent</code> abstract pathname is taken to
-     * denote a directory, and the <code>child</code> pathname string is taken
-     * to denote either a directory or a file.  If the <code>child</code>
+     * <p> Otherwise the {@code parent} abstract pathname is taken to
+     * denote a directory, and the {@code child} pathname string is taken
+     * to denote either a directory or a file.  If the {@code child}
      * pathname string is absolute then it is converted into a relative
-     * pathname in a system-dependent way.  If <code>parent</code> is the empty
-     * abstract pathname then the new <code>File</code> instance is created by
-     * converting <code>child</code> into an abstract pathname and resolving
+     * pathname in a system-dependent way.  If {@code parent} is the empty
+     * abstract pathname then the new {@code File} instance is created by
+     * converting {@code child} into an abstract pathname and resolving
      * the result against a system-dependent default directory.  Otherwise each
      * pathname string is converted into an abstract pathname and the child
      * abstract pathname is resolved against the parent.
@@ -354,24 +354,24 @@ public class File
      * @param   parent  The parent abstract pathname
      * @param   child   The child pathname string
      * @throws  NullPointerException
-     *          If <code>child</code> is <code>null</code>
+     *          If {@code child} is {@code null}
      */
     public File(File parent, String child) {
         if (child == null) {
             throw new NullPointerException();
         }
         if (parent != null) {
-            if (parent.path.equals("")) {
-                this.path = fs.resolve(fs.getDefaultParent(),
-                                       fs.normalize(child));
+            if (parent.path.isEmpty()) {
+                this.path = FS.resolve(FS.getDefaultParent(),
+                                       FS.normalize(child));
             } else {
-                this.path = fs.resolve(parent.path,
-                                       fs.normalize(child));
+                this.path = FS.resolve(parent.path,
+                                       FS.normalize(child));
             }
         } else {
-            this.path = fs.normalize(child);
+            this.path = FS.normalize(child);
         }
-        this.prefixLength = fs.prefixLength(this.path);
+        this.prefixLength = FS.prefixLength(this.path);
     }
 
     /**
@@ -428,15 +428,15 @@ public class File
         if (uri.getRawQuery() != null)
             throw new IllegalArgumentException("URI has a query component");
         String p = uri.getPath();
-        if (p.equals(""))
+        if (p.isEmpty())
             throw new IllegalArgumentException("URI path component is empty");
 
         // Okay, now initialize
-        p = fs.fromURIPath(p);
+        p = FS.fromURIPath(p);
         if (File.separatorChar != '/')
             p = p.replace('/', File.separatorChar);
-        this.path = fs.normalize(p);
-        this.prefixLength = fs.prefixLength(this.path);
+        this.path = FS.normalize(p);
+        this.prefixLength = FS.prefixLength(this.path);
     }
 
 
@@ -460,7 +460,7 @@ public class File
 
     /**
      * Returns the pathname string of this abstract pathname's parent, or
-     * <code>null</code> if this pathname does not name a parent directory.
+     * {@code null} if this pathname does not name a parent directory.
      *
      * <p> The <em>parent</em> of an abstract pathname consists of the
      * pathname's prefix, if any, and each name in the pathname's name
@@ -468,7 +468,7 @@ public class File
      * the pathname does not name a parent directory.
      *
      * @return  The pathname string of the parent directory named by this
-     *          abstract pathname, or <code>null</code> if this pathname
+     *          abstract pathname, or {@code null} if this pathname
      *          does not name a parent
      */
     public String getParent() {
@@ -483,7 +483,7 @@ public class File
 
     /**
      * Returns the abstract pathname of this abstract pathname's parent,
-     * or <code>null</code> if this pathname does not name a parent
+     * or {@code null} if this pathname does not name a parent
      * directory.
      *
      * <p> The <em>parent</em> of an abstract pathname consists of the
@@ -492,7 +492,7 @@ public class File
      * the pathname does not name a parent directory.
      *
      * @return  The abstract pathname of the parent directory named by this
-     *          abstract pathname, or <code>null</code> if this pathname
+     *          abstract pathname, or {@code null} if this pathname
      *          does not name a parent
      *
      * @since 1.2
@@ -501,7 +501,7 @@ public class File
         String p = this.getParent();
         if (p == null) return null;
         if (getClass() != File.class) {
-            p = fs.normalize(p);
+            p = FS.normalize(p);
         }
         return new File(p, this.prefixLength);
     }
@@ -523,15 +523,15 @@ public class File
     /**
      * Tests whether this abstract pathname is absolute.  The definition of
      * absolute pathname is system dependent.  On UNIX systems, a pathname is
-     * absolute if its prefix is <code>"/"</code>.  On Microsoft Windows systems, a
+     * absolute if its prefix is {@code "/"}.  On Microsoft Windows systems, a
      * pathname is absolute if its prefix is a drive specifier followed by
-     * <code>"\\"</code>, or if its prefix is <code>"\\\\"</code>.
+     * {@code "\\"}, or if its prefix is {@code "\\\\"}.
      *
-     * @return  <code>true</code> if this abstract pathname is absolute,
-     *          <code>false</code> otherwise
+     * @return  {@code true} if this abstract pathname is absolute,
+     *          {@code false} otherwise
      */
     public boolean isAbsolute() {
-        return fs.isAbsolute(this);
+        return FS.isAbsolute(this);
     }
 
     /**
@@ -541,7 +541,7 @@ public class File
      * string is simply returned as if by the {@link #getPath}
      * method.  If this abstract pathname is the empty abstract pathname then
      * the pathname string of the current user directory, which is named by the
-     * system property <code>user.dir</code>, is returned.  Otherwise this
+     * system property {@code user.dir}, is returned.  Otherwise this
      * pathname is resolved in a system-dependent way.  On UNIX systems, a
      * relative pathname is made absolute by resolving it against the current
      * user directory.  On Microsoft Windows systems, a relative pathname is made absolute
@@ -558,7 +558,7 @@ public class File
      * @see     java.io.File#isAbsolute()
      */
     public String getAbsolutePath() {
-        return fs.resolve(this);
+        return FS.resolve(this);
     }
 
     /**
@@ -576,9 +576,9 @@ public class File
     public File getAbsoluteFile() {
         String absPath = getAbsolutePath();
         if (getClass() != File.class) {
-            absPath = fs.normalize(absPath);
+            absPath = FS.normalize(absPath);
         }
-        return new File(absPath, fs.prefixLength(absPath));
+        return new File(absPath, FS.prefixLength(absPath));
     }
 
     /**
@@ -623,7 +623,7 @@ public class File
         if (isInvalid()) {
             throw new IOException("Invalid file path");
         }
-        return fs.canonicalize(fs.resolve(this));
+        return FS.canonicalize(FS.resolve(this));
     }
 
     /**
@@ -650,9 +650,9 @@ public class File
     public File getCanonicalFile() throws IOException {
         String canonPath = getCanonicalPath();
         if (getClass() != File.class) {
-            canonPath = fs.normalize(canonPath);
+            canonPath = FS.normalize(canonPath);
         }
-        return new File(canonPath, fs.prefixLength(canonPath));
+        return new File(canonPath, FS.prefixLength(canonPath));
     }
 
     private static String slashify(String path, boolean isDirectory) {
@@ -667,7 +667,7 @@ public class File
     }
 
     /**
-     * Converts this abstract pathname into a <code>file:</code> URL.  The
+     * Converts this abstract pathname into a {@code file:} URL.  The
      * exact form of the URL is system-dependent.  If it can be determined that
      * the file denoted by this abstract pathname is a directory, then the
      * resulting URL will end with a slash.
@@ -694,7 +694,9 @@ public class File
         if (isInvalid()) {
             throw new MalformedURLException("Invalid file path");
         }
-        return new URL("file", "", slashify(getAbsolutePath(), isDirectory()));
+        @SuppressWarnings("deprecation")
+        var result = new URL("file", "", slashify(getAbsolutePath(), isDirectory()));
+        return result;
     }
 
     /**
@@ -757,12 +759,12 @@ public class File
      * Tests whether the application can read the file denoted by this
      * abstract pathname. On some platforms it may be possible to start the
      * Java virtual machine with special privileges that allow it to read
-     * files that are marked as unreadable. Consequently this method may return
+     * files that are marked as unreadable. Consequently, this method may return
      * {@code true} even though the file does not have read permissions.
      *
-     * @return  <code>true</code> if and only if the file specified by this
+     * @return  {@code true} if and only if the file specified by this
      *          abstract pathname exists <em>and</em> can be read by the
-     *          application; <code>false</code> otherwise
+     *          application; {@code false} otherwise
      *
      * @throws  SecurityException
      *          If a security manager exists and its {@link
@@ -770,6 +772,7 @@ public class File
      *          method denies read access to the file
      */
     public boolean canRead() {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkRead(path);
@@ -777,20 +780,20 @@ public class File
         if (isInvalid()) {
             return false;
         }
-        return fs.checkAccess(this, FileSystem.ACCESS_READ);
+        return FS.checkAccess(this, FileSystem.ACCESS_READ);
     }
 
     /**
      * Tests whether the application can modify the file denoted by this
      * abstract pathname. On some platforms it may be possible to start the
      * Java virtual machine with special privileges that allow it to modify
-     * files that are marked read-only. Consequently this method may return
+     * files that are marked read-only. Consequently, this method may return
      * {@code true} even though the file is marked read-only.
      *
-     * @return  <code>true</code> if and only if the file system actually
+     * @return  {@code true} if and only if the file system actually
      *          contains a file denoted by this abstract pathname <em>and</em>
      *          the application is allowed to write to the file;
-     *          <code>false</code> otherwise.
+     *          {@code false} otherwise.
      *
      * @throws  SecurityException
      *          If a security manager exists and its {@link
@@ -798,6 +801,7 @@ public class File
      *          method denies write access to the file
      */
     public boolean canWrite() {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkWrite(path);
@@ -805,15 +809,15 @@ public class File
         if (isInvalid()) {
             return false;
         }
-        return fs.checkAccess(this, FileSystem.ACCESS_WRITE);
+        return FS.checkAccess(this, FileSystem.ACCESS_WRITE);
     }
 
     /**
      * Tests whether the file or directory denoted by this abstract pathname
      * exists.
      *
-     * @return  <code>true</code> if and only if the file or directory denoted
-     *          by this abstract pathname exists; <code>false</code> otherwise
+     * @return  {@code true} if and only if the file or directory denoted
+     *          by this abstract pathname exists; {@code false} otherwise
      *
      * @throws  SecurityException
      *          If a security manager exists and its {@link
@@ -821,6 +825,7 @@ public class File
      *          method denies read access to the file or directory
      */
     public boolean exists() {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkRead(path);
@@ -828,7 +833,7 @@ public class File
         if (isInvalid()) {
             return false;
         }
-        return ((fs.getBooleanAttributes(this) & FileSystem.BA_EXISTS) != 0);
+        return FS.hasBooleanAttributes(this, FileSystem.BA_EXISTS);
     }
 
     /**
@@ -841,9 +846,9 @@ public class File
      * java.nio.file.Files#readAttributes(Path,Class,LinkOption[])
      * Files.readAttributes} method may be used.
      *
-     * @return <code>true</code> if and only if the file denoted by this
+     * @return {@code true} if and only if the file denoted by this
      *          abstract pathname exists <em>and</em> is a directory;
-     *          <code>false</code> otherwise
+     *          {@code false} otherwise
      *
      * @throws  SecurityException
      *          If a security manager exists and its {@link
@@ -851,6 +856,7 @@ public class File
      *          method denies read access to the file
      */
     public boolean isDirectory() {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkRead(path);
@@ -858,8 +864,7 @@ public class File
         if (isInvalid()) {
             return false;
         }
-        return ((fs.getBooleanAttributes(this) & FileSystem.BA_DIRECTORY)
-                != 0);
+        return FS.hasBooleanAttributes(this, FileSystem.BA_DIRECTORY);
     }
 
     /**
@@ -874,9 +879,9 @@ public class File
      * java.nio.file.Files#readAttributes(Path,Class,LinkOption[])
      * Files.readAttributes} method may be used.
      *
-     * @return  <code>true</code> if and only if the file denoted by this
+     * @return  {@code true} if and only if the file denoted by this
      *          abstract pathname exists <em>and</em> is a normal file;
-     *          <code>false</code> otherwise
+     *          {@code false} otherwise
      *
      * @throws  SecurityException
      *          If a security manager exists and its {@link
@@ -884,6 +889,7 @@ public class File
      *          method denies read access to the file
      */
     public boolean isFile() {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkRead(path);
@@ -891,17 +897,17 @@ public class File
         if (isInvalid()) {
             return false;
         }
-        return ((fs.getBooleanAttributes(this) & FileSystem.BA_REGULAR) != 0);
+        return FS.hasBooleanAttributes(this, FileSystem.BA_REGULAR);
     }
 
     /**
      * Tests whether the file named by this abstract pathname is a hidden
      * file.  The exact definition of <em>hidden</em> is system-dependent.  On
      * UNIX systems, a file is considered to be hidden if its name begins with
-     * a period character (<code>'.'</code>).  On Microsoft Windows systems, a file is
+     * a period character ({@code '.'}).  On Microsoft Windows systems, a file is
      * considered to be hidden if it has been marked as such in the filesystem.
      *
-     * @return  <code>true</code> if and only if the file denoted by this
+     * @return  {@code true} if and only if the file denoted by this
      *          abstract pathname is hidden according to the conventions of the
      *          underlying platform
      *
@@ -913,6 +919,7 @@ public class File
      * @since 1.2
      */
     public boolean isHidden() {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkRead(path);
@@ -920,7 +927,7 @@ public class File
         if (isInvalid()) {
             return false;
         }
-        return ((fs.getBooleanAttributes(this) & FileSystem.BA_HIDDEN) != 0);
+        return FS.hasBooleanAttributes(this, FileSystem.BA_HIDDEN);
     }
 
     /**
@@ -943,9 +950,9 @@ public class File
      * {@link java.nio.file.Files#getLastModifiedTime(Path,LinkOption[])
      * Files.getLastModifiedTime} method may be used instead.
      *
-     * @return  A <code>long</code> value representing the time the file was
+     * @return  A {@code long} value representing the time the file was
      *          last modified, measured in milliseconds since the epoch
-     *          (00:00:00 GMT, January 1, 1970), or <code>0L</code> if the
+     *          (00:00:00 GMT, January 1, 1970), or {@code 0L} if the
      *          file does not exist or if an I/O error occurs.  The value may
      *          be negative indicating the number of milliseconds before the
      *          epoch
@@ -956,6 +963,7 @@ public class File
      *          method denies read access to the file
      */
     public long lastModified() {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkRead(path);
@@ -963,7 +971,7 @@ public class File
         if (isInvalid()) {
             return 0L;
         }
-        return fs.getLastModifiedTime(this);
+        return FS.getLastModifiedTime(this);
     }
 
     /**
@@ -977,8 +985,8 @@ public class File
      * Files.readAttributes} method may be used.
      *
      * @return  The length, in bytes, of the file denoted by this abstract
-     *          pathname, or <code>0L</code> if the file does not exist.  Some
-     *          operating systems may return <code>0L</code> for pathnames
+     *          pathname, or {@code 0L} if the file does not exist.  Some
+     *          operating systems may return {@code 0L} for pathnames
      *          denoting system-dependent entities such as devices or pipes.
      *
      * @throws  SecurityException
@@ -987,6 +995,7 @@ public class File
      *          method denies read access to the file
      */
     public long length() {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkRead(path);
@@ -994,7 +1003,7 @@ public class File
         if (isInvalid()) {
             return 0L;
         }
-        return fs.getLength(this);
+        return FS.getLength(this);
     }
 
 
@@ -1012,8 +1021,8 @@ public class File
      * {@link java.nio.channels.FileLock FileLock}
      * facility should be used instead.
      *
-     * @return  <code>true</code> if the named file does not exist and was
-     *          successfully created; <code>false</code> if the named file
+     * @return  {@code true} if the named file does not exist and was
+     *          successfully created; {@code false} if the named file
      *          already exists
      *
      * @throws  IOException
@@ -1027,12 +1036,13 @@ public class File
      * @since 1.2
      */
     public boolean createNewFile() throws IOException {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) security.checkWrite(path);
         if (isInvalid()) {
             throw new IOException("Invalid file path");
         }
-        return fs.createFileExclusively(path);
+        return FS.createFileExclusively(path);
     }
 
     /**
@@ -1045,8 +1055,8 @@ public class File
      * when a file cannot be deleted. This is useful for error reporting and to
      * diagnose why a file cannot be deleted.
      *
-     * @return  <code>true</code> if and only if the file or directory is
-     *          successfully deleted; <code>false</code> otherwise
+     * @return  {@code true} if and only if the file or directory is
+     *          successfully deleted; {@code false} otherwise
      *
      * @throws  SecurityException
      *          If a security manager exists and its {@link
@@ -1054,6 +1064,7 @@ public class File
      *          delete access to the file
      */
     public boolean delete() {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkDelete(path);
@@ -1061,7 +1072,7 @@ public class File
         if (isInvalid()) {
             return false;
         }
-        return fs.delete(this);
+        return FS.delete(this);
     }
 
     /**
@@ -1092,6 +1103,7 @@ public class File
      * @since 1.2
      */
     public void deleteOnExit() {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkDelete(path);
@@ -1155,6 +1167,7 @@ public class File
      *          the directory
      */
     private final String[] normalizedList() {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkRead(path);
@@ -1162,11 +1175,11 @@ public class File
         if (isInvalid()) {
             return null;
         }
-        String[] s = fs.list(this);
+        String[] s = FS.list(this);
         if (s != null && getClass() != File.class) {
             String[] normalized = new String[s.length];
             for (int i = 0; i < s.length; i++) {
-                normalized[i] = fs.normalize(s[i]);
+                normalized[i] = FS.normalize(s[i]);
             }
             s = normalized;
         }
@@ -1203,7 +1216,7 @@ public class File
      * @see java.nio.file.Files#newDirectoryStream(Path,String)
      */
     public String[] list(FilenameFilter filter) {
-        String names[] = normalizedList();
+        String[] names = normalizedList();
         if ((names == null) || (filter == null)) {
             return names;
         }
@@ -1296,7 +1309,7 @@ public class File
      * @see java.nio.file.Files#newDirectoryStream(Path,String)
      */
     public File[] listFiles(FilenameFilter filter) {
-        String ss[] = normalizedList();
+        String[] ss = normalizedList();
         if (ss == null) return null;
         ArrayList<File> files = new ArrayList<>();
         for (String s : ss)
@@ -1334,7 +1347,7 @@ public class File
      * @see java.nio.file.Files#newDirectoryStream(Path,java.nio.file.DirectoryStream.Filter)
      */
     public File[] listFiles(FileFilter filter) {
-        String ss[] = normalizedList();
+        String[] ss = normalizedList();
         if (ss == null) return null;
         ArrayList<File> files = new ArrayList<>();
         for (String s : ss) {
@@ -1348,8 +1361,8 @@ public class File
     /**
      * Creates the directory named by this abstract pathname.
      *
-     * @return  <code>true</code> if and only if the directory was
-     *          created; <code>false</code> otherwise
+     * @return  {@code true} if and only if the directory was
+     *          created; {@code false} otherwise
      *
      * @throws  SecurityException
      *          If a security manager exists and its {@link
@@ -1357,6 +1370,7 @@ public class File
      *          method does not permit the named directory to be created
      */
     public boolean mkdir() {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkWrite(path);
@@ -1364,7 +1378,7 @@ public class File
         if (isInvalid()) {
             return false;
         }
-        return fs.createDirectory(this);
+        return FS.createDirectory(this);
     }
 
     /**
@@ -1373,8 +1387,8 @@ public class File
      * operation fails it may have succeeded in creating some of the necessary
      * parent directories.
      *
-     * @return  <code>true</code> if and only if the directory was created,
-     *          along with all necessary parent directories; <code>false</code>
+     * @return  {@code true} if and only if the directory was created,
+     *          along with all necessary parent directories; {@code false}
      *          otherwise
      *
      * @throws  SecurityException
@@ -1414,7 +1428,9 @@ public class File
      * file from one filesystem to another, it might not be atomic, and it
      * might not succeed if a file with the destination abstract pathname
      * already exists.  The return value should always be checked to make sure
-     * that the rename operation was successful.
+     * that the rename operation was successful.  As instances of {@code File}
+     * are immutable, this File object is not changed to name the destination
+     * file or directory.
      *
      * <p> Note that the {@link java.nio.file.Files} class defines the {@link
      * java.nio.file.Files#move move} method to move or rename a file in a
@@ -1422,8 +1438,8 @@ public class File
      *
      * @param  dest  The new abstract pathname for the named file
      *
-     * @return  <code>true</code> if and only if the renaming succeeded;
-     *          <code>false</code> otherwise
+     * @return  {@code true} if and only if the renaming succeeded;
+     *          {@code false} otherwise
      *
      * @throws  SecurityException
      *          If a security manager exists and its {@link
@@ -1431,21 +1447,22 @@ public class File
      *          method denies write access to either the old or new pathnames
      *
      * @throws  NullPointerException
-     *          If parameter <code>dest</code> is <code>null</code>
+     *          If parameter {@code dest} is {@code null}
      */
     public boolean renameTo(File dest) {
+        if (dest == null) {
+            throw new NullPointerException();
+        }
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkWrite(path);
             security.checkWrite(dest.path);
         }
-        if (dest == null) {
-            throw new NullPointerException();
-        }
         if (this.isInvalid() || dest.isInvalid()) {
             return false;
         }
-        return fs.rename(this, dest);
+        return FS.rename(this, dest);
     }
 
     /**
@@ -1457,13 +1474,13 @@ public class File
      * the supported precision.  If the operation succeeds and no intervening
      * operations on the file take place, then the next invocation of the
      * {@link #lastModified} method will return the (possibly
-     * truncated) <code>time</code> argument that was passed to this method.
+     * truncated) {@code time} argument that was passed to this method.
      *
      * @param  time  The new last-modified time, measured in milliseconds since
      *               the epoch (00:00:00 GMT, January 1, 1970)
      *
-     * @return <code>true</code> if and only if the operation succeeded;
-     *          <code>false</code> otherwise
+     * @return {@code true} if and only if the operation succeeded;
+     *          {@code false} otherwise
      *
      * @throws  IllegalArgumentException  If the argument is negative
      *
@@ -1476,6 +1493,7 @@ public class File
      */
     public boolean setLastModified(long time) {
         if (time < 0) throw new IllegalArgumentException("Negative time");
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkWrite(path);
@@ -1483,7 +1501,7 @@ public class File
         if (isInvalid()) {
             return false;
         }
-        return fs.setLastModifiedTime(this, time);
+        return FS.setLastModifiedTime(this, time);
     }
 
     /**
@@ -1495,8 +1513,8 @@ public class File
      * files that are marked read-only. Whether or not a read-only file or
      * directory may be deleted depends upon the underlying system.
      *
-     * @return <code>true</code> if and only if the operation succeeded;
-     *          <code>false</code> otherwise
+     * @return {@code true} if and only if the operation succeeded;
+     *          {@code false} otherwise
      *
      * @throws  SecurityException
      *          If a security manager exists and its {@link
@@ -1506,6 +1524,7 @@ public class File
      * @since 1.2
      */
     public boolean setReadOnly() {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkWrite(path);
@@ -1513,7 +1532,7 @@ public class File
         if (isInvalid()) {
             return false;
         }
-        return fs.setReadOnly(this);
+        return FS.setReadOnly(this);
     }
 
     /**
@@ -1527,17 +1546,17 @@ public class File
      * manipulation of file permissions is required.
      *
      * @param   writable
-     *          If <code>true</code>, sets the access permission to allow write
-     *          operations; if <code>false</code> to disallow write operations
+     *          If {@code true}, sets the access permission to allow write
+     *          operations; if {@code false} to disallow write operations
      *
      * @param   ownerOnly
-     *          If <code>true</code>, the write permission applies only to the
+     *          If {@code true}, the write permission applies only to the
      *          owner's write permission; otherwise, it applies to everybody.  If
      *          the underlying file system can not distinguish the owner's write
      *          permission from that of others, then the permission will apply to
      *          everybody, regardless of this value.
      *
-     * @return  <code>true</code> if and only if the operation succeeded. The
+     * @return  {@code true} if and only if the operation succeeded. The
      *          operation will fail if the user does not have permission to change
      *          the access permissions of this abstract pathname.
      *
@@ -1549,6 +1568,7 @@ public class File
      * @since 1.6
      */
     public boolean setWritable(boolean writable, boolean ownerOnly) {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkWrite(path);
@@ -1556,7 +1576,7 @@ public class File
         if (isInvalid()) {
             return false;
         }
-        return fs.setPermission(this, FileSystem.ACCESS_WRITE, writable, ownerOnly);
+        return FS.setPermission(this, FileSystem.ACCESS_WRITE, writable, ownerOnly);
     }
 
     /**
@@ -1568,15 +1588,15 @@ public class File
      * <p> An invocation of this method of the form {@code file.setWritable(arg)}
      * behaves in exactly the same way as the invocation
      *
-     * <pre>{@code
+     * {@snippet lang=java :
      *     file.setWritable(arg, true)
-     * }</pre>
+     * }
      *
      * @param   writable
-     *          If <code>true</code>, sets the access permission to allow write
-     *          operations; if <code>false</code> to disallow write operations
+     *          If {@code true}, sets the access permission to allow write
+     *          operations; if {@code false} to disallow write operations
      *
-     * @return  <code>true</code> if and only if the operation succeeded.  The
+     * @return  {@code true} if and only if the operation succeeded.  The
      *          operation will fail if the user does not have permission to
      *          change the access permissions of this abstract pathname.
      *
@@ -1602,20 +1622,20 @@ public class File
      * manipulation of file permissions is required.
      *
      * @param   readable
-     *          If <code>true</code>, sets the access permission to allow read
-     *          operations; if <code>false</code> to disallow read operations
+     *          If {@code true}, sets the access permission to allow read
+     *          operations; if {@code false} to disallow read operations
      *
      * @param   ownerOnly
-     *          If <code>true</code>, the read permission applies only to the
+     *          If {@code true}, the read permission applies only to the
      *          owner's read permission; otherwise, it applies to everybody.  If
      *          the underlying file system can not distinguish the owner's read
      *          permission from that of others, then the permission will apply to
      *          everybody, regardless of this value.
      *
-     * @return  <code>true</code> if and only if the operation succeeded.  The
+     * @return  {@code true} if and only if the operation succeeded.  The
      *          operation will fail if the user does not have permission to
      *          change the access permissions of this abstract pathname.  If
-     *          <code>readable</code> is <code>false</code> and the underlying
+     *          {@code readable} is {@code false} and the underlying
      *          file system does not implement a read permission, then the
      *          operation will fail.
      *
@@ -1627,6 +1647,7 @@ public class File
      * @since 1.6
      */
     public boolean setReadable(boolean readable, boolean ownerOnly) {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkWrite(path);
@@ -1634,7 +1655,7 @@ public class File
         if (isInvalid()) {
             return false;
         }
-        return fs.setPermission(this, FileSystem.ACCESS_READ, readable, ownerOnly);
+        return FS.setPermission(this, FileSystem.ACCESS_READ, readable, ownerOnly);
     }
 
     /**
@@ -1646,18 +1667,18 @@ public class File
      * <p>An invocation of this method of the form {@code file.setReadable(arg)}
      * behaves in exactly the same way as the invocation
      *
-     * <pre>{@code
+     * {@snippet lang=java :
      *     file.setReadable(arg, true)
-     * }</pre>
+     * }
      *
      * @param  readable
-     *          If <code>true</code>, sets the access permission to allow read
-     *          operations; if <code>false</code> to disallow read operations
+     *          If {@code true}, sets the access permission to allow read
+     *          operations; if {@code false} to disallow read operations
      *
-     * @return  <code>true</code> if and only if the operation succeeded.  The
+     * @return  {@code true} if and only if the operation succeeded.  The
      *          operation will fail if the user does not have permission to
      *          change the access permissions of this abstract pathname.  If
-     *          <code>readable</code> is <code>false</code> and the underlying
+     *          {@code readable} is {@code false} and the underlying
      *          file system does not implement a read permission, then the
      *          operation will fail.
      *
@@ -1683,20 +1704,20 @@ public class File
      * manipulation of file permissions is required.
      *
      * @param   executable
-     *          If <code>true</code>, sets the access permission to allow execute
-     *          operations; if <code>false</code> to disallow execute operations
+     *          If {@code true}, sets the access permission to allow execute
+     *          operations; if {@code false} to disallow execute operations
      *
      * @param   ownerOnly
-     *          If <code>true</code>, the execute permission applies only to the
+     *          If {@code true}, the execute permission applies only to the
      *          owner's execute permission; otherwise, it applies to everybody.
      *          If the underlying file system can not distinguish the owner's
      *          execute permission from that of others, then the permission will
      *          apply to everybody, regardless of this value.
      *
-     * @return  <code>true</code> if and only if the operation succeeded.  The
+     * @return  {@code true} if and only if the operation succeeded.  The
      *          operation will fail if the user does not have permission to
      *          change the access permissions of this abstract pathname.  If
-     *          <code>executable</code> is <code>false</code> and the underlying
+     *          {@code executable} is {@code false} and the underlying
      *          file system does not implement an execute permission, then the
      *          operation will fail.
      *
@@ -1708,6 +1729,7 @@ public class File
      * @since 1.6
      */
     public boolean setExecutable(boolean executable, boolean ownerOnly) {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkWrite(path);
@@ -1715,7 +1737,7 @@ public class File
         if (isInvalid()) {
             return false;
         }
-        return fs.setPermission(this, FileSystem.ACCESS_EXECUTE, executable, ownerOnly);
+        return FS.setPermission(this, FileSystem.ACCESS_EXECUTE, executable, ownerOnly);
     }
 
     /**
@@ -1727,18 +1749,18 @@ public class File
      * <p>An invocation of this method of the form {@code file.setExcutable(arg)}
      * behaves in exactly the same way as the invocation
      *
-     * <pre>{@code
+     * {@snippet lang=java :
      *     file.setExecutable(arg, true)
-     * }</pre>
+     * }
      *
      * @param   executable
-     *          If <code>true</code>, sets the access permission to allow execute
-     *          operations; if <code>false</code> to disallow execute operations
+     *          If {@code true}, sets the access permission to allow execute
+     *          operations; if {@code false} to disallow execute operations
      *
-     * @return   <code>true</code> if and only if the operation succeeded.  The
+     * @return   {@code true} if and only if the operation succeeded.  The
      *           operation will fail if the user does not have permission to
      *           change the access permissions of this abstract pathname.  If
-     *           <code>executable</code> is <code>false</code> and the underlying
+     *           {@code executable} is {@code false} and the underlying
      *           file system does not implement an execute permission, then the
      *           operation will fail.
      *
@@ -1757,10 +1779,10 @@ public class File
      * Tests whether the application can execute the file denoted by this
      * abstract pathname. On some platforms it may be possible to start the
      * Java virtual machine with special privileges that allow it to execute
-     * files that are not marked executable. Consequently this method may return
+     * files that are not marked executable. Consequently, this method may return
      * {@code true} even though the file does not have execute permissions.
      *
-     * @return  <code>true</code> if and only if the abstract pathname exists
+     * @return  {@code true} if and only if the abstract pathname exists
      *          <em>and</em> the application is allowed to execute the file
      *
      * @throws  SecurityException
@@ -1771,6 +1793,7 @@ public class File
      * @since 1.6
      */
     public boolean canExecute() {
+        @SuppressWarnings("removal")
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkExec(path);
@@ -1778,7 +1801,7 @@ public class File
         if (isInvalid()) {
             return false;
         }
-        return fs.checkAccess(this, FileSystem.ACCESS_EXECUTE);
+        return FS.checkAccess(this, FileSystem.ACCESS_EXECUTE);
     }
 
 
@@ -1790,17 +1813,26 @@ public class File
      * <p> A particular Java platform may support zero or more
      * hierarchically-organized file systems.  Each file system has a
      * {@code root} directory from which all other files in that file system
-     * can be reached.  Windows platforms, for example, have a root directory
-     * for each active drive; UNIX platforms have a single root directory,
-     * namely {@code "/"}.  The set of available filesystem roots is affected
-     * by various system-level operations such as the insertion or ejection of
-     * removable media and the disconnecting or unmounting of physical or
-     * virtual disk drives.
+     * can be reached.
      *
      * <p> This method returns an array of {@code File} objects that denote the
      * root directories of the available filesystem roots.  It is guaranteed
      * that the canonical pathname of any file physically present on the local
      * machine will begin with one of the roots returned by this method.
+     * There is no guarantee that a root directory can be accessed.
+     *
+     * <p> Unlike most methods in this class, this method does not throw
+     * security exceptions.  If a security manager exists and its {@link
+     * SecurityManager#checkRead(String)} method denies read access to a
+     * particular root directory, then that directory will not appear in the
+     * result.
+     *
+     * @implNote
+     * Windows platforms, for example, have a root directory
+     * for each active drive; UNIX platforms have a single root directory,
+     * namely {@code "/"}.  The set of filesystem roots is affected
+     * by various system-level operations such as the disconnecting or
+     * unmounting of physical or virtual disk drives.
      *
      * <p> The canonical pathname of a file that resides on some other machine
      * and is accessed via a remote-filesystem protocol such as SMB or NFS may
@@ -1812,12 +1844,6 @@ public class File
      * platform will be returned by this method, while {@code File} objects
      * containing UNC pathnames will not be returned by this method.
      *
-     * <p> Unlike most methods in this class, this method does not throw
-     * security exceptions.  If a security manager exists and its {@link
-     * SecurityManager#checkRead(String)} method denies read access to a
-     * particular root directory, then that directory will not appear in the
-     * result.
-     *
      * @return  An array of {@code File} objects denoting the available
      *          filesystem roots, or {@code null} if the set of roots could not
      *          be determined.  The array will be empty if there are no
@@ -1827,7 +1853,7 @@ public class File
      * @see java.nio.file.FileStore
      */
     public static File[] listRoots() {
-        return fs.listRoots();
+        return FS.listRoots();
     }
 
 
@@ -1835,10 +1861,13 @@ public class File
 
     /**
      * Returns the size of the partition <a href="#partName">named</a> by this
-     * abstract pathname.
+     * abstract pathname. If the total number of bytes in the partition is
+     * greater than {@link Long#MAX_VALUE}, then {@code Long.MAX_VALUE} will be
+     * returned.
      *
      * @return  The size, in bytes, of the partition or {@code 0L} if this
-     *          abstract pathname does not name a partition
+     *          abstract pathname does not name a partition or if the size
+     *          cannot be obtained
      *
      * @throws  SecurityException
      *          If a security manager has been installed and it denies
@@ -1847,8 +1876,10 @@ public class File
      *          read access to the file named by this abstract pathname
      *
      * @since  1.6
+     * @see FileStore#getTotalSpace
      */
     public long getTotalSpace() {
+        @SuppressWarnings("removal")
         SecurityManager sm = System.getSecurityManager();
         if (sm != null) {
             sm.checkPermission(new RuntimePermission("getFileSystemAttributes"));
@@ -1857,12 +1888,15 @@ public class File
         if (isInvalid()) {
             return 0L;
         }
-        return fs.getSpace(this, FileSystem.SPACE_TOTAL);
+        long space = FS.getSpace(this, FileSystem.SPACE_TOTAL);
+        return space >= 0L ? space : Long.MAX_VALUE;
     }
 
     /**
      * Returns the number of unallocated bytes in the partition <a
-     * href="#partName">named</a> by this abstract path name.
+     * href="#partName">named</a> by this abstract path name.  If the
+     * number of unallocated bytes in the partition is greater than
+     * {@link Long#MAX_VALUE}, then {@code Long.MAX_VALUE} will be returned.
      *
      * <p> The returned number of unallocated bytes is a hint, but not
      * a guarantee, that it is possible to use most or any of these
@@ -1874,9 +1908,10 @@ public class File
      * will succeed.
      *
      * @return  The number of unallocated bytes on the partition or {@code 0L}
-     *          if the abstract pathname does not name a partition.  This
-     *          value will be less than or equal to the total file system size
-     *          returned by {@link #getTotalSpace}.
+     *          if the abstract pathname does not name a partition or if this
+     *          number cannot be obtained.  This value will be less than or
+     *          equal to the total file system size returned by
+     *          {@link #getTotalSpace}.
      *
      * @throws  SecurityException
      *          If a security manager has been installed and it denies
@@ -1885,8 +1920,10 @@ public class File
      *          read access to the file named by this abstract pathname
      *
      * @since  1.6
+     * @see FileStore#getUnallocatedSpace
      */
     public long getFreeSpace() {
+        @SuppressWarnings("removal")
         SecurityManager sm = System.getSecurityManager();
         if (sm != null) {
             sm.checkPermission(new RuntimePermission("getFileSystemAttributes"));
@@ -1895,29 +1932,33 @@ public class File
         if (isInvalid()) {
             return 0L;
         }
-        return fs.getSpace(this, FileSystem.SPACE_FREE);
+        long space = FS.getSpace(this, FileSystem.SPACE_FREE);
+        return space >= 0L ? space : Long.MAX_VALUE;
     }
 
     /**
      * Returns the number of bytes available to this virtual machine on the
-     * partition <a href="#partName">named</a> by this abstract pathname.  When
-     * possible, this method checks for write permissions and other operating
-     * system restrictions and will therefore usually provide a more accurate
-     * estimate of how much new data can actually be written than {@link
-     * #getFreeSpace}.
+     * partition <a href="#partName">named</a> by this abstract pathname.  If
+     * the number of available bytes in the partition is greater than
+     * {@link Long#MAX_VALUE}, then {@code Long.MAX_VALUE} will be returned.
+     * When possible, this method checks for write permissions and other
+     * operating system restrictions and will therefore usually provide a more
+     * accurate estimate of how much new data can actually be written than
+     * {@link #getFreeSpace}.
      *
      * <p> The returned number of available bytes is a hint, but not a
      * guarantee, that it is possible to use most or any of these bytes.  The
-     * number of unallocated bytes is most likely to be accurate immediately
+     * number of available bytes is most likely to be accurate immediately
      * after this call.  It is likely to be made inaccurate by any external
      * I/O operations including those made on the system outside of this
      * virtual machine.  This method makes no guarantee that write operations
      * to this file system will succeed.
      *
      * @return  The number of available bytes on the partition or {@code 0L}
-     *          if the abstract pathname does not name a partition.  On
-     *          systems where this information is not available, this method
-     *          will be equivalent to a call to {@link #getFreeSpace}.
+     *          if the abstract pathname does not name a partition or if this
+     *          number cannot be obtained.  On systems where this information
+     *          is not available, this method will be equivalent to a call to
+     *          {@link #getFreeSpace}.
      *
      * @throws  SecurityException
      *          If a security manager has been installed and it denies
@@ -1926,8 +1967,10 @@ public class File
      *          read access to the file named by this abstract pathname
      *
      * @since  1.6
+     * @see FileStore#getUsableSpace
      */
     public long getUsableSpace() {
+        @SuppressWarnings("removal")
         SecurityManager sm = System.getSecurityManager();
         if (sm != null) {
             sm.checkPermission(new RuntimePermission("getFileSystemAttributes"));
@@ -1936,7 +1979,8 @@ public class File
         if (isInvalid()) {
             return 0L;
         }
-        return fs.getSpace(this, FileSystem.SPACE_USABLE);
+        long space = FS.getSpace(this, FileSystem.SPACE_USABLE);
+        return space >= 0L ? space : Long.MAX_VALUE;
     }
 
     /* -- Temporary files -- */
@@ -1945,14 +1989,14 @@ public class File
         private TempDirectory() { }
 
         // temporary directory location
-        private static final File tmpdir = new File(
-                GetPropertyAction.privilegedGetProperty("java.io.tmpdir"));
+        private static final File TMPDIR = new File(StaticProperty.javaIoTmpDir());
+
         static File location() {
-            return tmpdir;
+            return TMPDIR;
         }
 
         // file name generation
-        private static final SecureRandom random = new SecureRandom();
+        private static final SecureRandom RANDOM = new SecureRandom();
         private static int shortenSubName(int subNameLength, int excess,
             int nameMin) {
             int newLength = Math.max(nameMin, subNameLength - excess);
@@ -1961,10 +2005,11 @@ public class File
             }
             return subNameLength;
         }
+        @SuppressWarnings("removal")
         static File generateFile(String prefix, String suffix, File dir)
             throws IOException
         {
-            long n = random.nextLong();
+            long n = RANDOM.nextLong();
             String nus = Long.toUnsignedString(n);
 
             // Use only the file name from the supplied prefix
@@ -1972,17 +2017,17 @@ public class File
 
             int prefixLength = prefix.length();
             int nusLength = nus.length();
-            int suffixLength = suffix.length();;
+            int suffixLength = suffix.length();
 
             String name;
-            int nameMax = fs.getNameMax(dir.getPath());
+            int nameMax = FS.getNameMax(dir.getPath());
             int excess = prefixLength + nusLength + suffixLength - nameMax;
             if (excess <= 0) {
                 name = prefix + nus + suffix;
             } else {
                 // Name exceeds the maximum path component length: shorten it
 
-                // Attempt to shorten the prefix length to no less then 3
+                // Attempt to shorten the prefix length to no less than 3
                 prefixLength = shortenSubName(prefixLength, excess, 3);
                 excess = prefixLength + nusLength + suffixLength - nameMax;
 
@@ -2013,7 +2058,7 @@ public class File
             }
 
             // Normalize the path component
-            name = fs.normalize(name);
+            name = FS.normalize(name);
 
             File f = new File(dir, name);
             if (!name.equals(f.getName()) || f.isInvalid()) {
@@ -2044,50 +2089,58 @@ public class File
      * for a file created by this method to be deleted automatically, use the
      * {@link #deleteOnExit} method.
      *
-     * <p> The <code>prefix</code> argument must be at least three characters
+     * <p> The {@code prefix} argument must be at least three characters
      * long.  It is recommended that the prefix be a short, meaningful string
-     * such as <code>"hjb"</code> or <code>"mail"</code>.  The
-     * <code>suffix</code> argument may be <code>null</code>, in which case the
-     * suffix <code>".tmp"</code> will be used.
+     * such as {@code "hjb"} or {@code "mail"}.  The
+     * {@code suffix} argument may be {@code null}, in which case the
+     * suffix {@code ".tmp"} will be used.
      *
      * <p> To create the new file, the prefix and the suffix may first be
      * adjusted to fit the limitations of the underlying platform.  If the
      * prefix is too long then it will be truncated, but its first three
      * characters will always be preserved.  If the suffix is too long then it
      * too will be truncated, but if it begins with a period character
-     * (<code>'.'</code>) then the period and the first three characters
+     * ({@code '.'}) then the period and the first three characters
      * following it will always be preserved.  Once these adjustments have been
      * made the name of the new file will be generated by concatenating the
      * prefix, five or more internally-generated characters, and the suffix.
      *
-     * <p> If the <code>directory</code> argument is <code>null</code> then the
+     * <p> If the {@code directory} argument is {@code null} then the
      * system-dependent default temporary-file directory will be used.  The
      * default temporary-file directory is specified by the system property
-     * <code>java.io.tmpdir</code>.  On UNIX systems the default value of this
-     * property is typically <code>"/tmp"</code> or <code>"/var/tmp"</code>; on
-     * Microsoft Windows systems it is typically <code>"C:\\WINNT\\TEMP"</code>.  A different
+     * {@code java.io.tmpdir}.  On UNIX systems the default value of this
+     * property is typically {@code "/tmp"} or {@code "/var/tmp"}; on
+     * Microsoft Windows systems it is typically {@code "C:\\WINNT\\TEMP"}.  A different
      * value may be given to this system property when the Java virtual machine
      * is invoked, but programmatic changes to this property are not guaranteed
      * to have any effect upon the temporary directory used by this method.
+     *
+     * <p> If the {@code directory} argument is not {@code null} and its
+     * abstract pathname is valid and denotes an existing, writable directory,
+     * then the file will be created in that directory. Otherwise the file will
+     * not be created and an {@code IOException} will be thrown.  Under no
+     * circumstances will a directory be created at the location specified by
+     * the {@code directory} argument.
      *
      * @param  prefix     The prefix string to be used in generating the file's
      *                    name; must be at least three characters long
      *
      * @param  suffix     The suffix string to be used in generating the file's
-     *                    name; may be <code>null</code>, in which case the
-     *                    suffix <code>".tmp"</code> will be used
+     *                    name; may be {@code null}, in which case the
+     *                    suffix {@code ".tmp"} will be used
      *
      * @param  directory  The directory in which the file is to be created, or
-     *                    <code>null</code> if the default temporary-file
+     *                    {@code null} if the default temporary-file
      *                    directory is to be used
      *
      * @return  An abstract pathname denoting a newly-created empty file
      *
      * @throws  IllegalArgumentException
-     *          If the <code>prefix</code> argument contains fewer than three
+     *          If the {@code prefix} argument contains fewer than three
      *          characters
      *
-     * @throws  IOException  If a file could not be created
+     * @throws  IOException
+     *          If a file could not be created
      *
      * @throws  SecurityException
      *          If a security manager exists and its {@link
@@ -2109,6 +2162,8 @@ public class File
 
         File tmpdir = (directory != null) ? directory
                                           : TempDirectory.location();
+
+        @SuppressWarnings("removal")
         SecurityManager sm = System.getSecurityManager();
         File f;
         do {
@@ -2124,9 +2179,9 @@ public class File
                     throw se;
                 }
             }
-        } while ((fs.getBooleanAttributes(f) & FileSystem.BA_EXISTS) != 0);
+        } while (FS.hasBooleanAttributes(f, FileSystem.BA_EXISTS));
 
-        if (!fs.createFileExclusively(f.getPath()))
+        if (!FS.createFileExclusively(f.getPath()))
             throw new IOException("Unable to create temporary file");
 
         return f;
@@ -2150,13 +2205,13 @@ public class File
      *                    name; must be at least three characters long
      *
      * @param  suffix     The suffix string to be used in generating the file's
-     *                    name; may be <code>null</code>, in which case the
-     *                    suffix <code>".tmp"</code> will be used
+     *                    name; may be {@code null}, in which case the
+     *                    suffix {@code ".tmp"} will be used
      *
      * @return  An abstract pathname denoting a newly-created empty file
      *
      * @throws  IllegalArgumentException
-     *          If the <code>prefix</code> argument contains fewer than three
+     *          If the {@code prefix} argument contains fewer than three
      *          characters
      *
      * @throws  IOException  If a file could not be created
@@ -2180,8 +2235,8 @@ public class File
     /**
      * Compares two abstract pathnames lexicographically.  The ordering
      * defined by this method depends upon the underlying system.  On UNIX
-     * systems, alphabetic case is significant in comparing pathnames; on Microsoft Windows
-     * systems it is not.
+     * systems, alphabetic case is significant in comparing pathnames; on
+     * Microsoft Windows systems it is not.
      *
      * @param   pathname  The abstract pathname to be compared to this abstract
      *                    pathname
@@ -2195,26 +2250,33 @@ public class File
      * @since   1.2
      */
     public int compareTo(File pathname) {
-        return fs.compare(this, pathname);
+        return FS.compare(this, pathname);
     }
 
     /**
      * Tests this abstract pathname for equality with the given object.
-     * Returns <code>true</code> if and only if the argument is not
-     * <code>null</code> and is an abstract pathname that denotes the same file
-     * or directory as this abstract pathname.  Whether or not two abstract
-     * pathnames are equal depends upon the underlying system.  On UNIX
-     * systems, alphabetic case is significant in comparing pathnames; on Microsoft Windows
-     * systems it is not.
+     * Returns {@code true} if and only if the argument is not
+     * {@code null} and is an abstract pathname that is the same as this
+     * abstract pathname.  Whether or not two abstract
+     * pathnames are equal depends upon the underlying operating system.
+     * On UNIX systems, alphabetic case is significant in comparing pathnames;
+     * on Microsoft Windows systems it is not.
+     *
+     * @apiNote This method only tests whether the abstract pathnames are equal;
+     *          it does not access the file system and the file is not required
+     *          to exist.
      *
      * @param   obj   The object to be compared with this abstract pathname
      *
-     * @return  <code>true</code> if and only if the objects are the same;
-     *          <code>false</code> otherwise
+     * @return  {@code true} if and only if the objects are the same;
+     *          {@code false} otherwise
+     *
+     * @see #compareTo(File)
+     * @see java.nio.file.Files#isSameFile(Path,Path)
      */
     public boolean equals(Object obj) {
-        if ((obj != null) && (obj instanceof File)) {
-            return compareTo((File)obj) == 0;
+        if (obj instanceof File file) {
+            return compareTo(file) == 0;
         }
         return false;
     }
@@ -2225,16 +2287,16 @@ public class File
      * of their hash codes.  On UNIX systems, the hash code of an abstract
      * pathname is equal to the exclusive <em>or</em> of the hash code
      * of its pathname string and the decimal value
-     * <code>1234321</code>.  On Microsoft Windows systems, the hash
+     * {@code 1234321}.  On Microsoft Windows systems, the hash
      * code is equal to the exclusive <em>or</em> of the hash code of
      * its pathname string converted to lower case and the decimal
-     * value <code>1234321</code>.  Locale is not taken into account on
+     * value {@code 1234321}.  Locale is not taken into account on
      * lowercasing the pathname string.
      *
      * @return  A hash code for this abstract pathname
      */
     public int hashCode() {
-        return fs.hashCode(this);
+        return FS.hashCode(this);
     }
 
     /**
@@ -2253,7 +2315,11 @@ public class File
      * in case the path is reconstituted on a different host type.
      *
      * @serialData  Default fields followed by separator character.
+     *
+     * @param  s the {@code ObjectOutputStream} to which data is written
+     * @throws IOException if an I/O error occurs
      */
+    @java.io.Serial
     private synchronized void writeObject(java.io.ObjectOutputStream s)
         throws IOException
     {
@@ -2264,9 +2330,14 @@ public class File
     /**
      * readObject is called to restore this filename.
      * The original separator character is read.  If it is different
-     * than the separator character on this system, then the old separator
+     * from the separator character on this system, then the old separator
      * is replaced by the local separator.
+     *
+     * @param  s the {@code ObjectInputStream} from which data is read
+     * @throws IOException if an I/O error occurs
+     * @throws ClassNotFoundException if a serialized class cannot be loaded
      */
+    @java.io.Serial
     private synchronized void readObject(java.io.ObjectInputStream s)
          throws IOException, ClassNotFoundException
     {
@@ -2275,9 +2346,9 @@ public class File
         char sep = s.readChar(); // read the previous separator char
         if (sep != separatorChar)
             pathField = pathField.replace(sep, separatorChar);
-        String path = fs.normalize(pathField);
-        UNSAFE.putObject(this, PATH_OFFSET, path);
-        UNSAFE.putIntVolatile(this, PREFIX_LENGTH_OFFSET, fs.prefixLength(path));
+        String path = FS.normalize(pathField);
+        UNSAFE.putReference(this, PATH_OFFSET, path);
+        UNSAFE.putIntVolatile(this, PREFIX_LENGTH_OFFSET, FS.prefixLength(path));
     }
 
     private static final jdk.internal.misc.Unsafe UNSAFE
@@ -2288,6 +2359,7 @@ public class File
             = UNSAFE.objectFieldOffset(File.class, "prefixLength");
 
     /** use serialVersionUID from JDK 1.0.2 for interoperability */
+    @java.io.Serial
     private static final long serialVersionUID = 301077366599181567L;
 
     // -- Integration with java.nio.file --
@@ -2301,10 +2373,10 @@ public class File
      *
      * <p> The first invocation of this method works as if invoking it were
      * equivalent to evaluating the expression:
-     * <blockquote><pre>
-     * {@link java.nio.file.FileSystems#getDefault FileSystems.getDefault}().{@link
-     * java.nio.file.FileSystem#getPath getPath}(this.{@link #getPath getPath}());
-     * </pre></blockquote>
+     * {@snippet lang=java :
+     *         // @link regex="getPath(?=\(t)" target="java.nio.file.FileSystem#getPath" :
+     *         FileSystems.getDefault().getPath(this.getPath());
+     * }
      * Subsequent invocations of this method return the same {@code Path}.
      *
      * <p> If this abstract pathname is the empty abstract pathname then this

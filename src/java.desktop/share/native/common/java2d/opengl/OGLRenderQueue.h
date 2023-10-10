@@ -129,6 +129,5 @@ extern jint previousOp;
 OGLContext *OGLRenderQueue_GetCurrentContext();
 OGLSDOps *OGLRenderQueue_GetCurrentDestination();
 void OGLRenderQueue_CheckPreviousOp(jint op);
-void OGLTR_DisableGlyphModeState();
 
 #endif /* OGLRenderQueue_h_Included */

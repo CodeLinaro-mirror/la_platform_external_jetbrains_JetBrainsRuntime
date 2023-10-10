@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2013, 2018, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2013, 2021, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -21,20 +22,21 @@
  *
  */
 
-#ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTORPOLICY_HPP
-#define SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTORPOLICY_HPP
+#ifndef SHARE_GC_SHENANDOAH_SHENANDOAHCOLLECTORPOLICY_HPP
+#define SHARE_GC_SHENANDOAH_SHENANDOAHCOLLECTORPOLICY_HPP
 
 #include "gc/shared/gcTrace.hpp"
-#include "gc/shared/collectorPolicy.hpp"
-#include "gc/shenandoah/shenandoahHeap.hpp"
+#include "gc/shenandoah/shenandoahGC.hpp"
+#include "gc/shenandoah/shenandoahSharedVariables.hpp"
+#include "memory/allocation.hpp"
 #include "utilities/ostream.hpp"
 
-class ShenandoahTracer : public GCTracer {
+class ShenandoahTracer : public GCTracer, public CHeapObj<mtGC> {
 public:
   ShenandoahTracer() : GCTracer(Shenandoah) {}
 };
 
-class ShenandoahCollectorPolicy: public CollectorPolicy {
+class ShenandoahCollectorPolicy : public CHeapObj<mtGC> {
 private:
   size_t _success_concurrent_gcs;
   size_t _success_degenerated_gcs;
@@ -46,7 +48,7 @@ private:
   size_t _explicit_full;
   size_t _implicit_concurrent;
   size_t _implicit_full;
-  size_t _degen_points[ShenandoahHeap::_DEGENERATED_LIMIT];
+  size_t _degen_points[ShenandoahGC::_DEGENERATED_LIMIT];
 
   ShenandoahSharedFlag _in_shutdown;
 
@@ -57,8 +59,6 @@ private:
 public:
   ShenandoahCollectorPolicy();
 
-  void initialize_alignments();
-
   // TODO: This is different from gc_end: that one encompasses one VM operation.
   // These two encompass the entire cycle.
   void record_cycle_start();
@@ -66,7 +66,7 @@ public:
   void record_success_concurrent();
   void record_success_degenerated();
   void record_success_full();
-  void record_alloc_failure_to_degenerated(ShenandoahHeap::ShenandoahDegenPoint point);
+  void record_alloc_failure_to_degenerated(ShenandoahGC::ShenandoahDegenPoint point);
   void record_alloc_failure_to_full();
   void record_degenerated_upgrade_to_full();
   void record_explicit_to_concurrent();
@@ -84,4 +84,4 @@ public:
   void print_gc_stats(outputStream* out) const;
 };
 
-#endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTORPOLICY_HPP
+#endif // SHARE_GC_SHENANDOAH_SHENANDOAHCOLLECTORPOLICY_HPP

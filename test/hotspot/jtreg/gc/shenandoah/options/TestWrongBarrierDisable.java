@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2018, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -21,12 +22,11 @@
  *
  */
 
-/* @test TestWrongBarrierDisable
+/* @test
  * @summary Test that disabling wrong barriers fails early
- * @key gc
- * @requires vm.gc.Shenandoah & !vm.graal.enabled
+ * @requires vm.gc.Shenandoah
  * @library /test/lib
- * @run main/othervm TestWrongBarrierDisable
+ * @run driver TestWrongBarrierDisable
  */
 
 import java.util.*;
@@ -42,12 +42,16 @@ public class TestWrongBarrierDisable {
                 "ShenandoahSATBBarrier",
                 "ShenandoahCASBarrier",
                 "ShenandoahCloneBarrier",
+                "ShenandoahNMethodBarrier",
+                "ShenandoahStackWatermarkBarrier",
         };
         String[] iu = {
                 "ShenandoahLoadRefBarrier",
                 "ShenandoahIUBarrier",
                 "ShenandoahCASBarrier",
                 "ShenandoahCloneBarrier",
+                "ShenandoahNMethodBarrier",
+                "ShenandoahStackWatermarkBarrier",
         };
 
         shouldFailAll("-XX:ShenandoahGCHeuristics=adaptive",   concurrent);

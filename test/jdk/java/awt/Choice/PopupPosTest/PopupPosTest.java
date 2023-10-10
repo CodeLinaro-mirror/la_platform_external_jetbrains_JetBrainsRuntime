@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,17 +26,15 @@
   @key headful
   @bug 5044150
   @summary Tests that pupup doesn't popdown if no space to display under
-  @author andrei.dmitriev area=awt.choice
   @requires (os.family == "linux")
   @run main PopupPosTest
 */
 
-import java.applet.Applet;
 import java.awt.*;
 import java.awt.event.*;
 
-public class PopupPosTest
-{
+public class PopupPosTest {
+
     public static void main(final String[] args) {
         Frame frame = new TestFrame();
     }

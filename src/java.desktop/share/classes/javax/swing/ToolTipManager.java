@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -54,7 +54,7 @@ import javax.swing.event.MenuKeyListener;
  * @author Rich Schiavi
  * @since 1.2
  */
-public class ToolTipManager extends MouseAdapter implements MouseMotionListener  {
+public final class ToolTipManager extends MouseAdapter implements MouseMotionListener  {
     Timer enterTimer, exitTimer, insideTimer;
     String toolTipText;
     Point  preferredLocation;
@@ -105,6 +105,8 @@ public class ToolTipManager extends MouseAdapter implements MouseMotionListener 
 
         postTip = KeyStroke.getKeyStroke(KeyEvent.VK_F1, InputEvent.CTRL_MASK);
         hideTip =  KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
+
+        lightWeightPopupEnabled = !ToolTipManager.isTooltipPositionedRelatively();
     }
 
     /**
@@ -232,7 +234,7 @@ public class ToolTipManager extends MouseAdapter implements MouseMotionListener 
     // Point(20000, 20000))
     private GraphicsConfiguration getDrawingGC(Point toFind) {
         GraphicsEnvironment env = GraphicsEnvironment.getLocalGraphicsEnvironment();
-        GraphicsDevice devices[] = env.getScreenDevices();
+        GraphicsDevice[] devices = env.getScreenDevices();
         for (GraphicsDevice device : devices) {
             GraphicsConfiguration config = device.getDefaultConfiguration();
             Rectangle rect = config.getBounds();
@@ -245,6 +247,7 @@ public class ToolTipManager extends MouseAdapter implements MouseMotionListener 
     }
 
     void showTipWindow() {
+        // TODO: this entire method must be refactored
         if(insideComponent == null || !insideComponent.isShowing())
             return;
         String mode = UIManager.getString("ToolTipManager.enableToolTipMode");
@@ -257,37 +260,49 @@ public class ToolTipManager extends MouseAdapter implements MouseMotionListener 
         }
         if (enabled) {
             Dimension size;
-            Point screenLocation = insideComponent.getLocationOnScreen();
             Point location;
+            Rectangle sBounds = null;
 
-            Point toFind;
-            if (preferredLocation != null) {
-                toFind = new Point(screenLocation.x + preferredLocation.x,
-                        screenLocation.y + preferredLocation.y);
-            } else {
-                toFind = mouseEvent.getLocationOnScreen();
-            }
-
-            GraphicsConfiguration gc = getDrawingGC(toFind);
-            if (gc == null) {
-                toFind = mouseEvent.getLocationOnScreen();
-                gc = getDrawingGC(toFind);
-                if (gc == null) {
-                    gc = insideComponent.getGraphicsConfiguration();
+            boolean isTooltipPositionedAbsolutely = !isTooltipPositionedRelatively();
+            if (isTooltipPositionedAbsolutely) {
+                Point screenLocation = insideComponent.getLocationOnScreen();
+                Point toFind;
+                if (preferredLocation != null) {
+                    toFind = new Point(screenLocation.x + preferredLocation.x,
+                            screenLocation.y + preferredLocation.y);
+                } else {
+                    toFind = mouseEvent.getLocationOnScreen();
                 }
+
+                GraphicsConfiguration gc = getDrawingGC(toFind);
+                if (gc == null) {
+                    toFind = mouseEvent.getLocationOnScreen();
+                    gc = getDrawingGC(toFind);
+                    if (gc == null) {
+                        gc = insideComponent.getGraphicsConfiguration();
+                    }
+                }
+
+                sBounds = gc.getBounds();
+                Insets screenInsets = Toolkit.getDefaultToolkit()
+                        .getScreenInsets(gc);
+                // Take into account screen insets, decrease viewport
+                sBounds.x += screenInsets.left;
+                sBounds.y += screenInsets.top;
+                sBounds.width -= (screenInsets.left + screenInsets.right);
+                sBounds.height -= (screenInsets.top + screenInsets.bottom);
+
+                if (preferredLocation != null) {
+                    location = toFind;
+                } else {
+                    location = new Point(screenLocation.x + mouseEvent.getX(),
+                            screenLocation.y + mouseEvent.getY() + 20);
+                }
+            } else {
+                location = new Point(mouseEvent.getX(), mouseEvent.getY() + 20);
             }
-
-            Rectangle sBounds = gc.getBounds();
-            Insets screenInsets = Toolkit.getDefaultToolkit()
-                                             .getScreenInsets(gc);
-            // Take into account screen insets, decrease viewport
-            sBounds.x += screenInsets.left;
-            sBounds.y += screenInsets.top;
-            sBounds.width -= (screenInsets.left + screenInsets.right);
-            sBounds.height -= (screenInsets.top + screenInsets.bottom);
-        boolean leftToRight
-                = SwingUtilities.isLeftToRight(insideComponent);
-
+            boolean leftToRight
+                    = SwingUtilities.isLeftToRight(insideComponent);
             // Just to be paranoid
             hideTipWindow();
 
@@ -295,78 +310,65 @@ public class ToolTipManager extends MouseAdapter implements MouseMotionListener 
             tip.setTipText(toolTipText);
             size = tip.getPreferredSize();
 
-            if(preferredLocation != null) {
-                location = toFind;
-        if (!leftToRight) {
-            location.x -= size.width;
-        }
-            } else {
-                location = new Point(screenLocation.x + mouseEvent.getX(),
-                        screenLocation.y + mouseEvent.getY() + 20);
-        if (!leftToRight) {
-            if(location.x - size.width>=0) {
-                location.x -= size.width;
-            }
-        }
-
+            if (!leftToRight) {
+                if (location.x - size.width >= 0) {
+                    location.x -= size.width;
+                }
             }
 
-        // we do not adjust x/y when using awt.Window tips
-        if (popupRect == null){
-        popupRect = new Rectangle();
-        }
-        popupRect.setBounds(location.x,location.y,
-                size.width,size.height);
+            // we do not adjust x/y when using awt.Window tips
+            if (popupRect == null) {
+                popupRect = new Rectangle();
+            }
+            popupRect.setBounds(location.x, location.y,
+                    size.width, size.height);
 
-        // Fit as much of the tooltip on screen as possible
-            if (location.x < sBounds.x) {
-                location.x = sBounds.x;
-            }
-            else if (location.x - sBounds.x + size.width > sBounds.width) {
-                location.x = sBounds.x + Math.max(0, sBounds.width - size.width)
-;
-            }
-            if (location.y < sBounds.y) {
-                location.y = sBounds.y;
-            }
-            else if (location.y - sBounds.y + size.height > sBounds.height) {
-                location.y = sBounds.y + Math.max(0, sBounds.height - size.height);
+            if (isTooltipPositionedAbsolutely) {
+                // Fit as much of the tooltip on screen as possible
+                if (location.x < sBounds.x) {
+                    location.x = sBounds.x;
+                } else if (location.x - sBounds.x + size.width > sBounds.width) {
+                    location.x = sBounds.x + Math.max(0, sBounds.width - size.width);
+                }
+                if (location.y < sBounds.y) {
+                    location.y = sBounds.y;
+                } else if (location.y - sBounds.y + size.height > sBounds.height) {
+                    location.y = sBounds.y + Math.max(0, sBounds.height - size.height);
+                }
             }
 
             PopupFactory popupFactory = PopupFactory.getSharedInstance();
 
             if (lightWeightPopupEnabled) {
-        int y = getPopupFitHeight(popupRect, insideComponent);
-        int x = getPopupFitWidth(popupRect,insideComponent);
-        if (x>0 || y>0) {
-            popupFactory.setPopupType(PopupFactory.MEDIUM_WEIGHT_POPUP);
-        } else {
-            popupFactory.setPopupType(PopupFactory.LIGHT_WEIGHT_POPUP);
-        }
-            }
-            else {
+                int y = getPopupFitHeight(popupRect, insideComponent);
+                int x = getPopupFitWidth(popupRect, insideComponent);
+                if (x > 0 || y > 0) {
+                    popupFactory.setPopupType(PopupFactory.MEDIUM_WEIGHT_POPUP);
+                } else {
+                    popupFactory.setPopupType(PopupFactory.LIGHT_WEIGHT_POPUP);
+                }
+            } else {
                 popupFactory.setPopupType(PopupFactory.MEDIUM_WEIGHT_POPUP);
             }
-        tipWindow = popupFactory.getPopup(insideComponent, tip,
-                          location.x,
-                          location.y);
+            tipWindow = popupFactory.getPopup(insideComponent, tip,
+                    location.x,
+                    location.y);
             popupFactory.setPopupType(PopupFactory.LIGHT_WEIGHT_POPUP);
 
-        tipWindow.show();
+            tipWindow.show();
 
             Window componentWindow = SwingUtilities.windowForComponent(
-                                                    insideComponent);
+                    insideComponent);
 
             window = SwingUtilities.windowForComponent(tip);
             if (window != null && window != componentWindow) {
                 window.addMouseListener(this);
-            }
-            else {
+            } else {
                 window = null;
             }
 
             insideTimer.start();
-        tipShowing = true;
+            tipShowing = true;
         }
     }
 
@@ -677,6 +679,12 @@ public class ToolTipManager extends MouseAdapter implements MouseMotionListener 
      * Inside timer action.
      */
     protected class insideTimerAction implements ActionListener {
+
+        /**
+         * Constructs an {@code insideTimerAction}.
+         */
+        protected insideTimerAction() {}
+
         /**
          * {@inheritDoc}
          */
@@ -707,6 +715,12 @@ public class ToolTipManager extends MouseAdapter implements MouseMotionListener 
      * Outside timer action.
      */
     protected class outsideTimerAction implements ActionListener {
+
+        /**
+         * Constructs an {@code outsideTimerAction}.
+         */
+        protected outsideTimerAction() {}
+
         /**
          * {@inheritDoc}
          */
@@ -719,6 +733,12 @@ public class ToolTipManager extends MouseAdapter implements MouseMotionListener 
      * Still inside timer action.
      */
     protected class stillInsideTimerAction implements ActionListener {
+
+        /**
+         * Constructs a {@code stillInsideTimerAction}.
+         */
+        protected stillInsideTimerAction() {}
+
         /**
          * {@inheritDoc}
          */
@@ -766,7 +786,7 @@ public class ToolTipManager extends MouseAdapter implements MouseMotionListener 
   // Returns: 0 no adjust
   //         -1 can't fit
   //         >0 adjust value by amount returned
- @SuppressWarnings("deprecation")
+ @SuppressWarnings("removal")
   private int getPopupFitWidth(Rectangle popupRectInScreen, Component invoker){
     if (invoker != null){
       Container parent;
@@ -792,7 +812,7 @@ public class ToolTipManager extends MouseAdapter implements MouseMotionListener 
 
   // Returns:  0 no adjust
   //          >0 adjust by value return
-  @SuppressWarnings("deprecation")
+  @SuppressWarnings("removal")
   private int getPopupFitHeight(Rectangle popupRectInScreen, Component invoker){
     if (invoker != null){
       Container parent;
@@ -923,5 +943,10 @@ public class ToolTipManager extends MouseAdapter implements MouseMotionListener 
 
         @Override
         public void menuKeyReleased(MenuKeyEvent e) {}
+    }
+
+    static boolean isTooltipPositionedRelatively() {
+        final Toolkit toolkit = Toolkit.getDefaultToolkit();
+        return toolkit != null && toolkit.getClass().getName().equals("sun.awt.wl.WLToolkit");
     }
 }

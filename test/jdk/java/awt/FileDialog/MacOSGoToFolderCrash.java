@@ -32,6 +32,8 @@ import java.awt.event.KeyEvent;
  * @key headful
  * @bug 8234522
  * @requires (os.family == "mac")
+ * @summary no crash should occur when the "Go To Folder" feature is used on
+ *          macOS in the native FileDialog
  */
 public final class MacOSGoToFolderCrash {
 

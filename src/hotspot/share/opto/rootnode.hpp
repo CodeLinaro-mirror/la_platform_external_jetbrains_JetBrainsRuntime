@@ -22,8 +22,8 @@
  *
  */
 
-#ifndef SHARE_VM_OPTO_ROOTNODE_HPP
-#define SHARE_VM_OPTO_ROOTNODE_HPP
+#ifndef SHARE_OPTO_ROOTNODE_HPP
+#define SHARE_OPTO_ROOTNODE_HPP
 
 #include "opto/loopnode.hpp"
 
@@ -68,10 +68,6 @@ public:
   virtual const RegMask &out_RegMask() const;
   virtual uint ideal_reg() const { return NotAMachineReg; }
   virtual uint match_edge(uint idx) const { return 0; }
-
-#ifndef PRODUCT
-  virtual void related(GrowableArray<Node*> *in_rel, GrowableArray<Node*> *out_rel, bool compact) const;
-#endif
 };
 
-#endif // SHARE_VM_OPTO_ROOTNODE_HPP
+#endif // SHARE_OPTO_ROOTNODE_HPP

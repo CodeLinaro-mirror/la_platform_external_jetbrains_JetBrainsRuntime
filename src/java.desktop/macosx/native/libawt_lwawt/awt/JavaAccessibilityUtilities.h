@@ -28,7 +28,9 @@
 extern NSString *const JavaAccessibilityIgnore;
 
 extern NSMutableDictionary *sRoles;
+extern NSMutableDictionary *sAnnouncePriorities;
 extern void initializeRoles();
+extern void initializeAnnouncePriorities();
 
 #define GET_CACCESSIBILITY_CLASS() \
     GET_CLASS(sjc_CAccessibility, "sun/lwawt/macosx/CAccessibility");
@@ -48,9 +50,7 @@ BOOL isVertical(JNIEnv *env, jobject axContext, jobject component);
 BOOL isHorizontal(JNIEnv *env, jobject axContext, jobject component);
 BOOL isShowing(JNIEnv *env, jobject axContext, jobject component);
 BOOL isSelectable(JNIEnv *env, jobject axContext, jobject component);
-BOOL isExpandable(JNIEnv *env, jobject axContext, jobject component);
 BOOL isExpanded(JNIEnv *env, jobject axContext, jobject component);
-BOOL isCollapsed(JNIEnv *env, jobject axContext, jobject component);
 NSPoint getAxComponentLocationOnScreen(JNIEnv *env, jobject axComponent, jobject component);
 jint getAxTextCharCount(JNIEnv *env, jobject axText, jobject component);
 
@@ -63,3 +63,6 @@ void JavaAccessibilitySetAttributeValue(id element, NSString *attribute, id valu
 void JavaAccessibilityRaiseSetAttributeToIllegalTypeException(const char *functionName, id element, NSString *attribute, id value);
 void JavaAccessibilityRaiseUnimplementedAttributeException(const char *functionName, id element, NSString *attribute);
 void JavaAccessibilityRaiseIllegalParameterTypeException(const char *functionName, id element, NSString *attribute, id parameter);
+BOOL ObjectEquals(JNIEnv *env, jobject a, jobject b, jobject component);
+NSNumber* JavaNumberToNSNumber(JNIEnv *env, jobject jnumber);
+NSValue *javaIntArrayToNSRangeValue(JNIEnv* env, jintArray array);

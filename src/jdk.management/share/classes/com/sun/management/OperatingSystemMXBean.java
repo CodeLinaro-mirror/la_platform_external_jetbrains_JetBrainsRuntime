@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -88,16 +88,46 @@ public interface OperatingSystemMXBean extends
     /**
      * Returns the amount of free physical memory in bytes.
      *
+     * @deprecated Use {@link #getFreeMemorySize()} instead of
+     * this historically named method.
+     *
+     * @implSpec This implementation must return the same value
+     * as {@link #getFreeMemorySize()}.
+     *
      * @return the amount of free physical memory in bytes.
      */
-    public long getFreePhysicalMemorySize();
+    @Deprecated(since="14")
+    public default long getFreePhysicalMemorySize() { return getFreeMemorySize(); }
+
+    /**
+     * Returns the amount of free memory in bytes.
+     *
+     * @return the amount of free memory in bytes.
+     * @since 14
+     */
+    public long getFreeMemorySize();
 
     /**
      * Returns the total amount of physical memory in bytes.
      *
+     * @deprecated Use {@link #getTotalMemorySize()} instead of
+     * this historically named method.
+     *
+     * @implSpec This implementation must return the same value
+     * as {@link #getTotalMemorySize()}.
+     *
      * @return the total amount of physical memory in  bytes.
      */
-    public long getTotalPhysicalMemorySize();
+    @Deprecated(since="14")
+    public default long getTotalPhysicalMemorySize() { return getTotalMemorySize(); }
+
+    /**
+     * Returns the total amount of memory in bytes.
+     *
+     * @return the total amount of memory in  bytes.
+     * @since 14
+     */
+    public long getTotalMemorySize();
 
     /**
      * Returns the "recent cpu usage" for the whole system. This value is a
@@ -109,11 +139,34 @@ public interface OperatingSystemMXBean extends
      * If the system recent cpu usage is not available, the method returns a
      * negative value.
      *
+     * @deprecated Use {@link #getCpuLoad()} instead of
+     * this historically named method.
+     *
+     * @implSpec This implementation must return the same value
+     * as {@link #getCpuLoad()}.
+     *
      * @return the "recent cpu usage" for the whole system; a negative
      * value if not available.
      * @since   1.7
      */
-    public double getSystemCpuLoad();
+    @Deprecated(since="14")
+    public default double getSystemCpuLoad() { return getCpuLoad(); }
+
+    /**
+     * Returns the "recent cpu usage" for the operating environment. This value
+     * is a double in the [0.0,1.0] interval. A value of 0.0 means that all CPUs
+     * were idle during the recent period of time observed, while a value
+     * of 1.0 means that all CPUs were actively running 100% of the time
+     * during the recent period being observed. All values betweens 0.0 and
+     * 1.0 are possible depending of the activities going on.
+     * If the recent cpu usage is not available, the method returns a
+     * negative value.
+     *
+     * @return the "recent cpu usage" for the whole operating environment;
+     * a negative value if not available.
+     * @since 14
+     */
+    public double getCpuLoad();
 
     /**
      * Returns the "recent cpu usage" for the Java Virtual Machine process.

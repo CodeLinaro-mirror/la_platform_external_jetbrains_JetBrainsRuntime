@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2020, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,6 +31,8 @@
  * @run testng/othervm -Djava.net.preferIPv4Stack=true SetGetSendBufferSize
  */
 
+import jdk.test.lib.Platform;
+import jdk.test.lib.net.IPSupport;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
@@ -39,8 +41,6 @@ import java.net.DatagramSocket;
 import java.net.MulticastSocket;
 import java.net.SocketException;
 import java.nio.channels.DatagramChannel;
-
-import jdk.test.lib.Platform;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
@@ -90,9 +90,12 @@ public class SetGetSendBufferSize {
 
     @Test(dataProvider = "invariants")
     public void testInitialSendBufferSize(String name, DatagramSocketSupplier supplier) throws IOException {
-        if(Platform.isOSX()) {
+        if (Platform.isOSX()) {
             try (var socket = supplier.open()){
                 assertTrue(socket.getSendBufferSize() >= 65507, name);
+                if (IPSupport.hasIPv6() && !IPSupport.preferIPv4Stack()) {
+                    assertEquals(socket.getSendBufferSize(), 65527, name);
+                }
             }
         }
     }

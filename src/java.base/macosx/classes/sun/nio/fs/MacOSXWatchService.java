@@ -51,7 +51,7 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 class MacOSXWatchService extends AbstractWatchService {
-    // Controls tracing in native part of the watcher.
+    // Controls tracing in the native part of the watcher.
     private static boolean tracingEnabled = false;
     private static final PlatformLogger logger = PlatformLogger.getLogger("sun.nio.fs.MacOSXWatchService");
 
@@ -219,9 +219,9 @@ class MacOSXWatchService extends AbstractWatchService {
         } catch (UnixException x) {
             throw x.asIOException(dir);
         }
-        if (!attrs.isDirectory()) {
+
+        if (!attrs.isDirectory())
             throw new NotDirectoryException(dir.getPathForExceptionMessage());
-        }
 
         final Object fileKey = attrs.fileKey();
         if (fileKey == null)
@@ -313,7 +313,7 @@ class MacOSXWatchService extends AbstractWatchService {
         private static final long kFSEventStreamEventFlagMustScanSubDirs = 0x00000001;
         private static final long kFSEventStreamEventFlagRootChanged     = 0x00000020;
 
-        private final static Path relativeRootPath = Path.of("");
+        private final Path relativeRootPath;
 
         // Full path to this key's watch root directory.
         private final Path   realRootPath;
@@ -334,6 +334,7 @@ class MacOSXWatchService extends AbstractWatchService {
 
         MacOSXWatchKey(final MacOSXWatchService watchService, final UnixPath dir, final Object rootPathKey) throws IOException {
             super(dir, watchService);
+            this.relativeRootPath   = dir.getFileSystem().getPath("");
             this.realRootPath       = dir.toRealPath().normalize();
             this.realRootPathLength = realRootPath.toString().length() + 1;
             this.rootPathKey        = rootPathKey;
@@ -356,9 +357,8 @@ class MacOSXWatchService extends AbstractWatchService {
                         WatchModifier.sensitivityOf(modifierSet),
                         kFSEventStreamCreateFlagWatchRoot);
 
-                if (eventStreamRef == 0) {
+                if (eventStreamRef == 0)
                     throw new IOException("Unable to create FSEventStream");
-                }
 
                 MacOSXWatchService.eventStreamSchedule(eventStreamRef, runLoopThread.getRunLoopRef());
             }
@@ -399,7 +399,7 @@ class MacOSXWatchService extends AbstractWatchService {
 
         private Path toRelativePath(final String absPath) {
             return   (absPath.length() > realRootPathLength)
-                    ? Path.of(absPath.substring(realRootPathLength))
+                    ? relativeRootPath.getFileSystem().getPath(absPath.substring(realRootPathLength))
                     : relativeRootPath;
         }
 
@@ -462,9 +462,9 @@ class MacOSXWatchService extends AbstractWatchService {
                         createForOneDirectory(path, watchFileTree ? pathToDo : null);
                     } catch (IOException e) {
                         final boolean exceptionForRootPath = relativeRootPath.equals(path);
-                        if (exceptionForRootPath) {
+                        if (exceptionForRootPath)
                             throw e; // report to the user as the watch root may have disappeared
-                        }
+
                         // Ignore for sub-directories as some may have been removed during the scan.
                         // That's OK, those kinds of changes in the directory hierarchy is what
                         // WatchService is used for. However, it's impossible to catch all changes
@@ -482,9 +482,8 @@ class MacOSXWatchService extends AbstractWatchService {
 
                 final DirectorySnapshot snapshot = DirectorySnapshot.create(getRealRootPath(), directory);
                 snapshots.put(directory, snapshot);
-                if (newDirectoriesFound != null) {
+                if (newDirectoriesFound != null)
                     snapshot.forEachDirectory(newDirectoriesFound::offer);
-                }
 
                 return snapshot;
             }
@@ -517,9 +516,9 @@ class MacOSXWatchService extends AbstractWatchService {
                     // Report overflow (who knows what else we weren't notified about?) and
                     // do our best to recover from this mess by queueing our parent for an update.
                     reportOverflow(directory);
-                    if (modifiedDirs != null) {
+                    if (modifiedDirs != null)
                         modifiedDirs.offer(getParentOf(directory));
-                    }
+
                     return;
                 }
 
@@ -537,9 +536,8 @@ class MacOSXWatchService extends AbstractWatchService {
 
             private Path getParentOf(final Path directory) {
                 Path parent = directory.getParent();
-                if (parent == null) {
+                if (parent == null)
                     parent = relativeRootPath;
-                }
                 return parent;
             }
 
@@ -551,9 +549,8 @@ class MacOSXWatchService extends AbstractWatchService {
                     final Path path = deletedDirs.poll();
                     dirsToReportDeleted.addFirst(path);
                     final DirectorySnapshot directorySnapshot = snapshots.get(path);
-                    if (directorySnapshot != null) { // May be null if we're not watching the whole file tree
+                    if (directorySnapshot != null) // May be null if we're not watching the whole file tree.
                         directorySnapshot.forEachDirectory(deletedDirs::offer);
-                    }
                 }
 
                 for(final Path path : dirsToReportDeleted) {
@@ -576,15 +573,14 @@ class MacOSXWatchService extends AbstractWatchService {
                         if (!snapshots.containsKey(path)) {
                             if (logger.isLoggable(PlatformLogger.Level.FINEST))
                                 logger.finest("Just noticed yet another directory: " + path);
-                            // Happens when a directory tree gets moved (mv -f) into this directory
+                            // Happens when a directory tree gets moved (mv -f) into this directory.
                             DirectorySnapshot newSnapshot = null;
                             try {
                                 newSnapshot = createForOneDirectory(path, createdDirs);
                             } catch(IOException ignore) { }
 
-                            if (newSnapshot != null) {
+                            if (newSnapshot != null)
                                 newSnapshot.forEachFile(MacOSXWatchKey.this::reportCreated);
-                            }
                         }
                     }
                 }
@@ -606,7 +602,7 @@ class MacOSXWatchService extends AbstractWatchService {
 
             private DirectorySnapshot(final Path directory) {
                 this.directory = directory;
-                this.files = new HashMap<>();
+                this.files     = new HashMap<>();
             }
 
             static DirectorySnapshot create(final Path realRootPath, final Path directory) throws IOException {
@@ -645,9 +641,9 @@ class MacOSXWatchService extends AbstractWatchService {
                         try {
                             final BasicFileAttributes attrs
                                     = Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-                            final Path fileName = file.getFileName();
-                            final Entry entry = files.get(fileName);
-                            final boolean isNew = (entry == null);
+                            final Path fileName     = file.getFileName();
+                            final Entry entry       = files.get(fileName);
+                            final boolean isNew     = (entry == null);
                             final long lastModified = attrs.lastModifiedTime().toMillis();
                             final Path relativePath = directory.resolve(fileName);
 
@@ -672,7 +668,7 @@ class MacOSXWatchService extends AbstractWatchService {
                                     files.put(fileName, new Entry(false, lastModified, currentTick));
                                     watchKey.reportCreated(relativePath);
                                 } else {
-                                    if (entry.isDirectory) { // Used to be a directory, now a file
+                                    if (entry.isDirectory) { // Used to be a directory, now a file.
                                         if (deletedDirs != null) deletedDirs.offer(relativePath);
 
                                         files.put(fileName, new Entry(false, lastModified, currentTick));
@@ -684,11 +680,11 @@ class MacOSXWatchService extends AbstractWatchService {
                                 }
                             }
                         } catch (IOException ignore) {
-                            // simply skip the file we couldn't read; it'll get marked as deleted later.
+                            // Simply skip the file we couldn't read; it'll get marked as deleted later.
                         }
                     }
                 } catch (IOException | DirectoryIteratorException ignore) {
-                    // Most probably this directory has just been deleted; our parent will notice that
+                    // Most probably this directory has just been deleted; our parent will notice that.
                 }
 
                 checkDeleted(watchKey, deletedDirs);
@@ -740,33 +736,33 @@ class MacOSXWatchService extends AbstractWatchService {
         private void reportCreated(final Path path) {
             if (logger.isLoggable(PlatformLogger.Level.FINEST))
                 logger.finest("About to report CREATE for path " + path);
-            if (eventsToWatch.contains(FSEventKind.CREATE)) {
+
+            if (eventsToWatch.contains(FSEventKind.CREATE))
                 signalEvent(StandardWatchEventKinds.ENTRY_CREATE, path);
-            }
         }
 
         private void reportDeleted(final Path path) {
             if (logger.isLoggable(PlatformLogger.Level.FINEST))
                 logger.finest("About to report DELETE for path " + path);
-            if (eventsToWatch.contains(FSEventKind.DELETE)) {
+
+            if (eventsToWatch.contains(FSEventKind.DELETE))
                 signalEvent(StandardWatchEventKinds.ENTRY_DELETE, path);
-            }
         }
 
         private void reportModified(final Path path) {
             if (logger.isLoggable(PlatformLogger.Level.FINEST))
                 logger.finest("About to report MODIFIED for path " + path);
-            if (eventsToWatch.contains(FSEventKind.MODIFY)) {
+
+            if (eventsToWatch.contains(FSEventKind.MODIFY))
                 signalEvent(StandardWatchEventKinds.ENTRY_MODIFY, path);
-            }
         }
 
         private void reportOverflow(final Path path) {
             if (logger.isLoggable(PlatformLogger.Level.FINEST))
                 logger.finest("About to report OVERFLOW for path " + path);
-            if (eventsToWatch.contains(FSEventKind.OVERFLOW)) {
+
+            if (eventsToWatch.contains(FSEventKind.OVERFLOW))
                 signalEvent(StandardWatchEventKinds.OVERFLOW, path);
-            }
         }
 
         public Object getRootPathKey() {
@@ -820,7 +816,6 @@ class MacOSXWatchService extends AbstractWatchService {
     private static native long CFRunLoopGetCurrent();
     private static native void CFRunLoopRun(final MacOSXWatchService watchService);
     private static native void CFRunLoopStop(long runLoopRef);
-
 
     private static native void initIDs();
 

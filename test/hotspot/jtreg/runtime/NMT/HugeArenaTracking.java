@@ -24,14 +24,13 @@
 
 /*
  * @test
- * @key nmt jcmd
+ * @key randomness
  * @library /test/lib
  * @requires vm.bits == 64
  * @modules java.base/jdk.internal.misc
  *          java.management
- * @build sun.hotspot.WhiteBox
- * @run driver ClassFileInstaller sun.hotspot.WhiteBox
- *                              sun.hotspot.WhiteBox$WhiteBoxPermission
+ * @build jdk.test.whitebox.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
  * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI -XX:NativeMemoryTracking=detail HugeArenaTracking
  */
 
@@ -39,7 +38,8 @@ import java.util.Random;
 import jdk.test.lib.process.ProcessTools;
 import jdk.test.lib.process.OutputAnalyzer;
 import jdk.test.lib.JDKToolFinder;
-import sun.hotspot.WhiteBox;
+import jdk.test.lib.Utils;
+import jdk.test.whitebox.WhiteBox;
 
 public class HugeArenaTracking {
   private static final long GB = 1024 * 1024 * 1024;
@@ -60,7 +60,7 @@ public class HugeArenaTracking {
     output = new OutputAnalyzer(pb.start());
     output.shouldContain("Test (reserved=2KB, committed=2KB)");
 
-    Random rand = new Random();
+    Random rand = Utils.getRandomInstance();
 
     // Allocate 2GB+ from arena
     long total = 0;

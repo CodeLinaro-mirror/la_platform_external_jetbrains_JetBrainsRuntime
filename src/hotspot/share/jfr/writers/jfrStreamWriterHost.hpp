@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2016, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,8 +22,8 @@
  *
  */
 
-#ifndef SHARE_VM_JFR_WRITERS_JFRSTREAMWRITERHOST_HPP
-#define SHARE_VM_JFR_WRITERS_JFRSTREAMWRITERHOST_HPP
+#ifndef SHARE_JFR_WRITERS_JFRSTREAMWRITERHOST_HPP
+#define SHARE_JFR_WRITERS_JFRSTREAMWRITERHOST_HPP
 
 #include "jfr/utilities/jfrTypes.hpp"
 #include "jfr/writers/jfrMemoryWriterHost.inline.hpp"
@@ -52,11 +52,11 @@ class StreamWriterHost : public MemoryWriterHost<Adapter, AP> {
   int64_t current_offset() const;
   void seek(int64_t offset);
   void flush();
+  void write_buffered(const void* src, intptr_t len);
   void write_unbuffered(const void* src, intptr_t len);
   bool is_valid() const;
   void close_fd();
   void reset(fio_fd fd);
 };
 
-#endif // SHARE_VM_JFR_WRITERS_JFRSTREAMWRITERHOST_HPP
-
+#endif // SHARE_JFR_WRITERS_JFRSTREAMWRITERHOST_HPP

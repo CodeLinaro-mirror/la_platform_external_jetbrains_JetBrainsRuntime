@@ -51,7 +51,7 @@ final class ReferralsCache {
     private static Map<ReferralCacheKey, Map<String, ReferralCacheEntry>>
             referralsMap = new HashMap<>();
 
-    static private final class ReferralCacheKey {
+    private static final class ReferralCacheKey {
         private PrincipalName cname;
         private PrincipalName sname;
         private PrincipalName user; // S4U2Self only
@@ -112,10 +112,10 @@ final class ReferralsCache {
      * REALM-1.COM -> REALM-2.COM referral entry is removed from the cache.
      */
     static synchronized void put(PrincipalName cname, PrincipalName service,
-            PrincipalName user, Ticket[] userSvcTickets, String fromRealm,
+            PrincipalName user, Credentials additionalCreds, String fromRealm,
             String toRealm, Credentials creds) {
-        Ticket userSvcTicket = (userSvcTickets != null ?
-                userSvcTickets[0] : null);
+        Ticket userSvcTicket = (additionalCreds != null ?
+                additionalCreds.getTicket() : null);
         ReferralCacheKey k = new ReferralCacheKey(cname, service,
                 user, userSvcTicket);
         pruneExpired(k);
@@ -152,9 +152,9 @@ final class ReferralsCache {
      */
     static synchronized ReferralCacheEntry get(PrincipalName cname,
             PrincipalName service, PrincipalName user,
-            Ticket[] userSvcTickets, String fromRealm) {
-        Ticket userSvcTicket = (userSvcTickets != null ?
-                userSvcTickets[0] : null);
+            Credentials additionalCreds, String fromRealm) {
+        Ticket userSvcTicket = (additionalCreds != null ?
+                additionalCreds.getTicket() : null);
         ReferralCacheKey k = new ReferralCacheKey(cname, service,
                 user, userSvcTicket);
         pruneExpired(k);

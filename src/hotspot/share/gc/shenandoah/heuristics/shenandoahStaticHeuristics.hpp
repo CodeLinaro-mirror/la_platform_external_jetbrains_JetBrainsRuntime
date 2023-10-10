@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2018, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2018, 2019, Red Hat, Inc. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -21,8 +22,8 @@
  *
  */
 
-#ifndef SHARE_VM_GC_SHENANDOAH_HEURISTICS_SHENANDOAHSTATICHEURISTICS_HPP
-#define SHARE_VM_GC_SHENANDOAH_HEURISTICS_SHENANDOAHSTATICHEURISTICS_HPP
+#ifndef SHARE_GC_SHENANDOAH_HEURISTICS_SHENANDOAHSTATICHEURISTICS_HPP
+#define SHARE_GC_SHENANDOAH_HEURISTICS_SHENANDOAHSTATICHEURISTICS_HPP
 
 #include "gc/shenandoah/heuristics/shenandoahHeuristics.hpp"
 
@@ -32,7 +33,7 @@ public:
 
   virtual ~ShenandoahStaticHeuristics();
 
-  virtual bool should_start_gc() const;
+  virtual bool should_start_gc();
 
   virtual void choose_collection_set_from_regiondata(ShenandoahCollectionSet* cset,
                                                      RegionData* data, size_t size,
@@ -43,4 +44,4 @@ public:
   virtual bool is_experimental() { return false; }
 };
 
-#endif // SHARE_VM_GC_SHENANDOAH_HEURISTICS_SHENANDOAHSTATICHEURISTICS_HPP
+#endif // SHARE_GC_SHENANDOAH_HEURISTICS_SHENANDOAHSTATICHEURISTICS_HPP

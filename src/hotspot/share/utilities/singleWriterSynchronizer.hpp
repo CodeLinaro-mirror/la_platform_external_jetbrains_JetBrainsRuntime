@@ -36,7 +36,7 @@
 // Any number of threads may enter critical sections associated with a
 // synchronizer object.  One (at a time) other thread may wait for the
 // completion of all critical sections for the synchronizer object
-// that were extent when the wait was initiated.  Usage is that there
+// that were extant when the wait was initiated.  Usage is that there
 // is some state that can be accessed either before or after some
 // change.  An accessing thread performs the access within a critical
 // section.  A writer thread performs the state change, and then waits
@@ -46,9 +46,7 @@
 // Generally, GlobalCounter should be used instead of this class, as
 // GlobalCounter has measurably better performance and doesn't have
 // the single writer at a time restriction.  Use this only in
-// situations where GlobalCounter won't work for some reason, such as
-// nesting.  But note that nesting often indicates other problems, and
-// may risk deadlock.
+// situations where GlobalCounter won't work for some reason.
 class SingleWriterSynchronizer {
   volatile uint _enter;
   volatile uint _exit[2];
@@ -89,11 +87,11 @@ public:
 };
 
 inline uint SingleWriterSynchronizer::enter() {
-  return Atomic::add(2u, &_enter);
+  return Atomic::add(&_enter, 2u);
 }
 
 inline void SingleWriterSynchronizer::exit(uint enter_value) {
-  uint exit_value = Atomic::add(2u, &_exit[enter_value & 1]);
+  uint exit_value = Atomic::add(&_exit[enter_value & 1], 2u);
   // If this exit completes a synchronize request, wakeup possibly
   // waiting synchronizer.  Read of _waiting_for must follow the _exit
   // update.
