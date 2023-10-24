@@ -32,6 +32,7 @@ import java.awt.Graphics;
 import java.awt.GraphicsEnvironment;
 import java.awt.Window;
 
+import sun.awt.AWTAccessor;
 import sun.awt.ModalExclude;
 
 /**
@@ -74,7 +75,7 @@ public class Popup {
      * A null <code>owner</code> implies there is no valid parent.
      * <code>x</code> and
      * <code>y</code> specify the preferred initial location to place
-     * the <code>Popup</code> at. Based on screen size, or other paramaters,
+     * the <code>Popup</code> at. Based on screen size, or other parameters,
      * the <code>Popup</code> may not display at <code>x</code> and
      * <code>y</code>.
      *
@@ -82,7 +83,7 @@ public class Popup {
      * @param contents Contents of the Popup
      * @param x        Initial x screen coordinate
      * @param y        Initial y screen coordinate
-     * @exception IllegalArgumentException if contents is null
+     * @throws IllegalArgumentException if contents is null
      */
     protected Popup(Component owner, Component contents, int x, int y) {
         this();
@@ -172,6 +173,10 @@ public class Popup {
                 pack();
             }
         }
+
+        if (c instanceof Window window) {
+            AWTAccessor.getWindowAccessor().setPopupParent(window, owner);
+        }
     }
 
 
@@ -217,7 +222,7 @@ public class Popup {
             // Generally not useful, bail.
             return null;
         }
-        return new HeavyWeightWindow(getParentWindow(owner));
+        return new HeavyWeightWindow(getParentWindow(owner), owner);
     }
 
     /**
@@ -234,10 +239,11 @@ public class Popup {
      */
     @SuppressWarnings("serial") // Superclass is not serializable across versions
     static class HeavyWeightWindow extends JWindow implements ModalExclude {
-        HeavyWeightWindow(Window parent) {
+        HeavyWeightWindow(Window parent, Component target) {
             super(parent);
             setFocusableWindowState(false);
             setType(Window.Type.POPUP);
+            AWTAccessor.getWindowAccessor().setPopupParent(this, target);
 
             // Popups are typically transient and most likely won't benefit
             // from true double buffering.  Turn it off here.

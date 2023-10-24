@@ -19,6 +19,7 @@
  * @summary Verifies that jstack includes whatever the supplier
  *          provided to Jstack.includeInfoFrom() returns.
  * @library /test/lib
+ * @run shell build.sh
  * @run main JstackTest
  */
 

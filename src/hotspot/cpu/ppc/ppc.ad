@@ -1,6 +1,6 @@
 //
-// Copyright (c) 2011, 2021, Oracle and/or its affiliates. All rights reserved.
-// Copyright (c) 2012, 2022 SAP SE. All rights reserved.
+// Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
+// Copyright (c) 2012, 2023 SAP SE. All rights reserved.
 // DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 //
 // This code is free software; you can redistribute it and/or modify it
@@ -982,6 +982,7 @@ source_hpp %{
 
 source %{
 
+#include "opto/c2_CodeStubs.hpp"
 #include "oops/klass.inline.hpp"
 
 void PhaseOutput::pd_perform_mach_node_analysis() {
@@ -1125,11 +1126,6 @@ int MachCallRuntimeNode::ret_addr_offset() {
   assert(rule() == CallLeafDirect_rule, "unexpected node with rule %u", rule());
   // CallLeafDirectNode uses bl.
   return 4;
-}
-
-int MachCallNativeNode::ret_addr_offset() {
-  Unimplemented();
-  return -1;
 }
 
 //=============================================================================
@@ -1621,7 +1617,9 @@ void MachEpilogNode::emit(CodeBuffer &cbuf, PhaseRegAlloc *ra_) const {
     Label dummy_label;
     Label* code_stub = &dummy_label;
     if (!UseSIGTRAP && !C->output()->in_scratch_emit_size()) {
-      code_stub = &C->output()->safepoint_poll_table()->add_safepoint(__ offset());
+      C2SafepointPollStub* stub = new (C->comp_arena()) C2SafepointPollStub(__ offset());
+      C->output()->add_stub(stub);
+      code_stub = &stub->entry();
       __ relocate(relocInfo::poll_return_type);
     }
     __ safepoint_poll(*code_stub, temp, true /* at_return */, true /* in_nmethod */);
@@ -1946,7 +1944,7 @@ uint MachNopNode::size(PhaseRegAlloc *ra_) const {
 void BoxLockNode::format(PhaseRegAlloc *ra_, outputStream *st) const {
   int offset = ra_->reg2offset(in_RegMask(0).find_first_elem());
   char reg_str[128];
-  ra_->dump_register(this, reg_str);
+  ra_->dump_register(this, reg_str, sizeof(reg_str));
   st->print("ADDI    %s, SP, %d \t// box node", reg_str, offset);
 }
 #endif
@@ -2172,6 +2170,10 @@ const bool Matcher::match_rule_supported(int opcode) {
   return true; // Per default match rules are supported.
 }
 
+const bool Matcher::match_rule_supported_superword(int opcode, int vlen, BasicType bt) {
+  return match_rule_supported_vector(opcode, vlen, bt);
+}
+
 const bool Matcher::match_rule_supported_vector(int opcode, int vlen, BasicType bt) {
   if (!match_rule_supported(opcode) || !vector_size_supported(bt, vlen)) {
     return false;
@@ -2179,11 +2181,19 @@ const bool Matcher::match_rule_supported_vector(int opcode, int vlen, BasicType 
   return true; // Per default match rules are supported.
 }
 
+const bool Matcher::match_rule_supported_vector_masked(int opcode, int vlen, BasicType bt) {
+  return false;
+}
+
+const bool Matcher::vector_needs_partial_operations(Node* node, const TypeVect* vt) {
+  return false;
+}
+
 const RegMask* Matcher::predicate_reg_mask(void) {
   return NULL;
 }
 
-const TypeVect* Matcher::predicate_reg_type(const Type* elemTy, int length) {
+const TypeVectMask* Matcher::predicate_reg_type(const Type* elemTy, int length) {
   return NULL;
 }
 
@@ -2195,10 +2205,6 @@ const bool Matcher::supports_vector_calling_convention(void) {
 OptoRegPair Matcher::vector_return_value(uint ideal_reg) {
   Unimplemented();
   return OptoRegPair(0, 0);
-}
-
-const int Matcher::float_pressure(int default_pressure_threshold) {
-  return default_pressure_threshold;
 }
 
 // Vector width in bytes.
@@ -2231,6 +2237,10 @@ const int Matcher::max_vector_size(const BasicType bt) {
 
 const int Matcher::min_vector_size(const BasicType bt) {
   return max_vector_size(bt); // Same as max.
+}
+
+const int Matcher::superword_max_vector_size(const BasicType bt) {
+  return Matcher::max_vector_size(bt);
 }
 
 const int Matcher::scalable_vector_reg_size(const BasicType bt) {
@@ -2276,7 +2286,7 @@ MachOper* Matcher::pd_specialize_generic_vector_operand(MachOper* original_opnd,
   return NULL;
 }
 
-bool Matcher::is_generic_reg2reg_move(MachNode* m) {
+bool Matcher::is_reg2reg_move(MachNode* m) {
   ShouldNotReachHere();  // generic vector operands not supported
   return false;
 }
@@ -2365,6 +2375,16 @@ bool Matcher::can_be_java_arg(int reg) {
 
 bool Matcher::is_spillable_arg(int reg) {
   return can_be_java_arg(reg);
+}
+
+uint Matcher::int_pressure_limit()
+{
+  return (INTPRESSURE == -1) ? 26 : INTPRESSURE;
+}
+
+uint Matcher::float_pressure_limit()
+{
+  return (FLOATPRESSURE == -1) ? 28 : FLOATPRESSURE;
 }
 
 bool Matcher::use_asm_for_ldiv_by_con(jlong divisor) {
@@ -3396,6 +3416,7 @@ encode %{
     if (!_method) {
       // A call to a runtime wrapper, e.g. new, new_typeArray_Java, uncommon_trap.
       emit_call_with_trampoline_stub(_masm, entry_point, relocInfo::runtime_call_type);
+      if (ciEnv::current()->failing()) { return; } // Code cache may be full.
     } else {
       // Remember the offset not the address.
       const int start_offset = __ offset();
@@ -3434,6 +3455,7 @@ encode %{
         return;
       }
     }
+    __ post_call_nop();
   %}
 
   // Second node of expanded dynamic call - the call.
@@ -3474,6 +3496,7 @@ encode %{
     // and the entry point might be too far away for bl. Pc() serves
     // as dummy and bl will be patched later.
     __ bl((address) __ pc());
+    __ post_call_nop();
   %}
 
   // postalloc expand emitter for virtual calls.
@@ -3564,6 +3587,7 @@ encode %{
       // to determine who we intended to call.
       __ relocate(virtual_call_Relocation::spec(virtual_call_meta_addr));
       emit_call_with_trampoline_stub(_masm, (address)$meth$$method, relocInfo::none);
+      if (ciEnv::current()->failing()) { return; } // Code cache may be full.
       assert(((MachCallDynamicJavaNode*)this)->ret_addr_offset() == __ offset() - start_offset,
              "Fix constant in ret_addr_offset(), expected %d", __ offset() - start_offset);
     } else {
@@ -3575,7 +3599,7 @@ encode %{
       __ load_klass(R11_scratch1, R3);
 
       int entry_offset = in_bytes(Klass::vtable_start_offset()) + vtable_index * vtableEntry::size_in_bytes();
-      int v_off = entry_offset + vtableEntry::method_offset_in_bytes();
+      int v_off = entry_offset + in_bytes(vtableEntry::method_offset());
       __ li(R19_method, v_off);
       __ ldx(R19_method/*method*/, R19_method/*method offset*/, R11_scratch1/*class*/);
       // NOTE: for vtable dispatches, the vtable entry will never be
@@ -3588,6 +3612,7 @@ encode %{
       assert(((MachCallDynamicJavaNode*)this)->ret_addr_offset() == __ offset() - start_offset,
              "Fix constant in ret_addr_offset(), expected %d", __ offset() - start_offset);
     }
+    __ post_call_nop();
   %}
 
   // a runtime call
@@ -3599,6 +3624,7 @@ encode %{
 #if defined(ABI_ELFv2)
     address entry= !($meth$$method) ? NULL : (address)$meth$$method;
     __ call_c(entry, relocInfo::runtime_call_type);
+    __ post_call_nop();
 #else
     // The function we're going to call.
     FunctionDescriptor fdtemp;
@@ -3614,6 +3640,7 @@ encode %{
       ciEnv::current()->record_out_of_memory_failure();
       return;
     }
+    __ post_call_nop();
 #endif
 
     // Check the ret_addr_offset.
@@ -3768,7 +3795,7 @@ frame %{
   // out_preserve_stack_slots for calls to C. Supports the var-args
   // backing area for register parms.
   //
-  varargs_C_out_slots_killed(((frame::abi_reg_args_size - frame::jit_out_preserve_size) / VMRegImpl::stack_slot_size));
+  varargs_C_out_slots_killed(((frame::native_abi_reg_args_size - frame::jit_out_preserve_size) / VMRegImpl::stack_slot_size));
 
   // The after-PROLOG location of the return address. Location of
   // return address specifies a type (REG or STACK) and a number
@@ -4128,7 +4155,7 @@ operand immP_NM() %{
   interface(CONST_INTER);
 %}
 
-// costant 'pointer 0'.
+// constant 'pointer 0'.
 operand immP_0() %{
   predicate(n->get_ptr() == 0);
   match(ConP);
@@ -4903,7 +4930,7 @@ operand cmpOp() %{
 //----------OPERAND CLASSES----------------------------------------------------
 // Operand Classes are groups of operands that are used to simplify
 // instruction definitions by not requiring the AD writer to specify
-// seperate instructions for every form of operand when the
+// separate instructions for every form of operand when the
 // instruction accepts multiple operand types with the same basic
 // encoding and format. The classic case of this is memory operands.
 // Indirect is not included since its use is limited to Compare & Swap.
@@ -5945,7 +5972,7 @@ instruct loadConN_hi(iRegNdst dst, immN src) %{
   format %{ "LIS     $dst, $src \t// narrow oop hi" %}
   size(4);
   ins_encode %{
-    __ lis($dst$$Register, (int)(short)(($src$$constant >> 16) & 0xffff));
+    __ lis($dst$$Register, 0); // Will get patched.
   %}
   ins_pipe(pipe_class_default);
 %}
@@ -5958,11 +5985,9 @@ instruct loadConN_lo(iRegNdst dst, iRegNsrc src1, immN src2) %{
   format %{ "ORI     $dst, $src1, $src2 \t// narrow oop lo" %}
   size(4);
   ins_encode %{
-    assert(__ oop_recorder() != NULL, "this assembler needs an OopRecorder");
-    int oop_index = __ oop_recorder()->find_index((jobject)$src2$$constant);
-    RelocationHolder rspec = oop_Relocation::spec(oop_index);
-    __ relocate(rspec, 1);
-    __ ori($dst$$Register, $src1$$Register, $src2$$constant & 0xffff);
+    AddressLiteral addrlit = __ constant_oop_address((jobject)$src2$$constant);
+    __ relocate(addrlit.rspec(), /*compressed format*/ 1);
+    __ ori($dst$$Register, $src1$$Register, 0); // Will get patched.
   %}
   ins_pipe(pipe_class_default);
 %}
@@ -6077,12 +6102,9 @@ instruct loadConNKlass_lo(iRegNdst dst, immNKlass_NM src1, iRegNsrc src2) %{
   format %{ "ORI     $dst, $src1, $src2 \t// narrow klass lo" %}
   size(4);
   ins_encode %{
-    intptr_t Csrc = CompressedKlassPointers::encode((Klass *)$src1$$constant);
-    assert(__ oop_recorder() != NULL, "this assembler needs an OopRecorder");
-    int klass_index = __ oop_recorder()->find_index((Klass *)$src1$$constant);
-    RelocationHolder rspec = metadata_Relocation::spec(klass_index);
-
-    __ relocate(rspec, 1);
+    // Notify OOP recorder (don't need the relocation)
+    AddressLiteral md = __ constant_metadata_address((Klass*)$src1$$constant);
+    intptr_t Csrc = CompressedKlassPointers::encode((Klass*)md.value());
     __ ori($dst$$Register, $src2$$Register, Csrc & 0xffff);
   %}
   ins_pipe(pipe_class_default);
@@ -6521,6 +6543,7 @@ instruct storeNKlass(memory dst, iRegN_P2N src) %{
 // Store Pointer
 instruct storeP(memoryAlg4 dst, iRegPsrc src) %{
   match(Set dst (StoreP dst src));
+  predicate(n->as_Store()->barrier_data() == 0);
   ins_cost(MEMORY_REF_COST);
 
   format %{ "STD     $src, $dst \t// ptr" %}
@@ -7446,62 +7469,6 @@ instruct cmovD_reg(cmpOp cmp, flagsRegSrc crx, regD dst, regD src) %{
     __ bind(done);
   %}
   ins_pipe(pipe_class_default);
-%}
-
-//----------Conditional_store--------------------------------------------------
-// Conditional-store of the updated heap-top.
-// Used during allocation of the shared heap.
-// Sets flags (EQ) on success. Implemented with a CASA on Sparc.
-
-// As compareAndSwapL, but return flag register instead of boolean value in
-// int register.
-// Used by sun/misc/AtomicLongCSImpl.java.
-// Mem_ptr must be a memory operand, else this node does not get
-// Flag_needs_anti_dependence_check set by adlc. If this is not set this node
-// can be rematerialized which leads to errors.
-instruct storeLConditional_regP_regL_regL(flagsReg crx, indirect mem_ptr, iRegLsrc oldVal, iRegLsrc newVal, flagsRegCR0 cr0) %{
-  match(Set crx (StoreLConditional mem_ptr (Binary oldVal newVal)));
-  effect(TEMP cr0);
-  format %{ "CMPXCHGD if ($crx = ($oldVal == *$mem_ptr)) *mem_ptr = $newVal; as bool" %}
-  ins_encode %{
-    __ cmpxchgd($crx$$CondRegister, R0, $oldVal$$Register, $newVal$$Register, $mem_ptr$$Register,
-                MacroAssembler::MemBarAcq, MacroAssembler::cmpxchgx_hint_atomic_update(),
-                noreg, NULL, true);
-  %}
-  ins_pipe(pipe_class_default);
-%}
-
-// As compareAndSwapP, but return flag register instead of boolean value in
-// int register.
-// This instruction is matched if UseTLAB is off.
-// Mem_ptr must be a memory operand, else this node does not get
-// Flag_needs_anti_dependence_check set by adlc. If this is not set this node
-// can be rematerialized which leads to errors.
-instruct storePConditional_regP_regP_regP(flagsRegCR0 cr0, indirect mem_ptr, iRegPsrc oldVal, iRegPsrc newVal) %{
-  match(Set cr0 (StorePConditional mem_ptr (Binary oldVal newVal)));
-  ins_cost(2*MEMORY_REF_COST);
-  predicate(n->as_LoadStore()->barrier_data() == 0);
-
-  format %{ "STDCX_  if ($cr0 = ($oldVal == *$mem_ptr)) *mem_ptr = $newVal; as bool" %}
-  ins_encode %{
-    __ stdcx_($newVal$$Register, $mem_ptr$$Register);
-  %}
-  ins_pipe(pipe_class_memory);
-%}
-
-// Implement LoadPLocked. Must be ordered against changes of the memory location
-// by storePConditional.
-// Don't know whether this is ever used.
-instruct loadPLocked(iRegPdst dst, memory mem) %{
-  match(Set dst (LoadPLocked mem));
-  ins_cost(2*MEMORY_REF_COST);
-
-  format %{ "LDARX   $dst, $mem \t// loadPLocked\n\t" %}
-  size(4);
-  ins_encode %{
-    __ ldarx($dst$$Register, $mem$$Register, MacroAssembler::cmpxchgx_hint_atomic_update());
-  %}
-  ins_pipe(pipe_class_memory);
 %}
 
 //----------Compare-And-Swap---------------------------------------------------
@@ -9006,6 +8973,50 @@ instruct modL_reg_reg_Ex(iRegLdst dst, iRegLsrc src1, iRegLsrc src2) %{
     cmovL_bne_negL_reg(tmp2, tmp1, src1);        // cmove tmp2 = neg(src1) if src2 == -1
     mulL_reg_reg(tmp3, src2, tmp2);              // tmp3 = src2 * tmp2
     subL_reg_reg(dst, src1, tmp3);               // dst = src1 - tmp3
+  %}
+%}
+
+instruct udivI_reg_reg(iRegIdst dst, iRegIsrc src1, iRegIsrc src2) %{
+  match(Set dst (UDivI src1 src2));
+  format %{ "DIVWU   $dst, $src1, $src2" %}
+  size(4);
+  ins_encode %{
+    __ divwu($dst$$Register, $src1$$Register, $src2$$Register);
+  %}
+  ins_pipe(pipe_class_default);
+%}
+
+instruct umodI_reg_reg(iRegIdst dst, iRegIsrc src1, iRegIsrc src2) %{
+  match(Set dst (UModI src1 src2));
+  expand %{
+    iRegIdst tmp1;
+    iRegIdst tmp2;
+    udivI_reg_reg(tmp1, src1, src2);
+    // Compute lower 32 bit result using signed instructions as suggested by ISA.
+    // Upper 32 bit will contain garbage.
+    mulI_reg_reg(tmp2, src2, tmp1);
+    subI_reg_reg(dst, src1, tmp2);
+  %}
+%}
+
+instruct udivL_reg_reg(iRegLdst dst, iRegLsrc src1, iRegLsrc src2) %{
+  match(Set dst (UDivL src1 src2));
+  format %{ "DIVDU   $dst, $src1, $src2" %}
+  size(4);
+  ins_encode %{
+    __ divdu($dst$$Register, $src1$$Register, $src2$$Register);
+  %}
+  ins_pipe(pipe_class_default);
+%}
+
+instruct umodL_reg_reg(iRegLdst dst, iRegLsrc src1, iRegLsrc src2) %{
+  match(Set dst (UModL src1 src2));
+  expand %{
+    iRegLdst tmp1;
+    iRegLdst tmp2;
+    udivL_reg_reg(tmp1, src1, src2);
+    mulL_reg_reg(tmp2, src2, tmp1);
+    subL_reg_reg(dst, src1, tmp2);
   %}
 %}
 
@@ -11426,7 +11437,7 @@ instruct cmpL3_reg_reg(iRegIdst dst, iRegLsrc src1, iRegLsrc src2, flagsRegCR0 c
   match(Set dst (CmpL3 src1 src2));
   effect(KILL cr0);
   ins_cost(DEFAULT_COST * 5);
-  size(VM_Version::has_brw() ? 16 : 20);
+  size((VM_Version::has_brw() ? 16 : 20));
 
   format %{ "cmpL3_reg_reg $dst, $src1, $src2" %}
 
@@ -11761,7 +11772,7 @@ instruct cmpF3_reg_reg(iRegIdst dst, regF src1, regF src2, flagsRegCR0 cr0) %{
   match(Set dst (CmpF3 src1 src2));
   effect(KILL cr0);
   ins_cost(DEFAULT_COST * 6);
-  size(VM_Version::has_brw() ? 20 : 24);
+  size((VM_Version::has_brw() ? 20 : 24));
 
   format %{ "cmpF3_reg_reg $dst, $src1, $src2" %}
 
@@ -11845,7 +11856,7 @@ instruct cmpD3_reg_reg(iRegIdst dst, regD src1, regD src2, flagsRegCR0 cr0) %{
   match(Set dst (CmpD3 src1 src2));
   effect(KILL cr0);
   ins_cost(DEFAULT_COST * 6);
-  size(VM_Version::has_brw() ? 20 : 24);
+  size((VM_Version::has_brw() ? 20 : 24));
 
   format %{ "cmpD3_reg_reg $dst, $src1, $src2" %}
 
@@ -12124,7 +12135,7 @@ instruct partialSubtypeCheck(iRegPdst result, iRegP_N2P subklass, iRegP_N2P supe
 
 // inlined locking and unlocking
 
-instruct cmpFastLock(flagsReg crx, iRegPdst oop, iRegPdst box, iRegPdst tmp1, iRegPdst tmp2) %{
+instruct cmpFastLock(flagsRegCR0 crx, iRegPdst oop, iRegPdst box, iRegPdst tmp1, iRegPdst tmp2) %{
   match(Set crx (FastLock oop box));
   effect(TEMP tmp1, TEMP tmp2);
   predicate(!Compile::current()->use_rtm());
@@ -12132,9 +12143,8 @@ instruct cmpFastLock(flagsReg crx, iRegPdst oop, iRegPdst box, iRegPdst tmp1, iR
   format %{ "FASTLOCK  $oop, $box, $tmp1, $tmp2" %}
   ins_encode %{
     __ compiler_fast_lock_object($crx$$CondRegister, $oop$$Register, $box$$Register,
-                                 $tmp1$$Register, $tmp2$$Register, /*tmp3*/ R0,
-                                 UseBiasedLocking && !UseOptoBiasInlining);
-    // If locking was successfull, crx should indicate 'EQ'.
+                                 $tmp1$$Register, $tmp2$$Register, /*tmp3*/ R0);
+    // If locking was successful, crx should indicate 'EQ'.
     // The compiler generates a branch to the runtime call to
     // _complete_monitor_locking_Java for the case where crx is 'NE'.
   %}
@@ -12151,18 +12161,17 @@ instruct cmpFastLock_tm(flagsReg crx, iRegPdst oop, rarg2RegP box, iRegPdst tmp1
   ins_encode %{
     __ compiler_fast_lock_object($crx$$CondRegister, $oop$$Register, $box$$Register,
                                  $tmp1$$Register, $tmp2$$Register, $tmp3$$Register,
-                                 /*Biased Locking*/ false,
                                  _rtm_counters, _stack_rtm_counters,
                                  ((Method*)(ra_->C->method()->constant_encoding()))->method_data(),
-                                 /*TM*/ true, ra_->C->profile_rtm());
-    // If locking was successfull, crx should indicate 'EQ'.
+                                 /*RTM*/ true, ra_->C->profile_rtm());
+    // If locking was successful, crx should indicate 'EQ'.
     // The compiler generates a branch to the runtime call to
     // _complete_monitor_locking_Java for the case where crx is 'NE'.
   %}
   ins_pipe(pipe_class_compare);
 %}
 
-instruct cmpFastUnlock(flagsReg crx, iRegPdst oop, iRegPdst box, iRegPdst tmp1, iRegPdst tmp2, iRegPdst tmp3) %{
+instruct cmpFastUnlock(flagsRegCR0 crx, iRegPdst oop, iRegPdst box, iRegPdst tmp1, iRegPdst tmp2, iRegPdst tmp3) %{
   match(Set crx (FastUnlock oop box));
   effect(TEMP tmp1, TEMP tmp2, TEMP tmp3);
   predicate(!Compile::current()->use_rtm());
@@ -12171,9 +12180,8 @@ instruct cmpFastUnlock(flagsReg crx, iRegPdst oop, iRegPdst box, iRegPdst tmp1, 
   ins_encode %{
     __ compiler_fast_unlock_object($crx$$CondRegister, $oop$$Register, $box$$Register,
                                    $tmp1$$Register, $tmp2$$Register, $tmp3$$Register,
-                                   UseBiasedLocking && !UseOptoBiasInlining,
                                    false);
-    // If unlocking was successfull, crx should indicate 'EQ'.
+    // If unlocking was successful, crx should indicate 'EQ'.
     // The compiler generates a branch to the runtime call to
     // _complete_monitor_unlocking_Java for the case where crx is 'NE'.
   %}
@@ -12189,8 +12197,8 @@ instruct cmpFastUnlock_tm(flagsReg crx, iRegPdst oop, iRegPdst box, iRegPdst tmp
   ins_encode %{
     __ compiler_fast_unlock_object($crx$$CondRegister, $oop$$Register, $box$$Register,
                                    $tmp1$$Register, $tmp2$$Register, $tmp3$$Register,
-                                   /*Biased Locking*/ false, /*TM*/ true);
-    // If unlocking was successfull, crx should indicate 'EQ'.
+                                   /*RTM*/ true);
+    // If unlocking was successful, crx should indicate 'EQ'.
     // The compiler generates a branch to the runtime call to
     // _complete_monitor_unlocking_Java for the case where crx is 'NE'.
   %}
@@ -12782,16 +12790,16 @@ instruct string_inflate(Universe dummy, rarg1RegP src, rarg2RegP dst, iRegIsrc l
 %}
 
 // StringCoding.java intrinsics
-instruct has_negatives(rarg1RegP ary1, iRegIsrc len, iRegIdst result, iRegLdst tmp1, iRegLdst tmp2,
-                       regCTR ctr, flagsRegCR0 cr0)
+instruct count_positives(iRegPsrc ary1, iRegIsrc len, iRegIdst result, iRegLdst tmp1, iRegLdst tmp2,
+                         regCTR ctr, flagsRegCR0 cr0)
 %{
-  match(Set result (HasNegatives ary1 len));
-  effect(TEMP_DEF result, USE_KILL ary1, TEMP tmp1, TEMP tmp2, KILL ctr, KILL cr0);
+  match(Set result (CountPositives ary1 len));
+  effect(TEMP_DEF result, TEMP tmp1, TEMP tmp2, KILL ctr, KILL cr0);
   ins_cost(300);
-  format %{ "has negatives byte[] $ary1,$len -> $result \t// KILL $tmp1, $tmp2" %}
+  format %{ "count positives byte[] $ary1,$len -> $result \t// KILL $tmp1, $tmp2" %}
   ins_encode %{
-    __ has_negatives($ary1$$Register, $len$$Register, $result$$Register,
-                     $tmp1$$Register, $tmp2$$Register);
+    __ count_positives($ary1$$Register, $len$$Register, $result$$Register,
+                       $tmp1$$Register, $tmp2$$Register);
   %}
   ins_pipe(pipe_class_default);
 %}
@@ -14062,13 +14070,28 @@ instruct vsqrt2D_reg(vecX dst, vecX src) %{
 
 // Vector Population Count Instructions
 
-instruct vpopcnt4I_reg(vecX dst, vecX src) %{
+instruct vpopcnt_reg(vecX dst, vecX src) %{
   match(Set dst (PopCountVI src));
-  predicate(n->as_Vector()->length() == 4);
-  format %{ "VPOPCNTW $dst,$src\t// pop count packed4I" %}
+  format %{ "VPOPCNT $dst,$src\t// pop count packed" %}
   size(4);
   ins_encode %{
-    __ vpopcntw($dst$$VectorSRegister->to_vr(), $src$$VectorSRegister->to_vr());
+    BasicType bt = Matcher::vector_element_basic_type(this);
+    switch (bt) {
+      case T_BYTE:
+        __ vpopcntb($dst$$VectorSRegister->to_vr(), $src$$VectorSRegister->to_vr());
+        break;
+      case T_SHORT:
+        __ vpopcnth($dst$$VectorSRegister->to_vr(), $src$$VectorSRegister->to_vr());
+        break;
+      case T_INT:
+        __ vpopcntw($dst$$VectorSRegister->to_vr(), $src$$VectorSRegister->to_vr());
+        break;
+      case T_LONG:
+        __ vpopcntd($dst$$VectorSRegister->to_vr(), $src$$VectorSRegister->to_vr());
+        break;
+      default:
+        ShouldNotReachHere();
+    }
   %}
   ins_pipe(pipe_class_default);
 %}
@@ -14361,6 +14384,12 @@ instruct safePoint_poll(iRegPdst poll) %{
 
 // Call Java Static Instruction
 
+source %{
+
+#include "runtime/continuation.hpp"
+
+%}
+
 // Schedulable version of call static node.
 instruct CallStaticJavaDirect(method meth) %{
   match(CallStaticJava);
@@ -14370,7 +14399,7 @@ instruct CallStaticJavaDirect(method meth) %{
   ins_num_consts(3 /* up to 3 patchable constants: inline cache, 2 call targets. */);
 
   format %{ "CALL,static $meth \t// ==> " %}
-  size(4);
+  size((Continuations::enabled() ? 8 : 4));
   ins_encode( enc_java_static_call(meth) );
   ins_pipe(pipe_class_call);
 %}
@@ -14391,7 +14420,7 @@ instruct CallDynamicJavaDirectSched(method meth) %{
   ins_num_consts(1 /* 1 patchable constant: call destination */);
 
   format %{ "BL        \t// dynamic $meth ==> " %}
-  size(4);
+  size((Continuations::enabled() ? 8 : 4));
   ins_encode( enc_java_dynamic_call_sched(meth) );
   ins_pipe(pipe_class_call);
 %}
@@ -14469,15 +14498,16 @@ instruct CallLeafDirect(method meth) %{
   predicate(false);  // but never match.
 
   format %{ "BCTRL     \t// leaf call $meth ==> " %}
-  size(4);
+  size((Continuations::enabled() ? 8 : 4));
   ins_encode %{
     __ bctrl();
+    __ post_call_nop();
   %}
   ins_pipe(pipe_class_call);
 %}
 
 // postalloc expand of CallLeafDirect.
-// Load adress to call from TOC, then bl to it.
+// Load address to call from TOC, then bl to it.
 instruct CallLeafDirect_Ex(method meth) %{
   match(CallLeaf);
   effect(USE meth);
@@ -14493,7 +14523,7 @@ instruct CallLeafDirect_Ex(method meth) %{
 
 // Call runtime without safepoint - same as CallLeaf.
 // postalloc expand of CallLeafNoFPDirect.
-// Load adress to call from TOC, then bl to it.
+// Load address to call from TOC, then bl to it.
 instruct CallLeafNoFPDirect_Ex(method meth) %{
   match(CallLeafNoFP);
   effect(USE meth);
@@ -14793,7 +14823,7 @@ instruct cacheWBPostSync()
 //
 // // Change (inc mov) to lea
 // peephole %{
-//   // increment preceeded by register-register move
+//   // increment preceded by register-register move
 //   peepmatch ( incI_eReg movI );
 //   // require that the destination register of the increment
 //   // match the destination register of the move

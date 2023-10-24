@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2021, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2021, JetBrains s.r.o.. All rights reserved.
+ * Copyright (c) 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, JetBrains s.r.o.. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,7 +42,7 @@ static jmethodID sjm_getAccessibleName = NULL;
 - (CommonComponentAccessibility *)accessibleSelection
 {
     JNIEnv *env = [ThreadUtilities getJNIEnv];
-GET_CACCESSIBILITY_CLASS_RETURN(nil);
+    GET_CACCESSIBILITY_CLASS_RETURN(nil);
     DECLARE_STATIC_METHOD_RETURN(sjm_getAccessibleComboboxValue, sjc_CAccessibility, "getAccessibleComboboxValue", "(Ljavax/accessibility/Accessible;Ljava/awt/Component;)Ljavax/accessibility/Accessible;", nil);
     jobject axSelectedChild = (*env)->CallStaticObjectMethod(env, sjc_CAccessibility, sjm_getAccessibleComboboxValue, fAccessible, fComponent);
     CHECK_EXCEPTION();

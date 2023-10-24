@@ -40,7 +40,6 @@ import javax.accessibility.AccessibleContext;
 import javax.accessibility.AccessibleRole;
 
 import sun.awt.AWTAccessor;
-import sun.awt.SunToolkit;
 
 /**
  * The {@code MenuBar} class encapsulates the platform's
@@ -128,7 +127,7 @@ public class MenuBar extends MenuComponent implements MenuContainer, Accessible 
 
     /**
      * Creates a new menu bar.
-     * @exception HeadlessException if GraphicsEnvironment.isHeadless()
+     * @throws HeadlessException if GraphicsEnvironment.isHeadless()
      * returns true.
      * @see java.awt.GraphicsEnvironment#isHeadless
      */
@@ -192,7 +191,7 @@ public class MenuBar extends MenuComponent implements MenuContainer, Accessible 
      * @param m    the menu to be set as the help menu
      */
     public void setHelpMenu(final Menu m) {
-        SunToolkit.performWithTreeLock(() -> {
+        synchronized (getTreeLock()) {
             if (helpMenu == m) {
                 return;
             }
@@ -214,7 +213,7 @@ public class MenuBar extends MenuComponent implements MenuContainer, Accessible 
                     peer.addHelpMenu(m);
                 }
             }
-        });
+        }
     }
 
     /**
@@ -228,7 +227,7 @@ public class MenuBar extends MenuComponent implements MenuContainer, Accessible 
      * @see          java.awt.MenuBar#remove(java.awt.MenuComponent)
      */
     public Menu add(Menu m) {
-        SunToolkit.performWithTreeLock(() -> {
+        synchronized (getTreeLock()) {
             if (m.parent != null) {
                 m.parent.remove(m);
             }
@@ -244,8 +243,8 @@ public class MenuBar extends MenuComponent implements MenuContainer, Accessible 
             } else {
                 menus.addElement(m);
             }
-        });
-        return m;
+            return m;
+        }
     }
 
     /**

@@ -88,13 +88,15 @@ abstract class HotSpotObjectConstantImpl implements HotSpotObjectConstant {
         if (runtime().getCallSite().isInstance(this)) {
             // For ConstantCallSites, we need to read "isFrozen" before reading "target"
             // isFullyInitializedConstantCallSite() reads "isFrozen"
-            if (!isFullyInitializedConstantCallSite()) {
-                if (assumptions == null) {
-                    return null;
-                }
-                assumptions.record(new Assumptions.CallSiteTargetValue(this, readTarget()));
+            if (isFullyInitializedConstantCallSite()) {
+                return readTarget();
             }
-            return readTarget();
+            if (assumptions == null) {
+                return null;
+            }
+            HotSpotObjectConstantImpl result = readTarget();
+            assumptions.record(new Assumptions.CallSiteTargetValue(this, result));
+            return result;
         }
         return null;
     }
@@ -193,7 +195,9 @@ abstract class HotSpotObjectConstantImpl implements HotSpotObjectConstant {
         if (field.isStatic()) {
             return null;
         }
-        return runtime().compilerToVm.readFieldValue(this, (HotSpotResolvedObjectTypeImpl) field.getDeclaringClass(), field.getOffset(), field.getType().getJavaKind());
+        HotSpotResolvedObjectTypeImpl declaringClass = (HotSpotResolvedObjectTypeImpl) field.getDeclaringClass();
+        char typeChar = field.getType().getJavaKind().getTypeChar();
+        return runtime().compilerToVm.readFieldValue(this, declaringClass, field.getOffset(), typeChar);
     }
 
     public ResolvedJavaType asJavaType() {

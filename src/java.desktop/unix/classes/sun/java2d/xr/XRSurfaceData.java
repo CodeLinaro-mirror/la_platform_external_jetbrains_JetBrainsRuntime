@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -208,9 +208,8 @@ public abstract class XRSurfaceData extends XSurfaceData {
 
     protected MaskFill getMaskFill(SunGraphics2D sg2d) {
         AlphaComposite aComp = null;
-        if(sg2d.composite != null
-                && sg2d.composite instanceof AlphaComposite) {
-            aComp = (AlphaComposite) sg2d.composite;
+        if (sg2d.composite instanceof AlphaComposite alphaComposite) {
+            aComp = alphaComposite;
         }
 
         boolean supportedPaint = sg2d.paintState <= SunGraphics2D.PAINT_ALPHACOLOR
@@ -345,7 +344,7 @@ public abstract class XRSurfaceData extends XSurfaceData {
     public abstract boolean canSourceSendExposures(int x, int y, int w, int h);
 
     /**
-     * CopyArea is implemented using the "old" X11 GC, therefor clip and
+     * CopyArea is implemented using the "old" X11 GC, therefore clip and
      * needExposures have to be validated against that GC. Pictures and GCs
      * don't share state.
      */
@@ -394,7 +393,7 @@ public abstract class XRSurfaceData extends XSurfaceData {
     }
 
     /**
-     * Returns the XRender SurfaceType which is able to fullfill the specified
+     * Returns the XRender SurfaceType which is able to fulfill the specified
      * transparency requirement.
      */
     public static SurfaceType getPixmapSurfaceType(int transparency) {

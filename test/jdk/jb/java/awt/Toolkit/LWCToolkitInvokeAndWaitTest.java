@@ -167,7 +167,7 @@ public class LWCToolkitInvokeAndWaitTest {
             //
             // Post an invocation from AppKit.
             //
-            LWCToolkit.invokeAndWait(onDispatching, FRAME, false, INVOKE_TIMEOUT_SECONDS);
+            LWCToolkit.invokeAndWait(onDispatching, FRAME, INVOKE_TIMEOUT_SECONDS);
             TEST_CASE_RESULT.complete(true);
         }));
     }
@@ -181,7 +181,7 @@ public class LWCToolkitInvokeAndWaitTest {
                 //
                 // The invocation from AppKit should be discarded.
                 //
-                tryRun(() -> LWCToolkit.invokeAndWait(EMPTY_RUNNABLE, FRAME, false, INVOKE_TIMEOUT_SECONDS * 4));
+                tryRun(() -> LWCToolkit.invokeAndWait(EMPTY_RUNNABLE, FRAME, INVOKE_TIMEOUT_SECONDS * 4));
                 TEST_CASE_RESULT.complete(true);
             }));
     }

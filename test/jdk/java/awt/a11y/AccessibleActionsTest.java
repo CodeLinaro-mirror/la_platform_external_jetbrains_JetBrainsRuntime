@@ -57,7 +57,7 @@ public class AccessibleActionsTest extends AccessibleComponentTest {
             + "Check a11y actions.\n\n"
             + "Turn screen reader on, and Tab to the label.\n\n"
             + "Perform the VO action \"Press\" (VO+space)\n"
-            + "Perform the VO action \"Show menu\" (VO+Shift+m)\n\n"
+            + "Perform the VO action \"Show menu\" (Shift+VO+m)\n\n"
             + "If after the first action the text of the label has changed, and after the second action the menu appears  tab further and press PASS, otherwise press FAIL.";
 
     exceptionString = "AccessibleAction test failed!";
@@ -67,7 +67,7 @@ public class AccessibleActionsTest extends AccessibleComponentTest {
   void createTree() {
     INSTRUCTIONS = "INSTRUCTIONS:\n"
             + "Check a11y actions.\n\n"
-            + "Turn screen reader on, and Tab to the label.\n\n"
+            + "Turn screen reader on, and Tab to the tree.\n\n"
             + "Perform the VO action \"Press\" (VO+space) on tree nodes\n\n"
             + "If after press the tree node is expanded  tab further and press PASS, otherwise press FAIL.";
 
@@ -92,31 +92,6 @@ public class AccessibleActionsTest extends AccessibleComponentTest {
 
     exceptionString = "AccessibleAction test failed!";
     super.createUI(panel, "AccessibleActionsTest");
-  }
-
-  private void createEditableTextArea() {
-    AccessibleComponentTest.INSTRUCTIONS = "INSTRUCTIONS:\n"
-            + "Check a11y show context menu in editable JTextArea.\n\n"
-            + "Turn screen reader on and press Tab to move to the text area and vo+shif+m.\n\n"
-            + "If the menu appears  tab further and press PASS, otherwise press FAIL.";
-
-    JTextArea textArea = new MyTextArea("some text to edit");
-    JLabel label = new JLabel(textArea.getText().length() + " chars");
-    label.setLabelFor(textArea);
-    textArea.setEditable(true);
-    textArea.addKeyListener(new KeyAdapter() {
-      @Override
-      public void keyReleased(KeyEvent e) {
-        label.setText(String.valueOf(textArea.getText().length()) + " chars");
-      }
-    });
-
-    JPanel panel = new JPanel();
-    panel.setLayout(new FlowLayout());
-    panel.add(textArea);
-    panel.add(label);
-    exceptionString = "Editable text area test failed!";
-    super.createUI(panel, "AccessibleTextTest");
   }
 
   private void createEditableTextArea() {
@@ -158,14 +133,6 @@ public class AccessibleActionsTest extends AccessibleComponentTest {
 
     countDownLatch = test.createCountDownLatch();
     SwingUtilities.invokeLater(test::createTree);
-    countDownLatch.await();
-
-    if (!testResult) {
-      throw new RuntimeException(a11yTest.exceptionString);
-    }
-
-    countDownLatch = test.createCountDownLatch();
-    SwingUtilities.invokeLater(test::createEditableTextArea);
     countDownLatch.await();
 
     if (!testResult) {

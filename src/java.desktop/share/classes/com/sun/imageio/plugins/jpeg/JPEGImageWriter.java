@@ -41,7 +41,6 @@ import java.awt.image.RenderedImage;
 import java.awt.image.WritableRaster;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 
 import javax.imageio.IIOException;
@@ -1389,7 +1388,7 @@ public class JPEGImageWriter extends ImageWriter {
     /**
      * Collect all the scan info from the given metadata, and
      * organize it into the scan info array required by the
-     * IJG libray.  It is much simpler to parse out this
+     * IJG library.  It is much simpler to parse out this
      * data in Java and then just copy the data in C.
      */
     private int [] collectScans(JPEGMetadata metadata,
@@ -1397,9 +1396,7 @@ public class JPEGImageWriter extends ImageWriter {
         List<SOSMarkerSegment> segments = new ArrayList<>();
         int SCAN_SIZE = 9;
         int MAX_COMPS_PER_SCAN = 4;
-        for (Iterator<MarkerSegment> iter = metadata.markerSequence.iterator();
-             iter.hasNext();) {
-            MarkerSegment seg = iter.next();
+        for (MarkerSegment seg : metadata.markerSequence) {
             if (seg instanceof SOSMarkerSegment) {
                 segments.add((SOSMarkerSegment) seg);
             }
@@ -1824,7 +1821,7 @@ public class JPEGImageWriter extends ImageWriter {
     private synchronized void clearThreadLock() {
         Thread currThread = Thread.currentThread();
         if (theThread == null || theThread != currThread) {
-            throw new IllegalStateException("Attempt to clear thread lock form wrong thread. " +
+            throw new IllegalStateException("Attempt to clear thread lock from wrong thread. " +
                                             "Locked thread: " + theThread +
                                             "; current thread: " + currThread);
         }

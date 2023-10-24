@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,7 +38,6 @@
 #import "ThreadUtilities.h"
 #import "NSApplicationAWT.h"
 #import "JNIUtilities.h"
-#import "PropertiesUtilities.h"
 
 #define MASK(KEY) \
     (sun_lwawt_macosx_CPlatformWindow_ ## KEY)
@@ -55,16 +54,6 @@ static jclass jc_CPlatformWindow = NULL;
 
 #define GET_CPLATFORM_WINDOW_CLASS_RETURN(ret) \
     GET_CLASS_RETURN(jc_CPlatformWindow, "sun/lwawt/macosx/CPlatformWindow", ret);
-
-@interface NSTitlebarAccessoryViewController (Private)
-- (void)_setHidden:(BOOL)h animated:(BOOL)a;
-@end
-
-@interface NSWindow (Private)
-- (void)_setTabBarAccessoryViewController:(id)controller;
-- (void)setIgnoreMove:(BOOL)value;
-- (void)_adjustWindowToScreen;
-@end
 
 // Cocoa windowDidBecomeKey/windowDidResignKey notifications
 // doesn't provide information about "opposite" window, so we
@@ -359,44 +348,6 @@ AWT_NS_WINDOW_IMPLEMENTATION
     [super orderOut:sender];
 }
 
-- (void)_setTabBarAccessoryViewController:(id)_controller {
-    if (((AWTWindow *)self.delegate).hideTabController) {
-        NSTitlebarAccessoryViewController* controller = [[NSTitlebarAccessoryViewController alloc] init];
-        controller.view = [[NSView alloc] init];
-        [controller.view setFrame:NSMakeRect(0, 0, 0, 0)];
-        [controller _setHidden:YES animated:NO];
-
-        [super _setTabBarAccessoryViewController:controller];
-    } else {
-        [super _setTabBarAccessoryViewController:_controller];
-    }
-}
-
-- (BOOL)isNativeSelected {
-    if (@available(macOS 10.13, *)) {
-        return [[self tabGroup] selectedWindow] == self;
-    }
-    return NO;
-}
-
-- (void)setIgnoreMove:(BOOL)value {
-    _ignoreMove = value;
-    self.movable = !value;
-}
-
-- (void)_adjustWindowToScreen {
-    if (_ignoreMove) {
-        self.movable = YES;
-    }
-
-    [super _adjustWindowToScreen];
-    [(AWTWindow *)self.delegate updateFullScreenButtons];
-
-    if (_ignoreMove) {
-        self.movable = NO;
-    }
-}
-
 @end
 @implementation AWTWindow_Panel
 AWT_NS_WINDOW_IMPLEMENTATION
@@ -421,7 +372,6 @@ AWT_NS_WINDOW_IMPLEMENTATION
 @synthesize isJustCreated;
 @synthesize javaWindowTabbingMode;
 @synthesize isEnterFullScreen;
-@synthesize hideTabController;
 
 - (void) updateMinMaxSize:(BOOL)resizable {
     if (resizable) {
@@ -439,18 +389,18 @@ AWT_NS_WINDOW_IMPLEMENTATION
     NSUInteger type = 0;
     if (IS(styleBits, DECORATED)) {
         type |= NSTitledWindowMask;
-        if (IS(styleBits, CLOSEABLE))            type |= NSClosableWindowMask;
-        if (IS(styleBits, RESIZABLE))            type |= NSResizableWindowMask;
-        if (IS(styleBits, FULL_WINDOW_CONTENT))  type |= NSFullSizeContentViewWindowMask;
+        if (IS(styleBits, CLOSEABLE))            type |= NSWindowStyleMaskClosable;
+        if (IS(styleBits, RESIZABLE))            type |= NSWindowStyleMaskResizable;
+        if (IS(styleBits, FULL_WINDOW_CONTENT))  type |= NSWindowStyleMaskFullSizeContentView;
     } else {
-        type |= NSBorderlessWindowMask;
+        type |= NSWindowStyleMaskBorderless;
     }
 
-    if (IS(styleBits, MINIMIZABLE))   type |= NSMiniaturizableWindowMask;
-    if (IS(styleBits, TEXTURED))      type |= NSTexturedBackgroundWindowMask;
-    if (IS(styleBits, UNIFIED))       type |= NSUnifiedTitleAndToolbarWindowMask;
-    if (IS(styleBits, UTILITY))       type |= NSUtilityWindowMask;
-    if (IS(styleBits, HUD))           type |= NSHUDWindowMask;
+    if (IS(styleBits, MINIMIZABLE))   type |= NSWindowStyleMaskMiniaturizable;
+    if (IS(styleBits, TEXTURED))      type |= NSWindowStyleMaskTexturedBackground;
+    if (IS(styleBits, UNIFIED))       type |= NSWindowStyleMaskUnifiedTitleAndToolbar;
+    if (IS(styleBits, UTILITY))       type |= NSWindowStyleMaskUtilityWindow;
+    if (IS(styleBits, HUD))           type |= NSWindowStyleMaskHUDWindow;
     if (IS(styleBits, SHEET))         type |= NSWindowStyleMaskDocModalWindow;
 
     return type;
@@ -597,8 +547,6 @@ AWT_ASSERT_APPKIT_THREAD;
     self.nsWindow.collectionBehavior = NSWindowCollectionBehaviorManaged;
     self.isEnterFullScreen = NO;
 
-    [self configureJavaWindowTabbingIdentifier];
-
     if (self.isCustomTitleBarEnabled && !self.isFullScreen) {
         [self setUpCustomTitleBar];
     }
@@ -619,64 +567,6 @@ AWT_ASSERT_APPKIT_THREAD;
 // checks that this window is under the mouse cursor and this point is not overlapped by others windows
 - (BOOL) isTopmostWindowUnderMouse {
     return [self.nsWindow windowNumber] == [AWTWindow getTopmostWindowUnderMouseID];
-}
-
-- (void) configureJavaWindowTabbingIdentifier {
-    AWT_ASSERT_APPKIT_THREAD;
-
-    self.hideTabController = NO;
-
-    if (self.javaWindowTabbingMode != NSWindowTabbingModeAutomatic) {
-        return;
-    }
-
-    JNIEnv *env = [ThreadUtilities getJNIEnv];
-    jobject platformWindow = (*env)->NewLocalRef(env, self.javaPlatformWindow);
-    if (platformWindow == NULL) {
-        return;
-    }
-
-    GET_CPLATFORM_WINDOW_CLASS();
-    DECLARE_FIELD(jf_target, jc_CPlatformWindow, "target", "Ljava/awt/Window;");
-    jobject awtWindow = (*env)->GetObjectField(env, platformWindow, jf_target);
-
-    if (awtWindow != NULL) {
-        DECLARE_CLASS(jc_RootPaneContainer, "javax/swing/RootPaneContainer");
-        if ((*env)->IsInstanceOf(env, awtWindow, jc_RootPaneContainer)) {
-            DECLARE_METHOD(jm_getRootPane, jc_RootPaneContainer, "getRootPane", "()Ljavax/swing/JRootPane;");
-            jobject rootPane = (*env)->CallObjectMethod(env, awtWindow, jm_getRootPane);
-            CHECK_EXCEPTION();
-
-            if (rootPane != NULL) {
-                DECLARE_CLASS(jc_JComponent, "javax/swing/JComponent");
-                DECLARE_METHOD(jm_getClientProperty, jc_JComponent, "getClientProperty", "(Ljava/lang/Object;)Ljava/lang/Object;");
-                jstring jKey = NSStringToJavaString(env, @"JavaWindowTabbingIdentifier");
-                jobject jValue = (*env)->CallObjectMethod(env, rootPane, jm_getClientProperty, jKey);
-                CHECK_EXCEPTION();
-
-                if (jValue != NULL) {
-                    DECLARE_CLASS(jc_String, "java/lang/String");
-                    if ((*env)->IsInstanceOf(env, jValue, jc_String)) {
-                        NSString *winId = JavaStringToNSString(env, (jstring)jValue);
-                        [self.nsWindow setTabbingIdentifier:winId];
-                        if ([winId characterAtIndex:0] == '+') {
-                            self.hideTabController = YES;
-                            [self.nsWindow _setTabBarAccessoryViewController:nil];
-                        }
-                    }
-
-                    (*env)->DeleteLocalRef(env, jValue);
-                }
-
-                (*env)->DeleteLocalRef(env, jKey);
-                (*env)->DeleteLocalRef(env, rootPane);
-            }
-        }
-
-        (*env)->DeleteLocalRef(env, awtWindow);
-    }
-
-    (*env)->DeleteLocalRef(env, platformWindow);
 }
 
 - (NSWindowTabbingMode) getJavaWindowTabbingMode {
@@ -727,7 +617,7 @@ AWT_ASSERT_APPKIT_THREAD;
 
     NSPoint screenLocation = [NSEvent mouseLocation];
     NSPoint windowLocation = [window convertScreenToBase: screenLocation];
-    int modifierFlags = (eventType == NSMouseEntered) ? NSMouseEnteredMask : NSMouseExitedMask;
+    int modifierFlags = (eventType == NSEventTypeMouseEntered) ? NSMouseEnteredMask : NSMouseExitedMask;
 
     NSEvent *mouseEvent = [NSEvent enterExitEventWithType: eventType
                                                  location: windowLocation
@@ -755,9 +645,9 @@ AWT_ASSERT_APPKIT_THREAD;
             BOOL isUnderMouse = ([window windowNumber] == topmostWindowUnderMouseID);
             BOOL mouseIsOver = [[window contentView] mouseIsOver];
             if (isUnderMouse && !mouseIsOver) {
-                [AWTWindow synthesizeMouseEnteredExitedEvents:window withType:NSMouseEntered];
+                [AWTWindow synthesizeMouseEnteredExitedEvents:window withType:NSEventTypeMouseEntered];
             } else if (!isUnderMouse && mouseIsOver) {
-                [AWTWindow synthesizeMouseEnteredExitedEvents:window withType:NSMouseExited];
+                [AWTWindow synthesizeMouseEnteredExitedEvents:window withType:NSEventTypeMouseExited];
             }
         }
     }
@@ -887,7 +777,7 @@ AWT_ASSERT_APPKIT_THREAD;
     }
 }
 
-// Orders window's childs based on the current focus state
+// Orders window children based on the current focus state
 - (void) orderChildWindows:(BOOL)focus {
 AWT_ASSERT_APPKIT_THREAD;
 
@@ -1065,7 +955,7 @@ AWT_ASSERT_APPKIT_THREAD;
                 : [self standardFrame];
 }
 
-// Hides/shows window's childs during iconify/de-iconify operation
+// Hides/shows window children during iconify/de-iconify operation
 - (void) iconifyChildWindows:(BOOL)iconify {
 AWT_ASSERT_APPKIT_THREAD;
 
@@ -1419,13 +1309,6 @@ AWT_ASSERT_APPKIT_THREAD;
     if (self.isCustomTitleBarEnabled) {
         [self forceHideCustomTitleBarTitle:NO];
         [self updateCustomTitleBarInsets:NO];
-
-        JNIEnv *env = [ThreadUtilities getJNIEnvUncached];
-        NSString *newFullScreeControls = [PropertiesUtilities
-            javaSystemPropertyForKey:@"apple.awt.newFullScreeControls" withEnv:env];
-        if ([@"true" isCaseInsensitiveLike:newFullScreeControls]) {
-            [self setWindowFullScreeControls];
-        }
     }
     [self allowMovingChildrenBetweenSpaces:NO];
     [self fullScreenTransitionFinished];
@@ -1472,8 +1355,6 @@ AWT_ASSERT_APPKIT_THREAD;
 }
 
 - (void)windowDidExitFullScreen:(NSNotification *)notification {
-    [self resetWindowFullScreeControls];
-
     self.isEnterFullScreen = NO;
 
     [self fullScreenTransitionFinished];
@@ -1496,7 +1377,9 @@ AWT_ASSERT_APPKIT_THREAD;
 }
 
 - (void)sendEvent:(NSEvent *)event {
-        if ([event type] == NSLeftMouseDown || [event type] == NSRightMouseDown || [event type] == NSOtherMouseDown) {
+        if ([event type] == NSLeftMouseDown ||
+            [event type] == NSRightMouseDown ||
+            [event type] == NSOtherMouseDown) {
             NSPoint p = [NSEvent mouseLocation];
             NSRect frame = [self.nsWindow frame];
             NSRect contentRect = [self.nsWindow contentRectForFrameRect:frame];
@@ -1581,9 +1464,7 @@ static const CGFloat DefaultHorizontalTitleBarButtonOffset = 20.0;
 }
 
 - (void) setUpCustomTitleBar {
-    if (self.customTitleBarConstraints != nil) {
-        [self resetCustomTitleBar];
-    }
+
     /**
      * The view hierarchy normally looks as follows:
      * NSThemeFrame
@@ -1628,8 +1509,6 @@ static const CGFloat DefaultHorizontalTitleBarButtonOffset = 20.0;
         self.customTitleBarHeightConstraint,
     ]];
 
-    [self.nsWindow setIgnoreMove:YES];
-    
     AWTWindowDragView* windowDragView = [[AWTWindowDragView alloc] initWithPlatformWindow:self.javaPlatformWindow];
     [titlebar addSubview:windowDragView positioned:NSWindowBelow relativeTo:closeButtonView];
 
@@ -1681,8 +1560,6 @@ static const CGFloat DefaultHorizontalTitleBarButtonOffset = 20.0;
     }];
     [self setWindowControlsHidden:!self.customTitleBarControlsVisible];
     [self updateCustomTitleBarInsets:self.customTitleBarControlsVisible];
-
-    [self updateFullScreenButtons];
 }
 
 - (void) resetCustomTitleBar {
@@ -1718,110 +1595,12 @@ static const CGFloat DefaultHorizontalTitleBarButtonOffset = 20.0;
 
     [self setWindowControlsHidden:NO];
     [self updateCustomTitleBarInsets:NO];
-    
-    [self.nsWindow setIgnoreMove:NO];
 }
 
-- (void) setWindowControlsHidden: (BOOL) hidden
-{
-    if (_fullScreenOriginalButtons != nil) {
-        [_fullScreenOriginalButtons.window.contentView setHidden:NO];
-        _fullScreenButtons.hidden = YES;
-    }
-
+- (void) setWindowControlsHidden: (BOOL) hidden {
     [self.nsWindow standardWindowButton:NSWindowCloseButton].hidden = hidden;
     [self.nsWindow standardWindowButton:NSWindowZoomButton].hidden = hidden;
     [self.nsWindow standardWindowButton:NSWindowMiniaturizeButton].hidden = hidden;
-}
-
-- (void) setWindowFullScreeControls {
-    JNIEnv *env = [ThreadUtilities getJNIEnvUncached];
-    NSString *dfmMode = [PropertiesUtilities javaSystemPropertyForKey:@"apple.awt.distraction.free.mode" withEnv:env];
-    if ([@"true" isCaseInsensitiveLike:dfmMode]) {
-        return;
-    }
-
-    NSView* oldCloseButton = [self.nsWindow standardWindowButton:NSWindowCloseButton];
-    _fullScreenOriginalButtons = oldCloseButton.superview;
-
-    NSRect closeButtonRect = [oldCloseButton frame];
-    NSRect miniaturizeButtonRect = [[self.nsWindow standardWindowButton:NSWindowMiniaturizeButton] frame];
-    NSRect zoomButtonRect = [[self.nsWindow standardWindowButton:NSWindowZoomButton] frame];
-
-    for (NSWindow* window in [[NSApplication sharedApplication] windows]) {
-          if ([window isKindOfClass:NSClassFromString(@"NSToolbarFullScreenWindow")]) {
-            [window.contentView setHidden:YES];
-          }
-    }
-
-    _fullScreenButtons = [[AWTButtonsView alloc] init];
-    [self updateFullScreenButtons];
-    [_fullScreenButtons addTrackingArea:[[NSTrackingArea alloc] initWithRect:[_fullScreenButtons visibleRect]
-                                                      options:(NSTrackingActiveAlways | NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved)
-                                                      owner:_fullScreenButtons userInfo:nil]];
-
-    NSUInteger masks = [self.nsWindow styleMask];
-
-    NSButton *closeButton = [NSWindow standardWindowButton:NSWindowCloseButton forStyleMask:masks];
-    [closeButton setFrame:closeButtonRect];
-    [_fullScreenButtons addSubview:closeButton];
-
-    NSButton *miniaturizeButton = [NSWindow standardWindowButton:NSWindowMiniaturizeButton forStyleMask:masks];
-    [miniaturizeButton setFrame:miniaturizeButtonRect];
-    [_fullScreenButtons addSubview:miniaturizeButton];
-
-    NSButton *zoomButton = [NSWindow standardWindowButton:NSWindowZoomButton forStyleMask:masks];
-    [zoomButton setFrame:zoomButtonRect];
-    [_fullScreenButtons addSubview:zoomButton];
-
-    [self.nsWindow.contentView addSubview:_fullScreenButtons];
-
-    [self updateColors];
-}
-
-- (void)updateColors {
-    if (_fullScreenButtons != nil) {
-        [(AWTButtonsView *)_fullScreenButtons configureColors];
-    }
-}
-
-- (void)updateFullScreenButtons {
-    if (_fullScreenButtons == nil || _fullScreenOriginalButtons == nil) {
-        return;
-    }
-
-    NSView *parent = self.nsWindow.contentView;
-    CGFloat w = 80;
-    CGFloat h = _fullScreenOriginalButtons.frame.size.height;
-    CGFloat x = 6;
-    CGFloat y = parent.frame.size.height - h - (self.customTitleBarHeight - h) / 2.0;
-
-    [_fullScreenButtons setFrame:NSMakeRect(x, y, w - x, h)];
-}
-
-- (void)updateFullScreenButtons: (BOOL) dfm {
-    if (dfm) {
-        if (_fullScreenButtons == nil || _fullScreenOriginalButtons == nil) {
-            NSLog(@"WARNING: updateFullScreenButtons after dfm open but _fullScreenButtons == nil");
-            return;
-        }
-        [_fullScreenOriginalButtons.window.contentView setHidden:NO];
-        [self resetWindowFullScreeControls];
-    } else {
-        if (_fullScreenButtons != nil) {
-            NSLog(@"WARNING: updateFullScreenButtons after dfm exit but _fullScreenButtons != nil");
-            return;
-        }
-        [self setWindowFullScreeControls];
-    }
-}
-
-- (void) resetWindowFullScreeControls {
-    if (_fullScreenButtons != nil) {
-        [_fullScreenButtons removeFromSuperview];
-        _fullScreenButtons = nil;
-        _fullScreenOriginalButtons = nil;
-    }
 }
 
 - (BOOL) isFullScreen {
@@ -1860,7 +1639,7 @@ static const CGFloat DefaultHorizontalTitleBarButtonOffset = 20.0;
                             nsWindow.styleMask & NSWindowStyleMaskFullScreen)];
     // calls methods on NSWindow to change other properties, based on the mask
     [self setPropertiesForStyleBits:newBits mask:mask];
-    if (!fullscreen && !self.nsWindow.miniaturized) [self _deliverMoveResizeEvent];
+    if (!fullscreen) [self _deliverMoveResizeEvent];
 
     if (enabled != (self.customTitleBarConstraints != nil)) {
         if (!fullscreen) {
@@ -1907,6 +1686,10 @@ static const CGFloat DefaultHorizontalTitleBarButtonOffset = 20.0;
     CHECK_EXCEPTION();
     (*env)->DeleteLocalRef(env, platformWindow);
     return hitTest <= java_awt_Window_CustomTitleBar_HIT_TITLEBAR;
+}
+
+- (BOOL) mouseDownCanMoveWindow {
+    return NO;
 }
 
 - (BOOL) acceptsFirstMouse:(NSEvent *)event {
@@ -1979,96 +1762,6 @@ static const CGFloat DefaultHorizontalTitleBarButtonOffset = 20.0;
 }
 - (void) flagsChanged: (NSEvent *)event {
     [[self.window contentView] flagsChanged:event];
-}
-
-@end
-
-@implementation AWTButtonsView
-
-- (void)dealloc {
-    [_color release];
-    [super dealloc];
-}
-
-- (void)mouseEntered:(NSEvent *)theEvent {
-    [self updateButtons:YES];
-}
-
-- (void)mouseExited:(NSEvent *)theEvent {
-    [self updateButtons:NO];
-}
-
-- (void)configureColors {
-    JNIEnv *env = [ThreadUtilities getJNIEnvUncached];
-    NSString *javaColor = [PropertiesUtilities javaSystemPropertyForKey:@"apple.awt.newFullScreeControls.background" withEnv:env];
-
-    [_color release];
-
-    if (javaColor == nil) {
-        _color = nil;
-    } else {
-        int rgb = [javaColor intValue];
-
-        CGFloat alpha = (((rgb >> 24) & 0xff) / 255.0);
-        CGFloat red   = (((rgb >> 16) & 0xff) / 255.0);
-        CGFloat green = (((rgb >>  8) & 0xff) / 255.0);
-        CGFloat blue  = (((rgb >>  0) & 0xff) / 255.0);
-
-        _color = [NSColor colorWithDeviceRed:red green:green blue:blue alpha:alpha];
-        [_color retain];
-    }
-
-    [self updateButtons:NO];
-}
-
-- (void)updateButtons:(BOOL) flag {
-    _showButtons = flag;
-
-    if (self.subviews.count == 3) {
-        [self updateButton:0 flag:flag]; // close
-        [self updateButton:1 flag:NO];   // miniaturize
-        [self updateButton:2 flag:flag]; // zoom
-    }
-
-    [self setNeedsDisplay:YES];
-}
-
-- (void)updateButton: (int)index flag:(BOOL) flag {
-    NSButton *button = (NSButton*)self.subviews[index];
-    [button setHidden:!flag];
-    [button setHighlighted:flag];
-}
-
-- (void)drawRect: (NSRect)dirtyRect {
-    if (self.subviews.count != 3) {
-        return;
-    }
-
-    if (_color == nil) {
-        [[NSColor whiteColor] setFill];
-    } else {
-        [_color setFill];
-    }
-
-    if (_showButtons) {
-        [self drawButton:1]; // miniaturize
-    } else {
-        for (int i = 0; i < 3; i++) {
-            [self drawButton:i];
-        }
-    }
-}
-
-- (void)drawButton: (int)index {
-    NSButton *button = (NSButton*)self.subviews[index];
-    NSRect rect = button.frame;
-    CGFloat r = 12;
-    CGFloat x = rect.origin.x + (rect.size.width - r) / 2;
-    CGFloat y = rect.origin.y + (rect.size.height - r) / 2;
-
-    NSBezierPath* circlePath = [NSBezierPath bezierPath];
-    [circlePath appendBezierPathWithOvalInRect:CGRectMake(x, y, r, r)];
-    [circlePath fill];
 }
 
 @end
@@ -2670,7 +2363,7 @@ JNIEXPORT void JNICALL Java_sun_lwawt_macosx_CPlatformWindow_nativeSynthesizeMou
 {
 JNI_COCOA_ENTER(env);
 
-    if (eventType == NSMouseEntered || eventType == NSMouseExited) {
+    if (eventType == NSEventTypeMouseEntered || eventType == NSEventTypeMouseExited) {
         NSWindow *nsWindow = OBJC(windowPtr);
 
         [ThreadUtilities performOnMainThreadWaiting:NO block:^(){
@@ -2720,32 +2413,6 @@ JNI_COCOA_ENTER(env);
         }
         BOOL savedValue = inProgress;
         inProgress = YES;
-
-        if ([ThreadUtilities isJavaEventsDispatchingOnMainThread]) {
-            @autoreleasepool {
-                // If a previous full screen toggle operation isn't fully completed,
-                // a new request might fail, so we'll spin a secondary event loop here,
-                // waiting for the previous operation to finish.
-                // We do this with a timeout, which will prevent an infinite loop in case
-                // something unexpected happened and 'fullScreenTransitionInProgress'
-                // variable will be never reset.
-                NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:3];
-                while (fullScreenTransitionInProgress) {
-                    if ([[NSDate date] isGreaterThan:deadline]) {
-                        NSLog(@"Full screen toggle operation hasn't finished as expected");
-                        break;
-                    }
-                    NSEvent *event;
-                    if ((event = [NSApp nextEventMatchingMask:NSAnyEventMask
-                                                    untilDate:deadline
-                                                       inMode:NSDefaultRunLoopMode
-                                                      dequeue:YES]) != nil) {
-                        [NSApp sendEvent:event];
-                    }
-                }
-            }
-        }
-
         [nsWindow performSelector:toggleFullScreenSelector withObject:nil];
         inProgress = savedValue;
     }];
@@ -2809,7 +2476,7 @@ JNI_COCOA_ENTER(env);
         if (CGDisplayCapture(aID) == kCGErrorSuccess) {
             // remove window decoration
             NSUInteger styleMask = [AWTWindow styleMaskForStyleBits:window.styleBits];
-            [nsWindow setStyleMask:(styleMask & ~NSTitledWindowMask) | NSBorderlessWindowMask];
+            [nsWindow setStyleMask:(styleMask & ~NSTitledWindowMask) | NSWindowStyleMaskBorderless];
 
             int shieldLevel = CGShieldingWindowLevel();
             window.preFullScreenLevel = [nsWindow level];
@@ -2926,7 +2593,7 @@ JNIEXPORT void JNICALL Java_sun_lwawt_macosx_CPlatformWindow_nativeCallDeliverMo
 }
 
 JNIEXPORT void JNICALL Java_sun_lwawt_macosx_CPlatformWindow_nativeSetRoundedCorners
-(JNIEnv *env, jclass clazz, jlong windowPtr, jfloat radius, jint borderWidth, jint borderRgb)
+(JNIEnv *env, jclass clazz, jlong windowPtr, jfloat radius)
 {
     JNI_COCOA_ENTER(env);
 
@@ -2936,18 +2603,6 @@ JNIEXPORT void JNICALL Java_sun_lwawt_macosx_CPlatformWindow_nativeSetRoundedCor
         w.contentView.wantsLayer = YES;
         w.contentView.layer.cornerRadius = radius;
         w.contentView.layer.masksToBounds = YES;
-
-        if (borderWidth > 0) {
-            CGFloat alpha = (((borderRgb >> 24) & 0xff) / 255.0);
-            CGFloat red   = (((borderRgb >> 16) & 0xff) / 255.0);
-            CGFloat green = (((borderRgb >>  8) & 0xff) / 255.0);
-            CGFloat blue  = (((borderRgb >>  0) & 0xff) / 255.0);
-            NSColor *color = [NSColor colorWithDeviceRed:red green:green blue:blue alpha:alpha];
-
-            w.contentView.layer.borderWidth = borderWidth;
-            w.contentView.layer.borderColor = color.CGColor;
-        }
-
         w.backgroundColor = NSColor.clearColor;
         w.opaque = NO;
         // remove corner radius animation

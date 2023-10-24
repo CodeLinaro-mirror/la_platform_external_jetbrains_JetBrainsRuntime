@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -148,6 +148,10 @@ import java.util.Locale;
  * from being set by application code, regardless of whether the security policy
  * in force, permits it.
  *
+ * @spec https://www.rfc-editor.org/info/rfc2296
+ *      RFC 2296: HTTP Remote Variant Selection Algorithm -- RVSA/1.0
+ * @spec https://www.rfc-editor.org/info/rfc2732
+ *      RFC 2732: Format for Literal IPv6 Addresses in URL's
  * @since 1.8
  */
 public final class URLPermission extends Permission {
@@ -419,7 +423,7 @@ public final class URLPermission extends Permission {
                     "White space not allowed in methods: \"" + methods + "\"");
             } else {
                 if (c >= 'a' && c <= 'z') {
-                    c += 'A' - 'a';
+                    c += (char) ('A' - 'a');
                 }
                 b.append(c);
             }
@@ -438,7 +442,7 @@ public final class URLPermission extends Permission {
             char c = headers.charAt(i);
             if (c >= 'a' && c <= 'z') {
                 if (capitalizeNext) {
-                    c += 'A' - 'a';
+                    c += (char) ('A' - 'a');
                     capitalizeNext = false;
                 }
                 b.append(c);

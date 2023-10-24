@@ -24,6 +24,7 @@
 /*
  * @test
  * @requires (os.family == "mac")
+ * @run shell build.sh
  * @run main/manual JBRApiTest
  */
 

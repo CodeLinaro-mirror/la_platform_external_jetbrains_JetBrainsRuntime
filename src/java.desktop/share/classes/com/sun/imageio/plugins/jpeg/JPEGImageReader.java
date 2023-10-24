@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -494,9 +494,9 @@ public class JPEGImageReader extends ImageReader {
     /**
      * Sets the input stream to the start of the requested image.
      * <pre>
-     * @exception IllegalStateException if the input source has not been
+     * @throws IllegalStateException if the input source has not been
      * set.
-     * @exception IndexOutOfBoundsException if the supplied index is
+     * @throws IndexOutOfBoundsException if the supplied index is
      * out of bounds.
      * </pre>
      */
@@ -1160,10 +1160,7 @@ public class JPEGImageReader extends ImageReader {
             cbLock.check();
             try {
                 readInternal(imageIndex, param, false);
-            } catch (RuntimeException e) {
-                resetLibraryState(structPointer);
-                throw e;
-            } catch (IOException e) {
+            } catch (RuntimeException | IOException e) {
                 resetLibraryState(structPointer);
                 throw e;
             }
@@ -1329,9 +1326,8 @@ public class JPEGImageReader extends ImageReader {
         // and set knownPassCount
         if (imageIndex == imageMetadataIndex) { // We have metadata
             knownPassCount = 0;
-            for (Iterator<MarkerSegment> iter =
-                    imageMetadata.markerSequence.iterator(); iter.hasNext();) {
-                if (iter.next() instanceof SOSMarkerSegment) {
+            for (MarkerSegment markerSegment : imageMetadata.markerSequence) {
+                if (markerSegment instanceof SOSMarkerSegment) {
                     knownPassCount++;
                 }
             }
@@ -1633,10 +1629,7 @@ public class JPEGImageReader extends ImageReader {
                 target = target.createWritableTranslatedChild(saveDestOffset.x,
                                                               saveDestOffset.y);
             }
-        } catch (RuntimeException e) {
-            resetLibraryState(structPointer);
-            throw e;
-        } catch (IOException e) {
+        } catch (RuntimeException | IOException e) {
             resetLibraryState(structPointer);
             throw e;
         } finally {
@@ -1831,7 +1824,7 @@ public class JPEGImageReader extends ImageReader {
         Thread currThread = Thread.currentThread();
         if (theThread == null || theThread != currThread) {
             throw new IllegalStateException("Attempt to clear thread lock " +
-                                            " form wrong thread." +
+                                            " from wrong thread." +
                                             " Locked thread: " + theThread +
                                             "; current thread: " + currThread);
         }

@@ -58,6 +58,7 @@ import java.util.jar.Manifest;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import java.util.zip.ZipException;
 import java.util.zip.ZipFile;
 
@@ -527,7 +528,6 @@ public class ModulePath implements ModuleFinder {
         Set<String> packages = classFiles.stream()
                 .map(this::toPackageName)
                 .flatMap(Optional::stream)
-                .distinct()
                 .collect(Collectors.toSet());
 
         // all packages are exported and open
@@ -551,7 +551,7 @@ public class ModulePath implements ModuleFinder {
                     if (!cn.isEmpty()) {
                         String pn = packageName(cn);
                         if (!packages.contains(pn)) {
-                            String msg = "Provider class " + cn + " not in module";
+                            String msg = "Provider class " + cn + " not in JAR file " + fn;
                             throw new InvalidModuleDescriptorException(msg);
                         }
                         providerClasses.add(cn);
@@ -664,13 +664,12 @@ public class ModulePath implements ModuleFinder {
 
     private Set<String> explodedPackages(Path dir) {
         String separator = dir.getFileSystem().getSeparator();
-        try {
-            return Files.find(dir, Integer.MAX_VALUE,
-                    ((path, attrs) -> attrs.isRegularFile() && !isHidden(path)))
-                    .map(path -> dir.relativize(path))
-                    .map(path -> toPackageName(path, separator))
-                    .flatMap(Optional::stream)
-                    .collect(Collectors.toSet());
+        try (Stream<Path> stream = Files.find(dir, Integer.MAX_VALUE,
+                (path, attrs) -> attrs.isRegularFile() && !isHidden(path))) {
+            return stream.map(dir::relativize)
+                .map(path -> toPackageName(path, separator))
+                .flatMap(Optional::stream)
+                .collect(Collectors.toSet());
         } catch (IOException x) {
             throw new UncheckedIOException(x);
         }

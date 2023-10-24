@@ -36,7 +36,7 @@ import javadoc.tester.JavadocTester;
 public class TestHref extends JavadocTester {
 
     public static void main(String... args) throws Exception {
-        TestHref tester = new TestHref();
+        var tester = new TestHref();
         tester.runTests();
     }
 
@@ -69,7 +69,7 @@ public class TestHref extends JavadocTester {
                 """
                     See Also:</dt>
                     <dd>
-                    <ul class="see-list-long">
+                    <ul class="tag-list-long">
                     <li><a href="C1.html#method(int,int,java.util.ArrayList)">"""
         );
 

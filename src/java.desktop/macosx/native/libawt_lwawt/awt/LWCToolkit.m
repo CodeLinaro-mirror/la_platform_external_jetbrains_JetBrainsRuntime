@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -74,41 +74,6 @@ static BOOL sAppKitStarted = NO;
 static pthread_mutex_t sAppKitStarted_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t sAppKitStarted_cv = PTHREAD_COND_INITIALIZER;
 
-static time_t YEAR_SECONDS = 60 * 60 * 24 * 365;
-
-@interface JavaAWTEvent : JavaEvent
-@property (readonly) jobject eventQueue;
-@end
-
-@implementation JavaAWTEvent
-- (id) initWithEventQueue:(jobject)eventQueue env:(JNIEnv*) env {
-    if (self = [super init]) {
-        _eventQueue = (*env)->NewGlobalRef(env, eventQueue);
-    }
-    return self;
-}
-
-- (void) dealloc {
-    JNIEnv *env = [ThreadUtilities getJNIEnvUncached];
-    if (_eventQueue) {
-        (*env)->DeleteGlobalRef(env, _eventQueue);
-    }
-    [super dealloc];
-}
-
-- (void) dispatch {
-AWT_ASSERT_APPKIT_THREAD;
-    if (_eventQueue) {
-        [AWTToolkit eventCountPlusPlus];
-        JNIEnv* env = [ThreadUtilities getJNIEnv];
-        DECLARE_CLASS(sjc_LWCToolkit, "sun/lwawt/macosx/LWCToolkit");
-        DECLARE_STATIC_METHOD(jm_LWCToolkit_dispatch, sjc_LWCToolkit, "dispatch", "(Ljava/awt/EventQueue;)V");
-        (*env)->CallStaticVoidMethod(env, sjc_LWCToolkit, jm_LWCToolkit_dispatch, _eventQueue);
-        CHECK_EXCEPTION();
-    }
-}
-@end
-
 @implementation AWTToolkit
 
 static long eventCount;
@@ -140,7 +105,7 @@ static BOOL inDoDragDropLoop;
 
 + (jint) scrollStateWithEvent: (NSEvent*) event {
 
-    if ([event type] != NSScrollWheel) {
+    if ([event type] != NSEventTypeScrollWheel) {
         return 0;
     }
 
@@ -168,7 +133,7 @@ static BOOL inDoDragDropLoop;
 }
 
 + (BOOL) hasPreciseScrollingDeltas: (NSEvent*) event {
-    return [event type] == NSScrollWheel
+    return [event type] == NSEventTypeScrollWheel
         && [event respondsToSelector:@selector(hasPreciseScrollingDeltas)]
         && [event hasPreciseScrollingDeltas];
 }
@@ -620,25 +585,29 @@ JNI_COCOA_EXIT(env);
 JNIEXPORT jboolean JNICALL Java_sun_lwawt_macosx_LWCToolkit_doAWTRunLoopImpl
 (JNIEnv *env, jclass clz, jlong mediator, jboolean processEvents, jboolean inAWT, jint timeoutSeconds/*(-1) for infinite*/)
 {
-AWT_ASSERT_APPKIT_THREAD;
+    AWT_ASSERT_APPKIT_THREAD;
     jboolean result = JNI_TRUE;
-
 JNI_COCOA_ENTER(env);
+
     AWTRunLoopObject* mediatorObject = (AWTRunLoopObject*)jlong_to_ptr(mediator);
 
     if (mediatorObject == nil) return JNI_TRUE;
 
-    time_t timeThreshold = timeoutSeconds < 0 ? time(NULL) + YEAR_SECONDS : time(NULL) + timeoutSeconds;
+    NSDate *date = timeoutSeconds > 0 ? [NSDate dateWithTimeIntervalSinceNow:timeoutSeconds] : nil;
 
     // Don't use acceptInputForMode because that doesn't setup autorelease pools properly
     BOOL isRunning = true;
     while (![mediatorObject shouldEndRunLoop] && isRunning) {
         isRunning = [[NSRunLoop currentRunLoop] runMode:(inAWT ? [ThreadUtilities javaRunLoopMode] : NSDefaultRunLoopMode)
                                              beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.010]];
-        if (difftime(timeThreshold, time(NULL)) < 0) {
-            result = JNI_FALSE;
-            break;
+
+        if (date != nil) {
+            NSDate *now = [[NSDate alloc] init];
+            if ([date compare:(now)] == NSOrderedAscending) result = JNI_FALSE;
+            [now release];
+            if (result == JNI_FALSE) break;
         }
+
         if (processEvents) {
             //We do not spin a runloop here as date is nil, so does not matter which mode to use
             // Processing all events excluding NSApplicationDefined which need to be processed
@@ -659,58 +628,8 @@ JNI_COCOA_ENTER(env);
     }
     [mediatorObject release];
 JNI_COCOA_EXIT(env);
+
     return result;
-}
-
-/*
- * Class:     sun_lwawt_macosx_LWCToolkit
- * Method:    doSimpleRunLoop
- * Signature: (J)V
- */
-JNIEXPORT void JNICALL Java_sun_lwawt_macosx_LWCToolkit_doSimpleRunLoop
-(JNIEnv *env, jclass clz, jlong mediator)
-{
-AWT_ASSERT_APPKIT_THREAD;
-JNI_COCOA_ENTER(env);
-    AWTRunLoopObject* mediatorObject = (AWTRunLoopObject*)jlong_to_ptr(mediator);
-    CHECK_NULL(mediatorObject);
-
-    while (![mediatorObject shouldEndRunLoop]) {
-        NSEvent *event;
-        if ((event = [NSApp nextEventMatchingMask:NSAnyEventMask
-                                        untilDate:NSDate.distantFuture
-                                           inMode:NSDefaultRunLoopMode
-                                          dequeue:YES]) != nil) {
-            [NSApp sendEvent:event];
-        }
-    }
-
-    [mediatorObject release];
-JNI_COCOA_EXIT(env);
-}
-
-/*
- * Class:     sun_lwawt_macosx_LWCToolkit
- * Method:    waitForNextEvent
- * Signature: ()V
- */
-JNIEXPORT void JNICALL Java_sun_lwawt_macosx_LWCToolkit_waitForNextEvent
-(JNIEnv *env, jclass clz)
-{
-AWT_ASSERT_APPKIT_THREAD;
-JNI_COCOA_ENTER(env);
-    while (1) {
-        NSEvent *event = [NSApp nextEventMatchingMask:NSAnyEventMask
-                                            untilDate:NSDate.distantFuture
-                                               inMode:NSDefaultRunLoopMode
-                                              dequeue:YES];
-        JavaEvent *e = [NSApplicationAWT extractJavaEvent:event];
-        if (e) {
-            return;
-        }
-        [NSApp sendEvent:event];
-    }
-JNI_COCOA_EXIT(env);
 }
 
 /*
@@ -778,22 +697,6 @@ JNI_COCOA_ENTER(env);
         JavaRunnable* performer = [[JavaRunnable alloc] initWithRunnable:gRunnable];
         [performer perform];
     }];
-JNI_COCOA_EXIT(env);
-}
-
-/*
- * Class:     sun_lwawt_macosx_LWCToolkit
- * Method:    scheduleEvent
- * Signature: (Ljava/awt/EventQueue;)V
- */
-JNIEXPORT void JNICALL Java_sun_lwawt_macosx_LWCToolkit_scheduleEvent
-(JNIEnv *env, jclass clz, jobject eventQueue)
-{
-JNI_COCOA_ENTER(env);
-    CHECK_NULL(eventQueue);
-    JavaAWTEvent* jae = [[JavaAWTEvent alloc] initWithEventQueue:eventQueue env:env];
-    [NSApplicationAWT postJavaEvent:jae];
-    [jae release];
 JNI_COCOA_EXIT(env);
 }
 
@@ -910,7 +813,7 @@ Java_sun_lwawt_macosx_LWCToolkit_initIDs
     CHECK_NULL(getButtonDownMasksID);
     jintArray obj = (jintArray)(*env)->CallStaticObjectMethod(env, inputEventClazz, getButtonDownMasksID);
     CHECK_EXCEPTION();
-    jint * tmp = (*env)->GetIntArrayElements(env, obj, JNI_FALSE);
+    jint * tmp = (*env)->GetIntArrayElements(env, obj, NULL);
     CHECK_NULL(tmp);
 
     gButtonDownMasks = (jint*)SAFE_SIZE_ARRAY_ALLOC(malloc, sizeof(jint), gNumberOfButtons);
@@ -1026,16 +929,6 @@ Java_sun_lwawt_macosx_LWCToolkit_getMultiClickTime(JNIEnv *env, jclass klass) {
     }];
     JNI_COCOA_EXIT(env);
     return multiClickTime;
-}
-
-/*
- * Class:     sun_lwawt_macosx_LWCToolkit
- * Method:    setMainThreadImmediateDispatch
- * Signature: ()V
- */
-JNIEXPORT void JNICALL
-Java_sun_lwawt_macosx_LWCToolkit_setJavaEventsDispatchingOnMainThread(JNIEnv *env, jclass klass) {
-    [ThreadUtilities setJavaEventsDispatchingOnMainThread];
 }
 
 /*

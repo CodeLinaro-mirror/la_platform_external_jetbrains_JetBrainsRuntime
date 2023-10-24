@@ -72,7 +72,7 @@ static UInt8* getSubpixelGlyphImage(GlyphInfo *glyph, float x, float y) {
 #define ADJUST_SUBPIXEL_GLYPH_POSITION(coord, res) \
  if ((res) > 1) (coord) += 0.5f / ((float)(res)) - 0.5f;
 
-GlyphBlitVector* setupBlitVector(JNIEnv *env, jobject glyphlist,
+JNIEXPORT GlyphBlitVector* setupBlitVector(JNIEnv *env, jobject glyphlist,
                                  jint fromGlyph, jint toGlyph) {
 
     int g;
@@ -173,7 +173,7 @@ GlyphBlitVector* setupBlitVector(JNIEnv *env, jobject glyphlist,
     return gbv;
 }
 
-jint RefineBounds(GlyphBlitVector *gbv, SurfaceDataBounds *bounds) {
+JNIEXPORT jint RefineBounds(GlyphBlitVector *gbv, SurfaceDataBounds *bounds) {
     int index;
     jint dx1, dy1, dx2, dy2;
     ImageRef glyphImage;
@@ -520,8 +520,8 @@ Java_sun_java2d_loops_DrawGlyphListLCD_DrawGlyphListLCD
  *  rendered fractional metrics, there's typically more space between the
  *  glyphs. Perhaps disabling X-axis grid-fitting will help with that.
  */
-GlyphBlitVector* setupLCDBlitVector(JNIEnv *env, jobject glyphlist,
-                                    jint fromGlyph, jint toGlyph) {
+JNIEXPORT GlyphBlitVector* setupLCDBlitVector(JNIEnv *env, jobject glyphlist,
+                                              jint fromGlyph, jint toGlyph) {
 
     int g;
     size_t bytesNeeded;
@@ -563,12 +563,12 @@ GlyphBlitVector* setupLCDBlitVector(JNIEnv *env, jobject glyphlist,
      * integral subpixel position for that case, hence 0.5/3 = 0.166667
      * Presently subPixPos means FM, and FM disables embedded bitmaps
      * Therefore if subPixPos is true we should never get embedded bitmaps
-     * and the glyphlist will be homogenous. This test and the position
+     * and the glyphlist will be homogeneous. This test and the position
      * adjustments will need to be per glyph once this case becomes
-     * heterogenous.
+     * heterogeneous.
      * Also set subPixPos=false if detect a B&W bitmap as we only
      * need to test that on a per glyph basis once the list becomes
-     * heterogenous
+     * heterogeneous
      */
     if (subPixPos && len > 0) {
         ginfo = (GlyphInfo*)((uintptr_t)imagePtrs[fromGlyph]);

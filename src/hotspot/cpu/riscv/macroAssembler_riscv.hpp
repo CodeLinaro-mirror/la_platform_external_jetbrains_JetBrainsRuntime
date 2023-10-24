@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 1997, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2023, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2014, 2020, Red Hat Inc. All rights reserved.
- * Copyright (c) 2020, 2022, Huawei Technologies Co., Ltd. All rights reserved.
+ * Copyright (c) 2020, 2023, Huawei Technologies Co., Ltd. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,6 +28,7 @@
 #define CPU_RISCV_MACROASSEMBLER_RISCV_HPP
 
 #include "asm/assembler.inline.hpp"
+#include "code/vmreg.hpp"
 #include "metaprogramming/enableIf.hpp"
 #include "nativeInst_riscv.hpp"
 #include "oops/compressedOops.hpp"
@@ -43,16 +44,17 @@ class MacroAssembler: public Assembler {
  public:
   MacroAssembler(CodeBuffer* code) : Assembler(code) {}
 
-  virtual ~MacroAssembler() {}
-
   void safepoint_poll(Label& slow_path, bool at_return, bool acquire, bool in_nmethod);
 
   // Alignment
-  void align(int modulus, int extra_offset = 0);
+  int align(int modulus, int extra_offset = 0);
 
   static inline void assert_alignment(address pc, int alignment = NativeInstruction::instruction_size) {
     assert(is_aligned(pc, alignment), "bad alignment");
   }
+
+  // nop
+  void post_call_nop();
 
   // Stack frame creation/removal
   // Note that SP must be updated to the right place before saving/restoring RA and FP
@@ -152,7 +154,7 @@ class MacroAssembler: public Assembler {
   virtual void call_VM_leaf_base(
     address entry_point,                // the entry point
     int     number_of_arguments,        // the number of arguments to pop after the call
-    Label*  retaddr = NULL
+    Label*  retaddr = nullptr
   );
 
   virtual void call_VM_leaf_base(
@@ -176,21 +178,22 @@ class MacroAssembler: public Assembler {
   virtual void check_and_handle_earlyret(Register java_thread);
   virtual void check_and_handle_popframe(Register java_thread);
 
-  void resolve_weak_handle(Register result, Register tmp);
-  void resolve_oop_handle(Register result, Register tmp = x15);
-  void resolve_jobject(Register value, Register thread, Register tmp);
+  void resolve_weak_handle(Register result, Register tmp1, Register tmp2);
+  void resolve_oop_handle(Register result, Register tmp1, Register tmp2);
+  void resolve_jobject(Register value, Register tmp1, Register tmp2);
+  void resolve_global_jobject(Register value, Register tmp1, Register tmp2);
 
-  void movoop(Register dst, jobject obj, bool immediate = false);
+  void movoop(Register dst, jobject obj);
   void mov_metadata(Register dst, Metadata* obj);
   void bang_stack_size(Register size, Register tmp);
   void set_narrow_oop(Register dst, jobject obj);
   void set_narrow_klass(Register dst, Klass* k);
 
-  void load_mirror(Register dst, Register method, Register tmp = x15);
+  void load_mirror(Register dst, Register method, Register tmp1, Register tmp2);
   void access_load_at(BasicType type, DecoratorSet decorators, Register dst,
-                      Address src, Register tmp1, Register thread_tmp);
+                      Address src, Register tmp1, Register tmp2);
   void access_store_at(BasicType type, DecoratorSet decorators, Address dst,
-                       Register src, Register tmp1, Register thread_tmp);
+                       Register val, Register tmp1, Register tmp2, Register tmp3);
   void load_klass(Register dst, Register src, Register tmp = t0);
   void store_klass(Register dst, Register src, Register tmp = t0);
   void cmp_klass(Register oop, Register trial_klass, Register tmp1, Register tmp2, Label &L);
@@ -205,29 +208,29 @@ class MacroAssembler: public Assembler {
   void decode_heap_oop(Register r) { decode_heap_oop(r, r); }
   void encode_heap_oop(Register d, Register s);
   void encode_heap_oop(Register r) { encode_heap_oop(r, r); };
-  void load_heap_oop(Register dst, Address src, Register tmp1 = noreg,
-                     Register thread_tmp = noreg, DecoratorSet decorators = 0);
-  void load_heap_oop_not_null(Register dst, Address src, Register tmp1 = noreg,
-                              Register thread_tmp = noreg, DecoratorSet decorators = 0);
-  void store_heap_oop(Address dst, Register src, Register tmp1 = noreg,
-                      Register thread_tmp = noreg, DecoratorSet decorators = 0);
+  void load_heap_oop(Register dst, Address src, Register tmp1,
+                     Register tmp2, DecoratorSet decorators = 0);
+  void load_heap_oop_not_null(Register dst, Address src, Register tmp1,
+                              Register tmp2, DecoratorSet decorators = 0);
+  void store_heap_oop(Address dst, Register val, Register tmp1,
+                      Register tmp2, Register tmp3, DecoratorSet decorators = 0);
 
   void store_klass_gap(Register dst, Register src);
 
   // currently unimplemented
-  // Used for storing NULL. All other oop constants should be
+  // Used for storing null. All other oop constants should be
   // stored using routines that take a jobject.
   void store_heap_oop_null(Address dst);
 
   // This dummy is to prevent a call to store_heap_oop from
-  // converting a zero (linke NULL) into a Register by giving
+  // converting a zero (linked null) into a Register by giving
   // the compiler two choices it can't resolve
 
   void store_heap_oop(Address dst, void* dummy);
 
-  // Support for NULL-checks
+  // Support for null-checks
   //
-  // Generates code that causes a NULL OS exception if the content of reg is NULL.
+  // Generates code that causes a null OS exception if the content of reg is null.
   // If the accessed location is M[reg + offset] and the offset is known, provide the
   // offset. No explicit code generateion is needed if the offset is within a certain
   // range (0 <= offset <= page_size).
@@ -257,9 +260,9 @@ class MacroAssembler: public Assembler {
                              RegisterOrConstant vtable_index,
                              Register method_result);
 
-  // Form an addres from base + offset in Rd. Rd my or may not
+  // Form an address from base + offset in Rd. Rd my or may not
   // actually be used: you must use the Address that is returned. It
-  // is up to you to ensure that the shift provided mathces the size
+  // is up to you to ensure that the shift provided matches the size
   // of your data.
   Address form_address(Register Rd, Register base, int64_t byte_offset);
 
@@ -285,19 +288,10 @@ class MacroAssembler: public Assembler {
     bool     is_far = false
   );
 
-  void eden_allocate(
-    Register obj,                   // result: pointer to object after successful allocation
-    Register var_size_in_bytes,     // object size in bytes if unknown at compile time; invalid otherwise
-    int      con_size_in_bytes,     // object size in bytes if   known at compile time
-    Register tmp,                   // temp register
-    Label&   slow_case,             // continuation point if fast allocation fails
-    bool     is_far = false
-  );
-
   // Test sub_klass against super_klass, with fast and slow paths.
 
   // The fast path produces a tri-state answer: yes / no / maybe-slow.
-  // One of the three labels can be NULL, meaning take the fall-through.
+  // One of the three labels can be null, meaning take the fall-through.
   // If super_check_offset is -1, the value is loaded up from super_klass.
   // No registers are killed, except tmp_reg
   void check_klass_subtype_fast_path(Register sub_klass,
@@ -308,9 +302,9 @@ class MacroAssembler: public Assembler {
                                      Label* L_slow_path,
                                      Register super_check_offset = noreg);
 
-  // The reset of the type cehck; must be wired to a corresponding fast path.
+  // The reset of the type check; must be wired to a corresponding fast path.
   // It does not repeat the fast path logic, so don't use it standalone.
-  // The tmp1_reg and tmp2_reg can be noreg, if no temps are avaliable.
+  // The tmp1_reg and tmp2_reg can be noreg, if no temps are available.
   // Updates the sub's secondary super cache as necessary.
   void check_klass_subtype_slow_path(Register sub_klass,
                                      Register super_klass,
@@ -327,12 +321,26 @@ class MacroAssembler: public Assembler {
   Address argument_address(RegisterOrConstant arg_slot, int extra_slot_offset = 0);
 
   // only if +VerifyOops
-  void verify_oop(Register reg, const char* s = "broken oop");
-  void verify_oop_addr(Address addr, const char* s = "broken oop addr");
+  void _verify_oop(Register reg, const char* s, const char* file, int line);
+  void _verify_oop_addr(Address addr, const char* s, const char* file, int line);
+
+  void _verify_oop_checked(Register reg, const char* s, const char* file, int line) {
+    if (VerifyOops) {
+      _verify_oop(reg, s, file, line);
+    }
+  }
+  void _verify_oop_addr_checked(Address reg, const char* s, const char* file, int line) {
+    if (VerifyOops) {
+      _verify_oop_addr(reg, s, file, line);
+    }
+  }
 
   void _verify_method_ptr(Register reg, const char* msg, const char* file, int line) {}
   void _verify_klass_ptr(Register reg, const char* msg, const char* file, int line) {}
 
+#define verify_oop(reg) _verify_oop_checked(reg, "broken oop " #reg, __FILE__, __LINE__)
+#define verify_oop_msg(reg, msg) _verify_oop_checked(reg, "broken oop " #reg ", " #msg, __FILE__, __LINE__)
+#define verify_oop_addr(addr) _verify_oop_addr_checked(addr, "broken oop addr " #addr, __FILE__, __LINE__)
 #define verify_method_ptr(reg) _verify_method_ptr(reg, "broken method " #reg, __FILE__, __LINE__)
 #define verify_klass_ptr(reg) _verify_method_ptr(reg, "broken klass " #reg, __FILE__, __LINE__)
 
@@ -368,6 +376,10 @@ class MacroAssembler: public Assembler {
     return ((predecessor & 0x3) << 2) | (successor & 0x3);
   }
 
+  void pause() {
+    fence(w, 0);
+  }
+
   // prints msg, dumps registers and stops execution
   void stop(const char* msg);
 
@@ -382,7 +394,7 @@ class MacroAssembler: public Assembler {
   // Required platform-specific helpers for Label::patch_instructions.
   // They _shadow_ the declarations in AbstractAssembler, which are undefined.
   static int pd_patch_instruction_size(address branch, address target);
-  static void pd_patch_instruction(address branch, address target, const char* file = NULL, int line = 0) {
+  static void pd_patch_instruction(address branch, address target, const char* file = nullptr, int line = 0) {
     pd_patch_instruction_size(branch, target);
   }
   static address pd_call_destination(address branch) {
@@ -390,8 +402,19 @@ class MacroAssembler: public Assembler {
   }
 
   static int patch_oop(address insn_addr, address o);
+
+  static address get_target_of_li32(address insn_addr);
+  static int patch_imm_in_li32(address branch, int32_t target);
+
+  // Return whether code is emitted to a scratch blob.
+  virtual bool in_scratch_emit_size() {
+    return false;
+  }
+
   address emit_trampoline_stub(int insts_call_instruction_offset, address target);
+  static int max_trampoline_stub_size();
   void emit_static_call_stub();
+  static int static_call_stub_size();
 
   // The following 4 methods return the offset of the appropriate move instruction
 
@@ -404,8 +427,12 @@ class MacroAssembler: public Assembler {
   int load_signed_short(Register dst, Address src);
 
   // Load and store values by size and signed-ness
-  void load_sized_value(Register dst, Address src, size_t size_in_bytes, bool is_signed, Register dst2 = noreg);
-  void store_sized_value(Address dst, Register src, size_t size_in_bytes, Register src2 = noreg);
+  void load_sized_value(Register dst, Address src, size_t size_in_bytes, bool is_signed);
+  void store_sized_value(Address dst, Register src, size_t size_in_bytes);
+
+  // Misaligned loads, will use the best way, according to the AvoidUnalignedAccess flag
+  void load_int_misaligned(Register dst, Address src, Register tmp, bool is_signed, int granularity = 1);
+  void load_long_misaligned(Register dst, Address src, Register tmp, int granularity = 1);
 
  public:
   // Standard pseudo instructions
@@ -566,7 +593,7 @@ class MacroAssembler: public Assembler {
 
 #define INSN(NAME)                                                                                       \
   void NAME(Register Rs1, Register Rs2, const address dest) {                                            \
-    assert_cond(dest != NULL);                                                                           \
+    assert_cond(dest != nullptr);                                                                        \
     int64_t offset = dest - pc();                                                                        \
     guarantee(is_simm13(offset) && ((offset % 2) == 0), "offset is invalid.");                           \
     Assembler::NAME(Rs1, Rs2, offset);                                                                   \
@@ -639,6 +666,9 @@ public:
   void push_CPU_state(bool save_vectors = false, int vector_size_in_bytes = 0);
   void pop_CPU_state(bool restore_vectors = false, int vector_size_in_bytes = 0);
 
+  void push_cont_fastpath(Register java_thread);
+  void pop_cont_fastpath(Register java_thread);
+
   // if heap base register is used - reinit it with the correct value
   void reinit_heapbase();
 
@@ -663,6 +693,7 @@ public:
   void la(Register Rd, const address dest);
   void la(Register Rd, const Address &adr);
 
+  void li16u(Register Rd, uint16_t imm);
   void li32(Register Rd, int32_t imm);
   void li64(Register Rd, int64_t imm);
   void li  (Register Rd, int64_t imm);  // optimized load immediate
@@ -753,7 +784,7 @@ public:
 
 #define INSN(NAME)                                                                                 \
   void NAME(Register Rd, address dest) {                                                           \
-    assert_cond(dest != NULL);                                                                     \
+    assert_cond(dest != nullptr);                                                                  \
     int64_t distance = dest - pc();                                                                \
     if (is_simm32(distance)) {                                                                     \
       auipc(Rd, (int32_t)distance + 0x800);                                                        \
@@ -770,8 +801,9 @@ public:
   void NAME(Register Rd, const Address &adr, Register temp = t0) {                                 \
     switch (adr.getMode()) {                                                                       \
       case Address::literal: {                                                                     \
-        relocate(adr.rspec());                                                                     \
-        NAME(Rd, adr.target());                                                                    \
+        relocate(adr.rspec(), [&] {                                                                \
+          NAME(Rd, adr.target());                                                                  \
+        });                                                                                        \
         break;                                                                                     \
       }                                                                                            \
       case Address::base_plus_offset: {                                                            \
@@ -809,7 +841,7 @@ public:
 
 #define INSN(NAME)                                                                                 \
   void NAME(FloatRegister Rd, address dest, Register temp = t0) {                                  \
-    assert_cond(dest != NULL);                                                                     \
+    assert_cond(dest != nullptr);                                                                  \
     int64_t distance = dest - pc();                                                                \
     if (is_simm32(distance)) {                                                                     \
       auipc(temp, (int32_t)distance + 0x800);                                                      \
@@ -827,8 +859,9 @@ public:
   void NAME(FloatRegister Rd, const Address &adr, Register temp = t0) {                            \
     switch (adr.getMode()) {                                                                       \
       case Address::literal: {                                                                     \
-        relocate(adr.rspec());                                                                     \
-        NAME(Rd, adr.target(), temp);                                                              \
+        relocate(adr.rspec(), [&] {                                                                \
+          NAME(Rd, adr.target(), temp);                                                            \
+        });                                                                                        \
         break;                                                                                     \
       }                                                                                            \
       case Address::base_plus_offset: {                                                            \
@@ -868,7 +901,7 @@ public:
 
 #define INSN(NAME)                                                                                 \
   void NAME(Register Rs, address dest, Register temp = t0) {                                       \
-    assert_cond(dest != NULL);                                                                     \
+    assert_cond(dest != nullptr);                                                                  \
     assert_different_registers(Rs, temp);                                                          \
     int64_t distance = dest - pc();                                                                \
     if (is_simm32(distance)) {                                                                     \
@@ -884,8 +917,9 @@ public:
     switch (adr.getMode()) {                                                                       \
       case Address::literal: {                                                                     \
         assert_different_registers(Rs, temp);                                                      \
-        relocate(adr.rspec());                                                                     \
-        NAME(Rs, adr.target(), temp);                                                              \
+        relocate(adr.rspec(), [&] {                                                                \
+          NAME(Rs, adr.target(), temp);                                                            \
+        });                                                                                        \
         break;                                                                                     \
       }                                                                                            \
       case Address::base_plus_offset: {                                                            \
@@ -913,7 +947,7 @@ public:
 
 #define INSN(NAME)                                                                                 \
   void NAME(FloatRegister Rs, address dest, Register temp = t0) {                                  \
-    assert_cond(dest != NULL);                                                                     \
+    assert_cond(dest != nullptr);                                                                  \
     int64_t distance = dest - pc();                                                                \
     if (is_simm32(distance)) {                                                                     \
       auipc(temp, (int32_t)distance + 0x800);                                                      \
@@ -927,8 +961,9 @@ public:
   void NAME(FloatRegister Rs, const Address &adr, Register temp = t0) {                            \
     switch (adr.getMode()) {                                                                       \
       case Address::literal: {                                                                     \
-        relocate(adr.rspec());                                                                     \
-        NAME(Rs, adr.target(), temp);                                                              \
+        relocate(adr.rspec(), [&] {                                                                \
+          NAME(Rs, adr.target(), temp);                                                            \
+        });                                                                                        \
         break;                                                                                     \
       }                                                                                            \
       case Address::base_plus_offset: {                                                            \
@@ -994,38 +1029,21 @@ public:
   void atomic_xchgwu(Register prev, Register newv, Register addr);
   void atomic_xchgalwu(Register prev, Register newv, Register addr);
 
-  void atomic_incw(Register counter_addr, Register tmp);
-  void atomic_incw(Address counter_addr, Register tmp1, Register tmp2) {
-    la(tmp1, counter_addr);
-    atomic_incw(tmp1, tmp2);
-  }
-
-  // Biased locking support
-  // lock_reg and obj_reg must be loaded up with the appropriate values.
-  // swap_reg is killed.
-  // tmp_reg must be supplied and must not be t0 or t1
-  // Optional slow case is for implementations (interpreter and C1) which branch to
-  // slow case directly. Leaves condition codes set for C2's Fast_Lock done.
-  // Returns offset of first potentially-faulting instruction for null
-  // check info (currently consumed only by C1). If
-  // swap_reg_contains_mark is true then returns -1 as it as assumed
-  // the calling code has already passed any potential faults.
-  void biased_locking_enter(Register lock_reg, Register obj_reg,
-                            Register swap_reg, Register tmp_Reg,
-                            bool swap_reg_contains_mark,
-                            Label& done, Label* slow_case = NULL,
-                            BiasedLockingCounters* counters = NULL,
-                            Register flag = noreg);
-  void biased_locking_exit(Register obj_reg, Register tmp_reg, Label& done, Register flag = noreg);
-
   static bool far_branches() {
     return ReservedCodeCacheSize > branch_range;
   }
 
-  // Jumps that can reach anywhere in the code cache.
-  // Trashes tmp.
-  void far_call(Address entry, CodeBuffer *cbuf = NULL, Register tmp = t0);
-  void far_jump(Address entry, CodeBuffer *cbuf = NULL, Register tmp = t0);
+  // Emit a direct call/jump if the entry address will always be in range,
+  // otherwise a far call/jump.
+  // The address must be inside the code cache.
+  // Supported entry.rspec():
+  // - relocInfo::external_word_type
+  // - relocInfo::runtime_call_type
+  // - relocInfo::none
+  // In the case of a far call/jump, the entry address is put in the tmp register.
+  // The tmp register is invalidated.
+  void far_call(Address entry, Register tmp = t0);
+  void far_jump(Address entry, Register tmp = t0);
 
   static int far_branch_size() {
     if (far_branches()) {
@@ -1061,7 +1079,72 @@ public:
   void get_polling_page(Register dest, relocInfo::relocType rtype);
   void read_polling_page(Register r, int32_t offset, relocInfo::relocType rtype);
 
-  address trampoline_call(Address entry, CodeBuffer* cbuf = NULL);
+  // RISCV64 OpenJDK uses four different types of calls:
+  //   - direct call: jal pc_relative_offset
+  //     This is the shortest and the fastest, but the offset has the range: +/-1MB.
+  //
+  //   - far call: auipc reg, pc_relative_offset; jalr ra, reg, offset
+  //     This is longer than a direct call. The offset has
+  //     the range [-(2G + 2K), 2G - 2K). Addresses out of the range in the code cache
+  //     requires indirect call.
+  //     If a jump is needed rather than a call, a far jump 'jalr x0, reg, offset' can
+  //     be used instead.
+  //     All instructions are embedded at a call site.
+  //
+  //   - trampoline call:
+  //     This is only available in C1/C2-generated code (nmethod). It is a combination
+  //     of a direct call, which is used if the destination of a call is in range,
+  //     and a register-indirect call. It has the advantages of reaching anywhere in
+  //     the RISCV address space and being patchable at runtime when the generated
+  //     code is being executed by other threads.
+  //
+  //     [Main code section]
+  //       jal trampoline
+  //     [Stub code section]
+  //     trampoline:
+  //       ld    reg, pc + 8 (auipc + ld)
+  //       jr    reg
+  //       <64-bit destination address>
+  //
+  //     If the destination is in range when the generated code is moved to the code
+  //     cache, 'jal trampoline' is replaced with 'jal destination' and the trampoline
+  //     is not used.
+  //     The optimization does not remove the trampoline from the stub section.
+
+  //     This is necessary because the trampoline may well be redirected later when
+  //     code is patched, and the new destination may not be reachable by a simple JAL
+  //     instruction.
+  //
+  //   - indirect call: movptr + jalr
+  //     This too can reach anywhere in the address space, but it cannot be
+  //     patched while code is running, so it must only be modified at a safepoint.
+  //     This form of call is most suitable for targets at fixed addresses, which
+  //     will never be patched.
+  //
+  //
+  // To patch a trampoline call when the JAL can't reach, we first modify
+  // the 64-bit destination address in the trampoline, then modify the
+  // JAL to point to the trampoline, then flush the instruction cache to
+  // broadcast the change to all executing threads. See
+  // NativeCall::set_destination_mt_safe for the details.
+  //
+  // There is a benign race in that the other thread might observe the
+  // modified JAL before it observes the modified 64-bit destination
+  // address. That does not matter because the destination method has been
+  // invalidated, so there will be a trap at its start.
+  // For this to work, the destination address in the trampoline is
+  // always updated, even if we're not using the trampoline.
+
+  // Emit a direct call if the entry address will always be in range,
+  // otherwise a trampoline call.
+  // Supported entry.rspec():
+  // - relocInfo::runtime_call_type
+  // - relocInfo::opt_virtual_call_type
+  // - relocInfo::static_call_type
+  // - relocInfo::virtual_call_type
+  //
+  // Return: the call PC or null if CodeCache is full.
+  address trampoline_call(Address entry);
   address ic_call(address entry, jint method_index = 0);
 
   // Support for memory inc/dec
@@ -1080,7 +1163,7 @@ public:
 
   void cmpptr(Register src1, Address src2, Label& equal);
 
-  void clinit_barrier(Register klass, Register tmp, Label* L_fast_path = NULL, Label* L_slow_path = NULL);
+  void clinit_barrier(Register klass, Register tmp, Label* L_fast_path = nullptr, Label* L_slow_path = nullptr);
   void load_method_holder_cld(Register result, Register method);
   void load_method_holder(Register holder, Register method);
 
@@ -1123,10 +1206,11 @@ public:
 
   void ctzc_bit(Register Rd, Register Rs, bool isLL = false, Register tmp1 = t0, Register tmp2 = t1);
 
-  void zero_words(Register base, u_int64_t cnt);
+  void zero_words(Register base, uint64_t cnt);
   address zero_words(Register ptr, Register cnt);
   void fill_words(Register base, Register cnt, Register value);
   void zero_memory(Register addr, Register len, Register tmp);
+  void zero_dcache_blocks(Register base, Register cnt, Register tmp1, Register tmp2);
 
   // shift left by shamt and add
   void shadd(Register Rd, Register Rs1, Register Rs2, Register tmp, int shamt);
@@ -1181,16 +1265,67 @@ public:
   }
 
   // vector pseudo instructions
+  inline void vl1r_v(VectorRegister vd, Register rs) {
+    vl1re8_v(vd, rs);
+  }
+
   inline void vmnot_m(VectorRegister vd, VectorRegister vs) {
     vmnand_mm(vd, vs, vs);
   }
 
-  inline void vncvt_x_x_w(VectorRegister vd, VectorRegister vs, VectorMask vm) {
+  inline void vncvt_x_x_w(VectorRegister vd, VectorRegister vs, VectorMask vm = unmasked) {
     vnsrl_wx(vd, vs, x0, vm);
   }
 
-  inline void vfneg_v(VectorRegister vd, VectorRegister vs) {
-    vfsgnjn_vv(vd, vs, vs);
+  inline void vneg_v(VectorRegister vd, VectorRegister vs, VectorMask vm = unmasked) {
+    vrsub_vx(vd, vs, x0, vm);
+  }
+
+  inline void vfneg_v(VectorRegister vd, VectorRegister vs, VectorMask vm = unmasked) {
+    vfsgnjn_vv(vd, vs, vs, vm);
+  }
+
+  inline void vfabs_v(VectorRegister vd, VectorRegister vs, VectorMask vm = unmasked) {
+    vfsgnjx_vv(vd, vs, vs, vm);
+  }
+
+  inline void vmsgt_vv(VectorRegister vd, VectorRegister vs2, VectorRegister vs1, VectorMask vm = unmasked) {
+    vmslt_vv(vd, vs1, vs2, vm);
+  }
+
+  inline void vmsgtu_vv(VectorRegister vd, VectorRegister vs2, VectorRegister vs1, VectorMask vm = unmasked) {
+    vmsltu_vv(vd, vs1, vs2, vm);
+  }
+
+  inline void vmsge_vv(VectorRegister vd, VectorRegister vs2, VectorRegister vs1, VectorMask vm = unmasked) {
+    vmsle_vv(vd, vs1, vs2, vm);
+  }
+
+  inline void vmsgeu_vv(VectorRegister vd, VectorRegister vs2, VectorRegister vs1, VectorMask vm = unmasked) {
+    vmsleu_vv(vd, vs1, vs2, vm);
+  }
+
+  inline void vmfgt_vv(VectorRegister vd, VectorRegister vs2, VectorRegister vs1, VectorMask vm = unmasked) {
+    vmflt_vv(vd, vs1, vs2, vm);
+  }
+
+  inline void vmfge_vv(VectorRegister vd, VectorRegister vs2, VectorRegister vs1, VectorMask vm = unmasked) {
+    vmfle_vv(vd, vs1, vs2, vm);
+  }
+
+  // Copy mask register
+  inline void vmmv_m(VectorRegister vd, VectorRegister vs) {
+    vmand_mm(vd, vs, vs);
+  }
+
+  // Clear mask register
+  inline void vmclr_m(VectorRegister vd) {
+    vmxor_mm(vd, vd, vd);
+  }
+
+  // Set mask register
+  inline void vmset_m(VectorRegister vd) {
+    vmxnor_mm(vd, vd, vd);
   }
 
   static const int zero_words_block_size;
@@ -1234,8 +1369,22 @@ public:
   // if [src1 < src2], dst = -1;
   void cmp_l2i(Register dst, Register src1, Register src2, Register tmp = t0);
 
+  // support for argument shuffling
+  void move32_64(VMRegPair src, VMRegPair dst, Register tmp = t0);
+  void float_move(VMRegPair src, VMRegPair dst, Register tmp = t0);
+  void long_move(VMRegPair src, VMRegPair dst, Register tmp = t0);
+  void double_move(VMRegPair src, VMRegPair dst, Register tmp = t0);
+  void object_move(OopMap* map,
+                   int oop_handle_offset,
+                   int framesize_in_slots,
+                   VMRegPair src,
+                   VMRegPair dst,
+                   bool is_receiver,
+                   int* receiver_offset);
+  void rt_call(address dest, Register tmp = t0);
+
   void call(const address dest, Register temp = t0) {
-    assert_cond(dest != NULL);
+    assert_cond(dest != nullptr);
     assert(temp != noreg, "expecting a register");
     int32_t offset = 0;
     mv(temp, dest, offset);
@@ -1245,8 +1394,6 @@ public:
   inline void ret() {
     jalr(x0, x1, 0);
   }
-
-private:
 
 #ifdef ASSERT
   // Template short-hand support to clean-up after a failed call to trampoline
@@ -1261,6 +1408,9 @@ private:
     lbl.reset();
   }
 #endif
+
+private:
+
   void repne_scan(Register addr, Register value, Register count, Register tmp);
 
   void ld_constant(Register dest, const Address &const_addr) {
@@ -1282,7 +1432,9 @@ private:
   void load_reserved(Register addr, enum operand_size size, Assembler::Aqrl acquire);
   void store_conditional(Register addr, Register new_val, enum operand_size size, Assembler::Aqrl release);
 
-  void load_prototype_header(Register dst, Register src);
+public:
+  void fast_lock(Register obj, Register hdr, Register tmp1, Register tmp2, Label& slow);
+  void fast_unlock(Register obj, Register hdr, Register tmp1, Register tmp2, Label& slow);
 };
 
 #ifdef ASSERT

@@ -29,6 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 public final class RenderCache {
+
     private final int MAX_ENTRIES;
     private final Map<Key, Object> mruCache;
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -68,6 +68,43 @@ import static sun.java2d.SunGraphicsEnvironment.toDeviceSpaceAbs;
  * <p>
  * Applications that use Robot for purposes other than self-testing should
  * handle these error conditions gracefully.
+ * <p>
+ * Platforms and desktop environments may impose restrictions or limitations
+ * on the access required to implement all functionality in the Robot class.
+ * For example:
+ * <ul>
+ * <li> preventing access to the contents of any part of a desktop
+ * or Window on the desktop that is not owned by the running application.</li>
+ * <li> treating window decorations as non-owned content.</li>
+ * <li> ignoring or limiting specific requests to manipulate windows.</li>
+ * <li> ignoring or limiting specific requests for Robot generated (synthesized)
+ * events related to keyboard and mouse etc.</li>
+ * <li> requiring specific or global permissions to any access to window
+ * contents, even application owned content,or to perform even limited
+ * synthesizing of events.</li>
+ * </ul>
+ *
+ * The Robot API specification requires that approvals for these be granted
+ * for full operation.
+ * If they are not granted, the API will be degraded as discussed here.
+ * Relevant specific API methods may document more specific limitations
+ * and requirements.
+ * Depending on the policies of the desktop environment,
+ * the approvals mentioned above may:
+ * <ul>
+ * <li>be required every time</li>
+ * <li>or persistent for the lifetime of an application,</li>
+ * <li>or persistent across multiple user desktop sessions</li>
+ * <li>be fine-grained permissions</li>
+ * <li>be associated with a specific binary application,
+ * or a class of binary applications.</li>
+ * </ul>
+ *
+ * When such approvals need to given interactively, it may impede the normal
+ * operation of the application until approved, and if approval is denied
+ * or not possible, or cannot be made persistent then it will degrade
+ * the functionality of this class and in turn any part of the operation
+ * of the application which is dependent on it.
  *
  * @author      Robi Khan
  * @since       1.3
@@ -75,8 +112,8 @@ import static sun.java2d.SunGraphicsEnvironment.toDeviceSpaceAbs;
 public class Robot {
     private static final int MAX_DELAY = 60000;
     private RobotPeer peer;
-    private volatile boolean isAutoWaitForIdle = false;
-    private volatile int autoDelay = 0;
+    private boolean isAutoWaitForIdle = false;
+    private int autoDelay = 0;
     private static int LEGAL_BUTTON_MASK = 0;
 
     private DirectColorModel screenCapCM = null;
@@ -189,14 +226,17 @@ public class Robot {
 
     /**
      * Moves mouse pointer to given screen coordinates.
+     * <p>
+     * The mouse pointer may not visually move on some platforms,
+     * while the subsequent mousePress and mouseRelease can be
+     * delivered to the correct location
+     *
      * @param x         X position
      * @param y         Y position
      */
-    public void mouseMove(int x, int y) {
-        runSynchronized(() -> {
-            peer.mouseMove(x, y);
-            afterEvent();
-        });
+    public synchronized void mouseMove(int x, int y) {
+        peer.mouseMove(x, y);
+        afterEvent();
     }
 
     /**
@@ -251,12 +291,10 @@ public class Robot {
      * @see java.awt.MouseInfo#getNumberOfButtons()
      * @see java.awt.event.MouseEvent
      */
-    public void mousePress(int buttons) {
-        runSynchronized(() -> {
-            checkButtonsArgument(buttons);
-            peer.mousePress(buttons);
-            afterEvent();
-        });
+    public synchronized void mousePress(int buttons) {
+        checkButtonsArgument(buttons);
+        peer.mousePress(buttons);
+        afterEvent();
     }
 
     /**
@@ -310,12 +348,10 @@ public class Robot {
      * @see java.awt.MouseInfo#getNumberOfButtons()
      * @see java.awt.event.MouseEvent
      */
-    public void mouseRelease(int buttons) {
-        runSynchronized(() -> {
-            checkButtonsArgument(buttons);
-            peer.mouseRelease(buttons);
-            afterEvent();
-        });
+    public synchronized void mouseRelease(int buttons) {
+        checkButtonsArgument(buttons);
+        peer.mouseRelease(buttons);
+        afterEvent();
     }
 
     private static void checkButtonsArgument(int buttons) {
@@ -333,11 +369,9 @@ public class Robot {
      *
      * @since 1.4
      */
-    public void mouseWheel(int wheelAmt) {
-        runSynchronized(() -> {
-            peer.mouseWheel(wheelAmt);
-            afterEvent();
-        });
+    public synchronized void mouseWheel(int wheelAmt) {
+        peer.mouseWheel(wheelAmt);
+        afterEvent();
     }
 
     /**
@@ -354,12 +388,10 @@ public class Robot {
      * @see     #keyRelease(int)
      * @see     java.awt.event.KeyEvent
      */
-    public void keyPress(int keycode) {
-        runSynchronized(() -> {
-            checkKeycodeArgument(keycode);
-            peer.keyPress(keycode);
-            afterEvent();
-        });
+    public synchronized void keyPress(int keycode) {
+        checkKeycodeArgument(keycode);
+        peer.keyPress(keycode);
+        afterEvent();
     }
 
     /**
@@ -375,12 +407,10 @@ public class Robot {
      * @see  #keyPress(int)
      * @see     java.awt.event.KeyEvent
      */
-    public void keyRelease(int keycode) {
-        runSynchronized(() -> {
-            checkKeycodeArgument(keycode);
-            peer.keyRelease(keycode);
-            afterEvent();
-        });
+    public synchronized void keyRelease(int keycode) {
+        checkKeycodeArgument(keycode);
+        peer.keyRelease(keycode);
+        afterEvent();
     }
 
     private static void checkKeycodeArgument(int keycode) {
@@ -395,8 +425,22 @@ public class Robot {
 
     /**
      * Returns the color of a pixel at the given screen coordinates.
+     * <p>
+     * If the desktop environment requires that permissions be granted
+     * to capture screen content, and the required permissions are not granted,
+     * then a {@code SecurityException} may be thrown,
+     * or the content of the returned {@code Color} is undefined.
+     * </p>
+     * @apiNote It is recommended to avoid calling this method on
+     * the AWT Event Dispatch Thread since screen capture may be a lengthy
+     * operation, particularly if acquiring permissions is needed and involves
+     * user interaction.
+     *
      * @param   x       X position of pixel
      * @param   y       Y position of pixel
+     * @throws  SecurityException if {@code readDisplayPixels} permission
+     *          is not granted, or access to the screen is denied
+     *          by the desktop environment
      * @return  Color of the pixel
      */
     public synchronized Color getPixelColor(int x, int y) {
@@ -407,12 +451,25 @@ public class Robot {
     }
 
     /**
-     * Creates an image containing pixels read from the screen.  This image does
-     * not include the mouse cursor.
+     * Creates an image containing pixels read from the screen.
+     * <p>
+     * If the desktop environment requires that permissions be granted
+     * to capture screen content, and the required permissions are not granted,
+     * then a {@code SecurityException} may be thrown,
+     * or the contents of the returned {@code BufferedImage} are undefined.
+     * </p>
+     * @apiNote It is recommended to avoid calling this method on
+     * the AWT Event Dispatch Thread since screen capture may be a lengthy
+     * operation, particularly if acquiring permissions is needed and involves
+     * user interaction.
+     *
      * @param   screenRect      Rect to capture in screen coordinates
      * @return  The captured image
-     * @throws  IllegalArgumentException if {@code screenRect} width and height are not greater than zero
-     * @throws  SecurityException if {@code readDisplayPixels} permission is not granted
+     * @throws  IllegalArgumentException if {@code screenRect} width and height
+     *          are not greater than zero
+     * @throws  SecurityException if {@code readDisplayPixels} permission
+     *          is not granted, or access to the screen is denied
+     *          by the desktop environment
      * @see     SecurityManager#checkPermission
      * @see     AWTPermission
      */
@@ -422,7 +479,6 @@ public class Robot {
 
     /**
      * Creates an image containing pixels read from the screen.
-     * This image does not include the mouse cursor.
      * This method can be used in case there is a scaling transform
      * from user space to screen (device) space.
      * Typically this means that the display is a high resolution screen,
@@ -455,8 +511,11 @@ public class Robot {
      * }</pre>
      * @param   screenRect     Rect to capture in screen coordinates
      * @return  The captured image
-     * @throws  IllegalArgumentException if {@code screenRect} width and height are not greater than zero
-     * @throws  SecurityException if {@code readDisplayPixels} permission is not granted
+     * @throws  IllegalArgumentException if {@code screenRect} width and height
+     *          are not greater than zero
+     * @throws  SecurityException if {@code readDisplayPixels} permission
+     *          is not granted, or access to the screen is denied
+     *          by the desktop environment
      * @see     SecurityManager#checkPermission
      * @see     AWTPermission
      *
@@ -694,12 +753,10 @@ public class Robot {
      * Waits until all events currently on the event queue have been processed.
      * @throws  IllegalThreadStateException if called on the AWT event dispatching thread
      */
-    public void waitForIdle() {
-        runSynchronized(() -> {
-            checkNotDispatchThread();
-            SunToolkit.flushPendingEvents();
-            ((SunToolkit) Toolkit.getDefaultToolkit()).realSync();
-        });
+    public synchronized void waitForIdle() {
+        checkNotDispatchThread();
+        SunToolkit.flushPendingEvents();
+        ((SunToolkit) Toolkit.getDefaultToolkit()).realSync();
     }
 
     private static void checkNotDispatchThread() {
@@ -717,15 +774,5 @@ public class Robot {
     public synchronized String toString() {
         String params = "autoDelay = "+getAutoDelay()+", "+"autoWaitForIdle = "+isAutoWaitForIdle();
         return getClass().getName() + "[ " + params + " ]";
-    }
-
-    private void runSynchronized(Runnable task) {
-        if (SunToolkit.isDispatchingOnMainThread()) {
-            task.run();
-        } else {
-            synchronized (this) {
-                task.run();
-            }
-        }
     }
 }

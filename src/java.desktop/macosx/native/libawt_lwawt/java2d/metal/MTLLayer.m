@@ -150,8 +150,6 @@ BOOL isColorMatchingEnabled() {
             [renderBuffer encodeWaitForEvent:self.ctx.syncEvent value:self.ctx.syncCount];
         }
 
-#define MTL_LAYER_USE_BLIT_ENC
-#ifdef MTL_LAYER_USE_BLIT_ENC
         id <MTLBlitCommandEncoder> blitEncoder = [commandBuf blitCommandEncoder];
 
         [blitEncoder
@@ -161,40 +159,7 @@ BOOL isColorMatchingEnabled() {
                 toTexture:mtlDrawable.texture destinationSlice:0 destinationLevel:0
                 destinationOrigin:MTLOriginMake(0, 0, 0)];
         [blitEncoder endEncoding];
-#else
-        id<MTLCommandBuffer> cb = [ctx createCommandBuffer];
-        id<MTLComputeCommandEncoder> computeEncoder = [cb computeCommandEncoder];
-        id<MTLComputePipelineState> computePipelineState = [ctx.pipelineStateStorage
-                                                            getComputePipelineState:@"tex2tex_opaque"];
-        [computeEncoder setComputePipelineState:computePipelineState];
 
-        NSUInteger maxTotalThreadsPerThreadgroup = computePipelineState.maxTotalThreadsPerThreadgroup;
-        NSUInteger w = computePipelineState.threadExecutionWidth;
-
-        // Workaround for some OS/device bug reporting incorrect maxTotalThreadsPerThreadgroup
-        if (maxTotalThreadsPerThreadgroup == 0) {
-            maxTotalThreadsPerThreadgroup = 1;
-            w = 1;
-        }
-
-        NSUInteger h = maxTotalThreadsPerThreadgroup / w;
-        MTLSize threadgroupSize = MTLSizeMake(w, h, 1);
-        MTLSize threadgroupCount;
-
-        threadgroupCount.width  = (*buffer.width - src_x + threadgroupSize.width - 1) / threadgroupSize.width;
-        threadgroupCount.height = (*buffer.height - src_y + threadgroupSize.height - 1) / threadgroupSize.height;
-        threadgroupCount.depth = 1;
-
-        [computeEncoder setTexture:*buffer atIndex:0];
-        [computeEncoder setTexture:mtlDrawable.texture atIndex:1];
-        struct InsetsUniforms uniforms = {src_x, src_y};
-        [computeEncoder setBytes:&uniforms length:sizeof(struct InsetsUniforms) atIndex:2];
-
-        [computeEncoder dispatchThreadgroups:threadgroupCount
-                               threadsPerThreadgroup:threadgroupSize];
-        [computeEncoder endEncoding];
-        [cb commit];
-#endif
         if (@available(macOS 10.14, *)) {
             [commandBuf encodeSignalEvent:self.ctx.syncEvent value:self.ctx.syncCount];
         }
@@ -407,4 +372,18 @@ Java_sun_java2d_metal_MTLLayer_blitTexture
     }
 
     [layer blitTexture];
+}
+
+JNIEXPORT void JNICALL
+Java_sun_java2d_metal_MTLLayer_nativeSetOpaque
+(JNIEnv *env, jclass cls, jlong layerPtr, jboolean opaque)
+{
+    JNI_COCOA_ENTER(env);
+
+    MTLLayer *mtlLayer = OBJC(layerPtr);
+    [ThreadUtilities performOnMainThreadWaiting:NO block:^(){
+        [mtlLayer setOpaque:(opaque == JNI_TRUE)];
+    }];
+
+    JNI_COCOA_EXIT(env);
 }

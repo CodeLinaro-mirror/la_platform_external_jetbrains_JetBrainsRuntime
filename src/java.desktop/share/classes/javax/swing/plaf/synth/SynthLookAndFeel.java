@@ -279,7 +279,7 @@ public class SynthLookAndFeel extends BasicLookAndFeel {
     }
 
     /**
-     * A convience method that will reset the Style of StyleContext if
+     * A convenience method that will reset the Style of StyleContext if
      * necessary.
      *
      * @return newStyle
@@ -627,6 +627,8 @@ public class SynthLookAndFeel extends BasicLookAndFeel {
      * {@code SynthStyleFactory} to
      * {@linkplain #setStyleFactory setStyleFactory(SynthStyleFactory)}
      * are preferred.
+     * Consequently this method is deprecated and will be removed in a future
+     * release.
      *
      * @param url the <code>URL</code> to load the set of
      *     <code>SynthStyle</code> from
@@ -634,7 +636,10 @@ public class SynthLookAndFeel extends BasicLookAndFeel {
      * @throws IllegalArgumentException if synthSet is <code>null</code>
      * @throws IOException if synthSet cannot be opened as an <code>InputStream</code>
      * @since 1.6
+     * @deprecated Use {@link #load(InputStream, Class)} or
+     * {@link #setStyleFactory setStyleFactory(SynthStyleFactory)} instead
      */
+    @Deprecated(since = "21", forRemoval = true)
     public void load(URL url) throws ParseException, IOException {
         if (url == null) {
             throw new IllegalArgumentException(
@@ -732,6 +737,15 @@ public class SynthLookAndFeel extends BasicLookAndFeel {
                    "RIGHT", "selectParent",
                 "KP_RIGHT", "selectParent",
                   });
+
+        table.put("Menu.shortcutKeys",
+                  new int[] {
+                          SwingUtilities2.getSystemMnemonicKeyMask(),
+                          SwingUtilities2.setAltGraphMask(
+                             SwingUtilities2.getSystemMnemonicKeyMask())
+                  });
+
+        table.put("PasswordField.echoChar", '*');
 
         // enabled antialiasing depending on desktop settings
         flushUnreferenced();
@@ -1005,6 +1019,9 @@ public class SynthLookAndFeel extends BasicLookAndFeel {
                 SynthStyle style = context.getStyle();
                 int state = context.getComponentState();
 
+                if (style == null) {
+                    return;
+                }
                 // Get the current background color.
                 Color currBG = style.getColor(context, ColorType.BACKGROUND);
 

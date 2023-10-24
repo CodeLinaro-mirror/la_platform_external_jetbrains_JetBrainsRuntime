@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -60,7 +60,7 @@ Java_sun_java2d_metal_MTLGraphicsConfig_isMetalFrameworkAvailable
 {
     jboolean metalSupported = JNI_FALSE;
 
-    // It is guranteed that metal supported GPU is available macOS 10.14 onwards
+    // It is guaranteed that metal supported GPU is available since macOS 10.14
     if (@available(macOS 10.14, *)) {
         metalSupported = JNI_TRUE;
     }
@@ -70,37 +70,6 @@ Java_sun_java2d_metal_MTLGraphicsConfig_isMetalFrameworkAvailable
     return metalSupported;
 }
 
-JNIEXPORT jint JNICALL
-Java_sun_java2d_metal_MTLGraphicsConfig_tryLoadMetalLibrary
-    (JNIEnv *env, jclass mtlgc, jint displayID, jstring shadersLibName)
-{
-    __block jint ret = sun_java2d_metal_MTLGraphicsConfig_LOAD_LIB_ERROR;
-
-JNI_COCOA_ENTER(env);
-
-    __block NSString* path = NormalizedPathNSStringFromJavaString(env, shadersLibName);
-
-    [ThreadUtilities performOnMainThreadWaiting:YES block:^() {
-
-        id<MTLDevice> device = CGDirectDisplayCopyCurrentMetalDevice(displayID);
-        if (device != nil) {
-            NSError* error = nil;
-            id<MTLLibrary> lib = [device newLibraryWithFile:path error:&error];
-            if (lib != nil) {
-                ret = sun_java2d_metal_MTLGraphicsConfig_LOAD_LIB_OK;
-            } else {
-                J2dRlsTraceLn(J2D_TRACE_ERROR, "MTLGraphicsConfig_tryLoadMetalLibrary - Failed to load Metal shader library.");
-                ret = sun_java2d_metal_MTLGraphicsConfig_LOAD_LIB_NO_SHADER_LIB;
-            }
-        } else {
-            J2dRlsTraceLn(J2D_TRACE_ERROR, "MTLGraphicsConfig_tryLoadMetalLibrary - Failed to create MTLDevice.");
-            ret = sun_java2d_metal_MTLGraphicsConfig_LOAD_LIB_NO_DEVICE;
-        }
-    }];
-
-JNI_COCOA_EXIT(env);
-    return ret;
-}
 
 /**
  * Determines whether the Metal pipeline can be used for a given screen number and
@@ -137,7 +106,7 @@ JNI_COCOA_ENTER(env);
                 mtlc = nil;
             }
         } else {
-            J2dRlsTraceLn(J2D_TRACE_ERROR, "MTLGraphicsConfig_getMTLConfigInfo: could not initialze MTLContext.");
+            J2dRlsTraceLn(J2D_TRACE_ERROR, "MTLGraphicsConfig_getMTLConfigInfo: could not initialize MTLContext.");
         }
     }];
 

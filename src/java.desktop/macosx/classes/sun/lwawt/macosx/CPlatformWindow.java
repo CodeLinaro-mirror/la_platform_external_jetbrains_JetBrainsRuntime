@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,6 +44,7 @@ import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.Window;
 import java.awt.event.FocusEvent;
+import java.awt.event.PaintEvent;
 import java.awt.event.WindowEvent;
 import java.awt.peer.ComponentPeer;
 import java.beans.PropertyChangeEvent;
@@ -67,6 +68,7 @@ import sun.awt.AWTAccessor;
 import sun.awt.AWTAccessor.ComponentAccessor;
 import sun.awt.AWTAccessor.WindowAccessor;
 import sun.awt.AWTThreading;
+import sun.awt.PaintEventDispatcher;
 import sun.java2d.SunGraphicsEnvironment;
 import sun.java2d.SurfaceData;
 import sun.lwawt.LWLightweightFramePeer;
@@ -103,13 +105,13 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     private static native void nativeEnterFullScreenMode(long nsWindowPtr);
     private static native void nativeExitFullScreenMode(long nsWindowPtr);
     static native CPlatformWindow nativeGetTopmostPlatformWindowUnderMouse();
-    private static native boolean nativeDelayShowing(long nsWindowPtr);
     private static native void nativeRaiseLevel(long nsWindowPtr, boolean popup, boolean onlyIfParentIsActive);
+    private static native boolean nativeDelayShowing(long nsWindowPtr);
     private static native void nativeUpdateCustomTitleBar(long nsWindowPtr);
     private static native void nativeCallDeliverMoveResizeEvent(long nsWindowPtr);
-    private static native void nativeSetRoundedCorners(long nsWindowPrt, float radius, int borderWidth, int borderColor);
+    private static native void nativeSetRoundedCorners(long nsWindowPrt, float radius);
 
-    // Loger to report issues happened during execution but that do not affect functionality
+    // Logger to report issues happened during execution but that do not affect functionality
     private static final PlatformLogger logger = PlatformLogger.getLogger("sun.lwawt.macosx.CPlatformWindow");
     private static final PlatformLogger focusLogger = PlatformLogger.getLogger("sun.lwawt.macosx.focus.CPlatformWindow");
 
@@ -258,12 +260,12 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
             c.execute(ptr -> nativeRevalidateNSWindowShadow(ptr));
         }},
         new Property<CPlatformWindow>(WINDOW_DOCUMENT_FILE) { public void applyProperty(final CPlatformWindow c, final Object value) {
-            if (value == null || !(value instanceof java.io.File)) {
+            if (!(value instanceof java.io.File file)) {
                 c.execute(ptr->nativeSetNSWindowRepresentedFilename(ptr, null));
                 return;
             }
 
-            final String filename = ((java.io.File)value).getAbsolutePath();
+            final String filename = file.getAbsolutePath();
             c.execute(ptr->nativeSetNSWindowRepresentedFilename(ptr, filename));
         }},
         new Property<CPlatformWindow>(WINDOW_FULL_CONTENT) {
@@ -404,7 +406,9 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
             }
         });
         setPtr(ref.get());
-
+        if (peer != null) { // Not applicable to CWarningWindow
+            peer.setTextured(IS(TEXTURED, styleBits));
+        }
         if (target instanceof javax.swing.RootPaneContainer) {
             final javax.swing.JRootPane rootpane = ((javax.swing.RootPaneContainer)target).getRootPane();
             if (rootpane != null) rootpane.addPropertyChangeListener("ancestor", new PropertyChangeListener() {
@@ -566,8 +570,6 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
                 styleBits = SET(styleBits, IS_MODAL, true);
             }
         }
-
-        peer.setTextured(IS(TEXTURED, styleBits));
 
         return styleBits;
     }
@@ -989,14 +991,6 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
         return ref.get();
     }
 
-    private boolean isTabbedWindow() {
-        AtomicBoolean ref = new AtomicBoolean();
-        execute(ptr -> {
-            ref.set(CWrapper.NSWindow.isTabbedWindow(ptr));
-        });
-        return ref.get();
-    }
-
     // We want a window to be always shown at the same space as its owning window.
     // But macOS doesn't have an API to control the target space for a window -
     // it's always shown at the active space. So if the target space isn't active now,
@@ -1025,6 +1019,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
 
     @Override
     public void setOpaque(boolean isOpaque) {
+        contentView.setWindowLayerOpaque(isOpaque);
         execute(ptr -> CWrapper.NSWindow.setOpaque(ptr, isOpaque));
         boolean isTextured = (peer == null) ? false : peer.isTextured();
         if (!isTextured) {
@@ -1118,7 +1113,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
             // We are going to show a modal window. Previously displayed window will be
             // blocked/disabled. So we have to send mouse exited event to it now, since
             // all mouse events are discarded for blocked/disabled windows.
-            execute(ptr -> nativeSynthesizeMouseEnteredExitedEvents(ptr, CocoaConstants.NSMouseExited));
+            execute(ptr -> nativeSynthesizeMouseEnteredExitedEvents(ptr, CocoaConstants.NSEventTypeMouseExited));
         }
 
         execute(ptr -> {
@@ -1358,9 +1353,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
         // which is going to become 'main window', are placed above their siblings.
         CPlatformWindow rootOwner = getRootOwner();
         if (rootOwner.isVisible() && !rootOwner.isIconified() && !rootOwner.isActive()) {
-            if (rootOwner != this || !isTabbedWindow()) {
-                rootOwner.execute(CWrapper.NSWindow::orderFrontIfOnActiveSpace);
-            }
+            rootOwner.execute(CWrapper.NSWindow::orderFrontIfOnActiveSpace);
         }
 
         // Do not order child windows of iconified owner.
@@ -1507,13 +1500,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
 
     private void setRoundedCorners(Object params) {
         if (params instanceof Float) {
-            execute(ptr -> nativeSetRoundedCorners(ptr, (float) params, 0, 0));
-        } else if (params instanceof Object[]) {
-            Object[] values = (Object[]) params;
-            if (values.length == 3 && values[0] instanceof Float && values[1] instanceof Integer && values[2] instanceof Color) {
-                Color color = (Color) values[2];
-                execute(ptr -> nativeSetRoundedCorners(ptr, (float) values[0], (int) values[1], color.getRGB()));
-            }
+            execute(ptr -> nativeSetRoundedCorners(ptr, (float) params));
         }
     }
 }

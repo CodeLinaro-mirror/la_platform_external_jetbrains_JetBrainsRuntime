@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -85,7 +85,7 @@ class PKIX {
         private Set<String> policies;
         private boolean gotConstraints;
         private CertSelector constraints;
-        private Set<TrustAnchor> anchors;
+        private final Set<TrustAnchor> anchors;
         private List<X509Certificate> certs;
         private Timestamp timestamp;
         private Date timestampDate;
@@ -170,8 +170,7 @@ class PKIX {
                 // that signed and timestamped code is valid until the TSA
                 // certificate expires (assuming all other checks are valid).
                 if (timestamp != null &&
-                    (variant.equals(Validator.VAR_CODE_SIGNING) ||
-                     variant.equals(Validator.VAR_PLUGIN_CODE_SIGNING))) {
+                    variant.equals(Validator.VAR_CODE_SIGNING)) {
                     date = timestamp.getTimestamp();
                 } else {
                     date = params.getDate();
@@ -262,7 +261,7 @@ class PKIX {
             if (stores == null) {
                 // reorder CertStores so that local CertStores are tried first
                 stores = new ArrayList<>(params.getCertStores());
-                Collections.sort(stores, new CertStoreComparator());
+                stores.sort(new CertStoreComparator());
             }
             return stores;
         }
@@ -292,7 +291,6 @@ class PKIX {
             for (CertStore store : stores) {
                 try {
                     Collection<? extends Certificate> certs =
-                        (Collection<? extends Certificate>)
                             store.getCertificates(sel);
                     if (!certs.isEmpty()) {
                         X509Certificate xc =

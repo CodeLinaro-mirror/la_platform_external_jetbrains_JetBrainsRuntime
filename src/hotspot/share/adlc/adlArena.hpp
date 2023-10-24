@@ -118,8 +118,7 @@ public:
     }
   }
   // Further assume size is padded out to words
-  // Warning:  in LP64, Amalloc_4 is really Amalloc_8
-  void *Amalloc_4(size_t x) {
+  void *AmallocWords(size_t x) {
     assert( (x&(sizeof(char*)-1)) == 0, "misaligned size" );
     if (_hwm + x > _max) {
       return grow(x);

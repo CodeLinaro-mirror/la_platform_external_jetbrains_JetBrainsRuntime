@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 1997, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2023, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2014, 2020, Red Hat Inc. All rights reserved.
- * Copyright (c) 2020, 2022, Huawei Technologies Co., Ltd. All rights reserved.
+ * Copyright (c) 2020, 2023, Huawei Technologies Co., Ltd. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,6 +30,10 @@
 #include "asm/register.hpp"
 #include "code/codeCache.hpp"
 #include "metaprogramming/enableIf.hpp"
+#include "utilities/debug.hpp"
+#include "utilities/globalDefinitions.hpp"
+#include "utilities/macros.hpp"
+#include <type_traits>
 
 #define XLEN 64
 
@@ -50,23 +54,23 @@ class Argument {
 };
 
 // function argument(caller-save registers)
-REGISTER_DECLARATION(Register, c_rarg0, x10);
-REGISTER_DECLARATION(Register, c_rarg1, x11);
-REGISTER_DECLARATION(Register, c_rarg2, x12);
-REGISTER_DECLARATION(Register, c_rarg3, x13);
-REGISTER_DECLARATION(Register, c_rarg4, x14);
-REGISTER_DECLARATION(Register, c_rarg5, x15);
-REGISTER_DECLARATION(Register, c_rarg6, x16);
-REGISTER_DECLARATION(Register, c_rarg7, x17);
+constexpr Register c_rarg0 = x10;
+constexpr Register c_rarg1 = x11;
+constexpr Register c_rarg2 = x12;
+constexpr Register c_rarg3 = x13;
+constexpr Register c_rarg4 = x14;
+constexpr Register c_rarg5 = x15;
+constexpr Register c_rarg6 = x16;
+constexpr Register c_rarg7 = x17;
 
-REGISTER_DECLARATION(FloatRegister, c_farg0, f10);
-REGISTER_DECLARATION(FloatRegister, c_farg1, f11);
-REGISTER_DECLARATION(FloatRegister, c_farg2, f12);
-REGISTER_DECLARATION(FloatRegister, c_farg3, f13);
-REGISTER_DECLARATION(FloatRegister, c_farg4, f14);
-REGISTER_DECLARATION(FloatRegister, c_farg5, f15);
-REGISTER_DECLARATION(FloatRegister, c_farg6, f16);
-REGISTER_DECLARATION(FloatRegister, c_farg7, f17);
+constexpr FloatRegister c_farg0 = f10;
+constexpr FloatRegister c_farg1 = f11;
+constexpr FloatRegister c_farg2 = f12;
+constexpr FloatRegister c_farg3 = f13;
+constexpr FloatRegister c_farg4 = f14;
+constexpr FloatRegister c_farg5 = f15;
+constexpr FloatRegister c_farg6 = f16;
+constexpr FloatRegister c_farg7 = f17;
 
 // Symbolically name the register arguments used by the Java calling convention.
 // We have control over the convention for java so we can do what we please.
@@ -83,32 +87,32 @@ REGISTER_DECLARATION(FloatRegister, c_farg7, f17);
 // | j_rarg7  j_rarg0  j_rarg1  j_rarg2  j_rarg3  j_rarg4  j_rarg5  j_rarg6 |
 // |------------------------------------------------------------------------|
 
-REGISTER_DECLARATION(Register, j_rarg0, c_rarg1);
-REGISTER_DECLARATION(Register, j_rarg1, c_rarg2);
-REGISTER_DECLARATION(Register, j_rarg2, c_rarg3);
-REGISTER_DECLARATION(Register, j_rarg3, c_rarg4);
-REGISTER_DECLARATION(Register, j_rarg4, c_rarg5);
-REGISTER_DECLARATION(Register, j_rarg5, c_rarg6);
-REGISTER_DECLARATION(Register, j_rarg6, c_rarg7);
-REGISTER_DECLARATION(Register, j_rarg7, c_rarg0);
+constexpr Register j_rarg0 = c_rarg1;
+constexpr Register j_rarg1 = c_rarg2;
+constexpr Register j_rarg2 = c_rarg3;
+constexpr Register j_rarg3 = c_rarg4;
+constexpr Register j_rarg4 = c_rarg5;
+constexpr Register j_rarg5 = c_rarg6;
+constexpr Register j_rarg6 = c_rarg7;
+constexpr Register j_rarg7 = c_rarg0;
 
 // Java floating args are passed as per C
 
-REGISTER_DECLARATION(FloatRegister, j_farg0, f10);
-REGISTER_DECLARATION(FloatRegister, j_farg1, f11);
-REGISTER_DECLARATION(FloatRegister, j_farg2, f12);
-REGISTER_DECLARATION(FloatRegister, j_farg3, f13);
-REGISTER_DECLARATION(FloatRegister, j_farg4, f14);
-REGISTER_DECLARATION(FloatRegister, j_farg5, f15);
-REGISTER_DECLARATION(FloatRegister, j_farg6, f16);
-REGISTER_DECLARATION(FloatRegister, j_farg7, f17);
+constexpr FloatRegister j_farg0 = f10;
+constexpr FloatRegister j_farg1 = f11;
+constexpr FloatRegister j_farg2 = f12;
+constexpr FloatRegister j_farg3 = f13;
+constexpr FloatRegister j_farg4 = f14;
+constexpr FloatRegister j_farg5 = f15;
+constexpr FloatRegister j_farg6 = f16;
+constexpr FloatRegister j_farg7 = f17;
 
 // zero rigster
-REGISTER_DECLARATION(Register, zr,        x0);
+constexpr Register zr = x0;
 // global pointer
-REGISTER_DECLARATION(Register, gp,        x3);
+constexpr Register gp = x3;
 // thread pointer
-REGISTER_DECLARATION(Register, tp,        x4);
+constexpr Register tp = x4;
 
 // registers used to hold VM data either temporarily within a method
 // or across method calls
@@ -116,38 +120,28 @@ REGISTER_DECLARATION(Register, tp,        x4);
 // volatile (caller-save) registers
 
 // current method -- must be in a call-clobbered register
-REGISTER_DECLARATION(Register, xmethod,   x31);
+constexpr Register xmethod =  x31;
 // return address
-REGISTER_DECLARATION(Register, ra,        x1);
+constexpr Register ra      =  x1;
 
 // non-volatile (callee-save) registers
 
-// stack pointer
-REGISTER_DECLARATION(Register, sp,        x2);
-// frame pointer
-REGISTER_DECLARATION(Register, fp,        x8);
-// base of heap
-REGISTER_DECLARATION(Register, xheapbase, x27);
-// constant pool cache
-REGISTER_DECLARATION(Register, xcpool,    x26);
-// monitors allocated on stack
-REGISTER_DECLARATION(Register, xmonitors, x25);
-// locals on stack
-REGISTER_DECLARATION(Register, xlocals,   x24);
-
-// java thread pointer
-REGISTER_DECLARATION(Register, xthread,   x23);
-// bytecode pointer
-REGISTER_DECLARATION(Register, xbcp,      x22);
-// Dispatch table base
-REGISTER_DECLARATION(Register, xdispatch, x21);
-// Java stack pointer
-REGISTER_DECLARATION(Register, esp,       x20);
+constexpr Register sp            = x2; // stack pointer
+constexpr Register fp            = x8; // frame pointer
+constexpr Register xheapbase     = x27; // base of heap
+constexpr Register xcpool        = x26; // constant pool cache
+constexpr Register xmonitors     = x25; // monitors allocated on stack
+constexpr Register xlocals       = x24; // locals on stack
+constexpr Register xthread       = x23; // java thread pointer
+constexpr Register xbcp          = x22; // bytecode pointer
+constexpr Register xdispatch     = x21; // Dispatch table base
+constexpr Register esp           = x20; // Java expression stack pointer
+constexpr Register x19_sender_sp = x19; // Sender's SP while in interpreter
 
 // temporary register(caller-save registers)
-REGISTER_DECLARATION(Register, t0, x5);
-REGISTER_DECLARATION(Register, t1, x6);
-REGISTER_DECLARATION(Register, t2, x7);
+constexpr Register t0 = x5;
+constexpr Register t1 = x6;
+constexpr Register t2 = x7;
 
 const Register g_INTArgReg[Argument::n_int_register_parameters_c] = {
   c_rarg0, c_rarg1, c_rarg2, c_rarg3, c_rarg4, c_rarg5, c_rarg6, c_rarg7
@@ -163,69 +157,131 @@ const FloatRegister g_FPArgReg[Argument::n_float_register_parameters_c] = {
 class Address {
  public:
 
-  enum mode { no_mode, base_plus_offset, pcrel, literal };
+  enum mode { no_mode, base_plus_offset, literal };
 
  private:
-  Register _base;
-  Register _index;
-  int64_t _offset;
+  struct Nonliteral {
+    Nonliteral(Register base, Register index, int64_t offset)
+      : _base(base), _index(index), _offset(offset) {}
+    Register _base;
+    Register _index;
+    int64_t _offset;
+  };
+
+  struct Literal {
+    Literal(address target, const RelocationHolder& rspec)
+      : _target(target), _rspec(rspec) {}
+    // If the target is far we'll need to load the ea of this to a
+    // register to reach it. Otherwise if near we can do PC-relative
+    // addressing.
+    address _target;
+
+    RelocationHolder _rspec;
+  };
+
+  void assert_is_nonliteral() const NOT_DEBUG_RETURN;
+  void assert_is_literal() const NOT_DEBUG_RETURN;
+
+  // Discriminated union, based on _mode.
+  // - no_mode: uses dummy _nonliteral, for ease of copying.
+  // - literal: only _literal is used.
+  // - others: only _nonliteral is used.
   enum mode _mode;
+  union {
+    Nonliteral _nonliteral;
+    Literal _literal;
+  };
 
-  RelocationHolder _rspec;
-
-  // If the target is far we'll need to load the ea of this to a
-  // register to reach it. Otherwise if near we can do PC-relative
-  // addressing.
-  address          _target;
+  // Helper for copy constructor and assignment operator.
+  // Copy mode-relevant part of a into this.
+  void copy_data(const Address& a) {
+    assert(_mode == a._mode, "precondition");
+    if (_mode == literal) {
+      new (&_literal) Literal(a._literal);
+    } else {
+      // non-literal mode or no_mode.
+      new (&_nonliteral) Nonliteral(a._nonliteral);
+    }
+  }
 
  public:
-  Address()
-    : _base(noreg), _index(noreg), _offset(0), _mode(no_mode), _target(NULL) { }
+  // no_mode initializes _nonliteral for ease of copying.
+  Address() :
+    _mode(no_mode),
+    _nonliteral(noreg, noreg, 0)
+  {}
 
-  Address(Register r)
-    : _base(r), _index(noreg), _offset(0), _mode(base_plus_offset), _target(NULL) { }
+  Address(Register r) :
+    _mode(base_plus_offset),
+    _nonliteral(r, noreg, 0)
+  {}
 
   template<typename T, ENABLE_IF(std::is_integral<T>::value)>
-  Address(Register r, T o)
-    : _base(r), _index(noreg), _offset(o), _mode(base_plus_offset), _target(NULL) {}
+  Address(Register r, T o) :
+    _mode(base_plus_offset),
+    _nonliteral(r, noreg, o)
+  {}
 
-  Address(Register r, ByteSize disp)
-    : Address(r, in_bytes(disp)) {}
+  Address(Register r, ByteSize disp) : Address(r, in_bytes(disp)) {}
 
-  Address(address target, RelocationHolder const& rspec)
-    : _base(noreg),
-      _index(noreg),
-      _offset(0),
-      _mode(literal),
-      _rspec(rspec),
-      _target(target) { }
+  Address(address target, const RelocationHolder& rspec) :
+    _mode(literal),
+    _literal(target, rspec)
+  {}
 
   Address(address target, relocInfo::relocType rtype = relocInfo::external_word_type);
 
+  Address(const Address& a) : _mode(a._mode) { copy_data(a); }
+
+  // Verify the value is trivially destructible regardless of mode, so our
+  // destructor can also be trivial, and so our assignment operator doesn't
+  // need to destruct the old value before copying over it.
+  static_assert(std::is_trivially_destructible<Literal>::value, "must be");
+  static_assert(std::is_trivially_destructible<Nonliteral>::value, "must be");
+
+  Address& operator=(const Address& a) {
+    _mode = a._mode;
+    copy_data(a);
+    return *this;
+  }
+
+  ~Address() = default;
+
   const Register base() const {
-    guarantee((_mode == base_plus_offset | _mode == pcrel | _mode == literal), "wrong mode");
-    return _base;
+    assert_is_nonliteral();
+    return _nonliteral._base;
   }
+
   long offset() const {
-    return _offset;
+    assert_is_nonliteral();
+    return _nonliteral._offset;
   }
+
   Register index() const {
-    return _index;
+    assert_is_nonliteral();
+    return _nonliteral._index;
   }
+
   mode getMode() const {
     return _mode;
   }
 
-  bool uses(Register reg) const { return _base == reg; }
-  const address target() const { return _target; }
-  const RelocationHolder& rspec() const { return _rspec; }
-  ~Address() {
-    _target = NULL;
-    _base = NULL;
+  bool uses(Register reg) const {
+    return _mode != literal && base() == reg;
+  }
+
+  const address target() const {
+    assert_is_literal();
+    return _literal._target;
+  }
+
+  const RelocationHolder& rspec() const {
+    assert_is_literal();
+    return _literal._rspec;
   }
 };
 
-// Convience classes
+// Convenience classes
 class RuntimeAddress: public Address {
 
   public:
@@ -308,6 +364,22 @@ public:
     rdy = 0b111,     // in instruction's rm field, selects dynamic rounding mode.In Rounding Mode register, Invalid.
   };
 
+  // handle unaligned access
+  static inline uint16_t ld_c_instr(address addr) {
+    return Bytes::get_native_u2(addr);
+  }
+  static inline void sd_c_instr(address addr, uint16_t c_instr) {
+    Bytes::put_native_u2(addr, c_instr);
+  }
+
+  // handle unaligned access
+  static inline uint32_t ld_instr(address addr) {
+    return Bytes::get_native_u4(addr);
+  }
+  static inline void sd_instr(address addr, uint32_t instr) {
+    Bytes::put_native_u4(addr, instr);
+  }
+
   static inline uint32_t extract(uint32_t val, unsigned msb, unsigned lsb) {
     assert_cond(msb >= lsb && msb <= 31);
     unsigned nbits = msb - lsb + 1;
@@ -325,17 +397,17 @@ public:
   }
 
   static void patch(address a, unsigned msb, unsigned lsb, unsigned val) {
-    assert_cond(a != NULL);
+    assert_cond(a != nullptr);
     assert_cond(msb >= lsb && msb <= 31);
     unsigned nbits = msb - lsb + 1;
     guarantee(val < (1U << nbits), "Field too big for insn");
     unsigned mask = (1U << nbits) - 1;
     val <<= lsb;
     mask <<= lsb;
-    unsigned target = *(unsigned *)a;
+    unsigned target = ld_instr(a);
     target &= ~mask;
     target |= val;
-    *(unsigned *)a = target;
+    sd_instr(a, target);
   }
 
   static void patch(address a, unsigned bit, unsigned val) {
@@ -343,15 +415,15 @@ public:
   }
 
   static void patch_reg(address a, unsigned lsb, Register reg) {
-    patch(a, lsb + 4, lsb, reg->encoding_nocheck());
+    patch(a, lsb + 4, lsb, reg->raw_encoding());
   }
 
   static void patch_reg(address a, unsigned lsb, FloatRegister reg) {
-    patch(a, lsb + 4, lsb, reg->encoding_nocheck());
+    patch(a, lsb + 4, lsb, reg->raw_encoding());
   }
 
   static void patch_reg(address a, unsigned lsb, VectorRegister reg) {
-    patch(a, lsb + 4, lsb, reg->encoding_nocheck());
+    patch(a, lsb + 4, lsb, reg->raw_encoding());
   }
 
   void emit(unsigned insn) {
@@ -626,13 +698,13 @@ public:
     unsigned insn = 0;
     guarantee(predecessor < 16, "predecessor is invalid");
     guarantee(successor < 16, "successor is invalid");
-    patch((address)&insn, 6, 0, 0b001111);
-    patch((address)&insn, 11, 7, 0b00000);
+    patch((address)&insn, 6, 0, 0b001111);      // opcode
+    patch((address)&insn, 11, 7, 0b00000);      // rd
     patch((address)&insn, 14, 12, 0b000);
-    patch((address)&insn, 19, 15, 0b00000);
-    patch((address)&insn, 23, 20, successor);
-    patch((address)&insn, 27, 24, predecessor);
-    patch((address)&insn, 31, 28, 0b0000);
+    patch((address)&insn, 19, 15, 0b00000);     // rs1
+    patch((address)&insn, 23, 20, successor);   // succ
+    patch((address)&insn, 27, 24, predecessor); // pred
+    patch((address)&insn, 31, 28, 0b0000);      // fm
     emit(insn);
   }
 
@@ -1174,12 +1246,18 @@ enum VectorMask {
   INSN(viota_m,   0b1010111, 0b010, 0b10000, 0b010100);
 
   // Vector Single-Width Floating-Point/Integer Type-Convert Instructions
-  INSN(vfcvt_xu_f_v, 0b1010111, 0b001, 0b00000, 0b010010);
-  INSN(vfcvt_x_f_v,  0b1010111, 0b001, 0b00001, 0b010010);
-  INSN(vfcvt_f_xu_v, 0b1010111, 0b001, 0b00010, 0b010010);
-  INSN(vfcvt_f_x_v,  0b1010111, 0b001, 0b00011, 0b010010);
-  INSN(vfcvt_rtz_xu_f_v, 0b1010111, 0b001, 0b00110, 0b010010);
+  INSN(vfcvt_f_x_v,      0b1010111, 0b001, 0b00011, 0b010010);
   INSN(vfcvt_rtz_x_f_v,  0b1010111, 0b001, 0b00111, 0b010010);
+
+  // Vector Widening Floating-Point/Integer Type-Convert Instructions
+  INSN(vfwcvt_f_x_v,      0b1010111, 0b001, 0b01011, 0b010010);
+  INSN(vfwcvt_f_f_v,      0b1010111, 0b001, 0b01100, 0b010010);
+  INSN(vfwcvt_rtz_x_f_v,  0b1010111, 0b001, 0b01111, 0b010010);
+
+  // Vector Narrowing Floating-Point/Integer Type-Convert Instructions
+  INSN(vfncvt_f_x_w,      0b1010111, 0b001, 0b10011, 0b010010);
+  INSN(vfncvt_f_f_w,      0b1010111, 0b001, 0b10100, 0b010010);
+  INSN(vfncvt_rtz_x_f_w,  0b1010111, 0b001, 0b10111, 0b010010);
 
   // Vector Floating-Point Instruction
   INSN(vfsqrt_v,  0b1010111, 0b001, 0b00000, 0b010011);
@@ -1233,11 +1311,14 @@ enum VectorMask {
   INSN(vsrl_vi,    0b1010111, 0b011, 0b101000);
   INSN(vsll_vi,    0b1010111, 0b011, 0b100101);
 
+  // Vector Slide Instructions
+  INSN(vslidedown_vi, 0b1010111, 0b011, 0b001111);
+
 #undef INSN
 
 #define INSN(NAME, op, funct3, funct6)                                                             \
   void NAME(VectorRegister Vd, VectorRegister Vs1, VectorRegister Vs2, VectorMask vm = unmasked) { \
-    patch_VArith(op, Vd, funct3, Vs1->encoding_nocheck(), Vs2, vm, funct6);                        \
+    patch_VArith(op, Vd, funct3, Vs1->raw_encoding(), Vs2, vm, funct6);                            \
   }
 
   // Vector Single-Width Floating-Point Fused Multiply-Add Instructions
@@ -1260,7 +1341,7 @@ enum VectorMask {
 
 #define INSN(NAME, op, funct3, funct6)                                                             \
   void NAME(VectorRegister Vd, Register Rs1, VectorRegister Vs2, VectorMask vm = unmasked) {       \
-    patch_VArith(op, Vd, funct3, Rs1->encoding_nocheck(), Vs2, vm, funct6);                        \
+    patch_VArith(op, Vd, funct3, Rs1->raw_encoding(), Vs2, vm, funct6);                            \
   }
 
   // Vector Single-Width Integer Multiply-Add Instructions
@@ -1273,7 +1354,7 @@ enum VectorMask {
 
 #define INSN(NAME, op, funct3, funct6)                                                             \
   void NAME(VectorRegister Vd, FloatRegister Rs1, VectorRegister Vs2, VectorMask vm = unmasked) {  \
-    patch_VArith(op, Vd, funct3, Rs1->encoding_nocheck(), Vs2, vm, funct6);                        \
+    patch_VArith(op, Vd, funct3, Rs1->raw_encoding(), Vs2, vm, funct6);                            \
   }
 
   // Vector Single-Width Floating-Point Fused Multiply-Add Instructions
@@ -1290,7 +1371,7 @@ enum VectorMask {
 
 #define INSN(NAME, op, funct3, funct6)                                                             \
   void NAME(VectorRegister Vd, VectorRegister Vs2, VectorRegister Vs1, VectorMask vm = unmasked) { \
-    patch_VArith(op, Vd, funct3, Vs1->encoding_nocheck(), Vs2, vm, funct6);                        \
+    patch_VArith(op, Vd, funct3, Vs1->raw_encoding(), Vs2, vm, funct6);                            \
   }
 
   // Vector Single-Width Floating-Point Reduction Instructions
@@ -1318,7 +1399,6 @@ enum VectorMask {
   // Vector Floating-Point Sign-Injection Instructions
   INSN(vfsgnjx_vv, 0b1010111, 0b001, 0b001010);
   INSN(vfsgnjn_vv, 0b1010111, 0b001, 0b001001);
-  INSN(vfsgnj_vv,  0b1010111, 0b001, 0b001000);
 
   // Vector Floating-Point MIN/MAX Instructions
   INSN(vfmax_vv,   0b1010111, 0b001, 0b000110);
@@ -1375,12 +1455,15 @@ enum VectorMask {
   INSN(vsub_vv, 0b1010111, 0b000, 0b000010);
   INSN(vadd_vv, 0b1010111, 0b000, 0b000000);
 
+  // Vector Register Gather Instructions
+  INSN(vrgather_vv,     0b1010111, 0b000, 0b001100);
+
 #undef INSN
 
 
 #define INSN(NAME, op, funct3, funct6)                                                             \
   void NAME(VectorRegister Vd, VectorRegister Vs2, Register Rs1, VectorMask vm = unmasked) {       \
-    patch_VArith(op, Vd, funct3, Rs1->encoding_nocheck(), Vs2, vm, funct6);                        \
+    patch_VArith(op, Vd, funct3, Rs1->raw_encoding(), Vs2, vm, funct6);                            \
   }
 
   // Vector Integer Divide Instructions
@@ -1430,11 +1513,34 @@ enum VectorMask {
   INSN(vadd_vx,  0b1010111, 0b100, 0b000000);
   INSN(vrsub_vx, 0b1010111, 0b100, 0b000011);
 
+  // Vector Slide Instructions
+  INSN(vslidedown_vx, 0b1010111, 0b100, 0b001111);
+
+#undef INSN
+
+#define INSN(NAME, op, funct3, vm, funct6)                                                         \
+  void NAME(VectorRegister Vd, VectorRegister Vs2, Register Rs1) {                                 \
+    patch_VArith(op, Vd, funct3, Rs1->raw_encoding(), Vs2, vm, funct6);                            \
+  }
+
+  // Vector Integer Merge Instructions
+  INSN(vmerge_vxm,  0b1010111, 0b100, 0b0, 0b010111);
+
+#undef INSN
+
+#define INSN(NAME, op, funct3, vm, funct6)                                                         \
+  void NAME(VectorRegister Vd, VectorRegister Vs2, FloatRegister Rs1) {                            \
+    patch_VArith(op, Vd, funct3, Rs1->raw_encoding(), Vs2, vm, funct6);                            \
+  }
+
+  // Vector Floating-Point Merge Instruction
+  INSN(vfmerge_vfm,  0b1010111, 0b101, 0b0, 0b010111);
+
 #undef INSN
 
 #define INSN(NAME, op, funct3, funct6)                                                             \
   void NAME(VectorRegister Vd, VectorRegister Vs2, FloatRegister Rs1, VectorMask vm = unmasked) {  \
-    patch_VArith(op, Vd, funct3, Rs1->encoding_nocheck(), Vs2, vm, funct6);                        \
+    patch_VArith(op, Vd, funct3, Rs1->raw_encoding(), Vs2, vm, funct6);                            \
   }
 
   // Vector Floating-Point Compare Instructions
@@ -1444,11 +1550,6 @@ enum VectorMask {
   INSN(vmflt_vf, 0b1010111, 0b101, 0b011011);
   INSN(vmfne_vf, 0b1010111, 0b101, 0b011100);
   INSN(vmfeq_vf, 0b1010111, 0b101, 0b011000);
-
-  // Vector Floating-Point Sign-Injection Instructions
-  INSN(vfsgnjx_vf, 0b1010111, 0b101, 0b001010);
-  INSN(vfsgnjn_vf, 0b1010111, 0b101, 0b001001);
-  INSN(vfsgnj_vf,  0b1010111, 0b101, 0b001000);
 
   // Vector Floating-Point MIN/MAX Instructions
   INSN(vfmax_vf, 0b1010111, 0b101, 0b000110);
@@ -1486,9 +1587,20 @@ enum VectorMask {
 
 #undef INSN
 
+#define INSN(NAME, op, funct3, vm, funct6)                                    \
+  void NAME(VectorRegister Vd, VectorRegister Vs2, int32_t imm) {             \
+    guarantee(is_simm5(imm), "imm is invalid");                               \
+    patch_VArith(op, Vd, funct3, (uint32_t)(imm & 0x1f), Vs2, vm, funct6);    \
+  }
+
+  // Vector Integer Merge Instructions
+  INSN(vmerge_vim,  0b1010111, 0b011, 0b0, 0b010111);
+
+#undef INSN
+
 #define INSN(NAME, op, funct3, vm, funct6)                                   \
   void NAME(VectorRegister Vd, VectorRegister Vs2, VectorRegister Vs1) {     \
-    patch_VArith(op, Vd, funct3, Vs1->encoding_nocheck(), Vs2, vm, funct6);  \
+    patch_VArith(op, Vd, funct3, Vs1->raw_encoding(), Vs2, vm, funct6);      \
   }
 
   // Vector Compress Instruction
@@ -1503,6 +1615,9 @@ enum VectorMask {
   INSN(vmandn_mm,   0b1010111, 0b010, 0b1, 0b011000);
   INSN(vmnand_mm,   0b1010111, 0b010, 0b1, 0b011101);
   INSN(vmand_mm,    0b1010111, 0b010, 0b1, 0b011001);
+
+  // Vector Integer Merge Instructions
+  INSN(vmerge_vvm,  0b1010111, 0b000, 0b0, 0b010111);
 
 #undef INSN
 
@@ -1519,7 +1634,7 @@ enum VectorMask {
 
 #define INSN(NAME, op, funct3, Vs2, vm, funct6)                             \
   void NAME(VectorRegister Vd, FloatRegister Rs1) {                         \
-    patch_VArith(op, Vd, funct3, Rs1->encoding_nocheck(), Vs2, vm, funct6); \
+    patch_VArith(op, Vd, funct3, Rs1->raw_encoding(), Vs2, vm, funct6);     \
   }
 
   // Floating-Point Scalar Move Instructions
@@ -1531,7 +1646,7 @@ enum VectorMask {
 
 #define INSN(NAME, op, funct3, Vs2, vm, funct6)                             \
   void NAME(VectorRegister Vd, VectorRegister Vs1) {                        \
-    patch_VArith(op, Vd, funct3, Vs1->encoding_nocheck(), Vs2, vm, funct6); \
+    patch_VArith(op, Vd, funct3, Vs1->raw_encoding(), Vs2, vm, funct6);     \
   }
 
   // Vector Integer Move Instructions
@@ -1541,7 +1656,7 @@ enum VectorMask {
 
 #define INSN(NAME, op, funct3, Vs2, vm, funct6)                             \
    void NAME(VectorRegister Vd, Register Rs1) {                             \
-    patch_VArith(op, Vd, funct3, Rs1->encoding_nocheck(), Vs2, vm, funct6); \
+    patch_VArith(op, Vd, funct3, Rs1->raw_encoding(), Vs2, vm, funct6);     \
    }
 
   // Integer Scalar Move Instructions
@@ -1652,25 +1767,20 @@ enum Nf {
 
 #define INSN(NAME, op, width, mop, mew)                                                                  \
   void NAME(VectorRegister Vd, Register Rs1, VectorRegister Vs2, VectorMask vm = unmasked, Nf nf = g1) { \
-    patch_VLdSt(op, Vd, width, Rs1, Vs2->encoding_nocheck(), vm, mop, mew, nf);                          \
+    patch_VLdSt(op, Vd, width, Rs1, Vs2->raw_encoding(), vm, mop, mew, nf);                              \
   }
 
   // Vector unordered indexed load instructions
-  INSN(vluxei8_v,  0b0000111, 0b000, 0b01, 0b0);
-  INSN(vluxei16_v, 0b0000111, 0b101, 0b01, 0b0);
   INSN(vluxei32_v, 0b0000111, 0b110, 0b01, 0b0);
-  INSN(vluxei64_v, 0b0000111, 0b111, 0b01, 0b0);
 
-  // Vector ordered indexed load instructions
-  INSN(vloxei8_v,  0b0000111, 0b000, 0b11, 0b0);
-  INSN(vloxei16_v, 0b0000111, 0b101, 0b11, 0b0);
-  INSN(vloxei32_v, 0b0000111, 0b110, 0b11, 0b0);
-  INSN(vloxei64_v, 0b0000111, 0b111, 0b11, 0b0);
+  // Vector unordered indexed store instructions
+  INSN(vsuxei32_v, 0b0100111, 0b110, 0b01, 0b0);
+
 #undef INSN
 
 #define INSN(NAME, op, width, mop, mew)                                                                  \
   void NAME(VectorRegister Vd, Register Rs1, Register Rs2, VectorMask vm = unmasked, Nf nf = g1) {       \
-    patch_VLdSt(op, Vd, width, Rs1, Rs2->encoding_nocheck(), vm, mop, mew, nf);                          \
+    patch_VLdSt(op, Vd, width, Rs1, Rs2->raw_encoding(), vm, mop, mew, nf);                              \
   }
 
   // Vector Strided Instructions
@@ -1870,17 +1980,17 @@ public:
 
   // patch a 16-bit instruction.
   static void c_patch(address a, unsigned msb, unsigned lsb, uint16_t val) {
-    assert_cond(a != NULL);
+    assert_cond(a != nullptr);
     assert_cond(msb >= lsb && msb <= 15);
     unsigned nbits = msb - lsb + 1;
     guarantee(val < (1U << nbits), "Field too big for insn");
     uint16_t mask = (1U << nbits) - 1;
     val <<= lsb;
     mask <<= lsb;
-    uint16_t target = *(uint16_t *)a;
+    uint16_t target = ld_c_instr(a);
     target &= ~mask;
     target |= val;
-    *(uint16_t *)a = target;
+    sd_c_instr(a, target);
   }
 
   static void c_patch(address a, unsigned bit, uint16_t val) {
@@ -1889,22 +1999,22 @@ public:
 
   // patch a 16-bit instruction with a general purpose register ranging [0, 31] (5 bits)
   static void c_patch_reg(address a, unsigned lsb, Register reg) {
-    c_patch(a, lsb + 4, lsb, reg->encoding_nocheck());
+    c_patch(a, lsb + 4, lsb, reg->raw_encoding());
   }
 
   // patch a 16-bit instruction with a general purpose register ranging [8, 15] (3 bits)
   static void c_patch_compressed_reg(address a, unsigned lsb, Register reg) {
-    c_patch(a, lsb + 2, lsb, reg->compressed_encoding_nocheck());
+    c_patch(a, lsb + 2, lsb, reg->compressed_raw_encoding());
   }
 
   // patch a 16-bit instruction with a float register ranging [0, 31] (5 bits)
   static void c_patch_reg(address a, unsigned lsb, FloatRegister reg) {
-    c_patch(a, lsb + 4, lsb, reg->encoding_nocheck());
+    c_patch(a, lsb + 4, lsb, reg->raw_encoding());
   }
 
   // patch a 16-bit instruction with a float register ranging [8, 15] (3 bits)
   static void c_patch_compressed_reg(address a, unsigned lsb, FloatRegister reg) {
-    c_patch(a, lsb + 2, lsb, reg->compressed_encoding_nocheck());
+    c_patch(a, lsb + 2, lsb, reg->compressed_raw_encoding());
   }
 
 // --------------  RVC Instruction Definitions  --------------
@@ -2115,7 +2225,7 @@ public:
     emit_int16(insn);                                                                        \
   }                                                                                          \
   void NAME(address dest) {                                                                  \
-    assert_cond(dest != NULL);                                                               \
+    assert_cond(dest != nullptr);                                                            \
     int64_t distance = dest - pc();                                                          \
     assert(is_simm12(distance) && ((distance % 2) == 0), "invalid encoding");                \
     c_j(distance);                                                                           \
@@ -2143,7 +2253,7 @@ public:
     emit_int16(insn);                                                                        \
   }                                                                                          \
   void NAME(Register Rs1, address dest) {                                                    \
-    assert_cond(dest != NULL);                                                               \
+    assert_cond(dest != nullptr);                                                            \
     int64_t distance = dest - pc();                                                          \
     assert(is_simm9(distance) && ((distance % 2) == 0), "invalid encoding");                 \
     NAME(Rs1, distance);                                                                     \
@@ -2717,6 +2827,44 @@ public:
 
 #undef INSN
 
+// Cache Management Operations
+#define INSN(NAME, funct)                                                                    \
+  void NAME(Register Rs1) {                                                                  \
+    unsigned insn = 0;                                                                       \
+    patch((address)&insn, 6,  0, 0b0001111);                                                 \
+    patch((address)&insn, 14, 12, 0b010);                                                    \
+    patch_reg((address)&insn, 15, Rs1);                                                      \
+    patch((address)&insn, 31, 20, funct);                                                    \
+    emit(insn);                                                                              \
+  }
+
+  INSN(cbo_inval, 0b0000000000000);
+  INSN(cbo_clean, 0b0000000000001);
+  INSN(cbo_flush, 0b0000000000010);
+  INSN(cbo_zero,  0b0000000000100);
+
+#undef INSN
+
+#define INSN(NAME, funct)                                                                    \
+  void NAME(Register Rs1, int32_t offset) {                                                  \
+    guarantee((offset & 0x1f) == 0, "offset lowest 5 bits must be zero");                    \
+    int32_t upperOffset = offset >> 5;                                                       \
+    unsigned insn = 0;                                                                       \
+    patch((address)&insn, 6,  0, 0b0010011);                                                 \
+    patch((address)&insn, 14, 12, 0b110);                                                    \
+    patch_reg((address)&insn, 15, Rs1);                                                      \
+    patch((address)&insn, 24, 20, funct);                                                    \
+    upperOffset &= 0x7f;                                                                     \
+    patch((address)&insn, 31, 25, upperOffset);                                              \
+    emit(insn);                                                                              \
+  }
+
+  INSN(prefetch_i, 0b0000000000000);
+  INSN(prefetch_r, 0b0000000000001);
+  INSN(prefetch_w, 0b0000000000011);
+
+#undef INSN
+
 // ---------------------------------------------------------------------------------------
 
 #define INSN(NAME, REGISTER)                       \
@@ -2754,11 +2902,7 @@ public:
     return uabs(target - branch) < branch_range;
   }
 
-  Assembler(CodeBuffer* code) : AbstractAssembler(code), _in_compressible_region(false) {}
-
-  virtual ~Assembler() {}
+  Assembler(CodeBuffer* code) : AbstractAssembler(code), _in_compressible_region(true) {}
 };
-
-class BiasedLockingCounters;
 
 #endif // CPU_RISCV_ASSEMBLER_RISCV_HPP

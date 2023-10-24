@@ -47,11 +47,11 @@
 #include "awt_Win32GraphicsDevice.h"
 #include "Hashtable.h"
 #include "ComCtl32Util.h"
+#include "math.h"
 
 #include <Region.h>
 
 #include <jawt.h>
-#include <math.h>
 
 #include <java_awt_Toolkit.h>
 #include <java_awt_FontMetrics.h>
@@ -1340,7 +1340,7 @@ void SpyWinMessage(HWND hwnd, UINT message, LPCTSTR szComment) {
         WIN_MSG(WM_AWT_CREATE_PRINTED_PIXELS)
         WIN_MSG(WM_AWT_OBJECTLISTCLEANUP)
         default:
-            sprintf(szBuf, "0x%8.8x(%s):Unknown message 0x%8.8x\n",
+            snprintf(szBuf, sizeof(szBuf), "0x%8.8x(%s):Unknown message 0x%8.8x\n",
                 hwnd, szComment, message);
             break;
     }
@@ -2261,7 +2261,7 @@ void AwtComponent::PaintUpdateRgn(const RECT *insets)
         // Fix 4745222: If we don't ValidateRgn,  windows will keep sending
         // WM_PAINT messages until we do. This causes java to go into
         // a tight loop that increases CPU to 100% and starves main
-        // thread which needs to complete initialization, but cant.
+        // thread which needs to complete initialization, but can't.
         ::ValidateRgn(GetHWnd(), NULL);
 
         return;
@@ -2316,14 +2316,22 @@ void AwtComponent::PaintUpdateRgn(const RECT *insets)
                 }
             }
         }
+        // The Windows may request to update the small region of pixels that
+        // cannot be represented in the user's space, in this case, we will
+        // request to repaint the smallest non-empty bounding box in the user's
+        // space
+        int screen = GetScreenImOn();
+        Devices::InstanceAccess devices;
+        AwtWin32GraphicsDevice* device = devices->GetDevice(screen);
+        float scaleX = (device == NULL) ? 1 : device->GetScaleX();
+        float scaleY = (device == NULL) ? 1 : device->GetScaleY();
         for(i = 0; i < 2; i++) {
             if (un[i] != 0) {
-                ScaleDownRect(*un[i]);
-                DoCallback("handleExpose", "(IIII)V",
-                           un[i]->left,
-                           un[i]->top,
-                           un[i]->right - un[i]->left,
-                           un[i]->bottom - un[i]->top);
+                int x1 = floor(un[i]->left / scaleX);
+                int y1 = floor(un[i]->top / scaleY);
+                int x2 = ceil(un[i]->right / scaleX);
+                int y2 = ceil(un[i]->bottom  / scaleY);
+                DoCallback("handleExpose", "(IIII)V", x1, y1, x2 - x1, y2 - y1);
             }
         }
         delete [] buffer;
@@ -3075,7 +3083,7 @@ KeyMapEntry keyMapTable[] = {
 // (see NT4 DDK src/input/inc/vkoem.h for OEM VK_ values).
 struct DynamicKeyMapEntry {
     UINT windowsKey;            // OEM VK codes known in advance
-    UINT javaKey;               // depends on input langauge (kbd layout)
+    UINT javaKey;               // depends on input language (kbd layout)
 };
 
 static DynamicKeyMapEntry dynamicKeyMapTable[] = {
@@ -3228,7 +3236,7 @@ AwtComponent::BuildDynamicKeyMapTable()
     //   1. Map windows VK to ANSI character (cannot map to unicode
     //      directly, since ::ToUnicode is not implemented on win9x)
     //   2. Convert ANSI char to Unicode char
-    //   3. Map Unicode char to Java VK via two auxilary tables.
+    //   3. Map Unicode char to Java VK via two auxiliary tables.
 
     for (DynamicKeyMapEntry *dynamic = dynamicKeyMapTable;
          dynamic->windowsKey != 0;
@@ -3548,7 +3556,7 @@ static void
 resetKbdState( BYTE kstate[256]) {
     BYTE tmpState[256];
     WCHAR wc[2];
-    memmove(tmpState, kstate, sizeof(kstate));
+    memmove(tmpState, kstate, 256 * sizeof(BYTE));
     tmpState[VK_SHIFT] = 0;
     tmpState[VK_CONTROL] = 0;
     tmpState[VK_MENU] = 0;
@@ -4187,7 +4195,7 @@ MsgRouting AwtComponent::WmImeComposition(WORD wChar, LPARAM flags)
             /* Send INPUT_METHOD_TEXT_CHANGED event to the WInputMethod which in turn sends
                the event to AWT EDT.
 
-               The last two paremeters are set to equal since we don't have recommendations for
+               The last two parameters are set to equal since we don't have recommendations for
                the visible position within the current composed text. See details at
                java.awt.event.InputMethodEvent.
             */
@@ -4266,7 +4274,7 @@ void AwtComponent::SendInputMethodEvent(jint id, jstring text,
     }
 
 
-    // attrubute value definition in WInputMethod.java must be equal to that in IMM.H
+    // attribute value definition in WInputMethod.java must be equal to that in IMM.H
     DASSERT(ATTR_INPUT==sun_awt_windows_WInputMethod_ATTR_INPUT);
     DASSERT(ATTR_TARGET_CONVERTED==sun_awt_windows_WInputMethod_ATTR_TARGET_CONVERTED);
     DASSERT(ATTR_CONVERTED==sun_awt_windows_WInputMethod_ATTR_CONVERTED);
@@ -5000,16 +5008,6 @@ int AwtComponent::ScaleDownAbsY(int y) {
     return device == NULL ? y : device->ScaleDownAbsY(y);
 }
 
-void AwtComponent::ScaleDownRect(RECT& r) {
-    int screen = GetScreenImOn();
-    Devices::InstanceAccess devices;
-    AwtWin32GraphicsDevice* device = devices->GetDevice(screen);
-    if (device == NULL) return;
-    float sx = device->GetScaleX();
-    float sy = device->GetScaleY();
-    ::SetRect(&r, floor(r.left / sx), floor(r.top / sy), ceil(r.right / sx), ceil(r.bottom / sy));
-}
-
 jintArray AwtComponent::CreatePrintedPixels(SIZE &loc, SIZE &size, int alpha) {
     JNIEnv *env = (JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2);
 
@@ -5127,7 +5125,7 @@ AwtComponent* AwtComponent::SearchChild(UINT id) {
     }
     /*
      * DASSERT(FALSE);
-     * This should not be happend if all children are recorded
+     * This should not be happening if all children are recorded
      */
     return NULL;        /* make compiler happy */
 }
@@ -6055,7 +6053,7 @@ void AwtComponent::_NativeHandleEvent(void *param)
 
                 /* Check to see whether the keyCode or modifiers were changed
                    on the keyPressed event, and tweak the following keyTyped
-                   event (if any) accodingly.  */
+                   event (if any) accordingly.  */
                 switch (id) {
                 case java_awt_event_KeyEvent_KEY_PRESSED:
                 {
@@ -6751,7 +6749,7 @@ Java_java_awt_Component_initIDs(JNIEnv *env, jclass cls)
                                                           "java/awt/event/InputEvent",
                                                           "getButtonDownMasks", "()[I").l;
     CHECK_NULL(obj);
-    jint * tmp = env->GetIntArrayElements(obj, JNI_FALSE);
+    jint * tmp = env->GetIntArrayElements(obj, nullptr);
     CHECK_NULL(tmp);
     jsize len = env->GetArrayLength(obj);
     AwtComponent::masks = SAFE_SIZE_NEW_ARRAY(jint, len);

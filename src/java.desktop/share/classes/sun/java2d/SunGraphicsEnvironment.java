@@ -40,19 +40,18 @@ import java.awt.Toolkit;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.awt.peer.ComponentPeer;
-import java.security.PrivilegedAction;
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.InputStreamReader;
 import java.security.AccessController;
+import java.security.PrivilegedAction;
 import java.util.Locale;
 import java.util.TreeMap;
 
 import sun.awt.DisplayChangedListener;
 import sun.awt.DisplayParametersChangedListener;
 import sun.awt.SunDisplayChanger;
-import sun.font.*;
+import sun.font.FontManager;
+import sun.font.FontManagerFactory;
+import sun.font.FontManagerForSGE;
+import sun.font.FontUtilities;
 import sun.java2d.pipe.Region;
 import sun.security.action.GetPropertyAction;
 
@@ -72,23 +71,19 @@ public abstract class SunGraphicsEnvironment extends GraphicsEnvironment
     private static final Object UI_SCALE_LOCK = new Object();
     private static boolean uiScaleEnabled;
     private static Boolean uiScaleEnabled_overridden;
-    private static double debugScale;
+    private static final double debugScale;
 
     static {
-        setUIScale();
-    }
+        final GetPropertyAction gpa = new GetPropertyAction("sun.java2d.uiScale.enabled", "true");
+        @SuppressWarnings("removal")
+        final String uiScaleEnabledPropValue = AccessController.doPrivileged(gpa);
 
-    @SuppressWarnings("removal")
-    private static void setUIScale() {
         uiScaleEnabled = FontUtilities.isMacOSX ||
-                ("true".equals(AccessController.doPrivileged(
-                        new GetPropertyAction("sun.java2d.uiScale.enabled", "true"))) &&
+            ("true".equals(uiScaleEnabledPropValue) &&
                 (isWindows_8_1_orUpper() || FontUtilities.isLinux));
+
         if (uiScaleEnabled && FontUtilities.isWindows) {
-            AccessController.doPrivileged((PrivilegedAction<Object>) () -> {
-                System.setProperty("swing.bufferPerWindow", "false"); // todo: until JRE-489 is fixed
-                return null;
-            });
+            System.setProperty("swing.bufferPerWindow", "false"); // todo: until JRE-489 is fixed
         }
         debugScale = uiScaleEnabled ? getScaleFactor("sun.java2d.uiScale") : -1;
     }
@@ -98,8 +93,7 @@ public abstract class SunGraphicsEnvironment extends GraphicsEnvironment
     private static boolean isWindows_8_1_orUpper() {
         if (!FontUtilities.isWindows) return false;
 
-        @SuppressWarnings("removal")
-        String osVersion = AccessController.doPrivileged(new GetPropertyAction("os.version"));
+        String osVersion = System.getProperty("os.version");
         if (osVersion == null) return false;
 
         String[] parts = osVersion.split("\\.");
@@ -114,7 +108,7 @@ public abstract class SunGraphicsEnvironment extends GraphicsEnvironment
 
             int minorVer = Integer.parseInt(parts[1]);
             if (minorVer >= 3) return true;
-        } catch (NumberFormatException e) {
+        } catch (NumberFormatException ignore) {
         }
         return false;
     }
@@ -230,11 +224,7 @@ public abstract class SunGraphicsEnvironment extends GraphicsEnvironment
                 map.put(installed[i].toLowerCase(requestedLocale),
                         installed[i]);
             }
-            String[] retval =  new String[map.size()];
-            Object [] keyNames = map.keySet().toArray();
-            for (int i=0; i < keyNames.length; i++) {
-                retval[i] = map.get(keyNames[i]);
-            }
+            String[] retval = map.values().toArray(new String[0]);
             return retval;
         }
     }

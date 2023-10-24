@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,25 +28,24 @@ package sun.lwawt.macosx;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.IllegalComponentStateException;
 import java.awt.KeyboardFocusManager;
 import java.awt.Point;
 import java.awt.Window;
-import java.awt.EventQueue;
 import java.awt.event.KeyEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.lang.annotation.Native;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.security.PrivilegedAction;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.Arrays;
 import java.util.function.Function;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.accessibility.Accessible;
 import javax.accessibility.AccessibleAction;
@@ -64,7 +63,6 @@ import javax.swing.JComponent;
 import javax.swing.JEditorPane;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
-import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JList;
 import javax.swing.JTree;
@@ -73,19 +71,15 @@ import javax.swing.tree.TreePath;
 
 import sun.awt.AWTAccessor;
 import sun.lwawt.LWWindowPeer;
-import sun.swing.AccessibleComponentAccessor;
+import sun.swing.SwingAccessor;
 
 class CAccessibility implements PropertyChangeListener {
     private static Set<String> ignoredRoles;
-    private static int INVOKE_TIMEOUT_SECONDS;
+    private static final int INVOKE_TIMEOUT_SECONDS;
 
     static {
-        loadAWTLibrary();
-    }
-    
-    @SuppressWarnings("removal")
-    private static void loadAWTLibrary() {
         // (-1) for the infinite timeout
+        @SuppressWarnings("removal")
         int value = java.security.AccessController.doPrivileged(
             (PrivilegedAction<Integer>) () -> {
                 // Need to load the native library for this code.
@@ -134,12 +128,7 @@ class CAccessibility implements PropertyChangeListener {
     private native void focusChanged();
 
     static <T> T invokeAndWait(final Callable<T> callable, final Component c) {
-        if (c != null) {
-            try {
-                return EventQueue.isDispatchThread() ? callable.call() : invokeAndWait(callable, c, (T)null);
-            } catch (final Exception e) { e.printStackTrace(); }
-        }
-        return null;
+        return invokeAndWait(callable, c, (T)null);
     }
 
     static <T> T invokeAndWait(final Callable<T> callable, final Component c, final T defValue) {
@@ -483,7 +472,16 @@ class CAccessibility implements PropertyChangeListener {
     public static Accessible accessibilityHitTest(final Container parent, final float hitPointX, final float hitPointY) {
         return invokeAndWait(new Callable<Accessible>() {
             public Accessible call() throws Exception {
-                final Point p = parent.getLocationOnScreen();
+                if (parent == null) {
+                    return null;
+                }
+
+                final Point p;
+                try {
+                    p = parent.getLocationOnScreen();
+                } catch (IllegalComponentStateException ice) {
+                    return null;
+                }
 
                 // Make it into local coords
                 final Point localPoint = new Point((int)(hitPointX - p.getX()), (int)(hitPointY - p.getY()));
@@ -523,14 +521,11 @@ class CAccessibility implements PropertyChangeListener {
         }, c);
     }
 
+    // This method is called from the native in CommonComponentAccessibility.m
     private static int getAccessibleActionCount(final AccessibleAction aa, final Component c) {
         if (aa == null) return 0;
 
-        return invokeAndWait(new Callable<Integer>() {
-            public Integer call() throws Exception {
-                return aa.getAccessibleActionCount();
-            }
-        }, c);
+        return invokeAndWait(aa::getAccessibleActionCount, c);
     }
 
     public static boolean isEnabled(final Accessible a, final Component c) {
@@ -651,8 +646,8 @@ class CAccessibility implements PropertyChangeListener {
         return invokeAndWait(new Callable<Accessible>() {
             public Accessible call() throws Exception {
                 Component c = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-                if (c == null || !(c instanceof Accessible)) return null;
-                return CAccessible.getCAccessible((Accessible)c);
+                if (!(c instanceof Accessible accessible)) return null;
+                return CAccessible.getCAccessible(accessible);
             }
         }, c);
     }
@@ -762,25 +757,6 @@ class CAccessibility implements PropertyChangeListener {
         }
 
         return new Object[]{childrenAndRoles.get(whichChildren * 2), childrenAndRoles.get((whichChildren * 2) + 1)};
-    }
-
-    private static Accessible getAccessibleComboboxValue(Accessible a, Component c) {
-        if (a == null) return null;
-
-        return invokeAndWait(new Callable<Accessible>() {
-            @Override
-            public Accessible call() throws Exception {
-                AccessibleContext ac = a.getAccessibleContext();
-                if (ac != null) {
-                    AccessibleSelection as = ac.getAccessibleSelection();
-                    if (as != null) {
-                        return as.getAccessibleSelection(0);
-                    }
-                }
-
-                return null;
-            }
-        }, c);
     }
 
     private static Accessible createAccessibleTreeNode(JTree t, TreePath p) {
@@ -911,6 +887,38 @@ class CAccessibility implements PropertyChangeListener {
         }, c);
     }
 
+    // This method is called from the native in OutlineRowAccessibility.m
+    private static Accessible getAccessibleCurrentAccessible(Accessible a, Component c) {
+        if (a == null) return null;
+        return invokeAndWait(() -> {
+            AccessibleContext ac = a.getAccessibleContext();
+            if (ac != null) {
+                return SwingAccessor.getAccessibleComponentAccessor().getCurrentAccessible(ac);
+            }
+            return null;
+        }, c);
+    }
+
+    // This method is called from the native in ComboBoxAccessibility.m
+    private static Accessible getAccessibleComboboxValue(Accessible a, Component c) {
+        if (a == null) return null;
+
+        return invokeAndWait(new Callable<Accessible>() {
+            @Override
+            public Accessible call() throws Exception {
+                AccessibleContext ac = a.getAccessibleContext();
+                if (ac != null) {
+                    AccessibleSelection as = ac.getAccessibleSelection();
+                    if (as != null) {
+                        return as.getAccessibleSelection(0);
+                    }
+                }
+
+                return null;
+            }
+        }, c);
+    }
+
     @Native private static final int JAVA_AX_ROWS = 1;
     @Native private static final int JAVA_AX_COLS = 2;
 
@@ -945,30 +953,6 @@ class CAccessibility implements PropertyChangeListener {
                 }
             }
             return null;
-        }, c);
-    }
-
-    private static int getTableInfoAtIndex(final Accessible a, final Component c,
-                                              final int info, final int index) {
-        if (a == null) return -1;
-
-        return invokeAndWait(new Callable<Integer>() {
-            @Override
-            public Integer call() throws Exception {
-                AccessibleContext ac = a.getAccessibleContext();
-                if (ac != null) {
-                    AccessibleTable at = ac.getAccessibleTable();
-                    if (at != null) {
-                        int columnCount = at.getAccessibleColumnCount();
-                        if (columnCount != 0) {
-                            if (info == JAVA_AX_ROWS) return index / columnCount;
-                            if (info == JAVA_AX_COLS) return index % columnCount;
-                        }
-                    }
-                }
-
-                return -1;
-            }
         }, c);
     }
 
@@ -1152,14 +1136,6 @@ class CAccessibility implements PropertyChangeListener {
                 }
                 return false;
             }
-        }, c);
-    }
-
-    private static Accessible getAccessibleJTreeNodeCurrentAccessible(Accessible a, Component c) {
-        if (a == null) return null;
-        return invokeAndWait(() -> {
-            AccessibleContext ac = a.getAccessibleContext();
-            return ac == null ? null : AccessibleComponentAccessor.getAccessible(ac);
         }, c);
     }
 }

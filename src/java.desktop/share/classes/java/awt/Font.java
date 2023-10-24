@@ -1175,7 +1175,7 @@ public class Font implements java.io.Serializable
                 if (tracker != null) {
                     tracker.set(tFile, outStream);
                 }
-                try {
+                try (outStream) { /* don't close the input stream */
                     byte[] buf = new byte[8192];
                     for (;;) {
                         int bytesRead = fontStream.read(buf);
@@ -1196,9 +1196,6 @@ public class Font implements java.io.Serializable
                         }
                         outStream.write(buf, 0, bytesRead);
                     }
-                    /* don't close the input stream */
-                } finally {
-                    outStream.close();
                 }
                 /* After all references to a Font2D are dropped, the file
                  * will be removed. To support long-lived AppContexts,
@@ -1775,8 +1772,7 @@ public class Font implements java.io.Serializable
 
         if (sizeIndex > 0 && sizeIndex+1 < strlen) {
             try {
-                fontSize =
-                    Integer.valueOf(str.substring(sizeIndex+1)).intValue();
+                fontSize = Integer.parseInt(str.substring(sizeIndex+1));
                 if (fontSize <= 0) {
                     fontSize = 12;
                 }
@@ -2001,7 +1997,7 @@ public class Font implements java.io.Serializable
      * @throws ClassNotFoundException if the class of a serialized object could
      *         not be found
      * @throws IOException if an I/O error occurs
-     * @serial
+     *
      * @see #writeObject(java.io.ObjectOutputStream)
      */
     @Serial
@@ -2723,17 +2719,29 @@ public class Font implements java.io.Serializable
                                                 (limit - beginIndex));
         }
 
-        FontDesignMetrics metrics = FontDesignMetrics.getMetrics(this, frc);
-        return metrics.charsBounds(chars, beginIndex, limit - beginIndex);
-    }
+        // this code should be in textlayout
+        // quick check for simple text, assume GV ok to use if simple
 
-    private static boolean isComplexRendering(Font font) {
-        return (font.values != null && (font.values.getLigatures() != 0 || font.values.getTracking() != 0 ||
-                font.values.getBaselineTransform() != null)) || font.anyEnabledFeatures();
-    }
+        boolean simple = (values == null ||
+            (values.getKerning() == 0
+             && values.getLigatures() == 0
+             && values.getTracking() == 0
+             && values.getBaselineTransform() == null)) && !anyEnabledFeatures();
+        if (simple) {
+            simple = ! FontUtilities.isComplexText(chars, beginIndex, limit);
+        }
 
-    private static boolean isKerning(Font font) {
-        return font.values != null && (font.values.getKerning() != 0);
+        if (simple || ((limit - beginIndex) == 0)) {
+            FontDesignMetrics metrics = FontDesignMetrics.getMetrics(this, frc);
+            return metrics.getSimpleBounds(chars, beginIndex, limit-beginIndex);
+        } else {
+            // need char array constructor on textlayout
+            String str = new String(chars, beginIndex, limit - beginIndex);
+            TextLayout tl = new TextLayout(str, this, frc);
+            return new Rectangle2D.Float(0, -tl.getAscent(), tl.getAdvance(),
+                                         tl.getAscent() + tl.getDescent() +
+                                         tl.getLeading());
+        }
     }
 
    /**
@@ -2968,6 +2976,7 @@ public class Font implements java.io.Serializable
      * after the indicated limit should not be examined.
      */
     public static final int LAYOUT_NO_LIMIT_CONTEXT = 4;
+
 
     private static void applyTransform(AffineTransform trans, AttributeValues values) {
         if (trans == null) {

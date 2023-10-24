@@ -249,8 +249,9 @@ public class HitTestNonClientArea {
                 robot.delay(300);
                 robot.mouseMove(initialX, initialY);
             }
-            robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+
             robot.waitForIdle();
+            robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
             Point newLocation = window.getLocationOnScreen();
 
             passed = initialLocation.x < newLocation.x && initialLocation.y < newLocation.y;

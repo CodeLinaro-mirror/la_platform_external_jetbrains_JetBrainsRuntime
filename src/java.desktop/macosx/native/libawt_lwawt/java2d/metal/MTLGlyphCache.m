@@ -36,19 +36,6 @@
  */
 #define TIMES_RENDERED_THRESHOLD 5
 
-@implementation MTLGlyphCache {
-    MTLContext* _ctx;
-}
-
-- (id) initWithContext:(MTLContext*) ctx {
-    self = [super init];
-    if (self) {
-        _ctx = ctx;
-        _cacheInfo = NULL;
-    }
-    return self;
-}
-
 /**
  * Creates a new GlyphCacheInfo structure, fills in the initial values, and
  * then returns a pointer to the GlyphCacheInfo record.
@@ -73,40 +60,32 @@
  * for retrieving cell info for the glyph, but instead just use the struct's
  * field directly.
  */
-
-- (BOOL) glyphCacheInitWidth:(jint)width
-                     height:(jint)height
-                  cellWidth:(jint)cellWidth
-                 cellHeight:(jint)cellHeight
-                 pixelFormat:(NSUInteger)pixelFormat
-                       func:(MTLFlushFunc *)func
+MTLGlyphCacheInfo *
+MTLGlyphCache_Init(MTLContext* mtlc, jint width, jint height,
+                     jint cellWidth, jint cellHeight,
+                     MTLFlushFunc *func)
 {
-    J2dTraceLn(J2D_TRACE_INFO, "MTLGlyphCache.glyphCacheInitWidth");
+    MTLGlyphCacheInfo *gcinfo;
 
-    _cacheInfo = (MTLGlyphCacheInfo *)malloc(sizeof(MTLGlyphCacheInfo));
-    if (_cacheInfo == NULL) {
+    J2dTraceLn(J2D_TRACE_INFO, "MTLGlyphCache_Init");
+
+    gcinfo = (MTLGlyphCacheInfo *)malloc(sizeof(MTLGlyphCacheInfo));
+    if (gcinfo == NULL) {
         J2dRlsTraceLn(J2D_TRACE_ERROR,
-            "MTLGlyphCache.glyphCacheInitWidth: could not allocate MTLGlyphCacheInfo");
-        return NO;
+            "MTLGlyphCache_Init: could not allocate MTLGlyphCacheInfo");
+        return NULL;
     }
 
-    _cacheInfo->head = NULL;
-    _cacheInfo->tail = NULL;
-    _cacheInfo->width = width;
-    _cacheInfo->height = height;
-    _cacheInfo->cellWidth = cellWidth;
-    _cacheInfo->cellHeight = cellHeight;
-    _cacheInfo->Flush = func;
-    _cacheInfo->mtlc = _ctx;
-    _cacheInfo->encoder = nil;
-    MTLTextureDescriptor *textureDescriptor =
-            [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:pixelFormat
-                                                               width:width
-                                                              height:height
-                                                           mipmapped:NO];
-    _cacheInfo->texture = [_ctx.device newTextureWithDescriptor:textureDescriptor];
+    gcinfo->head = NULL;
+    gcinfo->tail = NULL;
+    gcinfo->width = width;
+    gcinfo->height = height;
+    gcinfo->cellWidth = cellWidth;
+    gcinfo->cellHeight = cellHeight;
+    gcinfo->Flush = func;
+    gcinfo->mtlc = mtlc;
 
-    return YES;
+    return gcinfo;
 }
 
 /**
@@ -125,31 +104,32 @@
  * Returns created cell info if it was successfully created and added to the
  * cache and glyph's cell lists, NULL otherwise.
  */
-- (MTLCacheCellInfo*) addGlyph:(GlyphInfo*) glyph
+MTLCacheCellInfo *
+MTLGlyphCache_AddGlyph(MTLGlyphCacheInfo *cache, GlyphInfo *glyph)
 {
     MTLCacheCellInfo *cellinfo = NULL;
     jint w = glyph->width;
     jint h = glyph->height;
 
-    J2dTraceLn(J2D_TRACE_INFO, "MTLGlyphCache.addGlyph");
+    J2dTraceLn(J2D_TRACE_INFO, "MTLGlyphCache_AddGlyph");
 
-    if ((glyph->width > _cacheInfo->cellWidth) ||
-        (glyph->height > _cacheInfo->cellHeight))
+    if ((glyph->width > cache->cellWidth) ||
+        (glyph->height > cache->cellHeight))
     {
         return NULL;
     }
 
     jint x, y;
 
-    if (_cacheInfo->head == NULL) {
+    if (cache->head == NULL) {
         x = 0;
         y = 0;
     } else {
-        x = _cacheInfo->tail->x + _cacheInfo->cellWidth;
-        y = _cacheInfo->tail->y;
-        if ((x + _cacheInfo->cellWidth) > _cacheInfo->width) {
+        x = cache->tail->x + cache->cellWidth;
+        y = cache->tail->y;
+        if ((x + cache->cellWidth) > cache->width) {
             x = 0;
-            y += _cacheInfo->cellHeight;
+            y += cache->cellHeight;
         }
     }
 
@@ -160,28 +140,28 @@
         return NULL;
     }
 
-    cellinfo->cacheInfo = _cacheInfo;
+    cellinfo->cacheInfo = cache;
     cellinfo->glyphInfo = glyph;
     cellinfo->timesRendered = 0;
     cellinfo->x = x;
     cellinfo->y = y;
     cellinfo->leftOff = 0;
     cellinfo->rightOff = 0;
-    cellinfo->tx1 = (jfloat)cellinfo->x / _cacheInfo->width;
-    cellinfo->ty1 = (jfloat)cellinfo->y / _cacheInfo->height;
-    cellinfo->tx2 = cellinfo->tx1 + ((jfloat)w / _cacheInfo->width);
-    cellinfo->ty2 = cellinfo->ty1 + ((jfloat)h / _cacheInfo->height);
+    cellinfo->tx1 = (jfloat)cellinfo->x / cache->width;
+    cellinfo->ty1 = (jfloat)cellinfo->y / cache->height;
+    cellinfo->tx2 = cellinfo->tx1 + ((jfloat)w / cache->width);
+    cellinfo->ty2 = cellinfo->ty1 + ((jfloat)h / cache->height);
 
-    if (_cacheInfo->head == NULL) {
+    if (cache->head == NULL) {
         // initialize the head cell
-        _cacheInfo->head = cellinfo;
+        cache->head = cellinfo;
     } else {
         // update existing tail cell
-        _cacheInfo->tail->next = cellinfo;
+        cache->tail->next = cellinfo;
     }
 
     // add the new cell to the end of the list
-    _cacheInfo->tail = cellinfo;
+    cache->tail = cellinfo;
     cellinfo->next = NULL;
     cellinfo->nextGCI = NULL;
 
@@ -190,24 +170,26 @@
     return cellinfo;
 }
 
-- (BOOL) isCacheFull:(GlyphInfo*) glyph
+
+bool
+MTLGlyphCache_IsCacheFull(MTLGlyphCacheInfo *cache, GlyphInfo *glyph)
 {
     jint w = glyph->width;
     jint h = glyph->height;
 
-    J2dTraceLn(J2D_TRACE_INFO, "MTLGlyphCache.isCacheFull");
+    J2dTraceLn(J2D_TRACE_INFO, "MTLGlyphCache_IsCacheFull");
 
     jint x, y;
 
-    if (_cacheInfo->head == NULL) {
+    if (cache->head == NULL) {
         return JNI_FALSE;
     } else {
-        x = _cacheInfo->tail->x + _cacheInfo->cellWidth;
-        y = _cacheInfo->tail->y;
-        if ((x + _cacheInfo->cellWidth) > _cacheInfo->width) {
+        x = cache->tail->x + cache->cellWidth;
+        y = cache->tail->y;
+        if ((x + cache->cellWidth) > cache->width) {
             x = 0;
-            y += _cacheInfo->cellHeight;
-            if ((y + _cacheInfo->cellHeight) > _cacheInfo->height) {
+            y += cache->cellHeight;
+            if ((y + cache->cellHeight) > cache->height) {
                 return JNI_TRUE;
             }
         }
@@ -219,23 +201,24 @@
  * attempt to compact the cache in any way; it just invalidates any cells
  * that already exist.
  */
-- (void) invalidate
+void
+MTLGlyphCache_Invalidate(MTLGlyphCacheInfo *cache)
 {
     MTLCacheCellInfo *cellinfo;
 
-    J2dTraceLn(J2D_TRACE_INFO, "MTLGlyphCache.invalidate");
+    J2dTraceLn(J2D_TRACE_INFO, "MTLGlyphCache_Invalidate");
 
-    if (_cacheInfo == NULL) {
+    if (cache == NULL) {
         return;
     }
 
     // flush any pending vertices that may be depending on the current
     // glyph cache layout
-    if (_cacheInfo->Flush != NULL) {
-        _cacheInfo->Flush(_cacheInfo->mtlc);
+    if (cache->Flush != NULL) {
+        cache->Flush();
     }
 
-    cellinfo = _cacheInfo->head;
+    cellinfo = cache->head;
     while (cellinfo != NULL) {
         if (cellinfo->glyphInfo != NULL) {
             // if the cell is occupied, notify the base glyph that its
@@ -250,40 +233,36 @@
  * Invalidates and frees all cells and the cache itself. The "cache" pointer
  * becomes invalid after this function returns.
  */
-- (void) free
+void
+MTLGlyphCache_Free(MTLGlyphCacheInfo *cache)
 {
-    J2dTraceLn(J2D_TRACE_INFO, "MTLGlyphCache.free");
-    if (_cacheInfo == NULL) {
+    MTLCacheCellInfo *cellinfo;
+
+    J2dTraceLn(J2D_TRACE_INFO, "MTLGlyphCache_Free");
+
+    if (cache == NULL) {
         return;
     }
 
     // flush any pending vertices that may be depending on the current
     // glyph cache
-    if (_cacheInfo->Flush != NULL) {
-        _cacheInfo->Flush(_cacheInfo->mtlc);
+    if (cache->Flush != NULL) {
+        cache->Flush();
     }
-    [_cacheInfo->texture release];
 
-    while (_cacheInfo->head != NULL) {
-        MTLCacheCellInfo *cellinfo = _cacheInfo->head;
+    while (cache->head != NULL) {
+        cellinfo = cache->head;
         if (cellinfo->glyphInfo != NULL) {
             // if the cell is occupied, notify the base glyph that its
             // cached version for this cache is about to be invalidated
             MTLGlyphCache_RemoveCellInfo(cellinfo->glyphInfo, cellinfo);
         }
-        _cacheInfo->head = cellinfo->next;
+        cache->head = cellinfo->next;
         free(cellinfo);
     }
-    free(_cacheInfo);
-    _cacheInfo = NULL;
+    free(cache);
 }
 
-- (void) dealloc {
-    [self free];
-    [super dealloc];
-}
-
-@end
 /**
  * Add cell info to the head of the glyph's list of cached cells.
  */
@@ -331,4 +310,57 @@ MTLGlyphCache_RemoveCellInfo(GlyphInfo *glyph, MTLCacheCellInfo *cellInfo)
     J2dTraceLn2(J2D_TRACE_WARNING, "MTLGlyphCache_RemoveCellInfo: "\
                 "no cell 0x%x in glyph 0x%x's cell list",
                 cellInfo, glyph);
+}
+
+/**
+ * Removes cell info from the glyph's list of cached cells.
+ */
+JNIEXPORT void
+MTLGlyphCache_RemoveAllCellInfos(GlyphInfo *glyph)
+{
+    MTLCacheCellInfo *currCell, *prevCell;
+
+    J2dTraceLn(J2D_TRACE_INFO, "MTLGlyphCache_RemoveAllCellInfos");
+
+    if (glyph == NULL || glyph->cellInfo == NULL) {
+        return;
+    }
+
+    // invalidate all of this glyph's accelerated cache cells
+    currCell = glyph->cellInfo;
+    do {
+        currCell->glyphInfo = NULL;
+        prevCell = currCell;
+        currCell = currCell->nextGCI;
+        prevCell->nextGCI = NULL;
+    } while (currCell != NULL);
+
+    glyph->cellInfo = NULL;
+}
+
+/**
+ * Returns cell info associated with particular cache from the glyph's list of
+ * cached cells.
+ */
+MTLCacheCellInfo *
+MTLGlyphCache_GetCellInfoForCache(GlyphInfo *glyph, MTLGlyphCacheInfo *cache)
+{
+    // assert (glyph != NULL && cache != NULL)
+    J2dTraceLn(J2D_TRACE_VERBOSE2, "MTLGlyphCache_GetCellInfoForCache");
+
+    if (glyph->cellInfo != NULL) {
+        MTLCacheCellInfo *cellInfo = glyph->cellInfo;
+        do {
+            if (cellInfo->cacheInfo == cache) {
+                J2dTraceLn3(J2D_TRACE_VERBOSE2,
+                            "  glyph 0x%x: found cell 0x%x for cache 0x%x",
+                            glyph, cellInfo, cache);
+                return cellInfo;
+            }
+            cellInfo = cellInfo->nextGCI;
+        } while (cellInfo != NULL);
+    }
+    J2dTraceLn2(J2D_TRACE_VERBOSE2, "  glyph 0x%x: no cell for cache 0x%x",
+                glyph, cache);
+    return NULL;
 }

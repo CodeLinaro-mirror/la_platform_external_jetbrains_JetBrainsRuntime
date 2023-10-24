@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -151,9 +151,7 @@ final class XWM
               return "XMonad";
           case AWESOME_WM:
               return "Awesome";
-          case XWM.I3_WM:
-              return "I3WM";
-            case XWM.WESTON_WM:
+          case WESTON_WM:
               return "Weston";
           case UNDETERMINED_WM:
           default:
@@ -270,7 +268,7 @@ final class XWM
          * Quick checks for specific servers.
          */
         String vendor_string = XlibWrapper.ServerVendor(XToolkit.getDisplay());
-        if (vendor_string.indexOf("eXcursion") != -1) {
+        if (vendor_string.contains("eXcursion")) {
             /*
              * Use NO_WM since in all other aspects eXcursion is like not
              * having a window manager running. I.e. it does not reparent
@@ -452,7 +450,7 @@ final class XWM
         try {
             int status = getter.execute();
             if (status != XConstants.Success || getter.getData() == 0) {
-                log.finer("Getting of _DT_SM_WINDOW_INFO is not successfull");
+                log.finer("Getting of _DT_SM_WINDOW_INFO is not successful");
                 return false;
             }
             if (getter.getActualType() != XA_DT_SM_WINDOW_INFO.getAtom()
@@ -485,7 +483,7 @@ final class XWM
 
 
                 if (status != XConstants.Success || getter2.getData() == 0) {
-                    log.finer("Getting of _DT_SM_STATE_INFO is not successfull");
+                    log.finer("Getting of _DT_SM_STATE_INFO is not successful");
                     return false;
                 }
                 if (getter2.getActualType() != XA_DT_SM_STATE_INFO.getAtom()
@@ -691,7 +689,7 @@ final class XWM
 
             if ((XErrorHandlerUtil.saved_error != null) &&
                 (XErrorHandlerUtil.saved_error.get_error_code() != XConstants.Success)) {
-                log.finer("Erorr getting XA_ICEWM_WINOPTHINT property");
+                log.finer("Error getting XA_ICEWM_WINOPTHINT property");
                 return false;
             }
             log.finer("Prepared for IceWM detection");
@@ -1198,14 +1196,14 @@ final class XWM
                   /* "This is a deliberate policy decision." -hp */
                   return false;
               }
-              /* FALLTROUGH */
+              /* FALLTHROUGH */
           case Frame.MAXIMIZED_BOTH:
               for (XStateProtocol proto : getProtocols(XStateProtocol.class)) {
                   if (proto.supportsState(state)) {
                       return true;
                   }
               }
-              /* FALLTROUGH */
+              /* FALLTHROUGH */
           default:
               return false;
         }
@@ -1340,7 +1338,7 @@ final class XWM
      * on the top-level properties.  When WM restarts and sees the shaded
      * window it can reparent it into a "pre-shaded" decoration frame
      * (Metacity does), and our insets logic will go crazy, b/c it will
-     * see a huge nagative bottom inset.  There's no clean solution for
+     * see a huge negative bottom inset.  There's no clean solution for
      * this, so let's just be weasels and drop the shaded hint if we
      * detect that WM exited.  NB: we are in for a race condition with WM
      * restart here.  NB2: e.g. WindowMaker saves the state in a private
@@ -1476,8 +1474,6 @@ final class XWM
           case XWM.ENLIGHTEN_WM:
               /* At least E16 is buggy. */
               return true;
-          case XWM.I3_WM:
-              return true;
           default:
               return false;
         }
@@ -1602,7 +1598,7 @@ final class XWM
      * fact moved us to our final position relative to the reParented WM window.
      * We have noted a timing window which our shell has not been moved so we
      * screw up the insets thinking they are 0,0.  Wait (for a limited period of
-     * time to let the WM hava a chance to move us.
+     * time to let the WM have a chance to move us.
      * @param window window ID of the shell, assuming it is the window
      * which will NOT have zero coordinates after the complete
      * reparenting
@@ -1736,7 +1732,7 @@ final class XWM
                        * Check for double-reparenting WM.
                        *
                        * If the parent is exactly the same size as the
-                       * top-level assume taht it's the "lining" window and
+                       * top-level assume that it's the "lining" window and
                        * that the grandparent is the actual frame (NB: we
                        * have already handled undecorated windows).
                        *

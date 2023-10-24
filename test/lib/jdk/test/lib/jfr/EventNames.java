@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -80,22 +80,23 @@ public class EventNames {
     public static final String NativeMethodSample = PREFIX + "NativeMethodSample";
     public static final String ThreadDump = PREFIX + "ThreadDump";
     public static final String OldObjectSample = PREFIX + "OldObjectSample";
-    public static final String BiasedLockRevocation = PREFIX + "BiasedLockRevocation";
-    public static final String BiasedLockSelfRevocation = PREFIX + "BiasedLockSelfRevocation";
-    public static final String BiasedLockClassRevocation = PREFIX + "BiasedLockClassRevocation";
     public static final String SymbolTableStatistics = PREFIX + "SymbolTableStatistics";
     public static final String StringTableStatistics = PREFIX + "StringTableStatistics";
-    public static final String PlaceholderTableStatistics = PREFIX + "PlaceholderTableStatistics";
-    public static final String LoaderConstraintsTableStatistics = PREFIX + "LoaderConstraintsTableStatistics";
-    public static final String ProtectionDomainCacheTableStatistics = PREFIX + "ProtectionDomainCacheTableStatistics";
     public static final String RedefineClasses = PREFIX + "RedefineClasses";
     public static final String RetransformClasses = PREFIX + "RetransformClasses";
     public static final String ClassRedefinition = PREFIX + "ClassRedefinition";
+    public static final String FinalizerStatistics = PREFIX + "FinalizerStatistics";
+    public static final String NativeMemoryUsage = PREFIX + "NativeMemoryUsage";
+    public static final String NativeMemoryUsageTotal = PREFIX + "NativeMemoryUsageTotal";
+    public static final String JavaAgent = PREFIX + "JavaAgent";
+    public static final String NativeAgent = PREFIX + "NativeAgent";
 
     // This event is hard to test
     public static final String ReservedStackActivation = PREFIX + "ReservedStackActivation";
 
     // GC
+    public static final String GCHeapMemoryUsage = PREFIX + "GCHeapMemoryUsage";
+    public static final String GCHeapMemoryPoolUsage = PREFIX + "GCHeapMemoryPoolUsage";
     public static final String GCHeapSummary = PREFIX + "GCHeapSummary";
     public static final String MetaspaceSummary = PREFIX + "MetaspaceSummary";
     public static final String MetaspaceGCThreshold = PREFIX + "MetaspaceGCThreshold";
@@ -143,6 +144,9 @@ public class EventNames {
     public static final String GCPhaseParallel = PREFIX + "GCPhaseParallel";
     public static final String GCPhaseConcurrent = PREFIX + "GCPhaseConcurrent";
     public static final String GCPhaseConcurrentLevel1 = PREFIX + "GCPhaseConcurrentLevel1";
+    public static final String GCPhaseConcurrentLevel2 = PREFIX + "GCPhaseConcurrentLevel2";
+    public static final String ZYoungGarbageCollection = PREFIX + "ZYoungGarbageCollection";
+    public static final String ZOldGarbageCollection = PREFIX + "ZOldGarbageCollection";
     public static final String ZAllocationStall = PREFIX + "ZAllocationStall";
     public static final String ZPageAllocation = PREFIX + "ZPageAllocation";
     public static final String ZRelocationSet = PREFIX + "ZRelocationSet";
@@ -151,6 +155,7 @@ public class EventNames {
     public static final String ZUnmap = PREFIX + "ZUnmap";
     public static final String GCLocker = PREFIX + "GCLocker";
     public static final String SystemGC = PREFIX + "SystemGC";
+    public static final String GCCPUTime = PREFIX + "GCCPUTime";
 
     // Compiler
     public static final String Compilation = PREFIX + "Compilation";
@@ -161,9 +166,6 @@ public class EventNames {
     public static final String CompilerConfiguration = PREFIX + "CompilerConfiguration";
     public static final String CodeCacheStatistics = PREFIX + "CodeCacheStatistics";
     public static final String CodeCacheConfiguration = PREFIX + "CodeCacheConfiguration";
-    public static final String CodeSweeperStatistics = PREFIX + "CodeSweeperStatistics";
-    public static final String CodeSweeperConfiguration = PREFIX + "CodeSweeperConfiguration";
-    public static final String SweepCodeCache = PREFIX + "SweepCodeCache";
     public static final String CodeCacheFull = PREFIX + "CodeCacheFull";
     public static final String ObjectAllocationInNewTLAB = PREFIX + "ObjectAllocationInNewTLAB";
     public static final String ObjectAllocationOutsideTLAB = PREFIX + "ObjectAllocationOutsideTLAB";
@@ -184,6 +186,7 @@ public class EventNames {
     public static final String PhysicalMemory = PREFIX + "PhysicalMemory";
     public static final String NetworkUtilization = PREFIX + "NetworkUtilization";
     public static final String ProcessStart = PREFIX + "ProcessStart";
+    public static final String ResidentSetSize = PREFIX + "ResidentSetSize";
 
     // JDK
     public static final String FileForce  = PREFIX + "FileForce";
@@ -201,9 +204,13 @@ public class EventNames {
     public static final String X509Validation = PREFIX + "X509Validation";
     public static final String InitialSecurityProperty = PREFIX + "InitialSecurityProperty";
     public static final String SecurityProperty = PREFIX + "SecurityPropertyModification";
-    public final static String SecurityProviderService = PREFIX + "SecurityProviderService";
+    public static final String SecurityProviderService = PREFIX + "SecurityProviderService";
     public static final String DirectBufferStatistics = PREFIX + "DirectBufferStatistics";
     public static final String Deserialization = PREFIX + "Deserialization";
+    public static final String VirtualThreadStart = PREFIX + "VirtualThreadStart";
+    public static final String VirtualThreadEnd = PREFIX + "VirtualThreadEnd";
+    public static final String VirtualThreadPinned = PREFIX + "VirtualThreadPinned";
+    public static final String VirtualThreadSubmitFailed = PREFIX + "VirtualThreadSubmitFailed";
 
     // Containers
     public static final String ContainerConfiguration = PREFIX + "ContainerConfiguration";

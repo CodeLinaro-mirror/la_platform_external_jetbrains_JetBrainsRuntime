@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2018, 2021, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2018, 2020 SAP SE. All rights reserved.
+ * Copyright (c) 2018, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2022 SAP SE. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,7 +44,7 @@ MetaspaceDCmd::MetaspaceDCmd(outputStream* output, bool heap) :
   _show_vslist("vslist", "Shows details about the underlying virtual space.", "BOOLEAN", false, "false"),
   _show_chunkfreelist("chunkfreelist", "Shows details about global chunk free lists (ChunkManager).", "BOOLEAN", false, "false"),
   _scale("scale", "Memory usage in which to scale. Valid values are: 1, KB, MB or GB (fixed scale) "
-         "or \"dynamic\" for a dynamically choosen scale.",
+         "or \"dynamic\" for a dynamically chosen scale.",
          "STRING", false, "dynamic"),
   _show_classes("show-classes", "If show-loaders is set, shows loaded classes for each loader.", "BOOLEAN", false, "false")
 {
@@ -58,26 +58,15 @@ MetaspaceDCmd::MetaspaceDCmd(outputStream* output, bool heap) :
   _dcmdparser.add_dcmd_option(&_scale);
 }
 
-int MetaspaceDCmd::num_arguments() {
-  ResourceMark rm;
-  MetaspaceDCmd* dcmd = new MetaspaceDCmd(NULL, false);
-  if (dcmd != NULL) {
-    DCmdMark mark(dcmd);
-    return dcmd->_dcmdparser.num_arguments();
-  } else {
-    return 0;
-  }
-}
-
 void MetaspaceDCmd::execute(DCmdSource source, TRAPS) {
   // Parse scale value.
   const char* scale_value = _scale.value();
   size_t scale = 0;
-  if (scale_value != NULL) {
+  if (scale_value != nullptr) {
     if (strcasecmp("dynamic", scale_value) == 0) {
       scale = 0;
     } else {
-      scale = NMT_ONLY(NMTUtil::scale_from_name(scale_value)) NOT_NMT(0);
+      scale = NMTUtil::scale_from_name(scale_value);
       if (scale == 0) {
         output()->print_cr("Invalid scale: \"%s\". Will use dynamic scaling.", scale_value);
       }

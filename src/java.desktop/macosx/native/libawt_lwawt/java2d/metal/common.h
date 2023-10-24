@@ -171,10 +171,4 @@ struct SwizzleUniforms {
     unsigned char swizzle[4];
     unsigned char hasAlpha;
 };
-
-struct InsetsUniforms {
-    int left;
-    int top;
-};
-
 #endif

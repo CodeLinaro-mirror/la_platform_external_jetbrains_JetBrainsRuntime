@@ -33,8 +33,6 @@ import java.awt.*;
  * The delegate should be set in EventQueue by {@link EventQueue#setFwDispatcher(FwDispatcher)}
  * If the delegate is not null, than it handles supported methods instead of the
  * event queue. If it is null than the behaviour of an event queue does not change.
- * <p>
- * This class is also used to implement AWT event dispatching on native 'main' thread.
  *
  * @see EventQueue
  *
@@ -58,12 +56,4 @@ public interface FwDispatcher {
      * Delegates the {@link java.awt.EventQueue#createSecondaryLoop()} method
      */
     SecondaryLoop createSecondaryLoop();
-
-    default boolean startDefaultDispatchThread() {
-        return true;
-    }
-
-    default void scheduleNativeEvent(EventQueue eventQueue) {}
-
-    default void waitForNativeEvent() {}
 }

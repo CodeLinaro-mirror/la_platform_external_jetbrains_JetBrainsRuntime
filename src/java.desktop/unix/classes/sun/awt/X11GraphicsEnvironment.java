@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,8 +38,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
-import java.security.AccessController;
-import sun.security.action.GetPropertyAction;
 
 import sun.awt.X11.XToolkit;
 import sun.java2d.SunGraphicsEnvironment;
@@ -69,7 +67,7 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
                 System.loadLibrary("awt");
 
                 /*
-                 * Note: The MToolkit object depends on the static initializer
+                 * Note: The XToolkit object depends on the static initializer
                  * of X11GraphicsEnvironment to initialize the connection to
                  * the X11 server.
                  */
@@ -276,12 +274,6 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
                 it.remove();
             }
         }
-
-        if (useBoundsCache()) {
-            for (final X11GraphicsDevice gd : devices.values()) {
-                gd.resetBoundsCache();
-            }
-        }
     }
 
     @Override
@@ -409,13 +401,5 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
      */
     @Override
     public void paletteChanged() {
-    }
-
-    @SuppressWarnings("removal")
-    private static final boolean cacheScreenBoundsValue = Boolean.parseBoolean(AccessController.doPrivileged(
-            new GetPropertyAction("x11.cache.screen.bounds", "true")));
-
-    public static boolean useBoundsCache() {
-        return cacheScreenBoundsValue;
     }
 }

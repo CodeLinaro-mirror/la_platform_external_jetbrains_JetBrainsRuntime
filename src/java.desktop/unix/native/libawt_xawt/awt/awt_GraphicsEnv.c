@@ -297,6 +297,7 @@ getAllConfigs (JNIEnv *env, int screen, AwtScreenDataPtr screenDataPtr) {
     // NB: should be invoked only while holding the AWT lock
     DASSERT(screen >= 0 && screen < awt_numScreens);
 
+    jboolean success = JNI_FALSE;
     int i;
     int n8p=0, n12p=0, n8s=0, n8gs=0, n8sg=0, n1sg=0, nTrue=0;
     int nConfig;
@@ -384,7 +385,7 @@ getAllConfigs (JNIEnv *env, int screen, AwtScreenDataPtr screenDataPtr) {
          */
         screenDataPtr->defaultConfig = makeDefaultConfig(env, screen);
         if (screenDataPtr->defaultConfig == NULL) {
-            return;
+            goto cleanup;
         }
     }
 
@@ -567,10 +568,17 @@ getAllConfigs (JNIEnv *env, int screen, AwtScreenDataPtr screenDataPtr) {
                 sizeof (XVisualInfo));
     }
 
+    success = JNI_TRUE;
     screenDataPtr->numConfigs = nConfig;
     screenDataPtr->configs = graphicsConfigs;
 
 cleanup:
+    if (success != JNI_TRUE) {
+        for (i = 0; i < nConfig; i++) {
+            free(graphicsConfigs[i]);
+        }
+        free(graphicsConfigs);
+    }
     if (n8p != 0)
        XFree (pVI8p);
     if (n12p != 0)
@@ -1089,7 +1097,7 @@ void TryInitMITShm(JNIEnv *env, jint *shmExt, jint *shmPixmaps) {
         resetXShmAttachFailed();
         /**
          * The J2DXErrHandler handler will set xshmAttachFailed
-         * to JNI_TRUE if any Shm error has occured.
+         * to JNI_TRUE if any Shm error has occurred.
          */
         EXEC_WITH_XERROR_HANDLER(XShmAttachXErrHandler,
                                  XShmAttach(awt_display, &shminfo));

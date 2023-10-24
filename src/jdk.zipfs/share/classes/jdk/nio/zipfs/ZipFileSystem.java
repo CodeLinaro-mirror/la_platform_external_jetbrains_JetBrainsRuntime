@@ -441,7 +441,7 @@ class ZipFileSystem extends FileSystem {
     @Override
     public PathMatcher getPathMatcher(String syntaxAndInput) {
         int pos = syntaxAndInput.indexOf(':');
-        if (pos <= 0 || pos == syntaxAndInput.length()) {
+        if (pos <= 0) {
             throw new IllegalArgumentException();
         }
         String syntax = syntaxAndInput.substring(0, pos);
@@ -860,7 +860,7 @@ class ZipFileSystem extends FileSystem {
             if (e == null)
                 throw new NoSuchFileException(getString(path));
             if (e.isDir())
-                throw new FileSystemException(getString(path), "is a directory", null);
+                throw new FileSystemException(getString(path), null, "is a directory");
             return getInputStream(e);
         } finally {
             endRead();
@@ -868,7 +868,7 @@ class ZipFileSystem extends FileSystem {
     }
 
     private void checkOptions(Set<? extends OpenOption> options) {
-        // check for options of null type and option is an intance of StandardOpenOption
+        // check for options of null type and option is an instance of StandardOpenOption
         for (OpenOption option : options) {
             if (option == null)
                 throw new NullPointerException();
@@ -1219,7 +1219,7 @@ class ZipFileSystem extends FileSystem {
         return zc.toString(name);
     }
 
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("removal")
     protected void finalize() throws IOException {
         close();
     }
@@ -1333,8 +1333,8 @@ class ZipFileSystem extends FileSystem {
             }
             // parent exists
             lookup = lookup.as(node.name, off);
-            if (inodes.containsKey(lookup)) {
-                parent = inodes.get(lookup);
+            parent = inodes.get(lookup);
+            if (parent != null) {
                 node.sibling = parent.child;
                 parent.child = node;
                 break;
@@ -1472,6 +1472,13 @@ class ZipFileSystem extends FileSystem {
     }
 
     /**
+     * Package-private accessor to entry alias map used by ZipPath.
+     */
+    byte[] lookupPath(byte[] resolvedPath) {
+        return entryLookup.apply(resolvedPath);
+    }
+
+    /**
      * Create a sorted version map of version -> inode, for inodes <= max version.
      *   9 -> META-INF/versions/9
      *  10 -> META-INF/versions/10
@@ -1554,7 +1561,7 @@ class ZipFileSystem extends FileSystem {
             throw new ZipException("read CEN tables failed");
         }
         // Iterate through the entries in the central directory
-        inodes = new LinkedHashMap<>(end.centot + 1);
+        inodes = LinkedHashMap.newLinkedHashMap(end.centot + 1);
         int pos = 0;
         int limit = cen.length - ENDHDR;
         while (pos < limit) {
@@ -3020,7 +3027,7 @@ class ZipFileSystem extends FileSystem {
             }
             if (elenEXTT != 0) {
                 writeShort(os, EXTID_EXTT);
-                writeShort(os, elenEXTT - 4);// size for the folowing data block
+                writeShort(os, elenEXTT - 4);// size for the following data block
                 int fbyte = 0x1;
                 if (atime != -1)           // mtime and atime
                     fbyte |= 0x2;
@@ -3078,22 +3085,10 @@ class ZipFileSystem extends FileSystem {
                 int sz = SH(extra, pos + 2);
                 pos += 4;
                 if (pos + sz > elen) {        // invalid data
-                    throw new ZipException(String.format(
-                            "Invalid CEN header (invalid extra data field size for " +
-                                    "tag: 0x%04x size: %d)",
-                            tag, sz));
+                    throw new ZipException("Invalid CEN header (invalid zip64 extra data field size)");
                 }
                 switch (tag) {
                 case EXTID_ZIP64 :
-                    // if ZIP64_EXTID blocksize == 0, which may occur with some older
-                    // versions of Apache Ant and Commons Compress, validate csize
-                    // size, and locoff to make sure the fields != ZIP64_MAGICVAL
-                    if (sz == 0) {
-                        if (csize == ZIP64_MINVAL || size == ZIP64_MINVAL || locoff == ZIP64_MINVAL) {
-                            throw new ZipException("Invalid CEN header (invalid zip64 extra data field size)");
-                        }
-                        break;
-                    }
                     // Check to see if we have a valid block size
                     if (!isZip64ExtBlockSizeValid(sz)) {
                         throw new ZipException("Invalid CEN header (invalid zip64 extra data field size)");
@@ -3363,7 +3358,7 @@ class ZipFileSystem extends FileSystem {
         public Optional<Set<PosixFilePermission>> storedPermissions() {
             Set<PosixFilePermission> perms = null;
             if (posixPerms != -1) {
-                perms = new HashSet<>(PosixFilePermission.values().length);
+                perms = HashSet.newHashSet(PosixFilePermission.values().length);
                 for (PosixFilePermission perm : PosixFilePermission.values()) {
                     if ((posixPerms & ZipUtils.permToFlag(perm)) != 0) {
                         perms.add(perm);

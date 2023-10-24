@@ -37,8 +37,6 @@
 #include "MTLRenderer.h"
 #include "MTLTextRenderer.h"
 #import "ThreadUtilities.h"
-#import "PropertiesUtilities.h"
-
 
 /**
  * References to the "current" context and destination surface.
@@ -49,19 +47,6 @@ jint mtlPreviousOp = MTL_OP_INIT;
 
 extern BOOL isDisplaySyncEnabled();
 extern void MTLGC_DestroyMTLGraphicsConfig(jlong pConfigInfo);
-
-BOOL isSyncSurfacesEnabled() {
-    static int syncEnabled = -1;
-    if (syncEnabled == -1) {
-        JNIEnv *env = [ThreadUtilities getJNIEnvUncached];
-        if (env == NULL) return NO;
-        NSString *syncEnabledProp = [PropertiesUtilities javaSystemPropertyForKey:@"sun.java2d.metal.syncSurfaces"
-                                     withEnv:env];
-        syncEnabled = [@"true" isCaseInsensitiveLike:syncEnabledProp] ? YES : NO;
-        J2dRlsTraceLn1(J2D_TRACE_INFO, "MTLRenderQueue_isSyncSurfacesEnabled: %d", syncEnabled);
-    }
-    return (BOOL)syncEnabled;
-}
 
 void MTLRenderQueue_CheckPreviousOp(jint op) {
 
@@ -99,7 +84,7 @@ void MTLRenderQueue_CheckPreviousOp(jint op) {
         [mtlc.encoderManager endEncoder];
 
         if (op == MTL_OP_RESET_PAINT || op == MTL_OP_SYNC || op == MTL_OP_SHAPE_CLIP_SPANS ||
-                (!isSyncSurfacesEnabled() && mtlPreviousOp == MTL_OP_MASK_OP))
+            mtlPreviousOp == MTL_OP_MASK_OP)
         {
             [mtlc commitCommandBuffer:(op == MTL_OP_SYNC || op == MTL_OP_SHAPE_CLIP_SPANS)
                               display:NO];
@@ -600,13 +585,15 @@ Java_sun_java2d_metal_MTLRenderQueue_flushBuffer
                     jlong pDst = NEXT_LONG(b);
 
                     if (mtlc != NULL) {
-                        [mtlc.glyphCacheAA free];
-                        [mtlc.glyphCacheLCD free];
+                        if (dstOps != NULL && dstOps->pTexture != NULL) {
+                            MTLTR_FreeGlyphCacheAA();
+                            MTLTR_FreeGlyphCacheLCD();
+                        }
                         if (isDisplaySyncEnabled() && IS_OUTPUT_DEST(dstOps)) {
                             [mtlc commitCommandBuffer:YES display:YES];
                             sync = NO;
                         } else {
-                            [mtlc commitCommandBuffer:isSyncSurfacesEnabled() display:NO];
+                            [mtlc commitCommandBuffer:NO display:NO];
                         }
                     }
                     mtlc = [MTLContext setSurfacesEnv:env src:pSrc dst:pDst];
@@ -621,8 +608,10 @@ Java_sun_java2d_metal_MTLRenderQueue_flushBuffer
                             (MTLGraphicsConfigInfo *)jlong_to_ptr(pConfigInfo);
 
                     if (mtlc != NULL) {
-                        [mtlc.glyphCacheAA free];
-                        [mtlc.glyphCacheLCD free];
+                        if (dstOps != NULL && dstOps->pTexture != NULL) {
+                            MTLTR_FreeGlyphCacheAA();
+                            MTLTR_FreeGlyphCacheLCD();
+                        }
                         [mtlc commitCommandBuffer:NO display:NO];
                     }
 
@@ -641,8 +630,8 @@ Java_sun_java2d_metal_MTLRenderQueue_flushBuffer
                     BMTLSDOps *mtlsdo = (BMTLSDOps *)jlong_to_ptr(pData);
                     if (mtlsdo != NULL) {
                         CONTINUE_IF_NULL(mtlc);
-                        [mtlc.glyphCacheAA free];
-                        [mtlc.glyphCacheLCD free];
+                        MTLTR_FreeGlyphCacheAA();
+                        MTLTR_FreeGlyphCacheLCD();
                         MTLSD_Delete(env, mtlsdo);
                     }
                     break;
@@ -666,8 +655,8 @@ Java_sun_java2d_metal_MTLRenderQueue_flushBuffer
                     CHECK_PREVIOUS_OP(MTL_OP_OTHER);
                     jlong pConfigInfo = NEXT_LONG(b);
                     CONTINUE_IF_NULL(mtlc);
-                    [mtlc.glyphCacheAA free];
-                    [mtlc.glyphCacheLCD free];
+                    MTLTR_FreeGlyphCacheAA();
+                    MTLTR_FreeGlyphCacheLCD();
                     [mtlc.encoderManager endEncoder];
                     MTLGC_DestroyMTLGraphicsConfig(pConfigInfo);
                     mtlc = NULL;

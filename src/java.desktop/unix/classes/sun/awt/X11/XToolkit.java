@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -649,11 +649,10 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
                         try {
                             ((X11GraphicsEnvironment)GraphicsEnvironment.
                              getLocalGraphicsEnvironment()).rebuildDevices();
-                            if (useCachedInsets) resetScreenInsetsCache();
                         } finally {
                             awtLock();
                         }
-                    } else if (useCachedInsets) {
+                    } else {
                         final XAtom XA_NET_WORKAREA = XAtom.get("_NET_WORKAREA");
                         final boolean rootWindowWorkareaResized = (ev.get_type() == XConstants.PropertyNotify
                                 && ev.get_xproperty().get_atom() == XA_NET_WORKAREA.getAtom());
@@ -935,9 +934,7 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
             }
         }
         if (dispatchers != null) {
-            Iterator<XEventDispatcher> iter = dispatchers.iterator();
-            while (iter.hasNext()) {
-                XEventDispatcher disp = iter.next();
+            for (XEventDispatcher disp : dispatchers) {
                 disp.dispatchEvent(ev);
             }
         }
@@ -1047,18 +1044,12 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
                 }
 
                 dispatchEvent(ev);
-                // free event data if XGetEventData was called
-                XlibWrapper.XFreeEventData(getDisplay(), ev.pData);
-            } catch (ThreadDeath td) {
-                XBaseWindow.ungrabInput();
-                processException(td);
-                throw td;
             } catch (Throwable thr) {
                 XBaseWindow.ungrabInput();
                 processException(thr);
-                // In case of ThreadDeath thread is still alive in finally block so we have to duplicate freeing
-                XlibWrapper.XFreeEventData(getDisplay(), ev.pData);
             } finally {
+                // free event data if XGetEventData was called
+                XlibWrapper.XFreeEventData(getDisplay(), ev.pData);
                 awtUnlock();
             }
         }
@@ -1203,17 +1194,31 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
         }
     }
 
-    private final Hashtable<GraphicsConfiguration, Insets> cachedInsets = new Hashtable<>();
     private void resetScreenInsetsCache() {
-        cachedInsets.clear();
+        final GraphicsDevice[] devices = ((X11GraphicsEnvironment)GraphicsEnvironment.
+                getLocalGraphicsEnvironment()).getScreenDevices();
+        for (var gd : devices) {
+            ((X11GraphicsDevice)gd).resetInsets();
+        }
     }
 
     @Override
     public Insets getScreenInsets(final GraphicsConfiguration gc) {
-        if (useCachedInsets) {
-            return (Insets)cachedInsets.computeIfAbsent(gc, this::getScreenInsetsImpl).clone();
+        final GraphicsDevice gd = gc.getDevice();
+        if (gd instanceof X11GraphicsDevice x11Device) {
+            Insets insets = x11Device.getInsets();
+            if (insets == null) {
+                synchronized (x11Device) {
+                    insets = x11Device.getInsets();
+                    if (insets == null) {
+                        insets = getScreenInsetsImpl(gc);
+                        x11Device.setInsets(insets);
+                    }
+                }
+            }
+            return (Insets) insets.clone();
         } else {
-            return getScreenInsetsImpl(gc);
+            return super.getScreenInsets(gc);
         }
     }
 
@@ -1721,9 +1726,7 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
                         awt_multiclick_time = AWT_MULTICLICK_DEFAULT_TIME;
                     }
                 }
-            } catch (NumberFormatException nf) {
-                awt_multiclick_time = AWT_MULTICLICK_DEFAULT_TIME;
-            } catch (NullPointerException npe) {
+            } catch (NumberFormatException | NullPointerException e) {
                 awt_multiclick_time = AWT_MULTICLICK_DEFAULT_TIME;
             }
         } finally {
@@ -1838,7 +1841,7 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
             } catch (InterruptedException ie) {
             // Note: the returned timeStamp can be incorrect in this case.
                 if (log.isLoggable(PlatformLogger.Level.FINE)) {
-                    log.fine("Catched exception, timeStamp may not be correct (ie = " + ie + ")");
+                    log.fine("Caught exception, timeStamp may not be correct (ie = " + ie + ")");
                 }
             }
         } finally {
@@ -1912,7 +1915,7 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
     @Override
     protected Object lazilyLoadDesktopProperty(String name) {
         if (name.startsWith(prefix)) {
-            String cursorName = name.substring(prefix.length(), name.length()) + postfix;
+            String cursorName = name.substring(prefix.length()) + postfix;
 
             try {
                 return Cursor.getSystemCustomCursor(cursorName);
@@ -2004,9 +2007,7 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
             return;
         }
 
-        Iterator<Map.Entry<String, Object>> i = updatedSettings.entrySet().iterator();
-        while (i.hasNext()) {
-            Map.Entry<String, Object> e = i.next();
+        for (Map.Entry<String, Object> e : updatedSettings.entrySet()) {
             String name = e.getKey();
 
             name = "gnome." + name;
@@ -2258,7 +2259,7 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
      * @param task a Runnable which {@code run} method will be called
      *        on the toolkit thread when {@code interval} milliseconds
      *        elapse
-     * @param interval an interal in milliseconds
+     * @param interval an interval in milliseconds
      *
      * @throws NullPointerException if {@code task} is {@code null}
      * @throws IllegalArgumentException if {@code interval} is not positive
@@ -2335,9 +2336,7 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
         while (time.compareTo(currentTime) <= 0) {
             java.util.List<Runnable> tasks = timeoutTasks.remove(time);
 
-            for (Iterator<Runnable> iter = tasks.iterator(); iter.hasNext();) {
-                Runnable task = iter.next();
-
+            for (Runnable task : tasks) {
                 if (timeoutTaskLog.isLoggable(PlatformLogger.Level.FINER)) {
                     timeoutTaskLog.finer("XToolkit.callTimeoutTasks(): current time={0}" +
                                          ";  about to run task={1}", Long.valueOf(currentTime), task);
@@ -2345,8 +2344,6 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
 
                 try {
                     task.run();
-                } catch (ThreadDeath td) {
-                    throw td;
                 } catch (Throwable thr) {
                     processException(thr);
                 }
@@ -2793,7 +2790,7 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
     private static int oops_position = 0;
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected boolean syncNativeQueue(long timeout) {
@@ -2807,7 +2804,7 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
                     @Override
                     public void dispatchEvent(XEvent e) {
                         if (e.get_type() == XConstants.ConfigureNotify) {
-                            // OOPS ConfigureNotify event catched
+                            // OOPS ConfigureNotify event caught
                             oops_updated = true;
                             awtLockNotifyAll();
                         }
@@ -2966,8 +2963,4 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
     boolean isWindowMoveSupported() {
         return XWM.isWMMoveResizeSupported();
     }
-
-    @SuppressWarnings("removal")
-    private static final boolean useCachedInsets = Boolean.parseBoolean(AccessController.doPrivileged(
-            new GetPropertyAction("x11.cache.screen.insets", "true")));
 }

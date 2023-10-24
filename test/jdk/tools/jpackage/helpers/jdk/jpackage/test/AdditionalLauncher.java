@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -75,6 +76,10 @@ public class AdditionalLauncher {
         return this;
     }
 
+    final public AdditionalLauncher setLauncherAsService() {
+        return addRawProperties(LAUNCHER_AS_SERVICE);
+    }
+
     final public AdditionalLauncher addRawProperties(
             Map.Entry<String, String>... v) {
         return addRawProperties(List.of(v));
@@ -83,6 +88,24 @@ public class AdditionalLauncher {
     final public AdditionalLauncher addRawProperties(
             Collection<Map.Entry<String, String>> v) {
         rawProperties.addAll(v);
+        return this;
+    }
+
+    final public String getRawPropertyValue(
+            String key, Supplier<String> getDefault) {
+        return rawProperties.stream()
+                .filter(item -> item.getKey().equals(key))
+                .map(e -> e.getValue()).findAny().orElseGet(getDefault);
+    }
+
+    private String getDesciption(JPackageCommand cmd) {
+        return getRawPropertyValue("description", () -> cmd.getArgumentValue(
+                "--description", unused -> cmd.name()));
+    }
+
+    final public AdditionalLauncher setShortcuts(boolean menu, boolean shortcut) {
+        withMenuShortcut = menu;
+        withShortcut = shortcut;
         return this;
     }
 
@@ -182,6 +205,18 @@ public class AdditionalLauncher {
             properties.add(Map.entry("icon", iconPath));
         }
 
+        if (withShortcut != null) {
+            if (TKit.isLinux()) {
+                properties.add(Map.entry("linux-shortcut", withShortcut.toString()));
+            } else if (TKit.isWindows()) {
+                properties.add(Map.entry("win-shortcut", withShortcut.toString()));
+            }
+        }
+
+        if (TKit.isWindows() && withMenuShortcut != null)  {
+            properties.add(Map.entry("win-menu", withMenuShortcut.toString()));
+        }
+
         properties.addAll(rawProperties);
 
         createFileHandler.accept(propsFile, properties);
@@ -217,7 +252,7 @@ public class AdditionalLauncher {
                 () -> iconInResourceDir(cmd, name));
         while (effectiveIcon != NO_ICON) {
             if (effectiveIcon != null) {
-                withLinuxDesktopFile = true;
+                withLinuxDesktopFile = Boolean.FALSE != withShortcut;
                 verifier.setExpectedIcon(effectiveIcon);
                 break;
             }
@@ -225,7 +260,7 @@ public class AdditionalLauncher {
             Path customMainLauncherIcon = cmd.getArgumentValue("--icon",
                     () -> iconInResourceDir(cmd, null), Path::of);
             if (customMainLauncherIcon != null) {
-                withLinuxDesktopFile = true;
+                withLinuxDesktopFile = Boolean.FALSE != withShortcut;
                 verifier.setExpectedIcon(customMainLauncherIcon);
                 break;
             }
@@ -236,8 +271,8 @@ public class AdditionalLauncher {
 
         if (TKit.isLinux() && !cmd.isImagePackageType()) {
             if (effectiveIcon != NO_ICON && !withLinuxDesktopFile) {
-                withLinuxDesktopFile = Stream.of("--linux-shortcut").anyMatch(
-                        cmd::hasArgument);
+                withLinuxDesktopFile = (Boolean.FALSE != withShortcut) &&
+                        Stream.of("--linux-shortcut").anyMatch(cmd::hasArgument);
                 verifier.setExpectedDefaultIcon();
             }
             Path desktopFile = LinuxHelper.getDesktopFile(cmd, name);
@@ -251,8 +286,42 @@ public class AdditionalLauncher {
         verifier.applyTo(cmd);
     }
 
+    private void verifyShortcuts(JPackageCommand cmd) throws IOException {
+        if (TKit.isLinux() && !cmd.isImagePackageType()
+                && withShortcut != null) {
+            Path desktopFile = LinuxHelper.getDesktopFile(cmd, name);
+            if (withShortcut) {
+                TKit.assertFileExists(desktopFile);
+            } else {
+                TKit.assertPathExists(desktopFile, false);
+            }
+        }
+    }
+
+    private void verifyDescription(JPackageCommand cmd) throws IOException {
+        if (TKit.isWindows()) {
+            String expectedDescription = getDesciption(cmd);
+            Path launcherPath = cmd.appLauncherPath(name);
+            String actualDescription =
+                    WindowsHelper.getExecutableDesciption(launcherPath);
+            TKit.assertEquals(expectedDescription, actualDescription,
+                    String.format("Check file description of [%s]", launcherPath));
+        } else if (TKit.isLinux() && !cmd.isImagePackageType()) {
+            String expectedDescription = getDesciption(cmd);
+            Path desktopFile = LinuxHelper.getDesktopFile(cmd, name);
+            if (Files.exists(desktopFile)) {
+                TKit.assertTextStream("Comment=" + expectedDescription)
+                        .label(String.format("[%s] file", desktopFile))
+                        .predicate(String::equals)
+                        .apply(Files.readAllLines(desktopFile).stream());
+            }
+        }
+    }
+
     protected void verify(JPackageCommand cmd) throws IOException {
         verifyIcon(cmd);
+        verifyShortcuts(cmd);
+        verifyDescription(cmd);
 
         Path launcherPath = cmd.appLauncherPath(name);
 
@@ -273,7 +342,13 @@ public class AdditionalLauncher {
                         "--java-options"))).stream().map(
                         str -> resolveVariables(cmd, str)).toList());
 
-        appVerifier.executeAndVerifyOutput();
+        if (!rawProperties.contains(LAUNCHER_AS_SERVICE)) {
+            appVerifier.executeAndVerifyOutput();
+        } else if (!cmd.isPackageUnpacked(String.format(
+                "Not verifying contents of test output file for [%s] launcher",
+                launcherPath))) {
+            appVerifier.verifyOutput();
+        }
     }
 
     public static final class PropertyFile {
@@ -325,6 +400,10 @@ public class AdditionalLauncher {
     private final String name;
     private final List<Map.Entry<String, String>> rawProperties;
     private BiConsumer<Path, List<Map.Entry<String, String>>> createFileHandler;
+    private Boolean withMenuShortcut;
+    private Boolean withShortcut;
 
     private final static Path NO_ICON = Path.of("");
+    private final static Map.Entry<String, String> LAUNCHER_AS_SERVICE = Map.entry(
+            "launcher-as-service", "true");
 }

@@ -23,6 +23,7 @@
 
 /*
  * @test
+ * @run shell build.sh
  * @run main JBRApiTest
  */
 

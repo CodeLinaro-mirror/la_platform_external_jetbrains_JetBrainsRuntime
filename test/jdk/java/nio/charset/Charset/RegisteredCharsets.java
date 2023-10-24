@@ -23,17 +23,14 @@
 
 /* @test
  * @bug 4473201 4696726 4652234 4482298 4784385 4966197 4267354 5015668
-        6911753 8071447 8186751 8242541 8301119
+        6911753 8071447 8186751 8242541 8260265 8301119
  * @summary Check that registered charsets are actually registered
  * @modules jdk.charsets
  * @run main RegisteredCharsets
  * @run main/othervm -Djdk.charset.GB18030=2000 RegisteredCharsets
  */
 
-import java.io.*;
-import java.nio.*;
 import java.nio.charset.*;
-import java.util.*;
 
 public class RegisteredCharsets {
 
@@ -208,7 +205,7 @@ public class RegisteredCharsets {
                 new String[] {"ascii","ANSI_X3.4-1968",
                 "iso-ir-6","ANSI_X3.4-1986", "ISO_646.irv:1991",
                 "ASCII", "ISO646-US","us","IBM367","cp367",
-                "csASCII", "default"});
+                "csASCII"});
 
         aliasCheck("UTF-8",
                 new String[] {
@@ -1304,5 +1301,13 @@ public class RegisteredCharsets {
                 new String[] {
                     "MacDingbat" // JDK historical
                 });
+
+        // Check UnsupportedCharsetException is thrown for the name "default"
+        try {
+            Charset.forName("default");
+            throw new RuntimeException("UnsupportedCharsetException was not thrown for Charset.forName(\"default\")");
+        } catch (UnsupportedCharsetException uce) {
+            // success
+        }
     }
 }

@@ -25,8 +25,6 @@
 
 package java.awt;
 
-import sun.awt.SunToolkit;
-
 import java.io.Serial;
 
 /**
@@ -188,7 +186,7 @@ public class GridLayout implements LayoutManager, java.io.Serializable {
      *                   any number of columns
      * @param     hgap   the horizontal gap
      * @param     vgap   the vertical gap
-     * @exception   IllegalArgumentException  if the value of both
+     * @throws   IllegalArgumentException  if the value of both
      *                  {@code rows} and {@code cols} is
      *                  set to zero
      */
@@ -214,7 +212,7 @@ public class GridLayout implements LayoutManager, java.io.Serializable {
     /**
      * Sets the number of rows in this layout to the specified value.
      * @param        rows   the number of rows in this layout
-     * @exception    IllegalArgumentException  if the value of both
+     * @throws    IllegalArgumentException  if the value of both
      *               {@code rows} and {@code cols} is set to zero
      * @since        1.1
      */
@@ -242,7 +240,7 @@ public class GridLayout implements LayoutManager, java.io.Serializable {
      * of columns displayed in the layout is determined by the total
      * number of components and the number of rows specified.
      * @param        cols   the number of columns in this layout
-     * @exception    IllegalArgumentException  if the value of both
+     * @throws    IllegalArgumentException  if the value of both
      *               {@code rows} and {@code cols} is set to zero
      * @since        1.1
      */
@@ -421,7 +419,7 @@ public class GridLayout implements LayoutManager, java.io.Serializable {
      * @see        java.awt.Container#doLayout
      */
     public void layoutContainer(Container parent) {
-      SunToolkit.performWithTreeLock(() -> {
+      synchronized (parent.getTreeLock()) {
         Insets insets = parent.getInsets();
         int ncomponents = parent.getComponentCount();
         int nrows = rows;
@@ -469,7 +467,7 @@ public class GridLayout implements LayoutManager, java.io.Serializable {
                 }
             }
         }
-      });
+      }
     }
 
     /**

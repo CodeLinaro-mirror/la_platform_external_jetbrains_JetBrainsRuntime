@@ -109,8 +109,7 @@ public class AWTThreading {
 
         boolean isEDT = EventQueue.isDispatchThread();
 
-        if (FontUtilities.isMacOSX && isEDT &&
-                Thread.currentThread() != ((SunToolkit)Toolkit.getDefaultToolkit()).getMainThread()) {
+        if (FontUtilities.isMacOSX && isEDT) {
             AWTThreading instance = getInstance(Thread.currentThread());
             if (instance != null) {
                 return instance.execute(callable, timeout, unit);

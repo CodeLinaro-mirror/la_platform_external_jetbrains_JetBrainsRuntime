@@ -31,7 +31,7 @@
 #include <jni_util.h>
 #include <jvm.h>
 #include "gdefs.h"
-
+#include "sun_awt_PlatformGraphicsInfo.h"
 #include <sys/param.h>
 #include <sys/utsname.h>
 
@@ -79,6 +79,34 @@ JNIEXPORT jboolean JNICALL AWTIsHeadless() {
     return isHeadless;
 }
 
+JNIEXPORT jint JNICALL AWTGetToolkitID() {
+    static JNIEnv *env = NULL;
+    static jint toolkitID;
+    jmethodID toolkitIDFn;
+    jclass platformGraphicsInfoClass;
+
+    if (env == NULL) {
+        env = (JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2);
+        platformGraphicsInfoClass = (*env)->FindClass(env,
+                                             "sun/awt/PlatformGraphicsInfo");
+        if (platformGraphicsInfoClass == NULL) {
+            return 0;
+        }
+        toolkitIDFn = (*env)->GetStaticMethodID(env,
+                                                platformGraphicsInfoClass, "getToolkitID", "()I");
+        if (toolkitIDFn == NULL) {
+            return 0;
+        }
+        toolkitID = (*env)->CallStaticBooleanMethod(env, platformGraphicsInfoClass,
+                                                    toolkitIDFn);
+        if ((*env)->ExceptionCheck(env)) {
+            (*env)->ExceptionClear(env);
+            return JNI_TRUE;
+        }
+    }
+    return toolkitID;
+}
+
 #define CHECK_EXCEPTION_FATAL(env, message) \
     if ((*env)->ExceptionCheck(env)) { \
         (*env)->ExceptionClear(env); \
@@ -94,6 +122,7 @@ JNIEXPORT jboolean JNICALL AWTIsHeadless() {
   #define DEFAULT_PATH LWAWT_PATH
 #else
   #define XAWT_PATH "/libawt_xawt.so"
+  #define WLAWT_PATH "/libawt_wlawt.so"
   #define DEFAULT_PATH XAWT_PATH
   #define HEADLESS_PATH "/libawt_headless.so"
 #endif
@@ -109,8 +138,7 @@ AWT_OnLoad(JavaVM *vm, void *reserved)
     struct utsname name;
     JNIEnv *env = (JNIEnv *)JNU_GetEnv(vm, JNI_VERSION_1_2);
     void *v;
-    jstring fmanager = NULL;
-    jstring fmProp = NULL;
+    jint tkID = 0;
 
     if (awtHandle != NULL) {
         /* Avoid several loading attempts */
@@ -126,29 +154,21 @@ AWT_OnLoad(JavaVM *vm, void *reserved)
     p = strrchr(buf, '/');
 #endif
     /*
-     * The code below is responsible for:
-     * 1. Loading appropriate awt library, i.e. libawt_xawt or libawt_headless
-     * 2. Set the "sun.font.fontmanager" system property.
+     * The code below is responsible for
+     * loading appropriate awt library, i.e. libawt_xawt or libawt_headless
      */
 
-    fmProp = (*env)->NewStringUTF(env, "sun.font.fontmanager");
-    CHECK_EXCEPTION_FATAL(env, "Could not allocate font manager property");
 
 #ifdef MACOSX
-        fmanager = (*env)->NewStringUTF(env, "sun.font.CFontManager");
         tk = LWAWT_PATH;
 #else
-        fmanager = (*env)->NewStringUTF(env, "sun.awt.X11FontManager");
-        tk = XAWT_PATH;
+        tkID = AWTGetToolkitID();
+        if (tkID == sun_awt_PlatformGraphicsInfo_TK_WAYLAND) {
+            tk = WLAWT_PATH;
+        } else {
+            tk = XAWT_PATH;
+        }
 #endif
-    CHECK_EXCEPTION_FATAL(env, "Could not allocate font manager name");
-
-    if (fmanager && fmProp) {
-        JNU_CallStaticMethodByName(env, NULL, "java/lang/System", "setProperty",
-                                   "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
-                                   fmProp, fmanager);
-        CHECK_EXCEPTION_FATAL(env, "Could not allocate set properties");
-    }
 
 #ifndef MACOSX
     if (AWTIsHeadless()) {
@@ -160,14 +180,6 @@ AWT_OnLoad(JavaVM *vm, void *reserved)
     /* Calculate library name to load */
     strncpy(p, tk, MAXPATHLEN-len-1);
 #endif
-
-    if (fmProp) {
-        (*env)->DeleteLocalRef(env, fmProp);
-    }
-    if (fmanager) {
-        (*env)->DeleteLocalRef(env, fmanager);
-    }
-
 
 #ifndef STATIC_BUILD
     jstring jbuf = JNU_NewStringPlatform(env, buf);

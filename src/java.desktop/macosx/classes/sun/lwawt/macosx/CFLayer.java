@@ -44,6 +44,7 @@ public abstract class CFLayer extends CFRetainedResource {
     }
 
     public abstract SurfaceData replaceSurfaceData(int scale);
+
     public SurfaceData replaceSurfaceData() {
         return replaceSurfaceData(0);
     }
@@ -71,6 +72,10 @@ public abstract class CFLayer extends CFRetainedResource {
 
     public boolean isOpaque() {
         return !peer.isTranslucent();
+    }
+
+    public void setOpaque(boolean opaque) {
+        // Default is no op (works well for OGL)
     }
 
     public int getTransparency() {

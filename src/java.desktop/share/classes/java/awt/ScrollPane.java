@@ -258,7 +258,7 @@ public class ScrollPane extends Container implements Accessible {
      * @param index position of child component (must be &lt;= 0)
      */
     protected final void addImpl(Component comp, Object constraints, int index) {
-        SunToolkit.performWithTreeLock(() -> {
+        synchronized (getTreeLock()) {
             if (getComponentCount() > 0) {
                 remove(0);
             }
@@ -271,7 +271,7 @@ public class ScrollPane extends Container implements Accessible {
             } else {
                 addToPanel(comp, constraints, index);
             }
-        });
+        }
     }
 
     /**
@@ -368,13 +368,13 @@ public class ScrollPane extends Container implements Accessible {
      *     a child
      */
     public void setScrollPosition(int x, int y) {
-        SunToolkit.performWithTreeLock(() -> {
+        synchronized (getTreeLock()) {
             if (getComponentCount()==0) {
                 throw new NullPointerException("child is null");
             }
             hAdjustable.setValue(x);
             vAdjustable.setValue(y);
-        });
+        }
     }
 
     /**
@@ -740,8 +740,7 @@ public class ScrollPane extends Container implements Accessible {
     /**
      * Invoked when the value of the adjustable has changed.
      */
-    class PeerFixer implements AdjustmentListener, java.io.Serializable
-    {
+    static class PeerFixer implements AdjustmentListener, java.io.Serializable {
         /**
          * Use serialVersionUID from JDK 1.1.1 for interoperability.
          */

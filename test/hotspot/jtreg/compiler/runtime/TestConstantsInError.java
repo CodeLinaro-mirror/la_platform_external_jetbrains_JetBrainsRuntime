@@ -72,7 +72,7 @@ public abstract class TestConstantsInError implements OutputProcessor {
     static byte[] generateClassFile(String suffix, Generator g) throws IOException {
         var cw = new ClassWriter(COMPUTE_MAXS | COMPUTE_FRAMES);
         String name = TEST_PREFIX + "_" + suffix;
-        cw.visit(V17, ACC_PUBLIC | ACC_SUPER, name, null, "java/lang/Object", null);
+        cw.visit(V19, ACC_PUBLIC | ACC_SUPER, name, null, "java/lang/Object", null);
 
         {
             var mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, "test", "()V", null, null);
@@ -230,16 +230,18 @@ public abstract class TestConstantsInError implements OutputProcessor {
         }
 
         public void process(OutputAnalyzer results, boolean isC1) {
-            if (isC1) {
-                results.shouldMatch("Test_CD1.*::test \\(3 bytes\\)   COMPILE SKIPPED: could not resolve a constant")
-                       .shouldMatch("Test_CD2.*::test \\(3 bytes\\)   COMPILE SKIPPED: could not resolve a constant")
-                       .shouldMatch("Test_CD3.*::test \\(3 bytes\\)   COMPILE SKIPPED: could not resolve a constant")
-                       .shouldMatch("Test_CD4.*::test \\(3 bytes\\)   COMPILE SKIPPED: could not resolve a constant");
+            results.shouldMatch("Test_CD1.*::test \\(3 bytes\\)$")
+                   .shouldMatch("Test_CD2.*::test \\(3 bytes\\)$")
+                   .shouldMatch("Test_CD3.*::test \\(3 bytes\\)$")
+                   .shouldMatch("Test_CD4.*::test \\(3 bytes\\)$");
+
+            if (isC1 && (Platform.isAArch64() || Platform.isRISCV64())) { // no code patching
+                results.shouldMatch("Test_CD1.*::test \\(3 bytes\\)   made not entrant")
+                       .shouldMatch("Test_CD2.*::test \\(3 bytes\\)   made not entrant")
+                       .shouldMatch("Test_CD3.*::test \\(3 bytes\\)   made not entrant")
+                       .shouldMatch("Test_CD4.*::test \\(3 bytes\\)   made not entrant");
             } else {
-                results.shouldMatch("Test_CD1.*::test \\(3 bytes\\)$")
-                       .shouldMatch("Test_CD2.*::test \\(3 bytes\\)$")
-                       .shouldMatch("Test_CD3.*::test \\(3 bytes\\)$")
-                       .shouldMatch("Test_CD4.*::test \\(3 bytes\\)$");
+                results.shouldNotContain("made not entrant");
             }
         }
     }

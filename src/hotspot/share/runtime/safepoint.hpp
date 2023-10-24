@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,9 +25,9 @@
 #ifndef SHARE_RUNTIME_SAFEPOINT_HPP
 #define SHARE_RUNTIME_SAFEPOINT_HPP
 
-#include "memory/allocation.hpp"
+#include "memory/allStatic.hpp"
+#include "runtime/javaThread.hpp"
 #include "runtime/os.hpp"
-#include "runtime/thread.hpp"
 #include "runtime/vmOperation.hpp"
 #include "utilities/ostream.hpp"
 #include "utilities/waitBarrier.hpp"
@@ -74,7 +74,6 @@ class SafepointSynchronize : AllStatic {
     SAFEPOINT_CLEANUP_UPDATE_INLINE_CACHES,
     SAFEPOINT_CLEANUP_SYMBOL_TABLE_REHASH,
     SAFEPOINT_CLEANUP_STRING_TABLE_REHASH,
-    SAFEPOINT_CLEANUP_SYSTEM_DICTIONARY_RESIZE,
     SAFEPOINT_CLEANUP_REQUEST_OOPSTORAGE_CLEANUP,
     // Leave this one last.
     SAFEPOINT_CLEANUP_NUM_TASKS
@@ -165,9 +164,6 @@ public:
 
   static void set_is_at_safepoint()             { _state = _synchronized; }
   static void set_is_not_at_safepoint()         { _state = _not_synchronized; }
-
-  // Assembly support
-  static address address_of_state()             { return (address)&_state; }
 
   // Only used for making sure that no safepoint has happened in
   // JNI_FastGetField. Therefore only the low 32-bits are needed

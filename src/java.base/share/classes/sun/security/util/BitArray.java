@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,7 +26,8 @@
 package sun.security.util;
 
 import java.io.ByteArrayOutputStream;
-import java.util.Arrays;
+
+import jdk.internal.util.Preconditions;
 
 /**
  * A packed array of booleans.
@@ -37,8 +38,8 @@ import java.util.Arrays;
 
 public class BitArray {
 
-    private byte[] repn;
-    private int length;
+    private final byte[] repn;
+    private final int length;
 
     private static final int BITS_PER_UNIT = 8;
 
@@ -135,9 +136,7 @@ public class BitArray {
      *  Returns the indexed bit in this BitArray.
      */
     public boolean get(int index) throws ArrayIndexOutOfBoundsException {
-        if (index < 0 || index >= length) {
-            throw new ArrayIndexOutOfBoundsException(Integer.toString(index));
-        }
+        Preconditions.checkIndex(index, length, Preconditions.AIOOBE_FORMATTER);
 
         return (repn[subscript(index)] & position(index)) != 0;
     }
@@ -147,16 +146,14 @@ public class BitArray {
      */
     public void set(int index, boolean value)
     throws ArrayIndexOutOfBoundsException {
-        if (index < 0 || index >= length) {
-            throw new ArrayIndexOutOfBoundsException(Integer.toString(index));
-        }
+        Preconditions.checkIndex(index, length, Preconditions.AIOOBE_FORMATTER);
         int idx = subscript(index);
         int bit = position(index);
 
         if (value) {
-            repn[idx] |= bit;
+            repn[idx] |= (byte) bit;
         } else {
-            repn[idx] &= ~bit;
+            repn[idx] &= (byte) ~bit;
         }
     }
 
@@ -172,7 +169,7 @@ public class BitArray {
      * The bit stored at index zero in this BitArray will be copied
      * into the most significant bit of the zeroth element of the
      * returned byte array.  The last byte of the returned byte array
-     * will be contain zeros in any bits that do not have corresponding
+     * will contain zeros in any bits that do not have corresponding
      * bits in the BitArray.  (This matters only if the BitArray's size
      * is not a multiple of 8.)
      */
@@ -182,9 +179,7 @@ public class BitArray {
 
     public boolean equals(Object obj) {
         if (obj == this) return true;
-        if (obj == null || !(obj instanceof BitArray)) return false;
-
-        BitArray ba = (BitArray) obj;
+        if (!(obj instanceof BitArray ba)) return false;
 
         if (ba.length != length) return false;
 
@@ -195,7 +190,7 @@ public class BitArray {
     }
 
     /**
-     * Return a boolean array with the same bit values a this BitArray.
+     * Return a boolean array with the same bit values in this BitArray.
      */
     public boolean[] toBooleanArray() {
         boolean[] bits = new boolean[length];
@@ -273,7 +268,7 @@ public class BitArray {
             out.write(get(i) ? '1' : '0');
         }
 
-        return new String(out.toByteArray());
+        return out.toString();
 
     }
 

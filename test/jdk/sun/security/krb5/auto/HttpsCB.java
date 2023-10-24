@@ -82,7 +82,6 @@ import java.net.Proxy;
 import java.net.Socket;
 import java.net.URL;
 import java.security.cert.X509Certificate;
-import java.security.PrivilegedExceptionAction;
 import java.util.HashMap;
 import java.util.Map;
 import javax.net.ssl.HttpsURLConnection;
@@ -257,9 +256,9 @@ public class HttpsCB {
             krb5.login();
             krb5.commit();
             m = GSSManager.getInstance();
-            cred = Subject.doAs(s, new PrivilegedExceptionAction<GSSCredential>() {
+            cred = Subject.callAs(s, new Callable<GSSCredential>() {
                 @Override
-                public GSSCredential run() throws Exception {
+                public GSSCredential call() throws Exception {
                     System.err.println("Creating GSSCredential");
                     return m.createCredential(
                             null,
@@ -285,12 +284,7 @@ public class HttpsCB {
                 if (auth == null) {                 // First request
                     Headers map = exch.getResponseHeaders();
                     map.set (reqHdr, scheme);        // Challenge!
-                    c = Subject.doAs(s, new PrivilegedExceptionAction<GSSContext>() {
-                        @Override
-                        public GSSContext run() throws Exception {
-                            return m.createContext(cred);
-                        }
-                    });
+                    c = Subject.callAs(s, () -> m.createContext(cred));
                     // CBT is required for cbtURL
                     if (exch instanceof HttpsExchange sexch
                             && exch.getRequestURI().toString().equals("/cbt")) {

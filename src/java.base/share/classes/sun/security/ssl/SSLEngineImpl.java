@@ -332,7 +332,7 @@ final class SSLEngineImpl extends SSLEngine implements SSLTransport {
             // after the last flight.  If the last flight get lost, the
             // application data may be discarded accordingly.  As could
             // be an issue for some applications.  This impact can be
-            // mitigated by sending the last fligth twice.
+            // mitigated by sending the last flight twice.
             if (SSLLogger.isOn && SSLLogger.isOn("ssl,verbose")) {
                 SSLLogger.finest("retransmit the last flight messages");
             }
@@ -461,7 +461,7 @@ final class SSLEngineImpl extends SSLEngine implements SSLTransport {
             }
 
             /*
-             * Make sure the destination bufffers are writable.
+             * Make sure the destination buffers are writable.
              */
             if (dsts[i].isReadOnly()) {
                 throw new ReadOnlyBufferException();
@@ -1130,7 +1130,7 @@ final class SSLEngineImpl extends SSLEngine implements SSLTransport {
                     if (conContext.delegatedThrown == exc) {
                         // clear if/only if both are the same
                         conContext.delegatedThrown = null;
-                    } // otherwise report the hc delegatedThrown
+                    } // otherwise, report the hc delegatedThrown
                 } else {
                     // Nothing waiting in HandshakeContext, but one is in the
                     // TransportContext.
@@ -1167,17 +1167,13 @@ final class SSLEngineImpl extends SSLEngine implements SSLTransport {
         if (taskThrown instanceof RuntimeException) {
             throw new RuntimeException(msg, taskThrown);
         } else if (taskThrown instanceof SSLHandshakeException) {
-            return (SSLHandshakeException)
-                new SSLHandshakeException(msg).initCause(taskThrown);
+            return new SSLHandshakeException(msg, taskThrown);
         } else if (taskThrown instanceof SSLKeyException) {
-            return (SSLKeyException)
-                new SSLKeyException(msg).initCause(taskThrown);
+            return new SSLKeyException(msg, taskThrown);
         } else if (taskThrown instanceof SSLPeerUnverifiedException) {
-            return (SSLPeerUnverifiedException)
-                new SSLPeerUnverifiedException(msg).initCause(taskThrown);
+            return new SSLPeerUnverifiedException(msg, taskThrown);
         } else if (taskThrown instanceof SSLProtocolException) {
-            return (SSLProtocolException)
-                new SSLProtocolException(msg).initCause(taskThrown);
+            return new SSLProtocolException(msg, taskThrown);
         } else if (taskThrown instanceof SSLException) {
             return (SSLException)taskThrown;
         } else {

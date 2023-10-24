@@ -40,7 +40,7 @@ void CardTableBarrierSetAssembler::store_check(MacroAssembler* masm, Register ob
   BarrierSet* bs = BarrierSet::barrier_set();
   assert(bs->kind() == BarrierSet::CardTableBarrierSet, "Wrong barrier set kind");
 
-  __ srli(obj, obj, CardTable::card_shift);
+  __ srli(obj, obj, CardTable::card_shift());
 
   assert(CardTable::dirty_card_val() == 0, "must be");
 
@@ -71,8 +71,8 @@ void CardTableBarrierSetAssembler::gen_write_ref_array_post_barrier(MacroAssembl
   __ shadd(end, count, start, count, LogBytesPerHeapOop);
   __ sub(end, end, BytesPerHeapOop); // last element address to make inclusive
 
-  __ srli(start, start, CardTable::card_shift);
-  __ srli(end, end, CardTable::card_shift);
+  __ srli(start, start, CardTable::card_shift());
+  __ srli(end, end, CardTable::card_shift());
   __ sub(count, end, start); // number of bytes to copy
 
   __ load_byte_map_base(tmp);
@@ -87,21 +87,21 @@ void CardTableBarrierSetAssembler::gen_write_ref_array_post_barrier(MacroAssembl
 }
 
 void CardTableBarrierSetAssembler::oop_store_at(MacroAssembler* masm, DecoratorSet decorators, BasicType type,
-                                                Address dst, Register val, Register tmp1, Register tmp2) {
+                                                Address dst, Register val, Register tmp1, Register tmp2, Register tmp3) {
   bool in_heap = (decorators & IN_HEAP) != 0;
   bool is_array = (decorators & IS_ARRAY) != 0;
   bool on_anonymous = (decorators & ON_UNKNOWN_OOP_REF) != 0;
   bool precise = is_array || on_anonymous;
 
   bool needs_post_barrier = val != noreg && in_heap;
-  BarrierSetAssembler::store_at(masm, decorators, type, dst, val, noreg, noreg);
+  BarrierSetAssembler::store_at(masm, decorators, type, dst, val, noreg, noreg, noreg);
   if (needs_post_barrier) {
     // flatten object address if needed
     if (!precise || dst.offset() == 0) {
-      store_check(masm, dst.base(), x13);
+      store_check(masm, dst.base(), tmp3);
     } else {
-      __ la(x13, dst);
-      store_check(masm, x13, t0);
+      __ la(tmp3, dst);
+      store_check(masm, tmp3, t0);
     }
   }
 }

@@ -36,7 +36,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.stream.Stream;
 
@@ -151,8 +150,6 @@ public class DeployParams {
                 Arguments.CLIOptions.MODULE.getId()) != null);
         boolean hasAppImage = (bundlerArguments.get(
                 Arguments.CLIOptions.PREDEFINED_APP_IMAGE.getId()) != null);
-        boolean hasClass = (bundlerArguments.get(
-                Arguments.CLIOptions.APPCLASS.getId()) != null);
         boolean hasMain = (bundlerArguments.get(
                 Arguments.CLIOptions.MAIN_JAR.getId()) != null);
         boolean hasRuntimeImage = (bundlerArguments.get(
@@ -169,12 +166,12 @@ public class DeployParams {
         if (isTargetAppImage()) {
             // Module application requires --runtime-image or --module-path
             if (hasModule) {
-                if (!hasModulePath && !hasRuntimeImage) {
+                if (!hasModulePath && !hasRuntimeImage && !hasAppImage) {
                     throw new PackagerException("ERR_MissingArgument",
                             "--runtime-image or --module-path");
                 }
             } else {
-                if (!hasInput) {
+                if (!hasInput && !hasAppImage) {
                     throw new PackagerException(
                            "ERR_MissingArgument", "--input");
                 }
@@ -335,6 +332,8 @@ public class DeployParams {
             StandardBundlerParam.ADD_MODULES.getID(),
             StandardBundlerParam.LIMIT_MODULES.getID(),
             StandardBundlerParam.FILE_ASSOCIATIONS.getID(),
+            StandardBundlerParam.DMG_CONTENT.getID(),
+            StandardBundlerParam.APP_CONTENT.getID(),
             StandardBundlerParam.JLINK_OPTIONS.getID()
     ));
 
@@ -347,8 +346,10 @@ public class DeployParams {
                 String delim = "\n\n";
                 if (key.equals(StandardBundlerParam.MODULE_PATH.getID())) {
                     delim = File.pathSeparator;
-                } else if (key.equals(
-                        StandardBundlerParam.ADD_MODULES.getID())) {
+                } else if (
+                        key.equals(StandardBundlerParam.DMG_CONTENT.getID()) ||
+                        key.equals(StandardBundlerParam.APP_CONTENT.getID()) ||
+                        key.equals(StandardBundlerParam.ADD_MODULES.getID())) {
                     delim = ",";
                 }
                 bundlerArguments.put(key, existingValue + delim + value);
@@ -368,9 +369,6 @@ public class DeployParams {
 
     BundleParams getBundleParams() {
         BundleParams bundleParams = new BundleParams();
-
-        Map<String, String> unescapedHtmlParams = new TreeMap<>();
-        Map<String, String> escapedHtmlParams = new TreeMap<>();
 
         // check for collisions
         TreeSet<String> keys = new TreeSet<>(bundlerArguments.keySet());

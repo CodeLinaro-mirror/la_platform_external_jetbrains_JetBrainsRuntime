@@ -137,14 +137,12 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
   void check_methods_and_mark_as_obsolete();
   void transfer_old_native_function_registrations(InstanceKlass* new_class);
 
-  // Install the redefinition of a class
   void redefine_single_class(Thread* current, InstanceKlass* new_class_oop);
 
   // Increment the classRedefinedCount field in the specific InstanceKlass
   // and in all direct and indirect subclasses.
   void increment_class_counter(Thread* current, InstanceKlass *ik);
 
-  void mark_dependent_code(InstanceKlass* ik);
 
   void flush_dependent_code();
 

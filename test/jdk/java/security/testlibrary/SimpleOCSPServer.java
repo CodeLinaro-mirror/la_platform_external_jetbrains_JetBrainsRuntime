@@ -288,7 +288,15 @@ public class SimpleOCSPServer {
     public synchronized void stop() {
         if (started) {
             receivedShutdown = true;
+            started = false;
             log("Received shutdown notification");
+        }
+    }
+
+    public synchronized void shutdownNow() {
+        stop();
+        if (threadPool != null) {
+            threadPool.shutdownNow();
         }
     }
 
@@ -445,7 +453,7 @@ public class SimpleOCSPServer {
     }
 
     /**
-     * Check the status database for revocation information one one or more
+     * Check the status database for revocation information on one or more
      * certificates.
      *
      * @param reqList the list of {@code LocalSingleRequest} objects taken
@@ -577,7 +585,7 @@ public class SimpleOCSPServer {
      * @param message the message to log
      */
     private static synchronized void err(String message) {
-        System.out.println("[" + Thread.currentThread().getName() + "]: " +
+        System.err.println("[" + Thread.currentThread().getName() + "]: " +
                 message);
     }
 
@@ -1416,7 +1424,7 @@ public class SimpleOCSPServer {
                 signature = sig.sign();
                 // Rewrite signAlg, RSASSA-PSS needs some parameters.
                 sigAlgId = SignatureUtil.fromSignature(sig, signerKey);
-                sigAlgId.derEncode(basicORItemStream);
+                sigAlgId.encode(basicORItemStream);
                 basicORItemStream.putBitString(signature);
             } catch (GeneralSecurityException exc) {
                 err(exc);

@@ -111,9 +111,10 @@ final class KeyUpdate {
         @Override
         public String toString() {
             MessageFormat messageFormat = new MessageFormat(
-                    "\"KeyUpdate\": '{'\n" +
-                    "  \"request_update\": {0}\n" +
-                    "'}'",
+                    """
+                            "KeyUpdate": '{'
+                              "request_update": {0}
+                            '}'""",
                     Locale.ENGLISH);
 
             Object[] messageFields = {
@@ -131,7 +132,7 @@ final class KeyUpdate {
         final byte id;
         final String name;
 
-        private KeyUpdateRequest(byte id, String name) {
+        KeyUpdateRequest(byte id, String name) {
             this.id = id;
             this.name = name;
         }

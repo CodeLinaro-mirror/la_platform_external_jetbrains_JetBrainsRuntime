@@ -33,7 +33,7 @@ import java.lang.reflect.Type;
  * Represents a resolved Java method. Methods, like fields and types, are resolved through
  * {@link ConstantPool constant pools}.
  */
-public interface ResolvedJavaMethod extends JavaMethod, InvokeTarget, ModifiersProvider, AnnotatedElement {
+public interface ResolvedJavaMethod extends JavaMethod, InvokeTarget, ModifiersProvider, AnnotatedElement, Annotated {
 
     /**
      * Returns the method's bytecode. The returned bytecode does not contain breakpoints or non-Java
@@ -87,20 +87,18 @@ public interface ResolvedJavaMethod extends JavaMethod, InvokeTarget, ModifiersP
     boolean isSynthetic();
 
     /**
-     * Checks that the method is a
-     * <a href="http://docs.oracle.com/javase/specs/jvms/se8/html/jvms-4.html#jvms-4.6">varargs</a>
-     * method.
+     * Checks if the method is a varargs method.
      *
      * @return whether the method is a varargs method
+     * @jvms 4.6
      */
     boolean isVarArgs();
 
     /**
-     * Checks that the method is a
-     * <a href="http://docs.oracle.com/javase/specs/jvms/se8/html/jvms-4.html#jvms-4.6">bridge</a>
-     * method.
+     * Checks if the method is a bridge method.
      *
      * @return whether the method is a bridge method
+     * @jvms 4.6
      */
     boolean isBridge();
 

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2021 SAP SE. All rights reserved.
- * Copyright (c) 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022 SAP SE. All rights reserved.
+ * Copyright (c) 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,13 +31,9 @@
 #include "unittest.hpp"
 #include "testutils.hpp"
 
-#if INCLUDE_NMT
-
 // This prefix shows up on any c heap corruption NMT detects. If unsure which assert will
 // come, just use this one.
 #define COMMON_NMT_HEAP_CORRUPTION_MESSAGE_PREFIX "NMT corruption"
-
-
 
 #define DEFINE_TEST(test_function, expected_assertion_message)                            \
   TEST_VM_FATAL_ERROR_MSG(NMT, test_function, ".*" expected_assertion_message ".*") {     \
@@ -165,16 +161,3 @@ TEST_VM(NMT, test_realloc) {
     }
   }
 }
-
-#ifndef ASSERT
-// JDK 17 only to safeguard the size overflow check done with JDK-8286519. Head will receive more
-// thorough tests with JDK-8295865; if that gets ever downported to 17, this test can be removed.
-TEST_VM(NMT, test_malloc_size_arg_overflow) {
-  void* p = os::malloc(SIZE_MAX, mtTest);
-  ASSERT_NULL(p);
-  p = os::malloc(SIZE_MAX - 16, mtTest);
-  ASSERT_NULL(p);
-}
-#endif
-
-#endif // INCLUDE_NMT

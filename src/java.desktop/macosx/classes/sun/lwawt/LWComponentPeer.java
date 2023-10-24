@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -68,7 +68,7 @@ import javax.swing.SwingUtilities;
 
 import com.sun.java.swing.SwingUtilities3;
 import sun.awt.AWTAccessor;
-import sun.awt.CGraphicsDevice;
+import sun.awt.CGraphicsEnvironment;
 import sun.awt.PaintEventDispatcher;
 import sun.awt.RepaintArea;
 import sun.awt.SunToolkit;
@@ -79,7 +79,6 @@ import sun.java2d.metal.MTLRenderQueue;
 import sun.java2d.opengl.OGLRenderQueue;
 import sun.java2d.pipe.Region;
 import sun.java2d.pipe.RenderQueue;
-import sun.lwawt.macosx.LWCToolkit;
 import sun.util.logging.PlatformLogger;
 
 public abstract class LWComponentPeer<T extends Component, D extends JComponent>
@@ -204,12 +203,6 @@ public abstract class LWComponentPeer<T extends Component, D extends JComponent>
 
     LWComponentPeer(final T target, final PlatformComponent platformComponent) {
         targetPaintArea = new LWRepaintArea();
-        if (LWCToolkit.isDispatchingOnMainThread()) {
-            // This ensures the component is painted despite the race condition,
-            // when EventQueue.coalescePaintEvent is called with peer not yet set
-            // to its component.
-            targetPaintArea.add(new Rectangle(target.getSize()), PaintEvent.PAINT);
-        }
         this.target = target;
         this.platformComponent = platformComponent;
 
@@ -1419,7 +1412,7 @@ public abstract class LWComponentPeer<T extends Component, D extends JComponent>
     }
 
     protected static final void flushOnscreenGraphics(){
-        RenderQueue rq =  CGraphicsDevice.usingMetalPipeline() ?
+        RenderQueue rq =  CGraphicsEnvironment.usingMetalPipeline() ?
                 MTLRenderQueue.getInstance() : OGLRenderQueue.getInstance();
         rq.lock();
         try {

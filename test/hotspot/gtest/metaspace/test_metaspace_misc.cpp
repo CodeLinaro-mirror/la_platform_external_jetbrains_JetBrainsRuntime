@@ -53,6 +53,7 @@ TEST_VM(metaspace, misc_sizes)   {
 }
 
 TEST_VM(metaspace, misc_max_alloc_size)   {
+
   // Make sure we can allocate what we promise to allocate...
   for (int i = 0; i < 2; i ++) {
     const bool in_class_space = (i == 0);

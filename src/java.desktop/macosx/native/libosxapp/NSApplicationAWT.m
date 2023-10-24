@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -43,16 +43,15 @@ static NSString *SHARED_FRAMEWORK_BUNDLE = @"/System/Library/Frameworks/JavaVM.f
 static id <NSApplicationDelegate> applicationDelegate = nil;
 static QueuingApplicationDelegate * qad = nil;
 
+// Flag used to indicate to the Plugin2 event synthesis code to do a postEvent instead of sendEvent
+BOOL postEventDuringEventSynthesis = NO;
+
 /**
  * Subtypes of NSApplicationDefined, which are used for custom events.
  */
 enum {
-    ExecuteBlockEvent = 777, NativeSyncQueueEvent, NativeJavaEvent
+    ExecuteBlockEvent = 777, NativeSyncQueueEvent
 };
-
-@implementation JavaEvent
-- (void)dispatch {}
-@end
 
 @implementation NSApplicationAWT
 
@@ -203,24 +202,9 @@ AWT_ASSERT_APPKIT_THREAD;
     }
 
     // If it wasn't specified as an argument, see if it was specified as a system property.
+    // The launcher code sets this if it is not already set on the command line.
     if (fApplicationName == nil) {
         fApplicationName = [PropertiesUtilities javaSystemPropertyForKey:@"apple.awt.application.name" withEnv:env];
-    }
-
-    // If we STILL don't have it, the app name is retrieved from an environment variable (set in java.c) It should be UTF8.
-    if (fApplicationName == nil) {
-        char mainClassEnvVar[80];
-        snprintf(mainClassEnvVar, sizeof(mainClassEnvVar), "JAVA_MAIN_CLASS_%d", getpid());
-        char *mainClass = getenv(mainClassEnvVar);
-        if (mainClass != NULL) {
-            fApplicationName = [NSString stringWithUTF8String:mainClass];
-            unsetenv(mainClassEnvVar);
-
-            NSRange lastPeriod = [fApplicationName rangeOfString:@"." options:NSBackwardsSearch];
-            if (lastPeriod.location != NSNotFound) {
-                fApplicationName = [fApplicationName substringFromIndex:lastPeriod.location + 1];
-            }
-        }
     }
 
     // The dock name is nil for double-clickable Java apps (bundled and Web Start apps)
@@ -371,28 +355,23 @@ AWT_ASSERT_APPKIT_THREAD;
     [super orderFrontStandardAboutPanelWithOptions:optionsDictionary];
 }
 
+#define DRAGMASK (NSMouseMovedMask | NSLeftMouseDraggedMask | NSRightMouseDownMask | NSRightMouseDraggedMask | NSLeftMouseUpMask | NSRightMouseUpMask | NSFlagsChangedMask | NSKeyDownMask)
+
+#if defined(MAC_OS_X_VERSION_10_12) && __LP64__
+   // 10.12 changed `mask` to NSEventMask (unsigned long long) for x86_64 builds.
 - (NSEvent *)nextEventMatchingMask:(NSEventMask)mask
-                         untilDate:(NSDate *)expiration
-                            inMode:(NSString *)mode
-                           dequeue:(BOOL)deqFlag {
-    if (![ThreadUtilities isJavaEventsDispatchingOnMainThread] || !deqFlag || mask & NSEventMaskApplicationDefined) {
-        return [super nextEventMatchingMask:mask
-                                  untilDate:expiration
-                                     inMode:mode
-                                    dequeue:deqFlag];
-    } else {
-        for (;;) {
-            NSEvent *event = [super nextEventMatchingMask:mask|NSEventMaskApplicationDefined
-                                                untilDate:expiration
-                                                   inMode:mode
-                                                  dequeue:YES];
-            if (event.type == NSApplicationDefined) {
-                [self sendEvent:event];
-            } else {
-                return event;
-            }
-        }
+#else
+- (NSEvent *)nextEventMatchingMask:(NSUInteger)mask
+#endif
+untilDate:(NSDate *)expiration inMode:(NSString *)mode dequeue:(BOOL)deqFlag {
+    if (mask == DRAGMASK && [((NSString *)kCFRunLoopDefaultMode) isEqual:mode]) {
+        postEventDuringEventSynthesis = YES;
     }
+
+    NSEvent *event = [super nextEventMatchingMask:mask untilDate:expiration inMode:mode dequeue: deqFlag];
+    postEventDuringEventSynthesis = NO;
+
+    return event;
 }
 
 // NSTimeInterval has microseconds precision
@@ -400,8 +379,6 @@ AWT_ASSERT_APPKIT_THREAD;
 
 - (void)sendEvent:(NSEvent *)event
 {
-    JavaEvent *je;
-
     if ([event type] == NSApplicationDefined
             && TS_EQUAL([event timestamp], dummyEventTimestamp)
             && (short)[event subtype] == NativeSyncQueueEvent
@@ -415,10 +392,7 @@ AWT_ASSERT_APPKIT_THREAD;
         void (^block)() = (void (^)()) [event data1];
         block();
         [block release];
-    } else if ((je = [NSApplicationAWT extractJavaEvent:event])) {
-        [je dispatch];
-        [je release];
-    } else if ([event type] == NSKeyUp && ([event modifierFlags] & NSCommandKeyMask)) {
+    } else if ([event type] == NSEventTypeKeyUp && ([event modifierFlags] & NSCommandKeyMask)) {
         // Cocoa won't send us key up event when releasing a key while Cmd is down,
         // so we have to do it ourselves.
         [[self keyWindow] sendEvent:event];
@@ -473,28 +447,6 @@ AWT_ASSERT_APPKIT_THREAD;
         CGEventPostToPSN(&psn, [event CGEvent]);
     }
     [pool drain];
-}
-
-+ (void) postJavaEvent:(JavaEvent*) je {
-    [je retain];
-    NSInteger encode = (NSInteger) je;
-    NSEvent* e = [NSEvent otherEventWithType: NSApplicationDefined
-                                    location: NSMakePoint(0,0)
-                               modifierFlags: 0
-                                   timestamp: 0
-                                windowNumber: 0
-                                     context: nil
-                                     subtype: NativeJavaEvent
-                                       data1: encode
-                                       data2: 0];
-    [NSApp postEvent:e atStart:NO];
-}
-
-+ (JavaEvent*) extractJavaEvent:(NSEvent*) event {
-    if ([event type] == NSApplicationDefined && [event subtype] == NativeJavaEvent) {
-        return (JavaEvent*)[event data1];
-    }
-    return nil;
 }
 
 - (void)waitForDummyEvent:(double)timeout {

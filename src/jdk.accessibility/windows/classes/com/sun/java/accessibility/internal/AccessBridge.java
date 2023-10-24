@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,36 +25,110 @@
 
 package com.sun.java.accessibility.internal;
 
-import java.awt.*;
-import java.awt.event.*;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Cursor;
+import java.awt.Dimension;
+import java.awt.EventQueue;
+import java.awt.Font;
+import java.awt.FontMetrics;
+import java.awt.GraphicsConfiguration;
+import java.awt.GraphicsDevice;
+import java.awt.GraphicsEnvironment;
+import java.awt.IllegalComponentStateException;
+import java.awt.KeyboardFocusManager;
+import java.awt.Point;
+import java.awt.Rectangle;
+import java.awt.Toolkit;
+import java.awt.event.ActionEvent;
+import java.awt.event.FocusEvent;
+import java.awt.event.FocusListener;
+import java.awt.event.InvocationEvent;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
+import java.awt.event.WindowEvent;
+import java.awt.event.WindowListener;
 import java.awt.geom.AffineTransform;
-import java.util.*;
-import java.lang.*;
-import java.lang.reflect.*;
 
-import java.beans.*;
-import javax.swing.*;
-import javax.swing.event.*;
-import javax.swing.text.*;
-import javax.swing.tree.*;
-import javax.swing.table.*;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Locale;
+import java.util.Map;
+import java.util.StringTokenizer;
+import java.util.Vector;
+import java.util.WeakHashMap;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+
+import javax.accessibility.Accessible;
+import javax.accessibility.AccessibleAction;
+import javax.accessibility.AccessibleComponent;
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleEditableText;
+import javax.accessibility.AccessibleExtendedComponent;
+import javax.accessibility.AccessibleExtendedTable;
+import javax.accessibility.AccessibleHyperlink;
+import javax.accessibility.AccessibleHypertext;
+import javax.accessibility.AccessibleIcon;
+import javax.accessibility.AccessibleKeyBinding;
+import javax.accessibility.AccessibleRelation;
+import javax.accessibility.AccessibleRelationSet;
+import javax.accessibility.AccessibleRole;
+import javax.accessibility.AccessibleSelection;
+import javax.accessibility.AccessibleState;
+import javax.accessibility.AccessibleStateSet;
+import javax.accessibility.AccessibleTable;
+import javax.accessibility.AccessibleText;
+import javax.accessibility.AccessibleValue;
+
+import javax.swing.Icon;
+import javax.swing.ImageIcon;
+import javax.swing.JMenuItem;
+import javax.swing.JPopupMenu;
+import javax.swing.JRootPane;
+import javax.swing.JTable;
+import javax.swing.JTree;
+import javax.swing.KeyStroke;
+import javax.swing.MenuElement;
+import javax.swing.MenuSelectionManager;
+import javax.swing.event.CaretEvent;
+import javax.swing.event.CaretListener;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
+import javax.swing.event.MenuEvent;
+import javax.swing.event.MenuListener;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import javax.swing.plaf.TreeUI;
+import javax.swing.table.TableCellRenderer;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.JTextComponent;
+import javax.swing.text.StyleConstants;
+import javax.swing.text.TabSet;
+import javax.swing.tree.TreeCellRenderer;
+import javax.swing.tree.TreeModel;
+import javax.swing.tree.TreePath;
 
-import javax.accessibility.*;
-import com.sun.java.accessibility.util.*;
-import java.awt.geom.Rectangle2D;
+import com.sun.java.accessibility.util.AWTEventMonitor;
+import com.sun.java.accessibility.util.AccessibilityEventMonitor;
+import com.sun.java.accessibility.util.EventQueueMonitor;
+import com.sun.java.accessibility.util.SwingEventMonitor;
+import com.sun.java.accessibility.util.Translator;
 import sun.awt.AWTAccessor;
 import sun.awt.AppContext;
 import sun.awt.SunToolkit;
-
-import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentHashMap;
 
 /*
  * Note: This class has to be public.  It's loaded from the VM like this:
  *       Class.forName(atName).newInstance();
  */
-final public class AccessBridge {
+public final class AccessBridge {
 
     private static AccessBridge theAccessBridge;
     private ObjectReferences references;
@@ -315,15 +389,15 @@ final public class AccessBridge {
     }
 
     // hash table of native window handle to AccessibleContext mappings
-    static private ConcurrentHashMap<Integer,AccessibleContext> windowHandleToContextMap = new ConcurrentHashMap<>();
+    private static ConcurrentHashMap<Integer,AccessibleContext> windowHandleToContextMap = new ConcurrentHashMap<>();
 
     // hash table of AccessibleContext to native window handle mappings
-    static private ConcurrentHashMap<AccessibleContext,Integer> contextToWindowHandleMap = new ConcurrentHashMap<>();
+    private static ConcurrentHashMap<AccessibleContext,Integer> contextToWindowHandleMap = new ConcurrentHashMap<>();
 
     /*
      * adds a virtual window handler to our hash tables
      */
-    static private void registerVirtualFrame(final Accessible a,
+    private static void registerVirtualFrame(final Accessible a,
                                              Integer nativeWindowHandle ) {
         if (a != null) {
             AccessibleContext ac = InvocationUtils.invokeAndWait(new Callable<AccessibleContext>() {
@@ -340,7 +414,7 @@ final public class AccessBridge {
     /*
      * removes a virtual window handler to our hash tables
      */
-    static private void revokeVirtualFrame(final Accessible a,
+    private static void revokeVirtualFrame(final Accessible a,
                                            Integer nativeWindowHandle ) {
         AccessibleContext ac = InvocationUtils.invokeAndWait(new Callable<AccessibleContext>() {
             @Override
@@ -5247,7 +5321,7 @@ final public class AccessBridge {
                     accessBridge.debugString("[INFO]: AccessibleContext: " + ac);
                     String propertyName = e.getPropertyName();
 
-                    if (propertyName.compareTo(AccessibleContext.ACCESSIBLE_CARET_PROPERTY) == 0) {
+                    if (propertyName.equals(AccessibleContext.ACCESSIBLE_CARET_PROPERTY)) {
                         int oldValue = 0;
                         int newValue = 0;
 
@@ -5260,7 +5334,7 @@ final public class AccessBridge {
                         accessBridge.debugString("[INFO]:  - about to call propertyCaretChange()   old value: " + oldValue + "new value: " + newValue);
                         accessBridge.propertyCaretChange(e, ac, oldValue, newValue);
 
-                    } else if (propertyName.compareTo(AccessibleContext.ACCESSIBLE_DESCRIPTION_PROPERTY) == 0) {
+                    } else if (propertyName.equals(AccessibleContext.ACCESSIBLE_DESCRIPTION_PROPERTY)) {
                         String oldValue = null;
                         String newValue = null;
 
@@ -5273,7 +5347,7 @@ final public class AccessBridge {
                         accessBridge.debugString("[INFO]:  - about to call propertyDescriptionChange()   old value: " + oldValue + "new value: " + newValue);
                         accessBridge.propertyDescriptionChange(e, ac, oldValue, newValue);
 
-                    } else if (propertyName.compareTo(AccessibleContext.ACCESSIBLE_NAME_PROPERTY) == 0) {
+                    } else if (propertyName.equals(AccessibleContext.ACCESSIBLE_NAME_PROPERTY)) {
                         String oldValue = null;
                         String newValue = null;
 
@@ -5286,12 +5360,12 @@ final public class AccessBridge {
                         accessBridge.debugString("[INFO]:  - about to call propertyNameChange()   old value: " + oldValue + " new value: " + newValue);
                         accessBridge.propertyNameChange(e, ac, oldValue, newValue);
 
-                    } else if (propertyName.compareTo(AccessibleContext.ACCESSIBLE_SELECTION_PROPERTY) == 0) {
+                    } else if (propertyName.equals(AccessibleContext.ACCESSIBLE_SELECTION_PROPERTY)) {
                         accessBridge.debugString("[INFO]:  - about to call propertySelectionChange() " + ac +  "   " + Thread.currentThread() + "   " + e.getSource());
 
                         accessBridge.propertySelectionChange(e, ac);
 
-                    } else if (propertyName.compareTo(AccessibleContext.ACCESSIBLE_STATE_PROPERTY) == 0) {
+                    } else if (propertyName.equals(AccessibleContext.ACCESSIBLE_STATE_PROPERTY)) {
                         String oldValue = null;
                         String newValue = null;
 
@@ -5308,11 +5382,11 @@ final public class AccessBridge {
                         accessBridge.debugString("[INFO]:  - about to call propertyStateChange()");
                         accessBridge.propertyStateChange(e, ac, oldValue, newValue);
 
-                    } else if (propertyName.compareTo(AccessibleContext.ACCESSIBLE_TEXT_PROPERTY) == 0) {
+                    } else if (propertyName.equals(AccessibleContext.ACCESSIBLE_TEXT_PROPERTY)) {
                         accessBridge.debugString("[INFO]:  - about to call propertyTextChange()");
                         accessBridge.propertyTextChange(e, ac);
 
-                    } else if (propertyName.compareTo(AccessibleContext.ACCESSIBLE_VALUE_PROPERTY) == 0) {  // strings 'cause of floating point, etc.
+                    } else if (propertyName.equals(AccessibleContext.ACCESSIBLE_VALUE_PROPERTY)) {  // strings 'cause of floating point, etc.
                         String oldValue = null;
                         String newValue = null;
 
@@ -5325,10 +5399,10 @@ final public class AccessBridge {
                         accessBridge.debugString("[INFO]:  - about to call propertyDescriptionChange()");
                         accessBridge.propertyValueChange(e, ac, oldValue, newValue);
 
-                    } else if (propertyName.compareTo(AccessibleContext.ACCESSIBLE_VISIBLE_DATA_PROPERTY) == 0) {
+                    } else if (propertyName.equals(AccessibleContext.ACCESSIBLE_VISIBLE_DATA_PROPERTY)) {
                         accessBridge.propertyVisibleDataChange(e, ac);
 
-                    } else if (propertyName.compareTo(AccessibleContext.ACCESSIBLE_CHILD_PROPERTY) == 0) {
+                    } else if (propertyName.equals(AccessibleContext.ACCESSIBLE_CHILD_PROPERTY)) {
                         AccessibleContext oldAC = null;
                         AccessibleContext newAC = null;
                         Accessible a;
@@ -5344,7 +5418,7 @@ final public class AccessBridge {
                         accessBridge.debugString("[INFO]:  - about to call propertyChildChange()   old AC: " + oldAC + "new AC: " + newAC);
                         accessBridge.propertyChildChange(e, ac, oldAC, newAC);
 
-                    } else if (propertyName.compareTo(AccessibleContext.ACCESSIBLE_ACTIVE_DESCENDANT_PROPERTY) == 0) {
+                    } else if (propertyName.equals(AccessibleContext.ACCESSIBLE_ACTIVE_DESCENDANT_PROPERTY)) {
                         handleActiveDescendentEvent(e, ac);
                     }
                 }
@@ -7145,7 +7219,7 @@ final public class AccessBridge {
          * object behind the TreeCellRenderer.
          *
          * @param i zero-based index of actions
-         * @return true if the the action was performed; else false.
+         * @return true if the action was performed; else false.
          */
         public boolean doAccessibleAction(int i) {
             if (i < 0 || i >= getAccessibleActionCount()) {

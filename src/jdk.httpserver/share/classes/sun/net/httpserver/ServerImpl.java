@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -54,15 +54,18 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.Executor;
+
+import static java.nio.charset.StandardCharsets.ISO_8859_1;
+import static sun.net.httpserver.Utils.isValidName;
 
 /**
  * Provides implementation for both HTTP and HTTPS
@@ -101,7 +104,7 @@ class ServerImpl {
     // schedule for the timer task that's responsible for idle connection management
     static final long IDLE_TIMER_TASK_SCHEDULE = ServerConfig.getIdleTimerScheduleMillis();
     static final int MAX_CONNECTIONS = ServerConfig.getMaxConnections();
-    final static int MAX_IDLE_CONNECTIONS = ServerConfig.getMaxIdleConnections();
+    static final int MAX_IDLE_CONNECTIONS = ServerConfig.getMaxIdleConnections();
     // schedule for the timer task that's responsible for request/response timeout management
     static final long REQ_RSP_TIMER_SCHEDULE = ServerConfig.getReqRspTimerScheduleMillis();
     static final long MAX_REQ_TIME = getTimeMillis(ServerConfig.getMaxReqTime());
@@ -161,7 +164,7 @@ class ServerImpl {
             logger.log (Level.DEBUG, "MAX_REQ_TIME:  "+MAX_REQ_TIME);
             logger.log (Level.DEBUG, "MAX_RSP_TIME:  "+MAX_RSP_TIME);
         }
-        events = new LinkedList<Event>();
+        events = new ArrayList<>();
         logger.log (Level.DEBUG, "HttpServer created "+protocol+" "+ addr);
     }
 
@@ -407,7 +410,7 @@ class ServerImpl {
                         }
                     }
                     responseCompleted (c);
-                    if (t.close || idleConnections.size() >= MAX_IDLE_CONNECTIONS) {
+                    if (t.close) {
                         c.close();
                         allConnections.remove (c);
                     } else {
@@ -428,8 +431,7 @@ class ServerImpl {
             }
         }
 
-        final LinkedList<HttpConnection> connsToRegister =
-                new LinkedList<HttpConnection>();
+        final ArrayList<HttpConnection> connsToRegister = new ArrayList<>();
 
         void reRegister (HttpConnection c) {
             /* re-register with selector */
@@ -454,7 +456,7 @@ class ServerImpl {
                     synchronized (lolock) {
                         if (events.size() > 0) {
                             list = events;
-                            events = new LinkedList<Event>();
+                            events = new ArrayList<>();
                         }
                     }
 
@@ -473,10 +475,14 @@ class ServerImpl {
 
                     /* process the selected list now  */
                     Set<SelectionKey> selected = selector.selectedKeys();
-                    Iterator<SelectionKey> iter = selected.iterator();
-                    while (iter.hasNext()) {
-                        SelectionKey key = iter.next();
-                        iter.remove ();
+                    // create a copy of the selected keys so that we can iterate over it
+                    // and at the same time not worry about the underlying Set being
+                    // modified (leading to ConcurrentModificationException) due to
+                    // any subsequent select operations that we invoke on the
+                    // selector (in this same thread).
+                    for (final SelectionKey key : selected.toArray(SelectionKey[]::new)) {
+                        // remove the key from the original selected keys (live) Set
+                        selected.remove(key);
                         if (key.equals (listenerKey)) {
                             if (terminating) {
                                 continue;
@@ -494,7 +500,6 @@ class ServerImpl {
                                     // move on to next selected key
                                     continue;
                                 }
-
                                 // Set TCP_NODELAY, if appropriate
                                 if (ServerConfig.noDelay()) {
                                     chan.socket().setTcpNoDelay(true);
@@ -636,6 +641,18 @@ class ServerImpl {
         public void run () {
             /* context will be null for new connections */
             logger.log(Level.TRACE, "exchange started");
+
+            if (dispatcherThread == Thread.currentThread()) {
+                try {
+                    // call selector to process cancelled keys
+                    selector.selectNow();
+                } catch (IOException ioe) {
+                    logger.log(Level.DEBUG, "processing of cancelled keys failed: closing");
+                    closeConnection(connection);
+                    return;
+                }
+            }
+
             context = connection.getHttpContext();
             boolean newconnection;
             SSLEngine engine = null;
@@ -696,13 +713,20 @@ class ServerImpl {
                     return;
                 }
                 String uriStr = requestLine.substring (start, space);
-                URI uri = new URI (uriStr);
+                URI uri;
+                try {
+                    uri = new URI (uriStr);
+                } catch (URISyntaxException e3) {
+                    reject(Code.HTTP_BAD_REQUEST,
+                            requestLine, "URISyntaxException thrown");
+                    return;
+                }
                 start = space+1;
                 String version = requestLine.substring (start);
                 Headers headers = req.headers();
                 /* check key for illegal characters */
                 for (var k : headers.keySet()) {
-                    if (!isValidHeaderKey(k)) {
+                    if (!isValidName(k)) {
                         reject(Code.HTTP_BAD_REQUEST, requestLine,
                                 "Header key contains illegal characters");
                         return;
@@ -732,7 +756,13 @@ class ServerImpl {
                 } else {
                     headerValue = headers.getFirst("Content-Length");
                     if (headerValue != null) {
-                        clen = Long.parseLong(headerValue);
+                        try {
+                            clen = Long.parseLong(headerValue);
+                        } catch (NumberFormatException e2) {
+                            reject(Code.HTTP_BAD_REQUEST,
+                                    requestLine, "NumberFormatException thrown");
+                            return;
+                        }
                         if (clen < 0) {
                             reject(Code.HTTP_BAD_REQUEST, requestLine,
                                     "Illegal Content-Length value");
@@ -769,12 +799,11 @@ class ServerImpl {
                     if (chdr == null) {
                         tx.close = true;
                         rheaders.set ("Connection", "close");
-                    } else if (chdr.equalsIgnoreCase ("keep-alive")) {
-                        rheaders.set ("Connection", "keep-alive");
+                    } else if (chdr.equalsIgnoreCase("keep-alive")) {
+                        rheaders.set("Connection", "keep-alive");
                         int idleSeconds = (int) (ServerConfig.getIdleIntervalMillis() / 1000);
-                        int max=ServerConfig.getMaxIdleConnections();
-                        String val = "timeout="+idleSeconds+", max="+max;
-                        rheaders.set ("Keep-Alive", val);
+                        String val = "timeout=" + idleSeconds;
+                        rheaders.set("Keep-Alive", val);
                     }
                 }
 
@@ -818,20 +847,11 @@ class ServerImpl {
                     uc.doFilter (new HttpExchangeImpl (tx));
                 }
 
-            } catch (IOException e1) {
-                logger.log (Level.TRACE, "ServerImpl.Exchange (1)", e1);
-                closeConnection(connection);
-            } catch (NumberFormatException e2) {
-                logger.log (Level.TRACE, "ServerImpl.Exchange (2)", e2);
-                reject (Code.HTTP_BAD_REQUEST,
-                        requestLine, "NumberFormatException thrown");
-            } catch (URISyntaxException e3) {
-                logger.log (Level.TRACE, "ServerImpl.Exchange (3)", e3);
-                reject (Code.HTTP_BAD_REQUEST,
-                        requestLine, "URISyntaxException thrown");
-            } catch (Exception e4) {
-                logger.log (Level.TRACE, "ServerImpl.Exchange (4)", e4);
-                closeConnection(connection);
+            } catch (Exception e) {
+                logger.log (Level.TRACE, "ServerImpl.Exchange", e);
+                if (tx == null || !tx.writefinished) {
+                    closeConnection(connection);
+                }
             } catch (Throwable t) {
                 logger.log(Level.TRACE, "ServerImpl.Exchange (5)", t);
                 throw t;
@@ -856,9 +876,8 @@ class ServerImpl {
             rejected = true;
             logReply (code, requestStr, message);
             sendReply (
-                code, false, "<h1>"+code+Code.msg(code)+"</h1>"+message
+                code, true, "<h1>"+code+Code.msg(code)+"</h1>"+message
             );
-            closeConnection(connection);
         }
 
         void sendReply (
@@ -882,7 +901,7 @@ class ServerImpl {
                 }
                 builder.append ("\r\n").append (text);
                 String s = builder.toString();
-                byte[] b = s.getBytes("ISO8859_1");
+                byte[] b = s.getBytes(ISO_8859_1);
                 rawout.write (b);
                 rawout.flush();
                 if (closeNow) {
@@ -944,9 +963,24 @@ class ServerImpl {
     }
 
     void markIdle(HttpConnection c) {
-        c.idleStartTime = System.currentTimeMillis();
-        c.setState(State.IDLE);
-        idleConnections.add(c);
+        boolean close = false;
+
+        synchronized(idleConnections) {
+            if (idleConnections.size() >= MAX_IDLE_CONNECTIONS) {
+                // closing the connection here could block
+                // instead set boolean and close outside the synchronized block
+                close = true;
+            } else {
+                c.idleStartTime = System.currentTimeMillis();
+                c.setState(State.IDLE);
+                idleConnections.add(c);
+            }
+        }
+
+        if (close) {
+            c.close();
+            allConnections.remove(c);
+        }
     }
 
     void markNewlyAccepted(HttpConnection c) {
@@ -985,7 +1019,7 @@ class ServerImpl {
      */
     class IdleTimeoutTask extends TimerTask {
         public void run () {
-            LinkedList<HttpConnection> toClose = new LinkedList<HttpConnection>();
+            ArrayList<HttpConnection> toClose = new ArrayList<>();
             final long currentTime = System.currentTimeMillis();
             synchronized (idleConnections) {
                 final Iterator<HttpConnection> it = idleConnections.iterator();
@@ -1026,7 +1060,7 @@ class ServerImpl {
 
         // runs every TIMER_MILLIS
         public void run () {
-            LinkedList<HttpConnection> toClose = new LinkedList<HttpConnection>();
+            ArrayList<HttpConnection> toClose = new ArrayList<>();
             final long currentTime = System.currentTimeMillis();
             synchronized (reqConnections) {
                 if (MAX_REQ_TIME != -1) {
@@ -1043,7 +1077,7 @@ class ServerImpl {
                     }
                 }
             }
-            toClose = new LinkedList<HttpConnection>();
+            toClose = new ArrayList<>();
             synchronized (rspConnections) {
                 if (MAX_RSP_TIME != -1) {
                     for (HttpConnection c : rspConnections) {
@@ -1074,25 +1108,5 @@ class ServerImpl {
         final long milli = secs * 1000;
         // this handles potential numeric overflow that may have happened during conversion
         return milli > 0 ? milli : -1;
-    }
-
-    /*
-     * Validates a RFC 7230 header-key.
-     */
-    static boolean isValidHeaderKey(String token) {
-        if (token == null || token.isEmpty()) return false;
-
-        boolean isValidChar;
-        char[] chars = token.toCharArray();
-        String validSpecialChars = "!#$%&'*+-.^_`|~";
-        for (char c : chars) {
-            isValidChar = ((c >= 'a') && (c <= 'z')) ||
-                          ((c >= 'A') && (c <= 'Z')) ||
-                          ((c >= '0') && (c <= '9'));
-            if (!isValidChar && validSpecialChars.indexOf(c) == -1) {
-                return false;
-            }
-        }
-        return true;
     }
 }

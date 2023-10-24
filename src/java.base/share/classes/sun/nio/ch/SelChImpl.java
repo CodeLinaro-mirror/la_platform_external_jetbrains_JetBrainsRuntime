@@ -84,18 +84,22 @@ public interface SelChImpl extends Channel {
      * @param nanos the timeout to wait; {@code <= 0} to wait indefinitely
      */
     default void park(int event, long nanos) throws IOException {
-        long millis;
-        if (nanos <= 0) {
-            millis = -1;
+        if (Thread.currentThread().isVirtual()) {
+            Poller.poll(getFDVal(), event, nanos, this::isOpen);
         } else {
-            millis = NANOSECONDS.toMillis(nanos);
-            if (nanos > MILLISECONDS.toNanos(millis)) {
-                // Round up any excess nanos to the nearest millisecond to
-                // avoid parking for less than requested.
-                millis++;
+            long millis;
+            if (nanos <= 0) {
+                millis = -1;
+            } else {
+                millis = NANOSECONDS.toMillis(nanos);
+                if (nanos > MILLISECONDS.toNanos(millis)) {
+                    // Round up any excess nanos to the nearest millisecond to
+                    // avoid parking for less than requested.
+                    millis++;
+                }
             }
+            Net.poll(getFD(), event, millis);
         }
-        Net.poll(getFD(), event, millis);
     }
 
     /**
@@ -111,5 +115,4 @@ public interface SelChImpl extends Channel {
     default void park(int event) throws IOException {
         park(event, 0L);
     }
-
 }

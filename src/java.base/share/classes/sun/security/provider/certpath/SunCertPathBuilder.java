@@ -73,7 +73,7 @@ public final class SunCertPathBuilder extends CertPathBuilderSpi {
      * private objects shared by methods
      */
     private BuilderParams buildParams;
-    private CertificateFactory cf;
+    private final CertificateFactory cf;
     private boolean pathCompleted = false;
     private PolicyNode policyTreeResult;
     private TrustAnchor trustAnchor;
@@ -222,7 +222,7 @@ public final class SunCertPathBuilder extends CertPathBuilderSpi {
 
         /* Initialize adjacency list */
         adjacencyList.clear();
-        adjacencyList.add(new LinkedList<Vertex>());
+        adjacencyList.add(new LinkedList<>());
 
         currentState.untrustedChecker = new UntrustedChecker();
 
@@ -273,16 +273,16 @@ public final class SunCertPathBuilder extends CertPathBuilderSpi {
 
         /*
          * For each cert in the collection, verify anything
-         * that hasn't been checked yet (signature, revocation, etc)
+         * that hasn't been checked yet (signature, revocation, etc.)
          * and check for certs with repeated public key and subject.
          * Call depthFirstSearchForward() recursively for each good cert.
          */
 
                vertices:
         for (Vertex vertex : vertices) {
-            /**
+            /*
              * Restore state to currentState each time through the loop.
-             * This is important because some of the user-defined
+             * This is important because some user-defined
              * checkers modify the state, which MUST be restored if
              * the cert eventually fails to lead to the target and
              * the next matching cert is tried.
@@ -407,7 +407,7 @@ public final class SunCertPathBuilder extends CertPathBuilderSpi {
                     Set<String> unresCritExts =
                         currCert.getCriticalExtensionOIDs();
                     if (unresCritExts == null) {
-                        unresCritExts = Collections.<String>emptySet();
+                        unresCritExts = Collections.emptySet();
                     }
 
                     for (PKIXCertPathChecker currChecker : checkers) {
@@ -531,7 +531,7 @@ public final class SunCertPathBuilder extends CertPathBuilderSpi {
              * Append an entry for cert in adjacency list and
              * set index for current vertex.
              */
-            adjList.add(new LinkedList<Vertex>());
+            adjList.add(new LinkedList<>());
             vertex.setIndex(adjList.size() - 1);
 
             /* recursively search for matching certs at next dN */

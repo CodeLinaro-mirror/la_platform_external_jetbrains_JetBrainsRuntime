@@ -46,7 +46,6 @@ import java.time.ZonedDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -209,8 +208,8 @@ public class DisabledAlgorithmConstraints extends AbstractAlgorithmConstraints {
         }
     }
 
-    private void permits(AlgorithmParameters ap, ConstraintsParameters cp)
-            throws CertPathValidatorException {
+    public void permits(AlgorithmParameters ap, ConstraintsParameters cp)
+        throws CertPathValidatorException {
 
         switch (ap.getAlgorithm().toUpperCase(Locale.ENGLISH)) {
             case "RSASSA-PSS":
@@ -244,7 +243,6 @@ public class DisabledAlgorithmConstraints extends AbstractAlgorithmConstraints {
 
     public final void permits(String algorithm, ConstraintsParameters cp,
             boolean checkKey) throws CertPathValidatorException {
-
         if (checkKey) {
             // Check if named curves in the key are disabled.
             for (Key key : cp.getKeys()) {
@@ -258,7 +256,6 @@ public class DisabledAlgorithmConstraints extends AbstractAlgorithmConstraints {
                 }
             }
         }
-
         algorithmConstraints.permits(algorithm, cp, checkKey);
     }
 
@@ -315,10 +312,6 @@ public class DisabledAlgorithmConstraints extends AbstractAlgorithmConstraints {
     /**
      * Key and Certificate Constraints
      *
-     * The complete disabling of an algorithm is not handled by Constraints or
-     * Constraint classes.  That is addressed with
-     *   permit(Set<CryptoPrimitive>, String, AlgorithmParameters)
-     *
      * When passing a Key to permit(), the boolean return values follow the
      * same as the interface class AlgorithmConstraints.permit().  This is to
      * maintain compatibility:
@@ -329,9 +322,8 @@ public class DisabledAlgorithmConstraints extends AbstractAlgorithmConstraints {
      * will be thrown on a failure to better identify why the operation was
      * disallowed.
      */
-
     private static class Constraints {
-        private Map<String, List<Constraint>> constraintsMap = new HashMap<>();
+        private final Map<String, List<Constraint>> constraintsMap = new HashMap<>();
 
         private static class Holder {
             private static final Pattern DENY_AFTER_PATTERN = Pattern.compile(
@@ -352,9 +344,9 @@ public class DisabledAlgorithmConstraints extends AbstractAlgorithmConstraints {
                 // Check if constraint is a complete disabling of an
                 // algorithm or has conditions.
                 int space = constraintEntry.indexOf(' ');
-                String algorithm = AlgorithmDecomposer.hashName(
-                        ((space > 0 ? constraintEntry.substring(0, space) :
-                                constraintEntry)));
+                String algorithm = AlgorithmDecomposer.decomposeDigestName(
+                        space > 0 ? constraintEntry.substring(0, space) :
+                                constraintEntry);
                 List<Constraint> constraintList =
                         constraintsMap.getOrDefault(
                                 algorithm.toUpperCase(Locale.ENGLISH),
@@ -366,7 +358,7 @@ public class DisabledAlgorithmConstraints extends AbstractAlgorithmConstraints {
                             alias.toUpperCase(Locale.ENGLISH), constraintList);
                 }
 
-                // If there is no whitespace, it is a algorithm name; however,
+                // If there is no whitespace, it is an algorithm name; however,
                 // if there is a whitespace, could be a multi-word EC curve too.
                 if (space <= 0 || CurveDB.lookup(constraintEntry) != null) {
                     constraintList.add(new DisabledConstraint(algorithm));
@@ -431,7 +423,7 @@ public class DisabledAlgorithmConstraints extends AbstractAlgorithmConstraints {
                                 day);
                         denyAfterLimit = true;
                     } else if (entry.startsWith("usage")) {
-                        String s[] = (entry.substring(5)).trim().split(" ");
+                        String[] s = (entry.substring(5)).trim().split(" ");
                         c = new UsageConstraint(algorithm, s);
                         if (debug != null) {
                             debug.println("Constraints usage length is " + s.length);
@@ -467,7 +459,7 @@ public class DisabledAlgorithmConstraints extends AbstractAlgorithmConstraints {
             for (Constraint constraint : list) {
                 if (!constraint.permits(key)) {
                     if (debug != null) {
-                        debug.println("Constraints: failed key size" +
+                        debug.println("Constraints: failed key size " +
                                 "constraint check " + KeyUtil.getKeySize(key));
                     }
                     return false;
@@ -508,7 +500,7 @@ public class DisabledAlgorithmConstraints extends AbstractAlgorithmConstraints {
             // Get all signature algorithms to check for constraints
             Set<String> algorithms = new HashSet<>();
             if (algorithm != null) {
-                algorithms.addAll(AlgorithmDecomposer.decomposeOneHash(algorithm));
+                algorithms.addAll(AlgorithmDecomposer.decomposeName(algorithm));
                 algorithms.add(algorithm);
             }
 
@@ -597,7 +589,7 @@ public class DisabledAlgorithmConstraints extends AbstractAlgorithmConstraints {
          *
          * @param parameters the cryptographic parameters
          * @return 'true' if the cryptographic parameters is allowed,
-         *         'false' ortherwise.
+         *         'false' otherwise.
          */
         public boolean permits(AlgorithmParameters parameters) {
             return true;
@@ -702,8 +694,8 @@ public class DisabledAlgorithmConstraints extends AbstractAlgorithmConstraints {
      * timezone.
      */
     private static class DenyAfterConstraint extends Constraint {
-        private ZonedDateTime zdt;
-        private Instant denyAfterDate;
+        private final ZonedDateTime zdt;
+        private final Instant denyAfterDate;
 
         DenyAfterConstraint(String algo, int year, int month, int day) {
 
@@ -797,7 +789,7 @@ public class DisabledAlgorithmConstraints extends AbstractAlgorithmConstraints {
             for (String usage : usages) {
 
                 boolean match = false;
-                switch (usage.toLowerCase()) {
+                switch (usage.toLowerCase(Locale.ENGLISH)) {
                     case "tlsserver":
                         match = variant.equals(Validator.VAR_TLS_SERVER);
                         break;
@@ -806,7 +798,6 @@ public class DisabledAlgorithmConstraints extends AbstractAlgorithmConstraints {
                         break;
                     case "signedjar":
                         match =
-                            variant.equals(Validator.VAR_PLUGIN_CODE_SIGNING) ||
                             variant.equals(Validator.VAR_CODE_SIGNING) ||
                             variant.equals(Validator.VAR_TSA_SERVER);
                         break;
@@ -840,8 +831,8 @@ public class DisabledAlgorithmConstraints extends AbstractAlgorithmConstraints {
      */
     private static class KeySizeConstraint extends Constraint {
 
-        private int minSize;            // the minimal available key size
-        private int maxSize;            // the maximal available key size
+        private final int minSize;          // the minimal available key size
+        private final int maxSize;          // the maximal available key size
         private int prohibitedSize = -1;    // unavailable key sizes
 
         public KeySizeConstraint(String algo, Operator operator, int length) {

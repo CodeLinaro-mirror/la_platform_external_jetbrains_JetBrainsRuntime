@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,10 +25,20 @@
  * @test
  * @requires vm.jvmci
  * @library ../../../../../
- * @ignore 8249621
+ * @compile ../../../../../../../../../../../jdk/jdk/internal/vm/AnnotationEncodingDecoding/AnnotationTestInput.java
+ *          ../../../../../../../../../../../jdk/jdk/internal/vm/AnnotationEncodingDecoding/MemberDeleted.java
+ *          ../../../../../../../../../../../jdk/jdk/internal/vm/AnnotationEncodingDecoding/MemberTypeChanged.java
+ *          TestResolvedJavaType.java
+ * @clean jdk.internal.vm.test.AnnotationTestInput$Missing
+ * @compile ../../../../../../../../../../../jdk/jdk/internal/vm/AnnotationEncodingDecoding/alt/MemberDeleted.java
+ *          ../../../../../../../../../../../jdk/jdk/internal/vm/AnnotationEncodingDecoding/alt/MemberTypeChanged.java
  * @modules jdk.internal.vm.ci/jdk.vm.ci.meta
  *          jdk.internal.vm.ci/jdk.vm.ci.runtime
+ *          jdk.internal.vm.ci/jdk.vm.ci.common
+ *          java.base/jdk.internal.reflect
  *          java.base/jdk.internal.misc
+ *          java.base/jdk.internal.vm
+ *          java.base/sun.reflect.annotation
  * @run junit/othervm -XX:+UnlockExperimentalVMOptions -XX:+EnableJVMCI -XX:-UseJVMCICompiler jdk.vm.ci.runtime.test.TestResolvedJavaMethod
  */
 
@@ -62,11 +72,16 @@ import java.util.Set;
 import org.junit.Assert;
 import org.junit.Test;
 
+import jdk.internal.vm.test.AnnotationTestInput;
 import jdk.vm.ci.meta.ConstantPool;
 import jdk.vm.ci.meta.ExceptionHandler;
 import jdk.vm.ci.meta.ResolvedJavaMethod;
 import jdk.vm.ci.meta.ResolvedJavaMethod.Parameter;
 import jdk.vm.ci.meta.ResolvedJavaType;
+import jdk.vm.ci.runtime.test.TestResolvedJavaMethod.AnnotationDataTest.Annotation1;
+import jdk.vm.ci.runtime.test.TestResolvedJavaMethod.AnnotationDataTest.Annotation2;
+import jdk.vm.ci.runtime.test.TestResolvedJavaMethod.AnnotationDataTest.Annotation3;
+import jdk.vm.ci.runtime.test.TestResolvedJavaMethod.AnnotationDataTest.NumbersDE;
 
 /**
  * Tests for {@link ResolvedJavaMethod}.
@@ -111,6 +126,18 @@ public class TestResolvedJavaMethod extends MethodUniverse {
             }
         }
         assertTrue(!unlinkedType.isLinked());
+    }
+
+    @Test
+    public void equalsTest() {
+        List<ResolvedJavaMethod> executables = joinValues(methods, constructors);
+        for (ResolvedJavaMethod m : executables) {
+            for (ResolvedJavaMethod that : executables) {
+                boolean expect = m == that;
+                boolean actual = m.equals(that);
+                assertEquals(expect, actual);
+            }
+        }
     }
 
     @Test
@@ -191,13 +218,19 @@ public class TestResolvedJavaMethod extends MethodUniverse {
         }
         for (Map.Entry<Constructor<?>, ResolvedJavaMethod> e : constructors.entrySet()) {
             ResolvedJavaMethod m = e.getValue();
-            assertEquals(m.canBeStaticallyBound(), canBeStaticallyBound(e.getKey()));
+            boolean expect = m.canBeStaticallyBound();
+            boolean actual = canBeStaticallyBound(e.getKey());
+            assertEquals(m.toString(), expect, actual);
         }
     }
 
     private static boolean canBeStaticallyBound(Member method) {
         int modifiers = method.getModifiers();
-        return (Modifier.isFinal(modifiers) || Modifier.isPrivate(modifiers) || Modifier.isStatic(modifiers) || Modifier.isFinal(method.getDeclaringClass().getModifiers())) &&
+        return (Modifier.isFinal(modifiers) ||
+                        Modifier.isPrivate(modifiers) ||
+                        Modifier.isStatic(modifiers) ||
+                        method instanceof Constructor ||
+                        Modifier.isFinal(method.getDeclaringClass().getModifiers())) &&
                         !Modifier.isAbstract(modifiers);
     }
 
@@ -238,7 +271,8 @@ public class TestResolvedJavaMethod extends MethodUniverse {
             StackTraceElement expected = e.getStackTrace()[0];
             ResolvedJavaMethod method = metaAccess.lookupJavaMethod(getClass().getDeclaredMethod("nullPointerExceptionOnFirstLine", Object.class, String.class));
             StackTraceElement actual = method.asStackTraceElement(0);
-            assertEquals(expected, actual);
+            // JVMCI StackTraceElements omit the class loader and module info
+            assertEquals(expected.toString(), actual.toString());
         }
     }
 
@@ -454,6 +488,83 @@ public class TestResolvedJavaMethod extends MethodUniverse {
                 }
             }
         }
+    }
+
+    /**
+     * Encapsulates input for {@link TestResolvedJavaMethod#getAnnotationDataTest}.
+     */
+    static class AnnotationDataTest {
+
+        public enum NumbersEN {
+            One,
+            Two;
+        }
+
+        public enum NumbersDE {
+            Eins,
+            Zwei;
+        }
+
+        public enum NumbersUA {
+            Odyn,
+            Dva;
+        }
+
+        @Retention(RetentionPolicy.RUNTIME)
+        public @interface Annotation1 {
+            NumbersEN value() default NumbersEN.One;
+        }
+
+        @Retention(RetentionPolicy.RUNTIME)
+        public @interface Annotation2 {
+            NumbersDE value() default NumbersDE.Eins;
+        }
+
+        @Retention(RetentionPolicy.RUNTIME)
+        public @interface Annotation3 {
+            NumbersUA value() default NumbersUA.Odyn;
+        }
+
+        @Annotation1
+        @Annotation2
+        @Annotation3(NumbersUA.Dva)
+        static void methodWithThreeAnnotations() {
+
+        }
+    }
+
+    @Test
+    public void getAnnotationDataTest() throws Exception {
+        TestResolvedJavaType.getAnnotationDataTest(AnnotationTestInput.class.getDeclaredMethod("annotatedMethod"));
+        TestResolvedJavaType.getAnnotationDataTest(AnnotationTestInput.class.getDeclaredMethod("missingAnnotation"));
+        try {
+            TestResolvedJavaType.getAnnotationDataTest(AnnotationTestInput.class.getDeclaredMethod("missingNestedAnnotation"));
+            throw new AssertionError("expected " + NoClassDefFoundError.class.getName());
+        } catch (NoClassDefFoundError e) {
+            Assert.assertEquals("jdk/internal/vm/test/AnnotationTestInput$Missing", e.getMessage());
+        }
+        TestResolvedJavaType.getAnnotationDataTest(AnnotationTestInput.class.getDeclaredMethod("missingTypeOfClassMember"));
+        TestResolvedJavaType.getAnnotationDataTest(AnnotationTestInput.class.getDeclaredMethod("missingMember"));
+        TestResolvedJavaType.getAnnotationDataTest(AnnotationTestInput.class.getDeclaredMethod("changeTypeOfMember"));
+
+        for (Method m : methods.keySet()) {
+            TestResolvedJavaType.getAnnotationDataTest(m);
+        }
+
+        ResolvedJavaMethod m = metaAccess.lookupJavaMethod(AnnotationDataTest.class.getDeclaredMethod("methodWithThreeAnnotations"));
+        ResolvedJavaType a1 = metaAccess.lookupJavaType(Annotation1.class);
+        ResolvedJavaType a2 = metaAccess.lookupJavaType(Annotation2.class);
+        ResolvedJavaType a3 = metaAccess.lookupJavaType(Annotation3.class);
+        ResolvedJavaType a4 = metaAccess.lookupJavaType(AnnotationDataTest.class);
+        ResolvedJavaType numbersDEType = metaAccess.lookupJavaType(NumbersDE.class);
+
+        // Ensure NumbersDE is not initialized before Annotation2 is requested
+        Assert.assertFalse(numbersDEType.isInitialized());
+        Assert.assertEquals(2, m.getAnnotationData(a1, a3).size());
+
+        // Ensure NumbersDE is initialized after Annotation2 is requested
+        Assert.assertNotNull(m.getAnnotationData(a2));
+        Assert.assertTrue(numbersDEType.isInitialized());
     }
 
     private Method findTestMethod(Method apiMethod) {

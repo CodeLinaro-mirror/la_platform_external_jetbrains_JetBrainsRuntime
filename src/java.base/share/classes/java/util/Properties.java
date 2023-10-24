@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -236,7 +236,7 @@ public class Properties extends Hashtable<Object,Object> {
      * character stream in a simple line-oriented format.
      * <p>
      * Properties are processed in terms of lines. There are two
-     * kinds of line, <i>natural lines</i> and <i>logical lines</i>.
+     * kinds of lines, <i>natural lines</i> and <i>logical lines</i>.
      * A natural line is defined as a line of
      * characters that is terminated either by a set of line terminator
      * characters ({@code \n} or {@code \r} or {@code \r\n})
@@ -253,8 +253,8 @@ public class Properties extends Hashtable<Object,Object> {
      * <p>
      * A natural line that contains only white space characters is
      * considered blank and is ignored.  A comment line has an ASCII
-     * {@code '#'} or {@code '!'} as its first non-white
-     * space character; comment lines are also ignored and do not
+     * {@code '#'} or {@code '!'} as its first non-whitespace
+     * character; comment lines are also ignored and do not
      * encode key-element information.  In addition to line
      * terminators, this format considers the characters space
      * ({@code ' '}, {@code '\u005Cu0020'}), tab
@@ -266,7 +266,7 @@ public class Properties extends Hashtable<Object,Object> {
      * If a logical line is spread across several natural lines, the
      * backslash escaping the line terminator sequence, the line
      * terminator sequence, and any white space at the start of the
-     * following line have no affect on the key or element values.
+     * following line have no effect on the key or element values.
      * The remainder of the discussion of key and element parsing
      * (when loading) will assume all the characters constituting
      * the key and element appear on a single natural line after
@@ -282,7 +282,7 @@ public class Properties extends Hashtable<Object,Object> {
      *
      * <p>
      * The key contains all of the characters in the line starting
-     * with the first non-white space character and up to, but not
+     * with the first non-whitespace character and up to, but not
      * including, the first unescaped {@code '='},
      * {@code ':'}, or white space character other than a line
      * terminator. All of these key termination characters may be
@@ -294,7 +294,7 @@ public class Properties extends Hashtable<Object,Object> {
      * would be the two-character key {@code ":="}.  Line
      * terminator characters can be included using {@code \r} and
      * {@code \n} escape sequences.  Any white space after the
-     * key is skipped; if the first non-white space character after
+     * key is skipped; if the first non-whitespace character after
      * the key is {@code '='} or {@code ':'}, then it is
      * ignored and any white space characters after it are also
      * skipped.  All remaining characters on the line become part of
@@ -986,6 +986,8 @@ public class Properties extends Hashtable<Object,Object> {
      * @throws InvalidPropertiesFormatException Data on input stream does not
      *         constitute a valid XML document with the mandated document type.
      * @throws NullPointerException if {@code in} is null.
+     *
+     * @spec https://www.w3.org/TR/xml Extensible Markup Language (XML) 1.0 (Fifth Edition)
      * @see    #storeToXML(OutputStream, String, String)
      * @see    <a href="http://www.w3.org/TR/REC-xml/#charencoding">Character
      *         Encoding in Entities</a>
@@ -1064,6 +1066,8 @@ public class Properties extends Hashtable<Object,Object> {
      *         or if {@code encoding} is {@code null}.
      * @throws ClassCastException  if this {@code Properties} object
      *         contains any keys or values that are not {@code Strings}.
+     *
+     * @spec https://www.w3.org/TR/xml Extensible Markup Language (XML) 1.0 (Fifth Edition)
      * @see    #loadFromXML(InputStream)
      * @see    <a href="http://www.w3.org/TR/REC-xml/#charencoding">Character
      *         Encoding in Entities</a>
@@ -1113,6 +1117,8 @@ public class Properties extends Hashtable<Object,Object> {
      * @throws NullPointerException if {@code os} or {@code charset} is {@code null}.
      * @throws ClassCastException  if this {@code Properties} object
      *         contains any keys or values that are not {@code Strings}.
+     *
+     * @spec https://www.w3.org/TR/xml Extensible Markup Language (XML) 1.0 (Fifth Edition)
      * @see    #loadFromXML(InputStream)
      * @see    <a href="http://www.w3.org/TR/REC-xml/#charencoding">Character
      *         Encoding in Entities</a>

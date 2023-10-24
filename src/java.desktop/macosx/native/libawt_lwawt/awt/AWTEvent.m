@@ -387,6 +387,7 @@ const nsKeyToJavaModifierTable[] =
     {0, 0, 0, 0, 0, 0}
 };
 
+
 /*
  * Almost all unicode characters just go from NS to Java with no translation.
  *  For the few exceptions, we handle it here with this small table.
@@ -814,8 +815,8 @@ NsKeyModifiersToJavaKeyInfo(NSUInteger nsFlags, unsigned short eventKeyCode,
                 *javaKeyLocation = java_awt_event_KeyEvent_KEY_LOCATION_RIGHT;
             }
             *javaKeyType = (cur->nsMask & nsFlags) ?
-            java_awt_event_KeyEvent_KEY_PRESSED :
-            java_awt_event_KeyEvent_KEY_RELEASED;
+                java_awt_event_KeyEvent_KEY_PRESSED :
+                java_awt_event_KeyEvent_KEY_RELEASED;
             break;
         }
     }

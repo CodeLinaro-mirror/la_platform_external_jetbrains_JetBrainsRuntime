@@ -31,6 +31,7 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serial;
+import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.EventListener;
 import java.util.Vector;
@@ -40,7 +41,6 @@ import javax.accessibility.AccessibleContext;
 import javax.accessibility.AccessibleRole;
 
 import sun.awt.AWTAccessor;
-import sun.awt.SunToolkit;
 
 /**
  * A {@code Menu} object is a pull-down menu component
@@ -125,7 +125,7 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
     /**
      * Constructs a new menu with an empty label. This menu is not
      * a tear-off menu.
-     * @exception HeadlessException if GraphicsEnvironment.isHeadless()
+     * @throws HeadlessException if GraphicsEnvironment.isHeadless()
      * returns true.
      * @see java.awt.GraphicsEnvironment#isHeadless
      * @since      1.1
@@ -139,7 +139,7 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
      * a tear-off menu.
      * @param       label the menu's label in the menu bar, or in
      *                   another menu of which this menu is a submenu.
-     * @exception HeadlessException if GraphicsEnvironment.isHeadless()
+     * @throws HeadlessException if GraphicsEnvironment.isHeadless()
      * returns true.
      * @see java.awt.GraphicsEnvironment#isHeadless
      */
@@ -158,7 +158,7 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
      *                   another menu of which this menu is a submenu.
      * @param       tearOff   if {@code true}, the menu
      *                   is a tear-off menu.
-     * @exception HeadlessException if GraphicsEnvironment.isHeadless()
+     * @throws HeadlessException if GraphicsEnvironment.isHeadless()
      * returns true.
      * @see java.awt.GraphicsEnvironment#isHeadless
      */
@@ -278,7 +278,7 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
      * @see         java.awt.Menu#insert(java.awt.MenuItem, int)
      */
     public MenuItem add(MenuItem mi) {
-        SunToolkit.performWithTreeLock(() -> {
+        synchronized (getTreeLock()) {
             if (mi.parent != null) {
                 mi.parent.remove(mi);
             }
@@ -289,8 +289,8 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
                 mi.addNotify();
                 peer.addItem(mi);
             }
-        });
-        return mi;
+            return mi;
+        }
     }
 
     /**
@@ -313,7 +313,7 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
      *                          item should be inserted.
      * @see           java.awt.Menu#add(java.lang.String)
      * @see           java.awt.Menu#add(java.awt.MenuItem)
-     * @exception     IllegalArgumentException if the value of
+     * @throws     IllegalArgumentException if the value of
      *                    {@code index} is less than zero
      * @since         1.1
      */
@@ -325,14 +325,14 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
             }
 
             int nitems = getItemCount();
-            Vector<MenuItem> tempItems = new Vector<>();
+            ArrayList<MenuItem> tempItems = new ArrayList<>();
 
             /* Remove the item at index, nitems-index times
                storing them in a temporary vector in the
                order they appear on the menu.
             */
             for (int i = index ; i < nitems; i++) {
-                tempItems.addElement(getItem(index));
+                tempItems.add(getItem(index));
                 remove(index);
             }
 
@@ -342,7 +342,7 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
                already in the correct order in the temp vector.
             */
             for (int i = 0; i < tempItems.size()  ; i++) {
-                add(tempItems.elementAt(i));
+                add(tempItems.get(i));
             }
         }
     }
@@ -357,7 +357,7 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
      *                      should be inserted
      * @see         java.awt.Menu#add(java.lang.String)
      * @see         java.awt.Menu#add(java.awt.MenuItem)
-     * @exception     IllegalArgumentException if the value of
+     * @throws     IllegalArgumentException if the value of
      *                    {@code index} is less than zero
      * @since       1.1
      */
@@ -367,7 +367,7 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
     }
 
     /**
-     * Adds a separator line, or a hypen, to the menu at the current position.
+     * Adds a separator line, or a hyphen, to the menu at the current position.
      * @see         java.awt.Menu#insertSeparator(int)
      */
     public void addSeparator() {
@@ -378,7 +378,7 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
      * Inserts a separator at the specified position.
      * @param       index the position at which the
      *                       menu separator should be inserted.
-     * @exception   IllegalArgumentException if the value of
+     * @throws   IllegalArgumentException if the value of
      *                       {@code index} is less than 0.
      * @see         java.awt.Menu#addSeparator
      * @since       1.1
@@ -391,14 +391,14 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
             }
 
             int nitems = getItemCount();
-            Vector<MenuItem> tempItems = new Vector<>();
+            ArrayList<MenuItem> tempItems = new ArrayList<>();
 
             /* Remove the item at index, nitems-index times
                storing them in a temporary vector in the
                order they appear on the menu.
             */
             for (int i = index ; i < nitems; i++) {
-                tempItems.addElement(getItem(index));
+                tempItems.add(getItem(index));
                 remove(index);
             }
 
@@ -408,7 +408,7 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
                already in the correct order in the temp vector.
             */
             for (int i = 0; i < tempItems.size()  ; i++) {
-                add(tempItems.elementAt(i));
+                add(tempItems.get(i));
             }
         }
     }
@@ -500,7 +500,7 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
             } else {
                 MenuShortcut ms = mi.getShortcut();
                 if (ms != null) {
-                    shortcuts.addElement(ms);
+                    shortcuts.add(ms);
                 }
             }
         }

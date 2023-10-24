@@ -144,6 +144,7 @@ convert_to_java_array
         return NULL; // OOME has been thrown already
     }
 
+
     jclass stringClazz = (*env)->FindClass(env, "java/lang/String");
     CHECK_NULL_RETURN(stringClazz, NULL);
     jarray libsArray = (*env)->NewObjectArray(env, libs->count, stringClazz, NULL);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,24 +25,26 @@
 
 package sun.awt;
 
-import java.awt.EventQueue;
 import java.awt.Font;
 import java.awt.GraphicsConfiguration;
 import java.awt.GraphicsDevice;
+import java.awt.HeadlessException;
 import java.awt.Toolkit;
+import java.io.File;
+import java.lang.annotation.Native;
 import java.lang.ref.WeakReference;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 
+import sun.java2d.MacOSFlags;
 import sun.java2d.MacosxSurfaceManagerFactory;
 import sun.java2d.SunGraphicsEnvironment;
 import sun.java2d.SurfaceManagerFactory;
-import sun.lwawt.macosx.LWCToolkit;
 import sun.util.logging.PlatformLogger;
 
 /**
@@ -58,6 +60,11 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
     private static final PlatformLogger logger =
             PlatformLogger.getLogger(CGraphicsEnvironment.class.getName());
 
+    @Native private final static int MTL_SUPPORTED = 0;
+    @Native private final static int MTL_NO_DEVICE = 1;
+    @Native private final static int MTL_NO_SHADER_LIB = 2;
+    @Native private final static int MTL_ERROR = 3;
+
     /**
      * Fetch an array of all valid CoreGraphics display identifiers.
      */
@@ -68,18 +75,41 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
      */
     private static native int getMainDisplayID();
 
-    private static native int[] getDisplayIDsAppKit();
-    private static native int getMainDisplayIDAppKit();
-
     /**
      * Noop function that just acts as an entry point for someone to force a
      * static initialization of this class.
      */
     public static void init() { }
 
+    @SuppressWarnings("removal")
+    private static final String mtlShadersLib = AccessController.doPrivileged(
+            (PrivilegedAction<String>) () ->
+                    System.getProperty("java.home", "") + File.separator +
+                            "lib" + File.separator + "shaders.metallib");
+
+    private static native int initMetal(String shaderLib);
+
     static {
         // Load libraries and initialize the Toolkit.
         Toolkit.getDefaultToolkit();
+        metalPipelineEnabled = false;
+        if (MacOSFlags.isMetalEnabled()) {
+            int res = initMetal(mtlShadersLib);
+            if (res != MTL_SUPPORTED) {
+                if (logger.isLoggable(PlatformLogger.Level.FINE)) {
+                    logger.fine("Cannot initialize Metal: " +
+                        switch (res) {
+                            case MTL_ERROR -> "Unexpected error.";
+                            case MTL_NO_DEVICE -> "No MTLDevice.";
+                            case MTL_NO_SHADER_LIB -> "No Metal shader library.";
+                            default -> "Unexpected error (" + res + ").";
+                    });
+                }
+            } else {
+                metalPipelineEnabled = true;
+            }
+        }
+
         // Install the correct surface manager factory.
         SurfaceManagerFactory.setInstance(new MacosxSurfaceManagerFactory());
     }
@@ -98,8 +128,11 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
      */
     private native void deregisterDisplayReconfiguration(long context);
 
-    private native long registerScreenParametersChangedListener();
-    private native void deregisterScreenParametersChangedListener(long listenerPtr);
+    private static boolean metalPipelineEnabled;
+
+    public static boolean usingMetalPipeline() {
+        return metalPipelineEnabled;
+    }
 
     /** Available CoreGraphics displays. */
     private final Map<Integer, CGraphicsDevice> devices = new HashMap<>(5);
@@ -109,27 +142,17 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
     private int mainDisplayID;
 
     /** Reference to the display reconfiguration callback context. */
-    private long displayReconfigContext;
+    private final long displayReconfigContext;
 
     // list of invalidated graphics devices (those which were removed)
     private List<WeakReference<CGraphicsDevice>> oldDevices = new ArrayList<>();
-
-    private boolean initialized;
 
     /**
      * Construct a new instance.
      */
     public CGraphicsEnvironment() {
-        if (!LWCToolkit.isDispatchingOnMainThread()) {
-            initializeIfNeeded();
-        }
-    }
-
-    private void initializeIfNeeded() {
-        if (initialized) return;
-        initialized = true;
-
         if (isHeadless()) {
+            displayReconfigContext = 0L;
             return;
         }
 
@@ -137,11 +160,14 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
         rebuildDevices();
 
         /* Register our display reconfiguration listener */
-        displayReconfigContext = LWCToolkit.isDispatchingOnMainThread() ? registerScreenParametersChangedListener()
-                : registerDisplayReconfiguration();
+        displayReconfigContext = registerDisplayReconfiguration();
         if (displayReconfigContext == 0L) {
             throw new RuntimeException("Could not register CoreGraphics display reconfiguration callback");
         }
+    }
+
+    public static String getMtlShadersLibPath() {
+        return mtlShadersLib;
     }
 
     /**
@@ -168,16 +194,12 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
     }
 
     @Override
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("removal")
     protected void finalize() throws Throwable {
         try {
             super.finalize();
         } finally {
-            if (LWCToolkit.isDispatchingOnMainThread()) {
-                deregisterScreenParametersChangedListener(displayReconfigContext);
-            } else {
-                deregisterDisplayReconfiguration(displayReconfigContext);
-            }
+            deregisterDisplayReconfiguration(displayReconfigContext);
         }
     }
 
@@ -187,7 +209,7 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
     private synchronized void initDevices() {
         Map<Integer, CGraphicsDevice> old = new HashMap<>(devices);
         devices.clear();
-        mainDisplayID = LWCToolkit.isDispatchingOnMainThread() ? getMainDisplayIDAppKit() : getMainDisplayID();
+        mainDisplayID = getMainDisplayID();
 
         // initialization of the graphics device may change list of displays on
         // hybrid systems via an activation of discrete video.
@@ -204,7 +226,7 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
             }
         }
 
-        int[] displayIDs = LWCToolkit.isDispatchingOnMainThread() ? getDisplayIDsAppKit() : getDisplayIDs();
+        int[] displayIDs = getDisplayIDs();
         if (displayIDs.length == 0) {
             // we could throw AWTError in this case.
             displayIDs = new int[]{mainDisplayID};
@@ -214,7 +236,7 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
                                                 : new CGraphicsDevice(id));
         }
         // fetch the main display again, the old value might be outdated
-        mainDisplayID = LWCToolkit.isDispatchingOnMainThread() ? getMainDisplayIDAppKit() : getMainDisplayID();
+        mainDisplayID = getMainDisplayID();
 
         // unlikely but make sure the main screen is in the list of screens,
         // most probably one more "displayReconfiguration" is on the road if not
@@ -257,46 +279,22 @@ public final class CGraphicsEnvironment extends SunGraphicsEnvironment {
     }
 
     @Override
-    public GraphicsDevice getDefaultScreenDevice() {
-        return performOnMainThreadOrSynchronized(() -> devices.get(mainDisplayID));
+    public synchronized GraphicsDevice getDefaultScreenDevice() throws HeadlessException {
+        return devices.get(mainDisplayID);
     }
 
     @Override
-    public GraphicsDevice[] getScreenDevices() {
-        return performOnMainThreadOrSynchronized(() -> devices.values().toArray(new CGraphicsDevice[devices.values().size()]));
+    public synchronized GraphicsDevice[] getScreenDevices() throws HeadlessException {
+        return devices.values().toArray(new CGraphicsDevice[devices.values().size()]);
     }
 
-    public GraphicsDevice getScreenDevice(int displayID) {
-        return performOnMainThreadOrSynchronized(() -> devices.get(displayID));
+    public synchronized GraphicsDevice getScreenDevice(int displayID) {
+        return devices.get(displayID);
     }
 
     @Override
-    protected int getNumScreens() {
-        return performOnMainThreadOrSynchronized(devices::size);
-    }
-
-    private <T> T performOnMainThreadOrSynchronized(Supplier<T> task) {
-        if (LWCToolkit.isDispatchingOnMainThread()) {
-            Supplier<T> completeTask = () -> {
-                initializeIfNeeded();
-                return task.get();
-            };
-            if (EventQueue.isDispatchThread()) {
-                return completeTask.get();
-            } else {
-                AtomicReference<T> result = new AtomicReference<>();
-                try {
-                    EventQueue.invokeAndWait(() -> result.set(completeTask.get()));
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-                return result.get();
-            }
-        } else {
-            synchronized (this) {
-                return task.get();
-            }
-        }
+    protected synchronized int getNumScreens() {
+        return devices.size();
     }
 
     @Override

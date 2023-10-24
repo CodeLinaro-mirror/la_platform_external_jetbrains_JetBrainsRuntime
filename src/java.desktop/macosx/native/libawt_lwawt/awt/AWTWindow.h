@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2015, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -49,9 +49,6 @@
     BOOL isJustCreated;
     NSWindowTabbingMode javaWindowTabbingMode;
     BOOL isEnterFullScreen;
-    BOOL hideTabController;
-    NSView *_fullScreenButtons;
-    NSView *_fullScreenOriginalButtons;
     CGFloat _customTitleBarHeight;
 }
 
@@ -72,7 +69,6 @@
 @property (nonatomic) NSWindowTabbingMode javaWindowTabbingMode;
 @property (nonatomic) BOOL isEnterFullScreen;
 @property (nonatomic, retain) NSNumber *currentDisplayID;
-@property (nonatomic) BOOL hideTabController;
 @property (nonatomic, readonly) CGFloat customTitleBarHeight;
 @property (nonatomic) BOOL customTitleBarControlsVisible;
 @property (nonatomic, retain) NSMutableArray *customTitleBarConstraints;
@@ -101,9 +97,7 @@
 
 @end
 
-@interface AWTWindow_Normal : NSWindow {
-    @private BOOL _ignoreMove;
-}
+@interface AWTWindow_Normal : NSWindow
 - (id) initWithDelegate:(AWTWindow *)delegate
               frameRect:(NSRect)rect
               styleMask:(NSUInteger)styleMask
@@ -120,15 +114,6 @@
 @interface AWTWindowDragView : NSView
 @property (nonatomic) jobject javaPlatformWindow;
 - (id) initWithPlatformWindow:(jobject)javaPlatformWindow;
-@end
-
-@interface AWTButtonsView : NSView {
-    @private BOOL _showButtons;
-             NSColor* _color;
-}
-
-- (void)configureColors;
-
 @end
 
 #endif _AWTWINDOW_H

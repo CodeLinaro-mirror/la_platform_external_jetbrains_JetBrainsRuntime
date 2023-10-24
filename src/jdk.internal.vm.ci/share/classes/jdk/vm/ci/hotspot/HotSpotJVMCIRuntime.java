@@ -28,6 +28,7 @@ import static jdk.vm.ci.services.Services.IS_BUILDING_NATIVE_IMAGE;
 import static jdk.vm.ci.services.Services.IS_IN_NATIVE_IMAGE;
 
 import java.io.IOException;
+import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.io.Serializable;
@@ -39,6 +40,7 @@ import java.lang.reflect.Executable;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Formatter;
@@ -192,91 +194,31 @@ public final class HotSpotJVMCIRuntime implements JVMCIRuntime {
                     // initialized.
                     JVMCI.getRuntime();
                 }
-                // Make sure all the primitive box caches are populated (required to properly
-                // materialize boxed primitives
-                // during deoptimization).
-                Boolean.valueOf(false);
-                Byte.valueOf((byte) 0);
-                Short.valueOf((short) 0);
-                Character.valueOf((char) 0);
-                Integer.valueOf(0);
-                Long.valueOf(0);
             }
         }
         return result;
     }
 
-    /**
-     * Decodes the exception encoded in {@code buffer} and throws it.
-     *
-     * @param errorOrBuffer an error code or a native byte buffer containing an exception encoded by
-     *            {@link #encodeThrowable}. Error code values and their meanings are:
-     *
-     *            <pre>
-     *             0: native memory for the buffer could not be allocated
-     *            -1: an OutOfMemoryError was thrown while encoding the exception
-     *            -2: some other throwable was thrown while encoding the exception
-     *            </pre>
-     */
     @VMEntryPoint
-    static void decodeAndThrowThrowable(long errorOrBuffer) throws Throwable {
-        if (errorOrBuffer >= -2L && errorOrBuffer <= 0) {
-            String context = String.format("while encoding an exception to translate it from %s to %s",
-                            IS_IN_NATIVE_IMAGE ? "HotSpot" : "libjvmci",
-                            IS_IN_NATIVE_IMAGE ? "libjvmci" : "HotSpot");
-            if (errorOrBuffer == 0) {
-                throw new InternalError("native buffer could not be allocated " + context);
-            }
-            if (errorOrBuffer == -1L) {
-                throw new OutOfMemoryError("OutOfMemoryError occurred " + context);
-            }
-            throw new InternalError("unexpected problem occurred " + context);
+    static String[] exceptionToString(Throwable o, boolean toString, boolean stackTrace) {
+        String[] res = {null, null};
+        if (toString) {
+            res[0] = o.toString();
         }
-        Unsafe unsafe = UnsafeAccess.UNSAFE;
-        int encodingLength = unsafe.getInt(errorOrBuffer);
-        byte[] encoding = new byte[encodingLength];
-        unsafe.copyMemory(null, errorOrBuffer + 4, encoding, Unsafe.ARRAY_BYTE_BASE_OFFSET, encodingLength);
-        throw TranslatedException.decodeThrowable(encoding);
-    }
-
-    /**
-     * If {@code bufferSize} is large enough, encodes {@code throwable} into a byte array and writes
-     * it to {@code buffer}. The encoding in {@code buffer} can be decoded by
-     * {@link #decodeAndThrowThrowable}.
-     *
-     * @param throwable the exception to encode
-     * @param buffer a native byte buffer
-     * @param bufferSize the size of {@code buffer} in bytes
-     * @return the number of bytes written into {@code buffer} if {@code bufferSize} is large
-     *         enough, otherwise {@code -N} where {@code N} is the value {@code bufferSize} needs to
-     *         be to fit the encoding
-     */
-    @VMEntryPoint
-    static int encodeThrowable(Throwable throwable, long buffer, int bufferSize) throws Throwable {
-        byte[] encoding = TranslatedException.encodeThrowable(throwable);
-        int requiredSize = 4 + encoding.length;
-        if (bufferSize < requiredSize) {
-            return -requiredSize;
+        if (stackTrace) {
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            try (PrintStream ps = new PrintStream(buf)) {
+                o.printStackTrace(ps);
+            }
+            res[1] = buf.toString(StandardCharsets.UTF_8);
         }
-        Unsafe unsafe = UnsafeAccess.UNSAFE;
-        unsafe.putInt(buffer, encoding.length);
-        unsafe.copyMemory(encoding, Unsafe.ARRAY_BYTE_BASE_OFFSET, null, buffer + 4, encoding.length);
-        return requiredSize;
-    }
-
-    @VMEntryPoint
-    static String callToString(Object o) {
-        return o.toString();
+        return res;
     }
 
     /**
-     * Set of recognized {@code "jvmci.*"} system properties. Entries not associated with an
-     * {@link Option} have this object as their value.
+     * Set of recognized {@code "jvmci.*"} system properties.
      */
     static final Map<String, Object> options = new HashMap<>();
-    static {
-        options.put("jvmci.class.path.append", options);
-    }
 
     /**
      * A list of all supported JVMCI options.
@@ -290,6 +232,11 @@ public final class HotSpotJVMCIRuntime implements JVMCIRuntime {
         // Note: The following one is not used (see InitTimer.ENABLED). It is added here
         // so that -XX:+JVMCIPrintProperties shows the option.
         InitTimer(Boolean.class, false, "Specifies if initialization timing is enabled."),
+        CodeSerializationTypeInfo(Boolean.class, false, "Prepend the size and label of each element to the stream when " +
+                "serializing HotSpotCompiledCode to verify both ends of the protocol agree on the format. " +
+                "Defaults to true in non-product builds."),
+        DumpSerializedCode(String.class, null, "Dump serialized code during code installation for code whose simple " +
+                "name (a stub) or fully qualified name (an nmethod) contains this option's value as a substring."),
         ForceTranslateFailure(String.class, null, "Forces HotSpotJVMCIRuntime.translate to throw an exception in the context " +
                 "of the peer runtime. The value is a filter that can restrict the forced failure to matching translated " +
                 "objects. See HotSpotJVMCIRuntime.postTranslation for more details. This option exists soley to test " +
@@ -317,7 +264,7 @@ public final class HotSpotJVMCIRuntime implements JVMCIRuntime {
         private final Class<?> type;
         @NativeImageReinitialize private Object value;
         private final Object defaultValue;
-        private boolean isDefault = true;
+        boolean isDefault = true;
         private final String[] helpLines;
 
         Option(Class<?> type, Object defaultValue, String... helpLines) {
@@ -727,7 +674,7 @@ public final class HotSpotJVMCIRuntime implements JVMCIRuntime {
         return fromClass0(javaClass);
     }
 
-    synchronized HotSpotResolvedObjectTypeImpl fromMetaspace(long klassPointer, String signature) {
+    synchronized HotSpotResolvedObjectTypeImpl fromMetaspace(long klassPointer) {
         if (resolvedJavaTypes == null) {
             resolvedJavaTypes = new HashMap<>();
         }
@@ -738,7 +685,8 @@ public final class HotSpotJVMCIRuntime implements JVMCIRuntime {
             javaType = (HotSpotResolvedObjectTypeImpl) klassReference.get();
         }
         if (javaType == null) {
-            javaType = new HotSpotResolvedObjectTypeImpl(klassPointer, signature);
+            String name = compilerToVm.getSignatureName(klassPointer);
+            javaType = new HotSpotResolvedObjectTypeImpl(klassPointer, name);
             resolvedJavaTypes.put(klassPointer, new WeakReference<>(javaType));
         }
         return javaType;
@@ -892,6 +840,26 @@ public final class HotSpotJVMCIRuntime implements JVMCIRuntime {
         return lookupTypeInternal(name, accessingType, resolve);
     }
 
+    /**
+     * Converts a HotSpot heap JNI {@code hotspot_jclass_value} to a {@link ResolvedJavaType},
+     * provided that the {@code hotspot_jclass_value} is a valid JNI reference to a Java Class. If
+     * this requirement is not met, {@link IllegalArgumentException} is thrown.
+     *
+     * @param hotspot_jclass_value a JNI reference to a {@link Class} value in the HotSpot heap
+     * @return a {@link ResolvedJavaType} for the referenced type
+     * @throws IllegalArgumentException if {@code hotspot_jclass_value} is not a valid JNI reference
+     *             to a {@link Class} object in the HotSpot heap. It is the responsibility of the
+     *             caller to make sure the argument is valid. The checks performed by this method
+     *             are best effort. Hence, the caller must not rely on the checks and corresponding
+     *             exceptions!
+     */
+    public HotSpotResolvedJavaType asResolvedJavaType(long hotspot_jclass_value) {
+        if (hotspot_jclass_value == 0L) {
+            return null;
+        }
+        return compilerToVm.lookupJClass(hotspot_jclass_value);
+    }
+
     JavaType lookupTypeInternal(String name, HotSpotResolvedObjectType accessingType, boolean resolve) {
         // If the name represents a primitive type we can short-circuit the lookup.
         if (name.length() == 1) {
@@ -912,6 +880,26 @@ public final class HotSpotJVMCIRuntime implements JVMCIRuntime {
         } catch (ClassNotFoundException e) {
             throw (NoClassDefFoundError) new NoClassDefFoundError().initCause(e);
         }
+    }
+
+    /**
+     * Gets the {@code jobject} value wrapped by {@code peerObject}. The returned "naked" value is
+     * only valid as long as {@code peerObject} is valid. Note that the latter may be shorter than
+     * the lifetime of {@code peerObject}. As such, this method should only be used to pass an
+     * object parameter across a JNI call from the JVMCI shared library to HotSpot. This method must
+     * only be called from within the JVMCI shared library.
+     *
+     * @param peerObject a reference to an object in the peer runtime
+     * @return the {@code jobject} value wrapped by {@code peerObject}
+     * @throws IllegalArgumentException if the current runtime is not the JVMCI shared library or
+     *             {@code peerObject} is not a peer object reference
+     */
+    public long getJObjectValue(HotSpotObjectConstant peerObject) {
+        if (peerObject instanceof IndirectHotSpotObjectConstantImpl) {
+            IndirectHotSpotObjectConstantImpl remote = (IndirectHotSpotObjectConstantImpl) peerObject;
+            return remote.getHandle();
+        }
+        throw new IllegalArgumentException("Cannot get jobject value for " + peerObject + " (" + peerObject.getClass().getName() + ")");
     }
 
     @Override
@@ -1328,7 +1316,7 @@ public final class HotSpotJVMCIRuntime implements JVMCIRuntime {
         for (String filter : filters) {
             Matcher m = FORCE_TRANSLATE_FAILURE_FILTER_RE.matcher(filter);
             if (!m.matches()) {
-                throw new JVMCIError(Option.ForceTranslateFailure + " filter does not match " + FORCE_TRANSLATE_FAILURE_FILTER_RE + ": " + filter);
+                throw new IllegalArgumentException(Option.ForceTranslateFailure + " filter does not match " + FORCE_TRANSLATE_FAILURE_FILTER_RE + ": " + filter);
             }
             String typeSelector = m.group(1);
             String substring = m.group(2);
@@ -1348,7 +1336,7 @@ public final class HotSpotJVMCIRuntime implements JVMCIRuntime {
                 continue;
             }
             if (toMatch.contains(substring)) {
-                throw new JVMCIError("translation of " + translatedObject + " failed due to matching " + Option.ForceTranslateFailure + " filter \"" + filter + "\"");
+                throw new RuntimeException("translation of " + translatedObject + " failed due to matching " + Option.ForceTranslateFailure + " filter \"" + filter + "\"");
             }
         }
     }
@@ -1394,6 +1382,8 @@ public final class HotSpotJVMCIRuntime implements JVMCIRuntime {
      * Ensures the current thread is attached to the peer runtime.
      *
      * @param asDaemon if the thread is not yet attached, should it be attached as a daemon
+     * @param javaVMInfo if non-null, the JavaVM info as returned by {@link #registerNativeMethods}
+     *            is returned in this array
      * @return {@code true} if this call attached the current thread, {@code false} if the current
      *         thread was already attached
      * @throws UnsupportedOperationException if the JVMCI shared library is not enabled (i.e.
@@ -1403,21 +1393,25 @@ public final class HotSpotJVMCIRuntime implements JVMCIRuntime {
      * @throws ArrayIndexOutOfBoundsException if {@code javaVMInfo} is non-null and is shorter than
      *             the length of the array returned by {@link #registerNativeMethods}
      */
-    public boolean attachCurrentThread(boolean asDaemon) {
+    public boolean attachCurrentThread(boolean asDaemon, long[] javaVMInfo) {
         byte[] name = IS_IN_NATIVE_IMAGE ? Thread.currentThread().getName().getBytes() : null;
-        return compilerToVm.attachCurrentThread(name, asDaemon);
+        return compilerToVm.attachCurrentThread(name, asDaemon, javaVMInfo);
     }
 
     /**
      * Detaches the current thread from the peer runtime.
      *
+     * @param release if {@code true} and this is the last thread attached to the peer runtime, the
+     *            {@code JavaVM} associated with the peer runtime is destroyed if possible
+     * @return {@code true} if the {@code JavaVM} associated with the peer runtime was destroyed as
+     *         a result of this call
      * @throws UnsupportedOperationException if the JVMCI shared library is not enabled (i.e.
      *             {@code -XX:-UseJVMCINativeLibrary})
      * @throws IllegalStateException if the peer runtime has not been initialized or if the current
      *             thread is not attached or if there is an error while trying to detach the thread
      */
-    public void detachCurrentThread() {
-        compilerToVm.detachCurrentThread();
+    public boolean detachCurrentThread(boolean release) {
+        return compilerToVm.detachCurrentThread(release);
     }
 
     /**

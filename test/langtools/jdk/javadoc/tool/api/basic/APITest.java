@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -196,13 +196,17 @@ class APITest {
             "allclasses-index.html",
             "allpackages-index.html",
             "constant-values.html",
+            "copy.svg",
             "deprecated-list.html",
             "help-doc.html",
             "index-all.html",
             "index.html",
+            "link.svg",
             "script-dir/jquery-3.6.1.min.js",
             "script-dir/jquery-ui.min.js",
             "script-dir/jquery-ui.min.css",
+            "search.html",
+            "search-page.js",
             "member-search-index.js",
             "module-search-index.js",
             "overview-tree.html",
@@ -215,7 +219,6 @@ class APITest {
             "resources/x.png",
             "script.js",
             "search.js",
-            "jquery-ui.overrides.css",
             "stylesheet.css",
             "tag-search-index.js",
             "type-search-index.js"
@@ -227,7 +230,8 @@ class APITest {
                          && !s.endsWith("-search-index.js")
                          && !s.equals("index-all.html")
                          && !s.equals("search.js")
-                         && !s.equals("jquery-ui.overrides.css")
+                         && !s.equals("search.html")
+                         && !s.equals("search-page.js")
                          && !s.equals("allclasses-index.html")
                          && !s.equals("allpackages-index.html")
                          && !s.equals("system-properties.html"))

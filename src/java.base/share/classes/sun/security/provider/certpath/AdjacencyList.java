@@ -85,10 +85,10 @@ import java.util.List;
 public class AdjacencyList {
 
     // the actual set of steps the AdjacencyList represents
-    private ArrayList<BuildStep> mStepList;
+    private final ArrayList<BuildStep> mStepList;
 
     // the original list
-    private List<List<Vertex>> mOrigList;
+    private final List<List<Vertex>> mOrigList;
 
     /**
      * Constructs a new <code>AdjacencyList</code> based on the specified
@@ -98,7 +98,7 @@ public class AdjacencyList {
      *             <code>Vertex</code> objects
      */
     public AdjacencyList(List<List<Vertex>> list) {
-        mStepList = new ArrayList<BuildStep>();
+        mStepList = new ArrayList<>();
         mOrigList = list;
         buildList(list, 0, null);
     }
@@ -132,7 +132,7 @@ public class AdjacencyList {
 
         // Each time this method is called, we're examining a new list
         // from the global list. So, we have to start by getting the list
-        // that contains the set of Vertexes we're considering.
+        // that contains the set of vertices we're considering.
         List<Vertex> l = theList.get(index);
 
         // we're interested in the case where all indexes are -1...
@@ -158,7 +158,7 @@ public class AdjacencyList {
         if (allNegOne) {
             // There are two cases that we could be looking at here. We
             // may need to back up, or the build may have succeeded at
-            // this point. This is based on whether or not any
+            // this point. This is based on whether any
             // exceptions were found in the list.
             if (allXcps) {
                 // we need to go back...see if this is the last one

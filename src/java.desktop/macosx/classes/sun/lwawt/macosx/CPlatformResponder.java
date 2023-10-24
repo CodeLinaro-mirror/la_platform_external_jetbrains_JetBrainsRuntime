@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -104,6 +104,12 @@ final class CPlatformResponder {
         int jmodifiers = NSEvent.nsToJavaModifiers(modifierFlags);
         if (jbuttonNumber > MouseEvent.NOBUTTON) {
             if ( (jeventType == MouseEvent.MOUSE_PRESSED) || (Jbr5762Fix.isEnabled && (jeventType == MouseEvent.MOUSE_DRAGGED)) ) {
+                // 8294426: NSEvent.nsToJavaModifiers returns 0 on M2 MacBooks if the event is generated
+                //  via tapping (not pressing) on a trackpad
+                //  (System Preferences -> Trackpad -> Tap to click must be turned on).
+                // So let's set the modifiers manually.
+                //
+                // JBR-5762: enforce modifiers for the pressed button of MOUSE_DRAGGED events as well.
                 jmodifiers |= MouseEvent.getMaskForButton(jbuttonNumber);
             }
         }
@@ -184,7 +190,7 @@ final class CPlatformResponder {
                         short keyCode, boolean needsKeyTyped, boolean needsKeyReleased) {
         boolean isFlagsChangedEvent =
             isNpapiCallback ? (eventType == CocoaConstants.NPCocoaEventFlagsChanged) :
-                              (eventType == CocoaConstants.NSFlagsChanged);
+                              (eventType == CocoaConstants.NSEventTypeFlagsChanged);
 
         int jeventType = KeyEvent.KEY_PRESSED;
         int jkeyCode = KeyEvent.VK_UNDEFINED;

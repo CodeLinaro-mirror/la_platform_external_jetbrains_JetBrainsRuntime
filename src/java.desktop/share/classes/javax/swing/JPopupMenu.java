@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,6 +37,7 @@ import java.awt.Insets;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
+import java.awt.Window;
 import java.awt.event.FocusEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
@@ -49,6 +50,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serial;
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.Vector;
 
 import javax.accessibility.Accessible;
@@ -151,6 +153,13 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
     private static final boolean TRACE =   false; // trace creates and disposes
     private static final boolean VERBOSE = false; // show reuse hits/misses
     private static final boolean DEBUG =   false;  // show bad params, misc.
+
+    static {
+        Toolkit toolkit = Toolkit.getDefaultToolkit();
+        if (toolkit != null && "sun.awt.wl.WLToolkit".equals(toolkit.getClass().getName())) {
+            JPopupMenu.setDefaultLightWeightPopupEnabled(false);
+        }
+    }
 
     /**
      *  Sets the default value of the <code>lightWeightPopupEnabled</code>
@@ -331,16 +340,18 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
     }
 
     /**
-     * Returns an point which has been adjusted to take into account of the
+     * Returns an point which has been adjusted to take into account the
      * desktop bounds, taskbar and multi-monitor configuration.
      * <p>
-     * This adustment may be cancelled by invoking the application with
+     * This adjustment may be cancelled by invoking the application with
      * -Djavax.swing.adjustPopupLocationToFit=false
      */
     Point adjustPopupLocationToFitScreen(int xPosition, int yPosition) {
         Point popupLocation = new Point(xPosition, yPosition);
 
-        if(popupPostionFixDisabled == true || GraphicsEnvironment.isHeadless()) {
+        if(popupPostionFixDisabled
+                || GraphicsEnvironment.isHeadless()
+                || PopupFactory.isPopupPositionedRelatively()) {
             return popupLocation;
         }
 
@@ -474,7 +485,7 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
      * Removes the component at the specified index from this popup menu.
      *
      * @param       pos the position of the item to be removed
-     * @exception   IllegalArgumentException if the value of
+     * @throws   IllegalArgumentException if the value of
      *                          <code>pos</code> &lt; 0, or if the value of
      *                          <code>pos</code> is greater than the
      *                          number of items
@@ -541,7 +552,7 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
      *
      * @param label a string specifying the label for the popup menu
      *
-     * @see #setLabel
+     * @see #getLabel
      */
     @BeanProperty(description
             = "The label for the popup menu.")
@@ -572,7 +583,7 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
      * @param a  the <code>Action</code> object to insert
      * @param index      specifies the position at which to insert the
      *                   <code>Action</code>, where 0 is the first
-     * @exception IllegalArgumentException if <code>index</code> &lt; 0
+     * @throws IllegalArgumentException if <code>index</code> &lt; 0
      * @see Action
      */
     public void insert(Action a, int index) {
@@ -588,7 +599,7 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
      * @param component  the <code>Component</code> to insert
      * @param index      specifies the position at which
      *                   to insert the component, where 0 is the first
-     * @exception IllegalArgumentException if <code>index</code> &lt; 0
+     * @throws IllegalArgumentException if <code>index</code> &lt; 0
      */
     public void insert(Component component, int index) {
         if (index < 0) {
@@ -597,14 +608,14 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
 
         int nitems = getComponentCount();
         // PENDING(ges): Why not use an array?
-        Vector<Component> tempItems = new Vector<Component>();
+        ArrayList<Component> tempItems = new ArrayList<Component>();
 
         /* Remove the item at index, nitems-index times
            storing them in a temporary vector in the
            order they appear on the menu.
            */
         for (int i = index ; i < nitems; i++) {
-            tempItems.addElement(getComponent(index));
+            tempItems.add(getComponent(index));
             remove(index);
         }
 
@@ -757,6 +768,16 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
         }
     }
 
+    private Window getMenuInvoker() {
+        if (invoker instanceof Window menuInvoker) {
+            return menuInvoker;
+        } else {
+            return invoker == null
+                    ? null
+                    : SwingUtilities.getWindowAncestor(invoker);
+        }
+    }
+
     /**
      * Sets the visibility of the popup menu.
      *
@@ -798,14 +819,24 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
             }
         }
 
-        if(b) {
+        if (b) {
             firePopupMenuWillBecomeVisible();
+
+            if (Toolkit.getDefaultToolkit() instanceof SunToolkit sunToolkit) {
+                sunToolkit.dismissPopupOnFocusLostIfNeeded(getMenuInvoker());
+            }
+
             showPopup();
             firePropertyChange("visible", Boolean.FALSE, Boolean.TRUE);
 
 
-        } else if(popup != null) {
+        } else if (popup != null) {
             firePopupMenuWillBecomeInvisible();
+
+            if (Toolkit.getDefaultToolkit() instanceof SunToolkit sunToolkit) {
+                sunToolkit.dismissPopupOnFocusLostIfNeededCleanUp(getMenuInvoker());
+            }
+
             popup.hide();
             popup = null;
             firePropertyChange("visible", Boolean.TRUE, Boolean.FALSE);
@@ -955,20 +986,15 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
                 }
             }
         }
-        Point invokerOrigin;
-        if (invoker != null) {
-            invokerOrigin = invoker.getLocationOnScreen();
-
+        if (invoker != null && !PopupFactory.isPopupPositionedRelatively()) {
+            Point invokerOrigin = invoker.getLocationOnScreen();
             // To avoid integer overflow
-            long lx, ly;
-            lx = ((long) invokerOrigin.x) +
-                 ((long) x);
-            ly = ((long) invokerOrigin.y) +
-                 ((long) y);
-            if(lx > Integer.MAX_VALUE) lx = Integer.MAX_VALUE;
-            if(lx < Integer.MIN_VALUE) lx = Integer.MIN_VALUE;
-            if(ly > Integer.MAX_VALUE) ly = Integer.MAX_VALUE;
-            if(ly < Integer.MIN_VALUE) ly = Integer.MIN_VALUE;
+            long lx = ((long) invokerOrigin.x) + x;
+            long ly = ((long) invokerOrigin.y) + y;
+            if (lx > Integer.MAX_VALUE) lx = Integer.MAX_VALUE;
+            if (lx < Integer.MIN_VALUE) lx = Integer.MIN_VALUE;
+            if (ly > Integer.MAX_VALUE) ly = Integer.MAX_VALUE;
+            if (ly < Integer.MIN_VALUE) ly = Integer.MIN_VALUE;
 
             setLocation((int) lx, (int) ly);
         } else {
@@ -987,10 +1013,9 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
         JPopupMenu mp = this;
         while((mp!=null) && (mp.isPopupMenu()!=true) &&
               (mp.getInvoker() != null) &&
-              (mp.getInvoker().getParent() != null) &&
-              (mp.getInvoker().getParent() instanceof JPopupMenu)
+              (mp.getInvoker().getParent() instanceof JPopupMenu popupMenu)
               ) {
-            mp = (JPopupMenu) mp.getInvoker().getParent();
+            mp = popupMenu;
         }
         return mp;
     }
@@ -1329,13 +1354,13 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
         Vector<Object> values = new Vector<Object>();
 
         s.defaultWriteObject();
-        // Save the invoker, if its Serializable.
-        if(invoker != null && invoker instanceof Serializable) {
+        // Save the invoker if != null, (Component implements Serializable)
+        if (invoker != null) {
             values.addElement("invoker");
             values.addElement(invoker);
         }
-        // Save the popup, if its Serializable.
-        if(popup != null && popup instanceof Serializable) {
+        // Save the popup, if it's Serializable.
+        if (popup instanceof Serializable) {
             values.addElement("popup");
             values.addElement(popup);
         }
@@ -1525,7 +1550,7 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
     @BeanProperty(bound = false)
     public MenuElement[] getSubElements() {
         MenuElement[] result;
-        Vector<MenuElement> tmp = new Vector<MenuElement>();
+        ArrayList<MenuElement> tmp = new ArrayList<MenuElement>();
         int c = getComponentCount();
         int i;
         Component m;
@@ -1533,12 +1558,12 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
         for(i=0 ; i < c ; i++) {
             m = getComponent(i);
             if(m instanceof MenuElement)
-                tmp.addElement((MenuElement) m);
+                tmp.add((MenuElement) m);
         }
 
         result = new MenuElement[tmp.size()];
         for(i=0,c=tmp.size() ; i < c ; i++)
-            result[i] = tmp.elementAt(i);
+            result[i] = tmp.get(i);
         return result;
     }
 
@@ -1591,4 +1616,5 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
     public boolean isPopupTrigger(MouseEvent e) {
         return getUI().isPopupTrigger(e);
     }
+
 }

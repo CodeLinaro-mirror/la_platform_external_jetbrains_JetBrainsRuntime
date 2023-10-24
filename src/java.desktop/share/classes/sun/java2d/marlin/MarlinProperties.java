@@ -296,7 +296,7 @@ public final class MarlinProperties {
 
     @SuppressWarnings("removal")
     static boolean getBoolean(final String key, final String def) {
-        return Boolean.valueOf(AccessController.doPrivileged(
+        return Boolean.parseBoolean(AccessController.doPrivileged(
                   new GetPropertyAction(key, def)));
     }
 

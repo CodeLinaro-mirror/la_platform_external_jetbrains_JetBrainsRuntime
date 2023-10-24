@@ -39,7 +39,6 @@
 #include "MTLClip.h"
 #include "EncoderManager.h"
 #include "MTLSamplerManager.h"
-#import "MTLGlyphCache.h"
 
 @class MTLStencilManager;
 @class MTLLayer;
@@ -70,16 +69,6 @@
 @property (readonly) MTLClip * clip;
 @property (readonly) id syncEvent;
 @property (readwrite, atomic) UInt64 syncCount;
-
-/**
- * There are two separate glyph caches: for AA and for LCD.
- * Once one of them is initialized as either GRAY or LCD, it
- * stays in that mode for the duration of the MTLContext (it is not safe
- * to use this one glyph cache for all screens in a multi-monitor
- * environment)
- */
-@property (readonly) MTLGlyphCache *glyphCacheLCD;
-@property (readonly) MTLGlyphCache *glyphCacheAA;
 
 @property jint          textureFunction;
 @property jboolean      vertexCacheEnabled;

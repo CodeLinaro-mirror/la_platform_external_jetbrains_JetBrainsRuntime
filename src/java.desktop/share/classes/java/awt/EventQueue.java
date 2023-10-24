@@ -232,13 +232,16 @@ public class EventQueue {
                 public SecondaryLoop createSecondaryLoop(EventQueue eventQueue, BooleanSupplier cond) {
                     return eventQueue.createSecondaryLoop(cond::getAsBoolean, null, 0);
                 }
-
-                @Override
-                public void dispatchEvent(EventQueue eventQueue) {
-                    eventQueue.dispatchNextEvent();;
-                }
             });
     }
+
+    @SuppressWarnings("removal")
+    private static boolean fxAppThreadIsDispatchThread =
+            AccessController.doPrivileged(new PrivilegedAction<Boolean>() {
+                public Boolean run() {
+                    return "true".equals(System.getProperty("javafx.embed.singleThread"));
+                }
+            });
 
     /**
      * Initializes a new instance of {@code EventQueue}.
@@ -259,11 +262,6 @@ public class EventQueue {
         appContext = AppContext.getAppContext();
         pushPopLock = (Lock)appContext.get(AppContext.EVENT_QUEUE_LOCK_KEY);
         pushPopCond = (Condition)appContext.get(AppContext.EVENT_QUEUE_COND_KEY);
-
-        Toolkit toolkit = Toolkit.getDefaultToolkit();
-        if (toolkit instanceof SunToolkit) {
-            ((SunToolkit) toolkit).installMainThreadDispatcher(this);
-        }
     }
 
     /**
@@ -372,10 +370,6 @@ public class EventQueue {
             if (notifyID) {
                 pushPopCond.signalAll();
             }
-        }
-
-        if (fwDispatcher != null) {
-            fwDispatcher.scheduleNativeEvent(this);
         }
     }
 
@@ -557,7 +551,7 @@ public class EventQueue {
      * returns it.  This method will block until an event has
      * been posted by another thread.
      * @return the next {@code AWTEvent}
-     * @exception InterruptedException
+     * @throws InterruptedException
      *            if any thread has interrupted this thread
      */
     public AWTEvent getNextEvent() throws InterruptedException {
@@ -568,11 +562,6 @@ public class EventQueue {
              * event queues are nested with push()/pop().
              */
             SunToolkit.flushPendingEvents(appContext);
-
-            if (fwDispatcher != null) {
-                fwDispatcher.waitForNativeEvent();
-            }
-
             pushPopLock.lock();
             try {
                 AWTEvent event = getNextEventPrivate();
@@ -842,7 +831,7 @@ public class EventQueue {
     private long getMostRecentEventTimeImpl() {
         pushPopLock.lock();
         try {
-            return (fwDispatcher == null ? Thread.currentThread() == dispatchThread : fwDispatcher.isDispatchThread())
+            return (Thread.currentThread() == dispatchThread)
                 ? mostRecentEventTime
                 : System.currentTimeMillis();
         } finally {
@@ -880,7 +869,8 @@ public class EventQueue {
     private AWTEvent getCurrentEventImpl() {
         pushPopLock.lock();
         try {
-            if (fwDispatcher == null ? Thread.currentThread() == dispatchThread : fwDispatcher.isDispatchThread()) {
+            if (Thread.currentThread() == dispatchThread
+                    || fxAppThreadIsDispatchThread) {
                 return (currentEvent != null)
                         ? currentEvent.get()
                         : null;
@@ -913,8 +903,8 @@ public class EventQueue {
             while (topQueue.nextQueue != null) {
                 topQueue = topQueue.nextQueue;
             }
-            if (topQueue.fwDispatcher != newEventQueue.fwDispatcher) {
-                throw new RuntimeException("push() to queue with a different fwDispatcher");
+            if (topQueue.fwDispatcher != null) {
+                throw new RuntimeException("push() to queue with fwDispatcher");
             }
             if ((topQueue.dispatchThread != null) &&
                 (topQueue.dispatchThread.getEventQueue() == this))
@@ -964,7 +954,7 @@ public class EventQueue {
      * Warning: To avoid deadlock, do not declare this method
      * synchronized in a subclass.
      *
-     * @exception EmptyStackException if no previous push was made
+     * @throws EmptyStackException if no previous push was made
      *  on this {@code EventQueue}
      * @see      java.awt.EventQueue#push
      * @since           1.2
@@ -1147,9 +1137,7 @@ public class EventQueue {
                         }
                     }
                 );
-                if (fwDispatcher == null || fwDispatcher.startDefaultDispatchThread()) {
-                    dispatchThread.start();
-                }
+                dispatchThread.start();
             }
         } finally {
             pushPopLock.unlock();
@@ -1281,7 +1269,7 @@ public class EventQueue {
     private void setCurrentEventAndMostRecentTimeImpl(AWTEvent e) {
         pushPopLock.lock();
         try {
-            if (!(fwDispatcher == null ? Thread.currentThread() == dispatchThread : fwDispatcher.isDispatchThread())) {
+            if (!fxAppThreadIsDispatchThread && Thread.currentThread() != dispatchThread) {
                 return;
             }
 
@@ -1353,9 +1341,9 @@ public class EventQueue {
      *                  synchronously in the
      *                  {@link #isDispatchThread event dispatch thread}
      *                  of {@link Toolkit#getSystemEventQueue the system EventQueue}
-     * @exception       InterruptedException  if any thread has
+     * @throws       InterruptedException  if any thread has
      *                  interrupted this thread
-     * @exception       InvocationTargetException  if an throwable is thrown
+     * @throws       InvocationTargetException  if an throwable is thrown
      *                  when running {@code runnable}
      * @see             #invokeLater
      * @see             Toolkit#getSystemEventQueue
@@ -1422,27 +1410,6 @@ public class EventQueue {
             nextQueue.setFwDispatcher(dispatcher);
         } else {
             fwDispatcher = dispatcher;
-        }
-    }
-
-    private void dispatchNextEvent() {
-        try {
-            AWTEvent event;
-            pushPopLock.lock();
-            try {
-                event = getNextEventPrivate();
-                if (event == null || peekEvent() == null) {
-                    AWTAutoShutdown.getInstance().notifyThreadFree(dispatchThread);
-                }
-            } finally {
-                pushPopLock.unlock();
-            }
-            if (event != null) {
-                dispatchEvent(event);
-            }
-        } catch (Throwable t) {
-            Thread thread = Thread.currentThread();
-            thread.getUncaughtExceptionHandler().uncaughtException(thread, t);
         }
     }
 }

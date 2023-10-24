@@ -47,13 +47,13 @@ interface State extends Cloneable {
      *
      * @param cert the certificate which is used to update the state
      */
-    public void updateState(X509Certificate cert)
+    void updateState(X509Certificate cert)
         throws CertificateException, IOException, CertPathValidatorException;
 
     /**
      * Creates and returns a copy of this object
      */
-    public Object clone();
+    Object clone();
 
     /**
      * Returns a boolean flag indicating if the state is initial
@@ -61,5 +61,5 @@ interface State extends Cloneable {
      *
      * @return boolean flag indicating if the state is initial (just starting)
      */
-    public boolean isInitial();
+    boolean isInitial();
 }

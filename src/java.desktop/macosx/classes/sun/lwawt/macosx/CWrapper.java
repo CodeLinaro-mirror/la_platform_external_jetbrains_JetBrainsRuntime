@@ -108,8 +108,6 @@ final class CWrapper {
         static native void zoom(long window);
 
         static native void makeFirstResponder(long window, long responder);
-        
-        static native boolean isTabbedWindow(long window);
     }
 
     static final class NSView {

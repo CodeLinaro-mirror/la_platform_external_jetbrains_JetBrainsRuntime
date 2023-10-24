@@ -23,7 +23,6 @@
 
 import java.awt.FlowLayout;
 import java.awt.Robot;
-import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
@@ -93,7 +92,12 @@ public class InputContextMemoryLeakTest {
         //After the next caret blink it automatically TextField references
         Thread.sleep(sleepTime);
         Util.waitForIdle(null);
-        assertGC();
+
+        try {
+            assertGC();
+        } finally {
+            SwingUtilities.invokeAndWait(() -> frame.dispose());
+        }
     }
 
       public static void assertGC() throws Throwable {

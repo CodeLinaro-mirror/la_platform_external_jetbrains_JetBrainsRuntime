@@ -1,22 +1,40 @@
-/**
+/*
+ * Copyright (c) 2022, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, JetBrains s.r.o.. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
+ */
+
+/*
  * @test
- * bug JBR-4765 TODO: place OpenJDK bug id here
- * @summary The test verifies that a press {@link java.awt.event.MouseEvent} contains correct modifiers
- *          although the according native mouse event is accompanied by no mouse modifiers
- *          ({@link sun.lwawt.macosx.NSEvent#nsToJavaModifiers} returns 0 inside
- *           {@link sun.lwawt.macosx.CPlatformResponder#handleMouseEvent(int, int, int, int, int, int, int, int)}).
- *          The situation above happens when a user taps (NOT clicks) a trackpad on a M2 MacBooks.
- *          The test emulates the situation via a direct invocation of
- *          {@link sun.lwawt.macosx.CPlatformResponder#handleMouseEvent(int, int, int, int, int, int, int, int)};
- *          unfortunately it's impossible to use {@link java.awt.Robot} because its mouse press events ARE accompanied
- *          by correct modifiers ({@link sun.lwawt.macosx.NSEvent#nsToJavaModifiers} returns correct values).
- * @author Nikita Provotorov
+ * @bug 8294426
+ * @summary The test verifies that a press {@link java.awt.event.MouseEvent}
+ * contains correct modifiers although the according native mouse event is
+ * accompanied by no mouse modifiers.
+ * @author Nikita.Provotorov@jetbrains.com
  *
  * @key headful
  * @requires (os.family == "mac")
  *
- * @compile --add-exports java.desktop/sun.lwawt.macosx=ALL-UNNAMED -g MouseMacTouchPressEventModifiers.java
- * @run main/othervm --add-opens java.desktop/java.awt=ALL-UNNAMED --add-opens java.desktop/sun.lwawt=ALL-UNNAMED --add-opens java.desktop/sun.lwawt.macosx=ALL-UNNAMED MouseMacTouchPressEventModifiers
+ * @modules java.desktop/java.awt:open java.desktop/sun.lwawt:open java.desktop/sun.lwawt.macosx:+open
+ * @run main/othervm MouseMacTouchPressEventModifiers
  */
 
 import sun.lwawt.macosx.CocoaConstants;
@@ -35,6 +53,17 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 
+/**
+ * Sometimes native mouse events aren't accompanied by the correct mouse modifiers, i.e.
+ *  {@link sun.lwawt.macosx.NSEvent#nsToJavaModifiers} returns 0 inside
+ *  {@link sun.lwawt.macosx.CPlatformResponder#handleMouseEvent(int, int, int, int, int, int, int, int)}.
+ * E.g. the situation above happens when a user taps (NOT clicks) on a trackpad on a M2 MacBooks while
+ *  System Preferences -> Trackpad -> Tap to click is turned on.
+ * The test emulates the situation via a direct invocation of
+ *  {@link sun.lwawt.macosx.CPlatformResponder#handleMouseEvent(int, int, int, int, int, int, int, int)};
+ *  unfortunately it's impossible to use {@link java.awt.Robot} because its mouse press events ARE accompanied
+ *  by the correct modifiers ({@link sun.lwawt.macosx.NSEvent#nsToJavaModifiers} returns correct values).
+ */
 public class MouseMacTouchPressEventModifiers
 {
     /**
@@ -47,64 +76,60 @@ public class MouseMacTouchPressEventModifiers
      * 3. Verify the dispatched MouseEvent contains correct modifiers, modifiersEx and button number.
      * 4. Do all the steps above but for a corresponding mouse release.
      */
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Throwable {
+        // TreeMap to preserve the testing order
+        final var testCases = new TreeMap<>(Map.of(
+            CocoaConstants.kCGMouseButtonLeft, new MouseEventFieldsToTest(MouseEvent.BUTTON1_MASK, MouseEvent.BUTTON1_DOWN_MASK, MouseEvent.BUTTON1),
+            CocoaConstants.kCGMouseButtonRight, new MouseEventFieldsToTest(MouseEvent.BUTTON3_MASK, MouseEvent.BUTTON3_DOWN_MASK, MouseEvent.BUTTON3),
+            CocoaConstants.kCGMouseButtonCenter, new MouseEventFieldsToTest(MouseEvent.BUTTON2_MASK, MouseEvent.BUTTON2_DOWN_MASK, MouseEvent.BUTTON2)
+        ));
+
+        SwingUtilities.invokeAndWait(MouseMacTouchPressEventModifiers::createAndShowGUI);
+
         try {
-            // TreeMap to preserve the testing order
-            final var testCases = new TreeMap<>(Map.of(
-                CocoaConstants.kCGMouseButtonLeft, new MouseEventFieldsToTest(MouseEvent.BUTTON1_MASK, MouseEvent.BUTTON1_DOWN_MASK, MouseEvent.BUTTON1),
-                CocoaConstants.kCGMouseButtonRight, new MouseEventFieldsToTest(MouseEvent.BUTTON3_MASK, MouseEvent.BUTTON3_DOWN_MASK, MouseEvent.BUTTON3),
-                CocoaConstants.kCGMouseButtonCenter, new MouseEventFieldsToTest(MouseEvent.BUTTON2_MASK, MouseEvent.BUTTON2_DOWN_MASK, MouseEvent.BUTTON2)
-            ));
+            for (var testCase : testCases.entrySet()) {
+                final var fieldsToTest = testCase.getValue();
 
-            SwingUtilities.invokeAndWait(MouseMacTouchPressEventModifiers::createAndShowGUI);
+                final int mouseX = (frame.getWidth() - 1) / 2;
+                final int mouseY = (frame.getHeight() - 1) / 2;
 
-            try {
-                for (var testCase : testCases.entrySet()) {
-                    final var fieldsToTest = testCase.getValue();
+                // press
 
-                    final int mouseX = (frame.getWidth() - 1) / 2;
-                    final int mouseY = (frame.getHeight() - 1) / 2;
+                MouseEvent event = frame.sendNativeMousePress(
+                    0,
+                    testCase.getKey(),
+                    1,
+                    mouseX,
+                    mouseY
+                ).get(500, TimeUnit.MILLISECONDS);
+                System.out.println("A mouse press turned into: " + event);
 
-                    // press
+                frame.checkInternalErrors();
 
-                    MouseEvent event = frame.sendNativeMousePress(
-                        0,
-                        testCase.getKey(),
-                        1,
-                        mouseX,
-                        mouseY
-                    ).get(500, TimeUnit.MILLISECONDS);
-                    System.out.println("A mouse press turned into: " + event);
+                checkMouseEvent(event,
+                    MouseEvent.MOUSE_PRESSED, fieldsToTest.modifiers, fieldsToTest.pressModifiersEx, fieldsToTest.button);
 
-                    frame.checkInternalErrors();
+                // release
 
-                    checkMouseEvent(event,
-                        MouseEvent.MOUSE_PRESSED, fieldsToTest.modifiers, fieldsToTest.pressModifiersEx, fieldsToTest.button);
+                event = frame.sendNativeMouseRelease(
+                    0,
+                    testCase.getKey(),
+                    1,
+                    mouseX,
+                    mouseY
+                ).get(500, TimeUnit.MILLISECONDS);
+                System.out.println("A mouse release turned into: " + event);
 
-                    // release
+                frame.checkInternalErrors();
 
-                    event = frame.sendNativeMouseRelease(
-                        0,
-                        testCase.getKey(),
-                        1,
-                        mouseX,
-                        mouseY
-                    ).get(500, TimeUnit.MILLISECONDS);
-                    System.out.println("A mouse release turned into: " + event);
+                checkMouseEvent(event,
+                    MouseEvent.MOUSE_RELEASED, fieldsToTest.modifiers, 0, fieldsToTest.button);
 
-                    frame.checkInternalErrors();
-
-                    checkMouseEvent(event,
-                        MouseEvent.MOUSE_RELEASED, fieldsToTest.modifiers, 0, fieldsToTest.button);
-
-                    System.out.println();
-                }
-            } finally {
-                SwingUtilities.invokeAndWait(MouseMacTouchPressEventModifiers::disposeGUI);
-                System.out.flush();
+                System.out.println();
             }
-        } catch (Throwable err) {
-            throw new RuntimeException("Test failed", err);
+        } finally {
+            SwingUtilities.invokeAndWait(MouseMacTouchPressEventModifiers::disposeGUI);
+            System.out.flush();
         }
     }
 
@@ -182,17 +207,17 @@ class MyFrame extends JFrame {
     }
 
     public Future<MouseEvent> sendNativeMousePress(int modifierFlags, int buttonNumber, int clickCount, int x, int y) {
-        final int eventType = (buttonNumber == CocoaConstants.kCGMouseButtonLeft) ? CocoaConstants.NSLeftMouseDown
-                              : (buttonNumber == CocoaConstants.kCGMouseButtonRight) ? CocoaConstants.NSRightMouseDown
-                              : CocoaConstants.NSOtherMouseDown;
+        final int eventType = (buttonNumber == CocoaConstants.kCGMouseButtonLeft) ? CocoaConstants.NSEventTypeLeftMouseDown
+                              : (buttonNumber == CocoaConstants.kCGMouseButtonRight) ? CocoaConstants.NSEventTypeRightMouseDown
+                              : CocoaConstants.NSEventTypeOtherMouseDown;
 
         return sendNativeMouseEvent(eventType, modifierFlags, buttonNumber, clickCount, x, y, getX() + x, getY() + y);
     }
 
     public Future<MouseEvent> sendNativeMouseRelease(int modifierFlags, int buttonNumber, int clickCount, int x, int y) {
-        final int eventType = (buttonNumber == CocoaConstants.kCGMouseButtonLeft) ? CocoaConstants.NSLeftMouseUp
-                              : (buttonNumber == CocoaConstants.kCGMouseButtonRight) ? CocoaConstants.NSRightMouseUp
-                              : CocoaConstants.NSOtherMouseUp;
+        final int eventType = (buttonNumber == CocoaConstants.kCGMouseButtonLeft) ? CocoaConstants.NSEventTypeLeftMouseUp
+                              : (buttonNumber == CocoaConstants.kCGMouseButtonRight) ? CocoaConstants.NSEventTypeRightMouseUp
+                              : CocoaConstants.NSEventTypeOtherMouseUp;
 
         return sendNativeMouseEvent(eventType, modifierFlags, buttonNumber, clickCount, x, y, getX() + x, getY() + y);
     }

@@ -64,11 +64,13 @@ class HttpConnection {
     volatile State state;
 
     public String toString() {
-        String s = null;
+        final var sb = new StringBuilder(HttpConnection.class.getSimpleName());
         if (chan != null) {
-            s = chan.toString();
+            sb.append(" (");
+            sb.append(chan);
+            sb.append(")");
         }
-        return s;
+        return sb.toString();
     }
 
     HttpConnection () {

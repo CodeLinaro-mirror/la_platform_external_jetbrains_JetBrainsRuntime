@@ -49,7 +49,6 @@ charset US-ASCII US_ASCII
     alias   IBM367
     alias   cp367
     alias   csASCII
-    alias   default
                                         # Other aliases
     alias   646                         # Solaris POSIX locale
     alias   iso_646.irv:1983

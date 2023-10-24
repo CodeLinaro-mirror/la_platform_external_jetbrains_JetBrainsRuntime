@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,7 @@
  * RecordCompilationTests
  *
  * @test
- * @bug 8250629 8252307 8247352 8241151 8246774 8259025 8288130 8289647
+ * @bug 8250629 8252307 8247352 8241151 8246774 8259025 8288130 8282714 8289647 8294020
  * @summary Negative compilation tests, and positive compilation (smoke) tests for records
  * @library /lib/combo /tools/lib /tools/javac/lib
  * @modules
@@ -149,7 +149,7 @@ public class RecordCompilationTests extends CompilationTestCase {
         assertFail("compiler.err.expected", "record R();");
         assertFail("compiler.err.illegal.start.of.type", "record R(,) { }");
         assertFail("compiler.err.illegal.start.of.type", "record R((int x)) { }");
-        assertFail("compiler.err.record.header.expected", "record R { }");
+        assertFail("compiler.err.expected", "record R { }");
         assertFail("compiler.err.expected", "record R(foo) { }");
         assertFail("compiler.err.expected", "record R(int int) { }");
         assertFail("compiler.err.mod.not.allowed.here", "abstract record R(String foo) { }");
@@ -1259,23 +1259,52 @@ public class RecordCompilationTests extends CompilationTestCase {
     }
 
     public void testOnlyOneFieldRef() throws Exception {
-        int numberOfFieldRefs = 0;
-        File dir = assertOK(true, "record R(int recordComponent) {}");
-        for (final File fileEntry : dir.listFiles()) {
-            if (fileEntry.getName().equals("R.class")) {
-                ClassFile classFile = ClassFile.read(fileEntry);
-                for (CPInfo cpInfo : classFile.constant_pool.entries()) {
-                    if (cpInfo instanceof ConstantPool.CONSTANT_Fieldref_info) {
-                        numberOfFieldRefs++;
-                        ConstantPool.CONSTANT_NameAndType_info nameAndType =
-                                (ConstantPool.CONSTANT_NameAndType_info)classFile.constant_pool
-                                        .get(((ConstantPool.CONSTANT_Fieldref_info)cpInfo).name_and_type_index);
-                        Assert.check(nameAndType.getName().equals("recordComponent"));
+        for (String source : List.of(
+                "record R(int recordComponent) {}",
+                """
+                class Test {
+                    class Inner {
+                        Inner() {
+                            record R(int recordComponent) {}
+                        }
                     }
+                }
+                """,
+                """
+                class Test {
+                    class Inner {
+                        void m() {
+                            record R(int recordComponent) {}
+                        }
+                    }
+                }
+                """,
+                """
+                class Test {
+                    void m() {
+                        record R(int recordComponent) {}
+                    }
+                }
+                """
+        )) {
+            File dir = assertOK(true, source);
+            int numberOfFieldRefs = 0;
+            for (final File fileEntry : dir.listFiles()) {
+                if (fileEntry.getName().endsWith("R.class")) {
+                    ClassFile classFile = ClassFile.read(fileEntry);
+                    for (CPInfo cpInfo : classFile.constant_pool.entries()) {
+                        if (cpInfo instanceof ConstantPool.CONSTANT_Fieldref_info) {
+                            numberOfFieldRefs++;
+                            ConstantPool.CONSTANT_NameAndType_info nameAndType =
+                                    (ConstantPool.CONSTANT_NameAndType_info)classFile.constant_pool
+                                            .get(((ConstantPool.CONSTANT_Fieldref_info)cpInfo).name_and_type_index);
+                            Assert.check(nameAndType.getName().equals("recordComponent"));
+                        }
+                    }
+                    Assert.check(numberOfFieldRefs == 1);
                 }
             }
         }
-        Assert.check(numberOfFieldRefs == 1);
     }
 
     //  check that fields are initialized in a canonical constructor in the same declaration order as the corresponding
@@ -1999,7 +2028,7 @@ public class RecordCompilationTests extends CompilationTestCase {
     }
 
     public void testNoAssigmentInsideCompactRecord() {
-        assertFail("compiler.err.cant.assign.val.to.final.var",
+        assertFail("compiler.err.cant.assign.val.to.var",
                 """
                 record R(int i) {
                     R {
@@ -2008,7 +2037,7 @@ public class RecordCompilationTests extends CompilationTestCase {
                 }
                 """
         );
-        assertFail("compiler.err.cant.assign.val.to.final.var",
+        assertFail("compiler.err.cant.assign.val.to.var",
                 """
                 record R(int i) {
                     R {

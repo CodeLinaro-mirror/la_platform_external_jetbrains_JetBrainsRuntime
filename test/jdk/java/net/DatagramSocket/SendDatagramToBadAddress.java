@@ -28,7 +28,7 @@
  *
  * @summary DatagramSocket.send should throw exception when connected
  *  to an invalid destination (on platforms that support it).
- * @run main/othervm -Djdk.net.usePlainDatagramSocketImpl=false SendDatagramToBadAddress -d
+ * @run main/othervm SendDatagramToBadAddress -d
  */
 
 import java.net.*;

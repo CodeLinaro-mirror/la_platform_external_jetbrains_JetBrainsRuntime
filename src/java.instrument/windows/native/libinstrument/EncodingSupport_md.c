@@ -31,7 +31,7 @@
  * Convert UTF-8 to a platform string
  */
 int
-convertUft8ToPlatformString(char* utf8_str, int utf8_len, char* platform_str, int platform_len) {
+convertUtf8ToPlatformString(char* utf8_str, int utf8_len, char* platform_str, int platform_len) {
     LANGID langID;
     LCID localeID;
     TCHAR strCodePage[7];       // ANSI code page id

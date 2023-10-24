@@ -657,7 +657,7 @@ static jobject sAccessibilityClass = NULL;
     }
     if ([[currentAction allKeys] containsObject:actionName]) {
         [(JavaAxAction *)[currentAction objectForKey:actionName] perform];
-        return YES;;
+        return YES;
     }
     return NO;
 }

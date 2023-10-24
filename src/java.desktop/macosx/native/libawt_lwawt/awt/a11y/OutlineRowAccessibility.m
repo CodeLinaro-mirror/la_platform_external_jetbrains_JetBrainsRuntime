@@ -32,10 +32,7 @@
 #import "OutlineAccessibility.h"
 #import "sun_lwawt_macosx_CAccessibility.h"
 
-static jclass sjc_CAccessible = NULL;
 static jclass sjc_CAccessibility = NULL;
-#define GET_CACCESSIBLE_CLASS_RETURN(ret) \
-    GET_CLASS_RETURN(sjc_CAccessible, "sun/lwawt/macosx/CAccessible", ret);
 
 @implementation OutlineRowAccessibility
 
@@ -44,8 +41,8 @@ static jclass sjc_CAccessibility = NULL;
 - (jobject)currentAccessibleWithENV:(JNIEnv *)env
 {
     GET_CACCESSIBILITY_CLASS_RETURN(NULL);
-    DECLARE_STATIC_METHOD_RETURN(sjm_getAccessibleJTreeNodeCurrentAccessible, sjc_CAccessibility, "getAccessibleJTreeNodeCurrentAccessible", "(Ljavax/accessibility/Accessible;Ljava/awt/Component;)Ljavax/accessibility/Accessible;", NULL);
-    jobject currentAccessible = (*env)->CallStaticObjectMethod(env, sjc_CAccessibility, sjm_getAccessibleJTreeNodeCurrentAccessible, fAccessible, fComponent);
+    DECLARE_STATIC_METHOD_RETURN(sjm_getAccessibleCurrentAccessible, sjc_CAccessibility, "getAccessibleCurrentAccessible", "(Ljavax/accessibility/Accessible;Ljava/awt/Component;)Ljavax/accessibility/Accessible;", NULL);
+    jobject currentAccessible = (*env)->CallStaticObjectMethod(env, sjc_CAccessibility, sjm_getAccessibleCurrentAccessible, fAccessible, fComponent);
     CHECK_EXCEPTION();
     return currentAccessible;
 }
@@ -79,12 +76,12 @@ static jclass sjc_CAccessibility = NULL;
 
 - (NSAccessibilitySubrole)accessibilitySubrole
 {
-    return NSAccessibilityOutlineRowSubrole;;
+    return NSAccessibilityOutlineRowSubrole;
 }
 
 - (NSAccessibilityRole)accessibilityRole
 {
-    return NSAccessibilityRowRole;;
+    return NSAccessibilityRowRole;
 }
 
 - (BOOL)isAccessibilitySelected

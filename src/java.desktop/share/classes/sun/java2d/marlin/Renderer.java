@@ -676,7 +676,7 @@ final class Renderer implements DPathConsumer2D, MarlinConst {
         }
 
         if (edgeMinY != Integer.MAX_VALUE) {
-            // if context is maked as DIRTY:
+            // if context is marked as DIRTY:
             if (rdrCtx.dirty) {
                 // may happen if an exception if thrown in the pipeline processing:
                 // clear completely buckets arrays:
@@ -882,7 +882,7 @@ final class Renderer implements DPathConsumer2D, MarlinConst {
 
         final int stroking = rdrCtx.stroking;
 
-        int lastY = -1; // last emited row
+        int lastY = -1; // last emitted row
 
         final DPQSSorterContext sorter = rdrCtx.sorterCtx;
         boolean skipISort, useDPQS;

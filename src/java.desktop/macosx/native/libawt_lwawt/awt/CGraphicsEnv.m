@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,6 +23,9 @@
  * questions.
  */
 
+#import <Metal/Metal.h>
+#import <Trace.h>
+#import "sun_awt_CGraphicsEnvironment.h"
 #import "AWT_debug.h"
 
 #import "JNIUtilities.h"
@@ -103,70 +106,6 @@ Java_sun_awt_CGraphicsEnvironment_getMainDisplayID
 }
 
 /*
- * Class:     sun_awt_CGraphicsEnvironment
- * Method:    getDisplayIDsAppKit
- * Signature: ()[I
- */
-JNIEXPORT jintArray JNICALL
-Java_sun_awt_CGraphicsEnvironment_getDisplayIDsAppKit
-(JNIEnv *env, jclass class)
-{
-    __block jintArray ret = NULL;
-
-JNI_COCOA_ENTER(env);
-
-    [ThreadUtilities performOnMainThreadWaiting:YES block:^(){
-        NSArray *screens = [NSScreen screens];
-        ret = (*env)->NewIntArray(env, [screens count]);
-        if (ret) {
-            jint *elems = (*env)->GetIntArrayElements(env, ret, NULL);
-            if (elems) {
-                int i = 0;
-                for (NSScreen *screen in screens) {
-                    NSDictionary *screenInfo = [screen deviceDescription];
-                    NSNumber *screenID = [screenInfo objectForKey:@"NSScreenNumber"];
-                    elems[i++] = [screenID unsignedIntValue];
-                }
-                (*env)->ReleaseIntArrayElements(env, ret, elems, 0);
-            }
-        }
-    }];
-
-JNI_COCOA_EXIT(env);
-
-    return ret;
-}
-
-/*
- * Class:     sun_awt_CGraphicsEnvironment
- * Method:    getMainDisplayIDAppKit
- * Signature: ()I
- */
-JNIEXPORT jint JNICALL
-Java_sun_awt_CGraphicsEnvironment_getMainDisplayIDAppKit
-(JNIEnv *env, jclass class)
-{
-
-    __block jint result = 0;
-
-JNI_COCOA_ENTER(env);
-
-    [ThreadUtilities performOnMainThreadWaiting:YES block:^(){
-        NSArray *screens = [NSScreen screens];
-        for (NSScreen *screen in screens) {
-            NSDictionary *screenInfo = [screen deviceDescription];
-            NSNumber *screenID = [screenInfo objectForKey:@"NSScreenNumber"];
-            result = [screenID unsignedIntValue];
-            break;
-        }
-    }];
-
-JNI_COCOA_EXIT(env);
-
-    return result;
-}
-
-/*
  * Post the display reconfiguration event.
  */
 static void displaycb_handle
@@ -244,55 +183,35 @@ JNI_COCOA_ENTER(env);
 JNI_COCOA_EXIT(env);
 }
 
-/*
- * Class:     sun_awt_CGraphicsEnvironment
- * Method:    registerScreenParametersChangedListener
- * Signature: ()J
- */
-JNIEXPORT jlong JNICALL
-Java_sun_awt_CGraphicsEnvironment_registerScreenParametersChangedListener
-(JNIEnv *env, jobject this)
+JNIEXPORT jint JNICALL Java_sun_awt_CGraphicsEnvironment_initMetal
+    (JNIEnv *env, jclass mtlgc, jstring shadersLibName)
 {
-JNI_COCOA_ENTER(env);
+    __block jint ret = sun_awt_CGraphicsEnvironment_MTL_ERROR;
 
-    jobject cgeRef = (*env)->NewWeakGlobalRef(env, this);
-    NSNotificationCenter *ctr = [NSNotificationCenter defaultCenter];
-    id listener = [ctr addObserverForName:NSApplicationDidChangeScreenParametersNotification
-                                                           object:nil
-                                                            queue:nil
-                                                       usingBlock:^(NSNotification *note){
-        JNIEnv *env = [ThreadUtilities getJNIEnv];
-        jobject graphicsEnv = (*env)->NewLocalRef(env, cgeRef);
-        if (graphicsEnv != NULL) {
-            DECLARE_CLASS(jc_CGraphicsEnvironment, "sun/awt/CGraphicsEnvironment");
-            DECLARE_METHOD(jm_displayReconfiguration, jc_CGraphicsEnvironment, "_displayReconfiguration","(IZ)V");
-            (*env)->CallVoidMethod(env, graphicsEnv, jm_displayReconfiguration, 0, JNI_FALSE);
-            (*env)->DeleteLocalRef(env, graphicsEnv);
-            CHECK_EXCEPTION();
-        }
-    }];
-    return ptr_to_jlong(listener);
+    JNI_COCOA_ENTER(env);
 
-JNI_COCOA_EXIT(env);
-}
+        __block NSString* path = NormalizedPathNSStringFromJavaString(env, shadersLibName);
 
-/*
- * Class:     sun_awt_CGraphicsEnvironment
- * Method:    deregisterScreenParametersChangedListener
- * Signature: (J)V
- */
-JNIEXPORT void JNICALL
-Java_sun_awt_CGraphicsEnvironment_deregisterScreenParametersChangedListener
-(JNIEnv *env, jobject this, jlong listenerPtr)
-{
-JNI_COCOA_ENTER(env);
+        [ThreadUtilities performOnMainThreadWaiting:YES block:^() {
 
-    id listener = (id)jlong_to_ptr(listenerPtr);
-    if (listener) {
-        [[NSNotificationCenter defaultCenter] removeObserver:listener
-                                                        name:NSApplicationDidChangeScreenParametersNotification
-                                                      object:nil];
-    }
+          id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+          if (device != nil) {
+              NSError* error = nil;
+              id<MTLLibrary> lib = [device newLibraryWithFile:path error:&error];
+              if (lib != nil) {
+                  ret = sun_awt_CGraphicsEnvironment_MTL_SUPPORTED;
+              } else {
+                  J2dRlsTraceLn(J2D_TRACE_ERROR, "CGraphicsEnvironment_initMetal - "
+                                                 "Failed to load Metal shader library.");
+                  ret = sun_awt_CGraphicsEnvironment_MTL_NO_SHADER_LIB;
+              }
+          } else {
+              J2dRlsTraceLn(J2D_TRACE_ERROR, "CGraphicsEnvironment_initMetal - "
+                                             "Failed to create MTLDevice.");
+              ret = sun_awt_CGraphicsEnvironment_MTL_NO_DEVICE;
+          }
+        }];
 
-JNI_COCOA_EXIT(env);
+    JNI_COCOA_EXIT(env);
+    return ret;
 }

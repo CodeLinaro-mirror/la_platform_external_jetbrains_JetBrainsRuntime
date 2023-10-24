@@ -30,9 +30,11 @@ import sun.awt.datatransfer.ToolkitThreadBlockedHandler;
 
 final class CToolkitThreadBlockedHandler extends Mutex implements ToolkitThreadBlockedHandler {
     private long awtRunLoopMediator = 0;
+    private final boolean processEvents;
 
     CToolkitThreadBlockedHandler() {
         super();
+        this.processEvents = true;
     }
 
     public void enter() {
@@ -41,7 +43,7 @@ final class CToolkitThreadBlockedHandler extends Mutex implements ToolkitThreadB
         }
         awtRunLoopMediator = LWCToolkit.createAWTRunLoopMediator();
         unlock();
-        LWCToolkit.doAWTRunLoop(awtRunLoopMediator);
+        LWCToolkit.doAWTRunLoop(awtRunLoopMediator, processEvents);
         lock();
     }
 

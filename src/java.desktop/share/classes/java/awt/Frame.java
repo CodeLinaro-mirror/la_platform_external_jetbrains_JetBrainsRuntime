@@ -383,7 +383,7 @@ public class Frame extends Window implements MenuContainer {
      * Constructs a new instance of {@code Frame} that is
      * initially invisible.  The title of the {@code Frame}
      * is empty.
-     * @exception HeadlessException when
+     * @throws HeadlessException when
      *     {@code GraphicsEnvironment.isHeadless()} returns {@code true}
      * @see java.awt.GraphicsEnvironment#isHeadless()
      * @see Component#setSize
@@ -401,9 +401,9 @@ public class Frame extends Window implements MenuContainer {
      * of the target screen device. If {@code gc}
      * is {@code null}, the system default
      * {@code GraphicsConfiguration} is assumed.
-     * @exception IllegalArgumentException if
+     * @throws IllegalArgumentException if
      * {@code gc} is not from a screen device.
-     * @exception HeadlessException when
+     * @throws HeadlessException when
      *     {@code GraphicsEnvironment.isHeadless()} returns {@code true}
      * @see java.awt.GraphicsEnvironment#isHeadless()
      * @since     1.3
@@ -418,7 +418,7 @@ public class Frame extends Window implements MenuContainer {
      * @param title the title to be displayed in the frame's border.
      *              A {@code null} value
      *              is treated as an empty string, "".
-     * @exception HeadlessException when
+     * @throws HeadlessException when
      *     {@code GraphicsEnvironment.isHeadless()} returns {@code true}
      * @see java.awt.GraphicsEnvironment#isHeadless()
      * @see java.awt.Component#setSize
@@ -440,9 +440,9 @@ public class Frame extends Window implements MenuContainer {
      * of the target screen device.  If {@code gc} is
      * {@code null}, the system default
      * {@code GraphicsConfiguration} is assumed.
-     * @exception IllegalArgumentException if {@code gc}
+     * @throws IllegalArgumentException if {@code gc}
      * is not from a screen device.
-     * @exception HeadlessException when
+     * @throws HeadlessException when
      *     {@code GraphicsEnvironment.isHeadless()} returns {@code true}
      * @see java.awt.GraphicsEnvironment#isHeadless()
      * @see java.awt.Component#setSize
@@ -480,7 +480,7 @@ public class Frame extends Window implements MenuContainer {
      * @see #removeNotify
      */
     public void addNotify() {
-        SunToolkit.performWithTreeLock(() -> {
+        synchronized (getTreeLock()) {
             if (peer == null) {
                 peer = getComponentFactory().createFrame(this);
             }
@@ -493,7 +493,7 @@ public class Frame extends Window implements MenuContainer {
             }
             p.setMaximizedBounds(maximizedBounds);
             super.addNotify();
-        });
+        }
     }
 
     /**
@@ -581,7 +581,7 @@ public class Frame extends Window implements MenuContainer {
      * @see       #getMenuBar
      */
     public void setMenuBar(MenuBar mb) {
-        SunToolkit.performWithTreeLock(() -> {
+        synchronized (getTreeLock()) {
             if (menuBar == mb) {
                 return;
             }
@@ -603,7 +603,7 @@ public class Frame extends Window implements MenuContainer {
                     peer.setMenuBar(menuBar);
                 }
             }
-        });
+        }
     }
 
     /**
@@ -1034,7 +1034,7 @@ public class Frame extends Window implements MenuContainer {
      * @see #addNotify
      */
     public void removeNotify() {
-        SunToolkit.performWithTreeLock(() -> {
+        synchronized (getTreeLock()) {
             FramePeer peer = (FramePeer)this.peer;
             if (peer != null) {
                 // get the latest Frame state before disposing
@@ -1047,7 +1047,7 @@ public class Frame extends Window implements MenuContainer {
                 }
             }
             super.removeNotify();
-        });
+        }
     }
 
     void postProcessKeyEvent(KeyEvent e) {

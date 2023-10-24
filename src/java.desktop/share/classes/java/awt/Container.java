@@ -340,7 +340,7 @@ public class Container extends Component {
      *
      * @param      n   the index of the component to get.
      * @return     the n<sup>th</sup> component in this container.
-     * @exception  ArrayIndexOutOfBoundsException
+     * @throws  ArrayIndexOutOfBoundsException
      *                 if the n<sup>th</sup> value does not exist.
      * @see Component#getTreeLock()
      */
@@ -429,7 +429,7 @@ public class Container extends Component {
      * display the added component.
      *
      * @param     comp   the component to be added
-     * @exception NullPointerException if {@code comp} is {@code null}
+     * @throws NullPointerException if {@code comp} is {@code null}
      * @see #addImpl
      * @see #invalidate
      * @see #validate
@@ -456,7 +456,7 @@ public class Container extends Component {
      * @param  name the name of the component to be added
      * @param  comp the component to be added
      * @return the component added
-     * @exception NullPointerException if {@code comp} is {@code null}
+     * @throws NullPointerException if {@code comp} is {@code null}
      * @see #add(Component, Object)
      * @see #invalidate
      */
@@ -479,8 +479,8 @@ public class Container extends Component {
      * @param     comp   the component to be added
      * @param     index    the position at which to insert the component,
      *                   or {@code -1} to append the component to the end
-     * @exception NullPointerException if {@code comp} is {@code null}
-     * @exception IllegalArgumentException if {@code index} is invalid (see
+     * @throws NullPointerException if {@code comp} is {@code null}
+     * @throws IllegalArgumentException if {@code index} is invalid (see
      *            {@link #addImpl} for details)
      * @return    the component {@code comp}
      * @see #addImpl
@@ -764,17 +764,17 @@ public class Container extends Component {
      * @param     index the position in the container's list to
      *            insert the component, where {@code getComponentCount()}
      *            appends to the end
-     * @exception NullPointerException if {@code comp} is
+     * @throws NullPointerException if {@code comp} is
      *            {@code null}
-     * @exception IllegalArgumentException if {@code comp} is one of the
+     * @throws IllegalArgumentException if {@code comp} is one of the
      *            container's parents
-     * @exception IllegalArgumentException if {@code index} is not in
+     * @throws IllegalArgumentException if {@code index} is not in
      *            the range {@code [0, getComponentCount()]} for moving
      *            between containers, or not in the range
      *            {@code [0, getComponentCount()-1]} for moving inside
      *            a container
-     * @exception IllegalArgumentException if adding a container to itself
-     * @exception IllegalArgumentException if adding a {@code Window}
+     * @throws IllegalArgumentException if adding a container to itself
+     * @throws IllegalArgumentException if adding a {@code Window}
      *            to a container
      * @see #getComponentZOrder(java.awt.Component)
      * @see #invalidate
@@ -989,7 +989,7 @@ public class Container extends Component {
      * @param     comp the component to be added
      * @param     constraints an object expressing
      *                  layout constraints for this component
-     * @exception NullPointerException if {@code comp} is {@code null}
+     * @throws NullPointerException if {@code comp} is {@code null}
      * @see #addImpl
      * @see #invalidate
      * @see #validate
@@ -1019,8 +1019,8 @@ public class Container extends Component {
      * @param index the position in the container's list at which to insert
      * the component; {@code -1} means insert at the end
      * component
-     * @exception NullPointerException if {@code comp} is {@code null}
-     * @exception IllegalArgumentException if {@code index} is invalid (see
+     * @throws NullPointerException if {@code comp} is {@code null}
+     * @throws IllegalArgumentException if {@code index} is invalid (see
      *            {@link #addImpl} for details)
      * @see #addImpl
      * @see #invalidate
@@ -1082,16 +1082,16 @@ public class Container extends Component {
      * @param     index the position in the container's list at which to
      *                 insert the component, where {@code -1}
      *                 means append to the end
-     * @exception IllegalArgumentException if {@code index} is invalid;
+     * @throws IllegalArgumentException if {@code index} is invalid;
      *            if {@code comp} is a child of this container, the valid
      *            range is {@code [-1, getComponentCount()-1]}; if component is
      *            not a child of this container, the valid range is
      *            {@code [-1, getComponentCount()]}
      *
-     * @exception IllegalArgumentException if {@code comp} is an ancestor of
+     * @throws IllegalArgumentException if {@code comp} is an ancestor of
      *                                     this container
-     * @exception IllegalArgumentException if adding a window to a container
-     * @exception NullPointerException if {@code comp} is {@code null}
+     * @throws IllegalArgumentException if adding a window to a container
+     * @throws NullPointerException if {@code comp} is {@code null}
      * @see       #add(Component)
      * @see       #add(Component, int)
      * @see       #add(Component, java.lang.Object)
@@ -1101,7 +1101,7 @@ public class Container extends Component {
      * @since     1.1
      */
     protected void addImpl(Component comp, Object constraints, int index) {
-        SunToolkit.performWithTreeLock(() -> {
+        synchronized (getTreeLock()) {
             /* Check for correct arguments:  index in bounds,
              * comp cannot be one of this container's parents,
              * and comp cannot be a window.
@@ -1173,7 +1173,7 @@ public class Container extends Component {
             if (peer != null && layoutMgr == null && isVisible()) {
                 updateCursorImmediately();
             }
-        });
+        }
     }
 
     @Override
@@ -1286,14 +1286,14 @@ public class Container extends Component {
      * @see #remove(int)
      */
     public void remove(Component comp) {
-        SunToolkit.performWithTreeLock(() -> {
+        synchronized (getTreeLock()) {
             if (comp.parent == this)  {
                 int index = component.indexOf(comp);
                 if (index >= 0) {
                     remove(index);
                 }
             }
-        });
+        }
     }
 
     /**
@@ -1312,7 +1312,7 @@ public class Container extends Component {
      * @see #invalidate
      */
     public void removeAll() {
-        SunToolkit.performWithTreeLock(() -> {
+        synchronized (getTreeLock()) {
             adjustListeningChildren(AWTEvent.HIERARCHY_EVENT_MASK,
                                     -listeningChildren);
             adjustListeningChildren(AWTEvent.HIERARCHY_BOUNDS_EVENT_MASK,
@@ -1348,7 +1348,7 @@ public class Container extends Component {
                 updateCursorImmediately();
             }
             invalidateIfValid();
-        });
+        }
     }
 
     // Should only be called while holding tree lock
@@ -1645,7 +1645,8 @@ public class Container extends Component {
      * @see #validateTree
      */
     public void validate() {
-        boolean updateCur = SunToolkit.performWithTreeLock(() -> {
+        boolean updateCur = false;
+        synchronized (getTreeLock()) {
             if ((!isValid() || descendUnconditionallyWhenValidating)
                     && peer != null)
             {
@@ -1662,12 +1663,11 @@ public class Container extends Component {
                     // Avoid updating cursor if this is an internal call.
                     // See validateUnconditionally() for details.
                     if (!descendUnconditionallyWhenValidating) {
-                        return isVisible();
+                        updateCur = isVisible();
                     }
                 }
             }
-            return false;
-        });
+        }
         if (updateCur) {
             updateCursorImmediately();
         }
@@ -1821,12 +1821,12 @@ public class Container extends Component {
          */
         Dimension dim = prefSize;
         if (dim == null || !(isPreferredSizeSet() || isValid())) {
-            dim = SunToolkit.performWithTreeLock(() -> {
+            synchronized (getTreeLock()) {
                 prefSize = (layoutMgr != null) ?
                     layoutMgr.preferredLayoutSize(this) :
                     super.preferredSize();
-                return prefSize;
-            });
+                dim = prefSize;
+            }
         }
         if (dim != null){
             return new Dimension(dim);
@@ -1916,15 +1916,15 @@ public class Container extends Component {
          */
         Dimension dim = maxSize;
         if (dim == null || !(isMaximumSizeSet() || isValid())) {
-            dim = SunToolkit.performWithTreeLock(() -> {
+            synchronized (getTreeLock()) {
                if (layoutMgr instanceof LayoutManager2) {
                     LayoutManager2 lm = (LayoutManager2) layoutMgr;
                     maxSize = lm.maximumLayoutSize(this);
                } else {
                     maxSize = super.getMaximumSize();
                }
-               return maxSize;
-            });
+               dim = maxSize;
+            }
         }
         if (dim != null){
             return new Dimension(dim);
@@ -1944,10 +1944,10 @@ public class Container extends Component {
     public float getAlignmentX() {
         float xAlign;
         if (layoutMgr instanceof LayoutManager2) {
-            xAlign = SunToolkit.performWithTreeLock(() -> {
+            synchronized (getTreeLock()) {
                 LayoutManager2 lm = (LayoutManager2) layoutMgr;
-                return lm.getLayoutAlignmentX(this);
-            });
+                xAlign = lm.getLayoutAlignmentX(this);
+            }
         } else {
             xAlign = super.getAlignmentX();
         }
@@ -1964,10 +1964,10 @@ public class Container extends Component {
     public float getAlignmentY() {
         float yAlign;
         if (layoutMgr instanceof LayoutManager2) {
-            yAlign = SunToolkit.performWithTreeLock(() -> {
+            synchronized (getTreeLock()) {
                 LayoutManager2 lm = (LayoutManager2) layoutMgr;
-                return lm.getLayoutAlignmentY(this);
-            });
+                yAlign = lm.getLayoutAlignmentY(this);
+            }
         } else {
             yAlign = super.getAlignmentY();
         }
@@ -2213,10 +2213,10 @@ public class Container extends Component {
      * @return an array of all objects registered as
      *          <code><em>Foo</em>Listener</code>s on this container,
      *          or an empty array if no such listeners have been added
-     * @exception ClassCastException if {@code listenerType}
+     * @throws ClassCastException if {@code listenerType}
      *          doesn't specify a class or interface that implements
      *          {@code java.util.EventListener}
-     * @exception NullPointerException if {@code listenerType} is {@code null}
+     * @throws NullPointerException if {@code listenerType} is {@code null}
      *
      * @see #getContainerListeners
      *
@@ -2622,7 +2622,7 @@ public class Container extends Component {
      * a non-null value if the mouse pointer is above {@code Container} or any
      * of its descendants.
      *
-     * @exception HeadlessException if GraphicsEnvironment.isHeadless() returns true
+     * @throws HeadlessException if GraphicsEnvironment.isHeadless() returns true
      * @param     allowChildren true if children should be taken into account
      * @see       Component#getMousePosition
      * @return    mouse coordinates relative to this {@code Component}, or null
@@ -2921,13 +2921,7 @@ public class Container extends Component {
         }
 
         Runnable pumpEventsForHierarchy = () -> {
-            EventDispatchThread dispatchThread;
-            Thread currentThread = Thread.currentThread();
-            if (currentThread instanceof EventDispatchThread) {
-                dispatchThread = (EventDispatchThread) currentThread;
-            } else {
-                dispatchThread = Toolkit.getDefaultToolkit().getSystemEventQueue().getDispatchThread();
-            }
+            EventDispatchThread dispatchThread = (EventDispatchThread)Thread.currentThread();
             dispatchThread.pumpEventsForHierarchy(() -> nativeContainer.modalComp != null,
                     Container.this);
         };
@@ -3562,7 +3556,7 @@ public class Container extends Component {
      *
      * @param o the new component orientation of this container and
      *        the components contained within it.
-     * @exception NullPointerException if {@code orientation} is null.
+     * @throws NullPointerException if {@code orientation} is null.
      * @see Component#setComponentOrientation
      * @see Component#getComponentOrientation
      * @see #invalidate
@@ -3729,7 +3723,7 @@ public class Container extends Component {
      * @throws ClassNotFoundException if the class of a serialized object could
      *         not be found
      * @throws IOException if an I/O error occurs
-     * @serial
+     *
      * @see #addContainerListener
      * @see #writeObject(ObjectOutputStream)
      */
@@ -3867,7 +3861,7 @@ public class Container extends Component {
          * Number of PropertyChangeListener objects registered. It's used
          * to add/remove ContainerListener to track target Container's state.
          */
-        private transient volatile int propertyListenersCount = 0;
+        private transient volatile int propertyListenersCount;
 
         /**
          * The handler to fire {@code PropertyChange}
@@ -3897,18 +3891,18 @@ public class Container extends Component {
 
             public void componentAdded(ContainerEvent e) {
                 Component c = e.getChild();
-                if (c != null && c instanceof Accessible) {
+                if (c instanceof Accessible accessible) {
                     AccessibleAWTContainer.this.firePropertyChange(
                         AccessibleContext.ACCESSIBLE_CHILD_PROPERTY,
-                        null, ((Accessible) c).getAccessibleContext());
+                        null, accessible.getAccessibleContext());
                 }
             }
             public void componentRemoved(ContainerEvent e) {
                 Component c = e.getChild();
-                if (c != null && c instanceof Accessible) {
+                if (c instanceof Accessible accessible) {
                     AccessibleAWTContainer.this.firePropertyChange(
                         AccessibleContext.ACCESSIBLE_CHILD_PROPERTY,
-                        ((Accessible) c).getAccessibleContext(), null);
+                        accessible.getAccessibleContext(), null);
                 }
             }
         }
@@ -4125,7 +4119,7 @@ public class Container extends Component {
     }
 
     /*
-     * This method is overriden to handle opaque children in non-opaque
+     * This method is overridden to handle opaque children in non-opaque
      * containers.
      */
     @Override

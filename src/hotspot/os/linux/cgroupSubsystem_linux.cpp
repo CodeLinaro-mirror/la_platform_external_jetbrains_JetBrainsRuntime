@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,6 +30,7 @@
 #include "cgroupV2Subsystem_linux.hpp"
 #include "logging/log.hpp"
 #include "memory/allocation.hpp"
+#include "os_linux.hpp"
 #include "runtime/globals.hpp"
 #include "runtime/os.hpp"
 #include "utilities/globalDefinitions.hpp"
@@ -38,11 +39,11 @@
 static const char* cg_controller_name[] = { "cpu", "cpuset", "cpuacct", "memory", "pids" };
 
 CgroupSubsystem* CgroupSubsystemFactory::create() {
-  CgroupV1MemoryController* memory = NULL;
-  CgroupV1Controller* cpuset = NULL;
-  CgroupV1Controller* cpu = NULL;
-  CgroupV1Controller* cpuacct = NULL;
-  CgroupV1Controller* pids = NULL;
+  CgroupV1MemoryController* memory = nullptr;
+  CgroupV1Controller* cpuset = nullptr;
+  CgroupV1Controller* cpu = nullptr;
+  CgroupV1Controller* cpuacct = nullptr;
+  CgroupV1Controller* pids = nullptr;
   CgroupInfo cg_infos[CG_INFO_LENGTH];
   u1 cg_type_flags = INVALID_CGROUPS_GENERIC;
   const char* proc_cgroups = "/proc/cgroups";
@@ -53,7 +54,7 @@ CgroupSubsystem* CgroupSubsystemFactory::create() {
 
   if (!valid_cgroup) {
     // Could not detect cgroup type
-    return NULL;
+    return nullptr;
   }
   assert(is_valid_cgroup(&cg_type_flags), "Expected valid cgroup type");
 
@@ -127,7 +128,7 @@ void CgroupSubsystemFactory::set_controller_paths(CgroupInfo* cg_infos,
                                                   const char* name,
                                                   char* mount_path,
                                                   char* root_path) {
-  if (cg_infos[controller]._mount_path != NULL) {
+  if (cg_infos[controller]._mount_path != nullptr) {
     // On some systems duplicate controllers get mounted in addition to
     // the main cgroup controllers most likely under /sys/fs/cgroup. In that
     // case pick the one under /sys/fs/cgroup and discard others.
@@ -153,9 +154,9 @@ bool CgroupSubsystemFactory::determine_type(CgroupInfo* cg_infos,
                                             const char* proc_self_cgroup,
                                             const char* proc_self_mountinfo,
                                             u1* flags) {
-  FILE *mntinfo = NULL;
-  FILE *cgroups = NULL;
-  FILE *cgroup = NULL;
+  FILE *mntinfo = nullptr;
+  FILE *cgroups = nullptr;
+  FILE *cgroup = nullptr;
   char buf[MAXPATHLEN+1];
   char *p;
   bool is_cgroupsV2;
@@ -172,14 +173,14 @@ bool CgroupSubsystemFactory::determine_type(CgroupInfo* cg_infos,
    * Conversely, for cgroups v2 (unified hierarchy), cpu, cpuacct, cpuset, memory
    * controllers must have hierarchy ID 0 and the unified controller mounted.
    */
-  cgroups = fopen(proc_cgroups, "r");
-  if (cgroups == NULL) {
+  cgroups = os::fopen(proc_cgroups, "r");
+  if (cgroups == nullptr) {
     log_debug(os, container)("Can't open %s, %s", proc_cgroups, os::strerror(errno));
     *flags = INVALID_CGROUPS_GENERIC;
     return false;
   }
 
-  while ((p = fgets(buf, MAXPATHLEN, cgroups)) != NULL) {
+  while ((p = fgets(buf, MAXPATHLEN, cgroups)) != nullptr) {
     char name[MAXPATHLEN+1];
     int  hierarchy_id;
     int  enabled;
@@ -240,8 +241,8 @@ bool CgroupSubsystemFactory::determine_type(CgroupInfo* cg_infos,
    *  - on a cgroups v1 system, collect info for mapping
    *    the host mount point to the local one via /proc/self/mountinfo below.
    */
-  cgroup = fopen(proc_self_cgroup, "r");
-  if (cgroup == NULL) {
+  cgroup = os::fopen(proc_self_cgroup, "r");
+  if (cgroup == nullptr) {
     log_debug(os, container)("Can't open %s, %s",
                              proc_self_cgroup, os::strerror(errno));
     cleanup(cg_infos);
@@ -249,7 +250,7 @@ bool CgroupSubsystemFactory::determine_type(CgroupInfo* cg_infos,
     return false;
   }
 
-  while ((p = fgets(buf, MAXPATHLEN, cgroup)) != NULL) {
+  while ((p = fgets(buf, MAXPATHLEN, cgroup)) != nullptr) {
     char *controllers;
     char *token;
     char *hierarchy_id_str;
@@ -262,11 +263,11 @@ bool CgroupSubsystemFactory::determine_type(CgroupInfo* cg_infos,
     controllers = strsep(&p, ":");
     cgroup_path = strsep(&p, "\n");
 
-    if (controllers == NULL) {
+    if (controllers == nullptr) {
       continue;
     }
 
-    while (!is_cgroupsV2 && (token = strsep(&controllers, ",")) != NULL) {
+    while (!is_cgroupsV2 && (token = strsep(&controllers, ",")) != nullptr) {
       if (strcmp(token, "memory") == 0) {
         assert(hierarchy_id == cg_infos[MEMORY_IDX]._hierarchy_id, "/proc/cgroups and /proc/self/cgroup hierarchy mismatch for memory");
         cg_infos[MEMORY_IDX]._cgroup_path = os::strdup(cgroup_path);
@@ -292,7 +293,7 @@ bool CgroupSubsystemFactory::determine_type(CgroupInfo* cg_infos,
         continue;
       }
       for (int i = 0; i < CG_INFO_LENGTH; i++) {
-        assert(cg_infos[i]._cgroup_path == NULL, "cgroup path must only be set once");
+        assert(cg_infos[i]._cgroup_path == nullptr, "cgroup path must only be set once");
         cg_infos[i]._cgroup_path = os::strdup(cgroup_path);
       }
     }
@@ -301,8 +302,8 @@ bool CgroupSubsystemFactory::determine_type(CgroupInfo* cg_infos,
 
   // Find various mount points by reading /proc/self/mountinfo
   // mountinfo format is documented at https://www.kernel.org/doc/Documentation/filesystems/proc.txt
-  mntinfo = fopen(proc_self_mountinfo, "r");
-  if (mntinfo == NULL) {
+  mntinfo = os::fopen(proc_self_mountinfo, "r");
+  if (mntinfo == nullptr) {
       log_debug(os, container)("Can't open %s, %s",
                                proc_self_mountinfo, os::strerror(errno));
       cleanup(cg_infos);
@@ -312,7 +313,7 @@ bool CgroupSubsystemFactory::determine_type(CgroupInfo* cg_infos,
 
   bool cgroupv2_mount_point_found = false;
   bool any_cgroup_mounts_found = false;
-  while ((p = fgets(buf, MAXPATHLEN, mntinfo)) != NULL) {
+  while ((p = fgets(buf, MAXPATHLEN, mntinfo)) != nullptr) {
     char tmp_fs_type[MAXPATHLEN+1];
     char tmproot[MAXPATHLEN+1];
     char tmpmount[MAXPATHLEN+1];
@@ -351,7 +352,7 @@ bool CgroupSubsystemFactory::determine_type(CgroupInfo* cg_infos,
         // Skip cgroup2 fs lines on hybrid or unified hierarchy.
         continue;
       }
-      while ((token = strsep(&cptr, ",")) != NULL) {
+      while ((token = strsep(&cptr, ",")) != nullptr) {
         if (strcmp(token, "memory") == 0) {
           any_cgroup_mounts_found = true;
           set_controller_paths(cg_infos, MEMORY_IDX, token, tmpmount, tmproot);
@@ -436,7 +437,7 @@ bool CgroupSubsystemFactory::determine_type(CgroupInfo* cg_infos,
 };
 
 void CgroupSubsystemFactory::cleanup(CgroupInfo* cg_infos) {
-  assert(cg_infos != NULL, "Invariant");
+  assert(cg_infos != nullptr, "Invariant");
   for (int i = 0; i < CG_INFO_LENGTH; i++) {
     os::free(cg_infos[i]._name);
     os::free(cg_infos[i]._cgroup_path);
@@ -461,28 +462,19 @@ void CgroupSubsystemFactory::cleanup(CgroupInfo* cg_infos) {
  * If user specified a quota (quota != -1), calculate the number of
  * required CPUs by dividing quota by period.
  *
- * If shares are in effect (shares != -1), calculate the number
- * of CPUs required for the shares by dividing the share value
- * by PER_CPU_SHARES.
- *
  * All results of division are rounded up to the next whole number.
  *
- * If neither shares or quotas have been specified, return the
+ * If quotas have not been specified, return the
  * number of active processors in the system.
  *
- * If both shares and quotas have been specified, the results are
- * based on the flag PreferContainerQuotaForCPUCount.  If true,
- * return the quota value.  If false return the smallest value
- * between shares or quotas.
- *
- * If shares and/or quotas have been specified, the resulting number
+ * If quotas have been specified, the resulting number
  * returned will never exceed the number of active processors.
  *
  * return:
  *    number of CPUs
  */
 int CgroupSubsystem::active_processor_count() {
-  int quota_count = 0, share_count = 0;
+  int quota_count = 0;
   int cpu_count, limit_count;
   int result;
 
@@ -501,33 +493,14 @@ int CgroupSubsystem::active_processor_count() {
   int quota  = cpu_quota();
   int period = cpu_period();
 
-  // It's not a good idea to use cpu_shares() to limit the number
-  // of CPUs used by the JVM. See JDK-8281181.
-  int share  = UseContainerCpuShares ? cpu_shares() : -1;
-
   if (quota > -1 && period > 0) {
     quota_count = ceilf((float)quota / (float)period);
     log_trace(os, container)("CPU Quota count based on quota/period: %d", quota_count);
   }
-  if (share > -1) {
-    share_count = ceilf((float)share / (float)PER_CPU_SHARES);
-    log_trace(os, container)("CPU Share count based on shares: %d", share_count);
-  }
 
-  // If both shares and quotas are setup results depend
-  // on flag PreferContainerQuotaForCPUCount.
-  // If true, limit CPU count to quota
-  // If false, use minimum of shares and quotas
-  if (quota_count !=0 && share_count != 0) {
-    if (PreferContainerQuotaForCPUCount) {
-      limit_count = quota_count;
-    } else {
-      limit_count = MIN2(quota_count, share_count);
-    }
-  } else if (quota_count != 0) {
+  // Use quotas
+  if (quota_count != 0) {
     limit_count = quota_count;
-  } else if (share_count != 0) {
-    limit_count = share_count;
   }
 
   result = MIN2(cpu_count, limit_count);
@@ -584,7 +557,7 @@ jlong CgroupSubsystem::memory_limit_in_bytes() {
 }
 
 jlong CgroupSubsystem::limit_from_str(char* limit_str) {
-  if (limit_str == NULL) {
+  if (limit_str == nullptr) {
     return OSCONTAINER_ERROR;
   }
   // Unlimited memory in cgroups is the literal string 'max' for

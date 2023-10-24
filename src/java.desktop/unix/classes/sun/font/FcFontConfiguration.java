@@ -32,22 +32,23 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Properties;
 import java.util.Scanner;
+
 import sun.awt.FcFontManager;
 import sun.awt.FontConfiguration;
 import sun.awt.FontDescriptor;
 import sun.awt.SunToolkit;
-import sun.font.CompositeFontDescriptor;
-import sun.font.FontConfigManager.FontConfigInfo;
 import sun.font.FontConfigManager.FcCompFont;
 import sun.font.FontConfigManager.FontConfigFont;
+import sun.font.FontConfigManager.FontConfigInfo;
 import sun.util.logging.PlatformLogger;
+
+import static java.nio.charset.StandardCharsets.ISO_8859_1;
 
 public class FcFontConfiguration extends FontConfiguration {
 
@@ -157,7 +158,7 @@ public class FcFontConfiguration extends FontConfiguration {
 
     @Override
     protected Charset getDefaultFontCharset(String fontName) {
-        return Charset.forName("ISO8859_1");
+        return ISO_8859_1;
     }
 
     @Override
@@ -178,7 +179,7 @@ public class FcFontConfiguration extends FontConfiguration {
         String[] componentFaceNames = cfi[idx].getComponentFaceNames();
         FontDescriptor[] ret = new FontDescriptor[componentFaceNames.length];
         for (int i = 0; i < componentFaceNames.length; i++) {
-            ret[i] = new FontDescriptor(componentFaceNames[i], StandardCharsets.ISO_8859_1.newEncoder(), new int[0]);
+            ret[i] = new FontDescriptor(componentFaceNames[i], ISO_8859_1.newEncoder(), new int[0]);
         }
 
         return ret;
@@ -294,9 +295,13 @@ public class FcFontConfiguration extends FontConfiguration {
         return null;
     }
 
-    private String extractOsInfo(String s) {
+    private String extractInfo(String s) {
+        if (s == null) {
+            return null;
+        }
         if (s.startsWith("\"")) s = s.substring(1);
         if (s.endsWith("\"")) s = s.substring(0, s.length()-1);
+        s = s.replace(' ', '_');
         return s;
     }
 
@@ -319,9 +324,11 @@ public class FcFontConfiguration extends FontConfiguration {
                      * For Ubuntu the ID is "Ubuntu".
                      */
                     Properties props = new Properties();
-                    props.load(new FileInputStream(f));
-                    osName = props.getProperty("DISTRIB_ID");
-                    osVersion =  props.getProperty("DISTRIB_RELEASE");
+                    try (FileInputStream fis = new FileInputStream(f)) {
+                        props.load(fis);
+                    }
+                    osName = extractInfo(props.getProperty("DISTRIB_ID"));
+                    osVersion = extractInfo(props.getProperty("DISTRIB_RELEASE"));
             } else if ((f = new File("/etc/redhat-release")).canRead()) {
                 osName = "RedHat";
                 osVersion = getVersionString(f);
@@ -339,11 +346,13 @@ public class FcFontConfiguration extends FontConfiguration {
                 try (FileInputStream fis = new FileInputStream(f)) {
                     props.load(fis);
                 }
-                osName = props.getProperty("NAME");
-                osVersion = props.getProperty("VERSION_ID");
-                osName = extractOsInfo(osName);
-                if (osName.equals("SLES")) osName = "SuSE";
-                osVersion = extractOsInfo(osVersion);
+                osName = extractInfo(props.getProperty("NAME"));
+                osVersion = extractInfo(props.getProperty("VERSION_ID"));
+                if (osName.equals("SLES")) {
+                    osName = "SuSE";
+                } else {
+                    osName = extractInfo(props.getProperty("ID"));
+                }
             }
         } catch (Exception e) {
             if (FontUtilities.debugFonts()) {
@@ -416,10 +425,9 @@ public class FcFontConfiguration extends FontConfiguration {
             File dir = fcInfoFile.getParentFile();
             dir.mkdirs();
             File tempFile = Files.createTempFile(dir.toPath(), "fcinfo", null).toFile();
-            FileOutputStream fos = new FileOutputStream(tempFile);
-            props.store(fos,
-                      "JDK Font Configuration Generated File: *Do Not Edit*");
-            fos.close();
+            try (FileOutputStream fos = new FileOutputStream(tempFile)) {
+                props.store(fos, "JDK Font Configuration Generated File: *Do Not Edit*");
+            }
             boolean renamed = tempFile.renameTo(fcInfoFile);
             if (!renamed && FontUtilities.debugFonts()) {
                 System.out.println("rename failed");

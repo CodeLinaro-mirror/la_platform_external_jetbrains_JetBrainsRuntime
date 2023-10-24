@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -345,7 +345,7 @@ AwtFont* AwtFont::Create(JNIEnv *env, jobject font, jint angle, jfloat awScale)
                 wName = L"Arial";
             }
 
-            WCHAR* wEName;
+            LPCWSTR wEName;
             if (!wcscmp(wName, L"Helvetica") || !wcscmp(wName, L"SansSerif")) {
                 wEName = L"Arial";
             } else if (!wcscmp(wName, L"TimesRoman") ||
@@ -388,7 +388,7 @@ AwtFont* AwtFont::Create(JNIEnv *env, jobject font, jint angle, jfloat awScale)
     return awtFont;
 }
 
-static void strip_tail(wchar_t* text, wchar_t* tail) { // strips tail and any possible whitespace before it from the end of text
+static void strip_tail(wchar_t* text, const wchar_t* tail) { // strips tail and any possible whitespace before it from the end of text
     if (wcslen(text)<=wcslen(tail)) {
         return;
     }
@@ -486,7 +486,7 @@ static HFONT CreateHFont_sub(LPCWSTR name, int style, int height,
             VERIFY(::DeleteObject(oldFont));
         }
         avgWidth = tm.tmAveCharWidth;
-        logFont.lfWidth = (LONG) ScaleUpX((fabs) (avgWidth * awScale));
+        logFont.lfWidth = (LONG) ScaleUpX((fabsf) (avgWidth * awScale));
         hFont = ::CreateFontIndirect(&logFont);
         DASSERT(hFont != NULL);
         VERIFY(::ReleaseDC(0, hDC));
@@ -495,7 +495,7 @@ static HFONT CreateHFont_sub(LPCWSTR name, int style, int height,
     return hFont;
 }
 
-HFONT AwtFont::CreateHFont(WCHAR* name, int style, int height,
+HFONT AwtFont::CreateHFont(LPCWSTR name, int style, int height,
                            int angle, float awScale)
 {
     WCHAR longName[80];
@@ -1204,7 +1204,7 @@ void AwtFontCache::Clear()
 /* NOTE: In the interlock calls below the return value is different
          depending on which version of windows. However, all versions
          return a 0 or less than value when the count gets there. Only
-         under NT 4.0 & 98 does the value actaully represent the new value. */
+         under NT 4.0 & 98 does the value actually represent the new value. */
 
 void AwtFontCache::IncRefCount(HFONT hFont){
     Item* item = fontCache.m_head;
@@ -1884,7 +1884,7 @@ CCombinedSegTable* CCombinedSegTableManager::GetTable(LPCWSTR lpszFontName)
 
 
 /************************************************************************
- * WDefaultFontCharset native methos
+ * WDefaultFontCharset native methods
  */
 
 extern "C" {

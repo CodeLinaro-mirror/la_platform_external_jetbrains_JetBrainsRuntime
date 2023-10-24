@@ -58,7 +58,7 @@ public class TestLinkPlatform extends JavadocTester {
     final static String NON_MODULAR_CUSTOM_PLATFORM_URL = "https://example.com/%d/api/java/lang/Object.html";
     final static String MODULAR_CUSTOM_PLATFORM_URL = "https://example.com/%d/api/java.base/java/lang/Object.html";
 
-    final static int EARLIEST_VERSION = 7;
+    final static int EARLIEST_VERSION = 8;
     final static int LATEST_VERSION = Integer.parseInt(SourceVersion.latest().name().substring(8));
 
     /**
@@ -67,8 +67,8 @@ public class TestLinkPlatform extends JavadocTester {
      * @param args the array of command line arguments.
      */
     public static void main(String... args) throws Exception {
-        TestLinkPlatform tester = new TestLinkPlatform();
-        tester.runTests(m -> new Object[]{Paths.get(m.getName())});
+        var tester = new TestLinkPlatform();
+        tester.runTests();
     }
 
     final ToolBox tb;
@@ -103,7 +103,7 @@ public class TestLinkPlatform extends JavadocTester {
             // Make sure there is no message about missing element-list resource
             checkOutput(Output.OUT, false, "element-list");
             String url = getPlatformUrlString(version);
-            if (version == 8 || version == 9) {
+            if (version <= 9) {
                 checkOutput("p/q/A.html", true,
                         "<a href=\"" + url + "\"",
                         "<a href=\"" + url + "#clone--\" title=\"class or interface in java.lang\" class=\"external-link\">",
@@ -133,7 +133,7 @@ public class TestLinkPlatform extends JavadocTester {
 
             checkExit(Exit.OK);
             String url = getCustomPlatformUrlString(version);
-            if (version == 8 || version == 9) {
+            if (version <= 9) {
                 checkOutput("p/q/A.html", true,
                         "<a href=\"" + url + "\"",
                         "<a href=\"" + url + "#clone--\" title=\"class or interface in java.lang\" class=\"external-link\">",
@@ -163,7 +163,7 @@ public class TestLinkPlatform extends JavadocTester {
 
             checkExit(Exit.OK);
             String url = getCustomPlatformUrlString(version);
-            if (version == 8 || version == 9) {
+            if (version <= 9) {
                 checkOutput("p/q/A.html", true,
                         "<a href=\"" + url + "\"",
                         "<a href=\"" + url + "#clone--\" title=\"class or interface in java.lang\" class=\"external-link\">",

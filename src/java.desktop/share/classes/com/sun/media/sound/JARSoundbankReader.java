@@ -58,8 +58,7 @@ public final class JARSoundbankReader extends SoundbankReader {
     private static boolean isZIP(URL url) {
         boolean ok = false;
         try {
-            InputStream stream = url.openStream();
-            try {
+            try (InputStream stream = url.openStream()) {
                 byte[] buff = new byte[4];
                 ok = stream.read(buff) == 4;
                 if (ok) {
@@ -68,8 +67,6 @@ public final class JARSoundbankReader extends SoundbankReader {
                         && buff[2] == 0x03
                         && buff[3] == 0x04);
                 }
-            } finally {
-                stream.close();
             }
         } catch (IOException e) {
         }
@@ -90,8 +87,7 @@ public final class JARSoundbankReader extends SoundbankReader {
                 "META-INF/services/javax.sound.midi.Soundbank");
         if (stream == null)
             return null;
-        try
-        {
+        try (stream) {
             BufferedReader r = new BufferedReader(new InputStreamReader(stream));
             String line = r.readLine();
             while (line != null) {
@@ -108,10 +104,6 @@ public final class JARSoundbankReader extends SoundbankReader {
                 }
                 line = r.readLine();
             }
-        }
-        finally
-        {
-            stream.close();
         }
         if (soundbanks.size() == 0)
             return null;

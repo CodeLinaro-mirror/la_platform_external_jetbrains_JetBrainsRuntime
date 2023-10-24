@@ -3,21 +3,43 @@
 # Welcome to JetBrains Runtime!
 
 JetBrains Runtime is a fork of [OpenJDK](https://github.com/openjdk/jdk) available for Windows, Mac OS X, and Linux.
-It includes a number of enhancements in font rendering, ligatures, HiDPI support, windowing/focus subsystems, performance improvements, and bugfixes.
+It supports enhanced class redefinition ([DCEVM](https://ssw.jku.at/dcevm/)),
+features optional [JCEF](https://github.com/JetBrains/jcef), a framework for embedding Chromium-based browsers,
+includes a number of improvements in font rendering, keyboards support, 
+windowing/focus subsystems, HiDPI, accessibility, and performance, provides better desktop integration
+and bugfixes not yet present in OpenJDK.
 
-## Releases
+> **_NOTE_**: This is a **development** branch that is periodically synchronized with 
+> the [OpenJDK master](https://github.com/openjdk/jdk/tree/master) branch.
+> 
+ Release builds are based on these branches:
+ * [jbr11](https://github.com/JetBrains/JetBrainsRuntime/tree/jbr11) (JDK 11)
+ * [jbr17](https://github.com/JetBrains/JetBrainsRuntime/tree/jbr17) (JDK 17)
+ 
 Download the latest releases of JetBrains Runtime to use with JetBrains IDEs. The full list
 can be found on the [releases page](https://github.com/JetBrains/JetBrainsRuntime/releases).
 
-| IDE Version | Latest JBR                                                                                             | Date Released |
-|  ---        |--------------------------------------------------------------------------------------------------------|---------------|
-| 2023.1      | [17.0.6-b829.1](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.6b829.1)   | 14-Feb-2023   |
-| 2022.3      | [17.0.5-b653.25](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.5b653.25) | 10-Jan-2023   |
-| 2022.2      | [17.0.5-b469.71](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.5b469.71) | 14-Nov-2022   |
+## Releases based on JDK 17
 
+| IDE Version | Latest JBR                                                                                             | Date Released |
+|-------------|--------------------------------------------------------------------------------------------------------|---------------|
+| 2023.1      | [17.0.6-b829.5](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.6b829.5)   | 01-Mar-2023   |
+| 2022.3      | [17.0.6-b653.34](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.6b653.34) | 28-Feb-2023   |
+| 2022.2      | [17.0.6-b469.82](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.6b469.82) | 06-Mar-2023   |
+
+## Releases based on JDK 11
+
+| IDE Version | Latest JBR                                                                                            | Date Released |
+|-------------|-------------------------------------------------------------------------------------------------------|---------------|
+| 2022.1      | [11_0_16-b2043.64](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr11_0_16b2043.64)     | 10-Nov-2022   |
+| 2021.3      | [11_0_14_1-b1751.46](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr11_0_14_1b1751.46) | 21-Feb-2022   |
+| 2021.2      | [11_0_13-b1504.49](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jb11_0_13-b1504.49)     | 15-Nov-2021   |
+| 2021.1      | [11.0.11+9-b1341.60](https://github.com/JetBrains/JetBrainsRuntime/issues/171#issuecomment-1248891540)| 15-Jun-2021   |
+| 2020.3      | [11_0_10-b1145.115](https://github.com/JetBrains/JetBrainsRuntime/issues/171#issuecomment-1249243977) | 21-Jun-2021   |
 
 ## Contents
 - [Welcome to JetBrains Runtime](#welcome-to-jetbrains-runtime)
+  - [Why Use JetBrains Runtime?](#why-use-jetbrains-runtime)
   - [Products Built on JetBrains Runtime](#products-built-on-jetbrains-runtime)
   - [Getting Sources](#getting-sources)
     - [macOS, Linux](#macos-linux)
@@ -30,6 +52,17 @@ can be found on the [releases page](https://github.com/JetBrains/JetBrainsRuntim
   - [Developing](#developing)
   - [Contributing](#contributing)
   - [Resources](#resources)
+
+## Why Use JetBrains Runtime?
+* **Embedded browser**: JetBrains Runtime includes the Java Chromium Embedded Framework ([JCEF](https://github.com/JetBrains/jcef)), which
+  enables you to embed a Chromium-based browsers in your JVM-based application. 
+ To use it, [download a build with JCEF](https://github.com/JetBrains/JetBrainsRuntime/releases).
+* **Enhanced class re-definition** with the [DCEVM](https://ssw.jku.at/dcevm/) technology that makes it easier to reload
+  changed code without restarting JVM; this feature needs to be explicitly enabled with `-XX:+AllowEnhancedClassRedefinition`.
+* **Better FPS performance** for graphics-intensive applications.
+* **Improved font rendering**, **keyboard input** (such as shortcuts and multinational keyboards),
+  **HiDPI** and **accessibility** support.
+* **Robust desktop experience**: GUI-related fixes often reach JetBrains Runtime much earlier than the corresponding version of OpenJDK.
 
 ## Products Built on JetBrains Runtime
 * [Android Studio](https://developer.android.com/studio). The official IDE for Google's Android operating system.
@@ -51,6 +84,8 @@ can be found on the [releases page](https://github.com/JetBrains/JetBrainsRuntim
 ```
 git config --global core.autocrlf input
 git clone git@github.com:JetBrains/JetBrainsRuntime.git
+cd JetBrainsRuntime
+git checkout jbr21
 ```
 
 ### Windows
@@ -58,6 +93,8 @@ git clone git@github.com:JetBrains/JetBrainsRuntime.git
 ```
 git config --global core.autocrlf false
 git clone git@github.com:JetBrains/JetBrainsRuntime.git
+cd JetBrainsRuntime
+git checkout jbr21
 ```
 
 ## Configuring the Build Environment
@@ -66,7 +103,7 @@ Please refer to [OpenJDK build docs](https://openjdk.java.net/groups/build/doc/b
 coverage of all the details.
 
 > **_TIP:_**  To get a preliminary report of what's missing, run `./configure` and check its output. 
-> It would usually have a meaningful advice on how to solve the problem.
+> It would usually have meaningful advice on how to solve the problem.
 
 ### Linux (Docker)
 Create a container:
@@ -80,7 +117,6 @@ Run these commands in the new container:
 ```
 $ docker run -v `pwd`../../../../:/JetBrainsRuntime -it 942ea9900054
 # cd /JetBrainsRuntime
-# git checkout jbr17
 # sh ./configure
 # make images CONF=linux-x86_64-normal-server-release
 ```
@@ -89,13 +125,14 @@ $ docker run -v `pwd`../../../../:/JetBrainsRuntime -it 942ea9900054
 Install the necessary tools, libraries, and headers with:
 ```
 $ sudo apt-get install autoconf make build-essential libx11-dev libxext-dev libxrender-dev libxtst-dev \
-       libxt-dev libxrandr-dev libcups2-dev libfontconfig1-dev libasound2-dev libspeechd-dev \
-       java-16-amazon-corretto-jdk
+       libxt-dev libxrandr-dev libcups2-dev libfontconfig1-dev libasound2-dev
 ```
+Get Java 19 (for instance, [Azul Zulu Builds of OpenJDK 19](https://www.azul.com/downloads/?version=java-19-sts&os=linux&package=jdk)).
+
 Then run the following:
 ```
 $ cd JetBrainsRuntime
-$ git checkout jbr17
+$ git checkout main
 $ sh ./configure
 $ make images
 ```
@@ -110,7 +147,7 @@ Install the following:
 * [Visual Studio compiler toolset](https://visualstudio.microsoft.com/downloads/).
   Install with the desktop development kit, which includes Windows SDK and compilers.
   Visual Studio 2019 is supported by default.
-* Java 16 (for instance, from [AdoptOpenJDK](https://adoptopenjdk.net/installation.html?variant=openjdk16&jvmVariant=hotspot#)).
+* Java 19 (for instance, [Azul Zulu Builds of OpenJDK 19](https://www.azul.com/downloads/?version=java-19-sts&os=windows&package=jdk)).
   If you have problems while configuring, read [Java tips on Cygwin](http://horstmann.com/articles/cygwin-tips.html).
 
 From the command line: 
@@ -123,33 +160,21 @@ The first command sets up environment variables, the second starts a Cygwin shel
 In the Cygwin shell: 
 ```
 $ cd JetBrainsRuntime
-$ git checkout jbr17
+$ git checkout main
 $ bash configure --with-toolchain-version=2019
 $ make images
 ```
 This will build the release configuration under `./build/windows-x86_64-server-release/`.
 
-#### Enable optional NVDA screen reader support
-If you want to add support of a11y announcing via [NVDA screen reader](https://www.nvaccess.org/about-nvda/),
-you will need to bundle the NVDA Controller Client library.
-You can do it with the following steps:
-1. Download the NVDA Controller Client library. You can find the link in its official README [here](https://github.com/nvaccess/nvda/blob/master/extras/controllerClient/readme.md)
-2. Pass the path to the unpacked package to `configure` via an additional flag `--with-nvdacontrollerclient=<path>`.
-   The build system will search the required library files under `<path>/<target-arch>`.
-
-#### Disable optional JAWS screen reader support
-JBR is built with built-in support of JAWS screen reader.
-If you want to disable it, run `configure` with the additional flag `--disable-jaws-client`.
-
 ### macOS
 Install the following:
 * Xcode command line developer tools and `autoconf` via [Homebrew](https://brew.sh/).
-* Java 16 (for instance, from [AdoptOpenJDK](https://adoptopenjdk.net/installation.html?variant=openjdk16&jvmVariant=hotspot#)).
+* Java 19 (for instance, [Azul Zulu Builds of OpenJDK 19](https://www.azul.com/downloads/?version=java-19-sts&os=macos&package=jdk)).
 
 From the command line:
 ```
 $ cd JetBrainsRuntime
-$ git checkout jbr17
+$ git checkout main
 $ sh ./configure
 $ make images
 ```

@@ -226,40 +226,17 @@ public class BMPImageReader extends ImageReader implements BMPConstants {
     }
 
     private void readColorPalette(int sizeOfPalette) throws IOException {
-        final int UNIT_SIZE = 1024000;
-        if (sizeOfPalette < UNIT_SIZE) {
-            palette = new byte[sizeOfPalette];
-            iis.readFully(palette, 0, sizeOfPalette);
-        } else {
-            int bytesToRead = sizeOfPalette;
-            int bytesRead = 0;
-            List<byte[]> bufs = new ArrayList<>();
-            while (bytesToRead != 0) {
-                int sz = Math.min(bytesToRead, UNIT_SIZE);
-                byte[] unit = new byte[sz];
-                iis.readFully(unit, 0, sz);
-                bufs.add(unit);
-                bytesRead += sz;
-                bytesToRead -= sz;
-            }
-            byte[] paletteData = new byte[bytesRead];
-            int copiedBytes = 0;
-            for (byte[] ba : bufs) {
-                System.arraycopy(ba, 0, paletteData, copiedBytes, ba.length);
-                copiedBytes += ba.length;
-            }
-            palette = paletteData;
-        }
+        palette = ReaderUtil.staggeredReadByteStream(iis, sizeOfPalette);
     }
 
     /**
      * Process the image header.
      *
-     * @exception IllegalStateException if source stream is not set.
+     * @throws IllegalStateException if source stream is not set.
      *
-     * @exception IOException if image stream is corrupted.
+     * @throws IOException if image stream is corrupted.
      *
-     * @exception IllegalArgumentException if the image stream does not contain
+     * @throws IllegalArgumentException if the image stream does not contain
      *             a BMP image, or if a sample model instance to describe the
      *             image can not be created.
      */
@@ -652,7 +629,7 @@ public class BMPImageReader extends ImageReader implements BMPConstants {
         if (bitsPerPixel == 0 ||
             compression == BI_JPEG || compression == BI_PNG )
         {
-            // the colorModel and sampleModel will be initialzed
+            // the colorModel and sampleModel will be initialized
             // by the  reader of embedded image
             colorModel = null;
             sampleModel = null;

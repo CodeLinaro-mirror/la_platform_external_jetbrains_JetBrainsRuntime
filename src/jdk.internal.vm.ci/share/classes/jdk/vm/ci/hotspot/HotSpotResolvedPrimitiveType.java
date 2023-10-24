@@ -23,12 +23,16 @@
 package jdk.vm.ci.hotspot;
 
 import static java.util.Objects.requireNonNull;
+import static jdk.vm.ci.hotspot.HotSpotJVMCIRuntime.runtime;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Modifier;
+import java.util.Collections;
+import java.util.List;
 
 import jdk.vm.ci.common.JVMCIError;
 import jdk.vm.ci.common.NativeImageReinitialize;
+import jdk.vm.ci.meta.AnnotationData;
 import jdk.vm.ci.meta.Assumptions.AssumptionResult;
 import jdk.vm.ci.meta.JavaConstant;
 import jdk.vm.ci.meta.JavaKind;
@@ -81,11 +85,11 @@ public final class HotSpotResolvedPrimitiveType extends HotSpotResolvedJavaType 
     }
 
     @Override
-    public HotSpotResolvedObjectType getArrayClass() {
+    HotSpotResolvedObjectTypeImpl getArrayType() {
         if (kind == JavaKind.Void) {
             return null;
         }
-        return super.getArrayClass();
+        return runtime().compilerToVm.getArrayType(getJavaKind().getTypeChar(), null);
     }
 
     @Override
@@ -316,4 +320,15 @@ public final class HotSpotResolvedPrimitiveType extends HotSpotResolvedJavaType 
     JavaConstant getJavaMirror() {
         return mirror;
     }
+
+    @Override
+    public AnnotationData getAnnotationData(ResolvedJavaType type) {
+        return null;
+    }
+
+    @Override
+    public List<AnnotationData> getAnnotationData(ResolvedJavaType type1, ResolvedJavaType type2, ResolvedJavaType... types) {
+        return Collections.emptyList();
+    }
+
 }

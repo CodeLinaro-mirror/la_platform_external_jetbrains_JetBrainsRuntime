@@ -86,7 +86,6 @@ jbrsdk-${jbsdk_version}-osx-aarch64-fastdebug-b${build_number}.tar.gz
 jbrsdk-${jbsdk_version}-osx-x64-fastdebug-b${build_number}.tar.gz
 jbrsdk-${jbsdk_version}-windows-x64-fastdebug-b${build_number}.tar.gz
 
-jbrsdk-${jbsdk_version}-linux-aarch64-b${build_number}_diz.tar.gz
 jbrsdk-${jbsdk_version}-linux-aarch64-fastdebug-b${build_number}_diz.tar.gz
 jbrsdk-${jbsdk_version}-linux-musl-aarch64-b${build_number}_diz.tar.gz
 jbrsdk-${jbsdk_version}-linux-musl-x64-b${build_number}_diz.tar.gz
@@ -106,7 +105,6 @@ jbrsdk_jcef-${jbsdk_version}-osx-x64-b${build_number}.pkg
 jbrsdk_jcef-${jbsdk_version}-osx-x64-b${build_number}.tar.gz
 jbrsdk_jcef-${jbsdk_version}-windows-x64-b${build_number}.tar.gz
 
-jbrsdk_jcef-${jbsdk_version}-linux-aarch64-b${build_number}_diz.tar.gz
 jbrsdk_jcef-${jbsdk_version}-linux-x64-b${build_number}_diz.tar.gz
 jbrsdk_jcef-${jbsdk_version}-osx-aarch64-b${build_number}_diz.tar.gz
 jbrsdk_jcef-${jbsdk_version}-osx-x64-b${build_number}_diz.tar.gz
@@ -138,7 +136,7 @@ done
 if [ $n -eq 0 ]; then
   echo \#\#teamcity[testFinished name=\'$testname\']
 else
-  echo \#\#teamcity[testFailed name=\'$testname\' message=\'There are some incosistency between expected/actual set of artifacts \']
+  echo \#\#teamcity[testFailed name=\'$testname\' message=\'Some artifacts cannot be found\']
 fi
 
 exit $n

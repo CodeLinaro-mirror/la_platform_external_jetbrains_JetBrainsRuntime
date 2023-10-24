@@ -32,6 +32,7 @@ import jdk.internal.org.objectweb.asm.Type;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.lang.reflect.ClassFileFormatVersion;
 import java.lang.reflect.Method;
 
 import static jdk.internal.org.objectweb.asm.Opcodes.*;
@@ -51,11 +52,7 @@ class ASMUtils {
         }
     }
 
-    /**
-     * Replaced with {@code VM.classFileVersion()} in more recent JDK
-     * @see java.lang.invoke.InnerClassLambdaMetafactory#CLASSFILE_VERSION
-     */
-    public static final int CLASSFILE_VERSION = 59;
+    public static final int CLASSFILE_VERSION = ClassFileFormatVersion.latest().major();
 
     public static void generateUnsupportedMethod(ClassVisitor writer, Method interfaceMethod) {
         InternalMethodInfo methodInfo = getInternalMethodInfo(interfaceMethod);
