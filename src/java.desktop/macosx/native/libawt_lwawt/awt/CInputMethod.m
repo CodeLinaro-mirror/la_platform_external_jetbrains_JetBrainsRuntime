@@ -118,6 +118,13 @@ static void initializeInputMethodController() {
     [view setInputMethod:inputMethod]; // inputMethod is a GlobalRef or null to disable.
 }
 
++ (void) _nativeEndComposition:(AWTView *)view {
+    if (view == nil) return;
+
+    [view abandonInput];
+}
+
+
 @end
 
 /*
@@ -179,21 +186,16 @@ JNI_COCOA_EXIT(env);
 /*
  * Class:     sun_lwawt_macosx_CInputMethod
  * Method:    nativeEndComposition
- * Signature: (JLjava/awt/Component;)V
+ * Signature: (J)V
  */
 JNIEXPORT void JNICALL Java_sun_lwawt_macosx_CInputMethod_nativeEndComposition
-(JNIEnv *env, jobject this, jlong nativePeer, jobject component)
+(JNIEnv *env, jobject this, jlong nativePeer)
 {
 JNI_COCOA_ENTER(env);
-    AWTView *view = (AWTView *)jlong_to_ptr(nativePeer);
-    if (!view) return;
-    jobject componentRef = (*env)->NewGlobalRef(env, component);
-    [ThreadUtilities performOnMainThreadWaiting:NO block:^(){
-       [view abandonInput:componentRef];
-       if (componentRef) {
-            JNIEnv *env = [ThreadUtilities getJNIEnv];
-            (*env)->DeleteGlobalRef(env, componentRef);
-       }
+   AWTView *view = (AWTView *)jlong_to_ptr(nativePeer);
+
+   [ThreadUtilities performOnMainThreadWaiting:NO block:^(){
+        [CInputMethod _nativeEndComposition:view];
     }];
 
 JNI_COCOA_EXIT(env);

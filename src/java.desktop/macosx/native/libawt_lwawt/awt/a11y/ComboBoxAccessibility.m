@@ -53,7 +53,7 @@ GET_CACCESSIBILITY_CLASS_RETURN(nil);
         [value release];
         value = nil;
     }
-    value = [[CommonComponentAccessibility createWithAccessible:axSelectedChild withEnv:env withView:fView] retain];
+    value = [CommonComponentAccessibility createWithAccessible:axSelectedChild withEnv:env withView:fView];
     return value;
 }
 
