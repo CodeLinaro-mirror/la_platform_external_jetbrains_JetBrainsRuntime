@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -55,6 +55,10 @@
 #define ATTRIBUTE_SCANF(fmt, vargs)
 #endif
 
+#ifndef PRAGMA_DANGLING_POINTER_IGNORED
+#define PRAGMA_DANGLING_POINTER_IGNORED
+#endif
+
 #ifndef PRAGMA_FORMAT_NONLITERAL_IGNORED
 #define PRAGMA_FORMAT_NONLITERAL_IGNORED
 #endif
@@ -74,6 +78,10 @@
 # define ATTRIBUTE_NO_SANITIZE_ADDRESS(reason_for_exclusion) __attribute__((no_sanitize_address))
 #else
 # define ATTRIBUTE_NO_SANITIZE_ADDRESS(reason_for_exclusion)
+#endif
+
+#ifndef PRAGMA_INFINITE_RECURSION_IGNORED
+#define PRAGMA_INFINITE_RECURSION_IGNORED
 #endif
 
 #endif // SHARE_UTILITIES_COMPILERWARNINGS_HPP

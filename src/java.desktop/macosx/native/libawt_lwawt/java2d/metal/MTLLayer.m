@@ -23,6 +23,7 @@
  * questions.
  */
 
+#import <sys/sysctl.h>
 #import "PropertiesUtilities.h"
 #import "MTLGraphicsConfig.h"
 #import "MTLLayer.h"
@@ -59,6 +60,56 @@ BOOL isColorMatchingEnabled() {
     return (BOOL)colorMatchingEnabled;
 }
 
+BOOL MTLLayer_isM2CPU() {
+    static int m2CPU = -1;
+    if (m2CPU == -1) {
+        char cpuBrandDefaultStr[16];
+        char *cpuBrand = cpuBrandDefaultStr;
+        size_t len;
+        sysctlbyname("machdep.cpu.brand_string", NULL, &len, NULL, 0);
+        if (len >= sizeof(cpuBrandDefaultStr)) {
+            cpuBrand = malloc(len);
+        }
+        sysctlbyname("machdep.cpu.brand_string", cpuBrand, &len, NULL, 0);
+        m2CPU = strstr(cpuBrand, "M2") != NULL;
+
+        J2dRlsTraceLn2(J2D_TRACE_INFO, "MTLLayer_isM2CPU: %d (%s)", m2CPU, cpuBrand);
+
+        if (cpuBrand != cpuBrandDefaultStr) {
+            free(cpuBrand);
+        }
+    }
+    return m2CPU;
+}
+
+BOOL MTLLayer_isSpansDisplays() {
+    static int spansDisplays = -1;
+    if (spansDisplays == -1) {
+        NSUserDefaults * defaults = [NSUserDefaults standardUserDefaults];
+        NSDictionary<NSString*,id> *spaces = [defaults persistentDomainForName:@"com.apple.spaces"];
+        spansDisplays = [(NSNumber*)[spaces valueForKey:@"spans-displays"] intValue];
+        J2dRlsTraceLn1(J2D_TRACE_INFO, "MTLLayer_isSpansDisplays: %d", spansDisplays);
+    }
+    return spansDisplays;
+}
+
+BOOL MTLLayer_isExtraRedrawEnabled() {
+    static int redrawEnabled = -1;
+    if (redrawEnabled == -1) {
+        JNIEnv *env = [ThreadUtilities getJNIEnvUncached];
+        if (env == NULL) return NO;
+        NSString *syncEnabledProp = [PropertiesUtilities javaSystemPropertyForKey:@"sun.java2d.metal.extraRedraw"
+                                                                          withEnv:env];
+        redrawEnabled = [@"false" isCaseInsensitiveLike:syncEnabledProp] ? NO : -1;
+        if (redrawEnabled == -1) {
+            redrawEnabled = [@"true" isCaseInsensitiveLike:syncEnabledProp] ?
+                    YES : MTLLayer_isSpansDisplays() && MTLLayer_isM2CPU();
+        }
+        J2dRlsTraceLn1(J2D_TRACE_INFO, "MTLLayer_isExtraRedrawEnabled: %d", redrawEnabled);
+    }
+    return (BOOL)redrawEnabled;
+}
+
 @implementation MTLLayer
 
 - (id) initWithJavaLayer:(jobject)layer
@@ -87,7 +138,11 @@ BOOL isColorMatchingEnabled() {
     [actions release];
     self.topInset = 0;
     self.leftInset = 0;
-    self.framebufferOnly = YES;
+
+    // Validation with MTL_DEBUG_LAYER=1 environment variable
+    // prohibits blit operations on to the drawable texture
+    // obtained from a MTLLayer with framebufferOnly=YES
+    self.framebufferOnly = NO;
     self.nextDrawableCount = 0;
     self.opaque = YES;
     self.redrawCount = 0;
