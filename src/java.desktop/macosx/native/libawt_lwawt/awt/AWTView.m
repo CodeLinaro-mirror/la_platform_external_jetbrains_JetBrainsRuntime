@@ -35,6 +35,7 @@
 #import "JNIUtilities.h"
 #import "jni_util.h"
 #import "PropertiesUtilities.h"
+#import "sun_lwawt_macosx_CPlatformWindow.h"
 
 #import <Carbon/Carbon.h>
 
@@ -393,7 +394,7 @@ static void debugPrintNSEvent(NSEvent* event, const char* comment) {
                 case kVK_End:
                     // Abandon input to reset IM and unblock input after
                     // canceling input accented symbols
-                    [self abandonInput];
+                    [self abandonInput:nil];
                     break;
             }
         }
@@ -850,7 +851,7 @@ static void debugPrintNSEvent(NSEvent* event, const char* comment) {
 - (BOOL)replaceAccessibleTextSelection:(NSString *)text
 {
     id focused = [self accessibilityFocusedUIElement];
-    if (![focused respondsToSelector:@selector(setAccessibilitySelectedText)]) return NO;
+    if (![focused respondsToSelector:@selector(setAccessibilitySelectedText:)]) return NO;
     [focused setAccessibilitySelectedText:text];
     return YES;
 }
@@ -1096,6 +1097,43 @@ static jclass jc_CInputMethod = NULL;
 #define GET_CIM_CLASS_RETURN(ret) \
     GET_CLASS_RETURN(jc_CInputMethod, "sun/lwawt/macosx/CInputMethod", ret);
 
+- (NSInteger) windowLevel
+{
+#ifdef IM_DEBUG
+    fprintf(stderr, "AWTView InputMethod Selector Called : [windowLevel]\n");
+#endif // IM_DEBUG
+
+    NSWindow* const ownerWindow = [self window];
+    if (ownerWindow == nil) {
+        return NSNormalWindowLevel;
+    }
+
+    const NSWindowLevel ownerWindowLevel = [ownerWindow level];
+    if ( (ownerWindowLevel != NSNormalWindowLevel) && (ownerWindowLevel != NSFloatingWindowLevel) ) {
+        // the window level has been overridden, let's believe it
+        return ownerWindowLevel;
+    }
+
+    AWTWindow* const delegate = (AWTWindow*)[ownerWindow delegate];
+    if (delegate == nil) {
+        return ownerWindowLevel;
+    }
+
+    const jint styleBits = [delegate styleBits];
+
+    const BOOL isPopup = ( (styleBits & sun_lwawt_macosx_CPlatformWindow_IS_POPUP) != 0 );
+    if (isPopup) {
+        return NSPopUpMenuWindowLevel;
+    }
+
+    const BOOL isModal = ( (styleBits & sun_lwawt_macosx_CPlatformWindow_IS_MODAL) != 0 );
+    if (isModal) {
+        return NSFloatingWindowLevel;
+    }
+
+    return ownerWindowLevel;
+}
+
 - (void) insertText:(id)aString replacementRange:(NSRange)replacementRange
 {
 #ifdef IM_DEBUG
@@ -1156,7 +1194,7 @@ static jclass jc_CInputMethod = NULL;
     // Abandon input to reset IM and unblock input after entering accented
     // symbols
 
-    [self abandonInput];
+    [self abandonInput:nil];
 }
 
 + (void)keyboardInputSourceChanged:(NSNotification *)notification
@@ -1250,7 +1288,11 @@ static jclass jc_CInputMethod = NULL;
     }
 }
 
-- (void) unmarkText
+- (void) unmarkText {
+    [self unmarkText:nil];
+}
+
+- (void) unmarkText:(jobject) component
 {
 #ifdef IM_DEBUG
     fprintf(stderr, "AWTView InputMethod Selector Called : [unmarkText]\n");
@@ -1263,8 +1305,8 @@ static jclass jc_CInputMethod = NULL;
     // unmarkText cancels any input in progress and commits it to the text field.
     JNIEnv *env = [ThreadUtilities getJNIEnv];
     GET_CIM_CLASS();
-    DECLARE_METHOD(jm_unmarkText, jc_CInputMethod, "unmarkText", "()V");
-    (*env)->CallVoidMethod(env, fInputMethodLOCKABLE, jm_unmarkText);
+    DECLARE_METHOD(jm_unmarkText, jc_CInputMethod, "unmarkText", "(Ljava/awt/Component;)V");
+    (*env)->CallVoidMethod(env, fInputMethodLOCKABLE, jm_unmarkText, component);
     CHECK_EXCEPTION();
 }
 
@@ -1525,14 +1567,14 @@ static jclass jc_CInputMethod = NULL;
                                              object:nil];
 }
 
-- (void)abandonInput
+- (void)abandonInput:(jobject) component
 {
 #ifdef IM_DEBUG
     fprintf(stderr, "AWTView InputMethod Selector Called : [abandonInput]\n");
 #endif // IM_DEBUG
 
     [ThreadUtilities performOnMainThread:@selector(markedTextAbandoned:) on:[NSInputManager currentInputManager] withObject:self waitUntilDone:YES];
-    [self unmarkText];
+    [self unmarkText:component];
 }
 
 /********************************   END NSTextInputClient Protocol   ********************************/

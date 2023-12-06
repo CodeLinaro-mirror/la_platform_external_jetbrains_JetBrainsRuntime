@@ -35,7 +35,14 @@
 
 class AwtClipboard {
 private:
-    static BOOL isGettingOwnership;
+    // This flag is set while we call EmptyClipboard to indicate to WM_DESTROYCLIPBOARD handler that
+    //     we are not losing ownership
+    // Although the variable's type is LONG, it's supposed to be treated as BOOL,
+    //     with the only possible values TRUE and FALSE.
+    // Also, all accesses to the variable (both reading and writing) MUST be performed using
+    //     Windows Interlocked Variable Access API.
+    // LONG is only used to make sure it's safe to pass the variable to ::Interlocked*** functions.
+    static volatile LONG /* BOOL */ isGettingOwnership;
     static volatile BOOL isClipboardViewerRegistered;
     static volatile jmethodID handleContentsChangedMID;
 
@@ -44,19 +51,40 @@ public:
     static jobject theCurrentClipboard;
 
     INLINE static void GetOwnership() {
-        AwtClipboard::isGettingOwnership = TRUE;
+        (void)::InterlockedExchange(&isGettingOwnership, TRUE);  // isGettingOwnership = TRUE
         VERIFY(EmptyClipboard());
-        AwtClipboard::isGettingOwnership = FALSE;
+        (void)::InterlockedExchange(&isGettingOwnership, FALSE); // isGettingOwnership = FALSE
+        (void)::InterlockedExchange(&isOwner, TRUE);             // isOwner = TRUE;
     }
 
     INLINE static BOOL IsGettingOwnership() {
-        return isGettingOwnership;
+        // Returns the actual value of isGettingOwnership without altering it
+        return ::InterlockedCompareExchange(&isGettingOwnership, TRUE, TRUE) != LONG{FALSE};
     }
 
     static void LostOwnership(JNIEnv *env);
     static void WmClipboardUpdate(JNIEnv *env);
     static void RegisterClipboardViewer(JNIEnv *env, jobject jclipboard);
     static void UnregisterClipboardViewer(JNIEnv *env);
+
+    // ===================== JBR-5980 Pasting from clipboard not working reliably in Windows ==========================
+public:
+    static jmethodID ensureNoOwnedDataMID;
+
+public:
+    static void SetOwnershipExtraChecksEnabled(BOOL enabled);
+    // Checks if ownership has been lost since the last check or the last acquiring of ownership
+    static void ExtraCheckOfOwnership();
+
+private:
+    static volatile BOOL areOwnershipExtraChecksEnabled;
+    // Although the variable's type is LONG, it's supposed to be treated as BOOL,
+    //     with the only possible values TRUE and FALSE.
+    // Also, all accesses to the variable (both reading and writing) MUST be performed using
+    //     Windows Interlocked Variable Access API.
+    // LONG is only used to make sure it's safe to pass the variable to ::Interlocked*** functions.
+    static volatile LONG /* BOOL */ isOwner;
+    // ================================================================================================================
 };
 
 #endif /* AWT_CLIPBOARD_H */

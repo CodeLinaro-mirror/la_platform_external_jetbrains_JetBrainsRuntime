@@ -89,6 +89,7 @@ import java.util.Vector;
 import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
@@ -146,6 +147,8 @@ public abstract class SunToolkit extends Toolkit
      */
     private static final String POST_EVENT_QUEUE_KEY = "PostEventQueue";
 
+    private static final String EVENT_COUNTER_KEY = "jb.postedSystemEventCount";
+
     /**
      * Number of buttons.
      * By default it's taken from the system. If system value does not
@@ -176,6 +179,8 @@ public abstract class SunToolkit extends Toolkit
     private static void initEQ(AppContext appContext) {
         EventQueue eventQueue = new EventQueue();
         appContext.put(AppContext.EVENT_QUEUE_KEY, eventQueue);
+
+        appContext.put(EVENT_COUNTER_KEY, new AtomicLong());
 
         PostEventQueue postEventQueue = new PostEventQueue(eventQueue);
         appContext.put(POST_EVENT_QUEUE_KEY, postEventQueue);
@@ -501,6 +506,7 @@ public abstract class SunToolkit extends Toolkit
                     (PostEventQueue) appContext.get(POST_EVENT_QUEUE_KEY);
             if (postEventQueue != null) {
                 postEventQueue.postEvent(event);
+                ((AtomicLong) appContext.get(EVENT_COUNTER_KEY)).incrementAndGet();
             }
         }
     }
