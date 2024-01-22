@@ -56,6 +56,7 @@
 #include "runtime/stackOverflow.hpp"
 #include "runtime/threads.hpp"
 #include "runtime/threadSMR.hpp"
+#include "runtime/trimNativeHeap.hpp"
 #include "runtime/vmThread.hpp"
 #include "runtime/vmOperations.hpp"
 #include "runtime/vm_version.hpp"
@@ -73,6 +74,10 @@
 #endif
 #if INCLUDE_JVMCI
 #include "jvmci/jvmci.hpp"
+#endif
+
+#ifdef AIX
+#include "loadlib_aix.hpp"
 #endif
 
 #ifndef PRODUCT
@@ -107,6 +112,8 @@ static const char* env_list[] = {
   // All platforms
   "JAVA_HOME", "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "CLASSPATH",
   "PATH", "USERNAME",
+
+  "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "FC_LANG", "FONTCONFIG_USE_MMAP",
 
   // Env variables that are defined on Linux/BSD
   "LD_LIBRARY_PATH", "LD_PRELOAD", "SHELL", "DISPLAY",
@@ -1094,6 +1101,11 @@ void VMError::report(outputStream* st, bool _verbose) {
     print_stack_location(st, _context, continuation);
     st->cr();
 
+  STEP_IF("printing lock stack", _verbose && _thread != nullptr && _thread->is_Java_thread() && LockingMode == LM_LIGHTWEIGHT);
+    st->print_cr("Lock stack of current Java thread (top to bottom):");
+    JavaThread::cast(_thread)->lock_stack().print_on(st);
+    st->cr();
+
   STEP_IF("printing code blobs if possible", _verbose)
     const int printed_capacity = max_error_log_print_code;
     address printed[printed_capacity];
@@ -1287,6 +1299,11 @@ void VMError::report(outputStream* st, bool _verbose) {
 
   STEP_IF("Native Memory Tracking", _verbose)
     MemTracker::error_report(st);
+    st->cr();
+
+  STEP_IF("printing periodic trim state", _verbose)
+    NativeHeapTrimmer::print_state(st);
+    st->cr();
 
   STEP("JNI global references")
   st->print_cr("JNI global refs:");
@@ -1305,7 +1322,6 @@ void VMError::report(outputStream* st, bool _verbose) {
   print_dup_classes(st); // do it separately in case we're low on memory
 
   STEP_IF("printing system", _verbose)
-    st->cr();
     st->print_cr("---------------  S Y S T E M  ---------------");
     st->cr();
 
@@ -1344,6 +1360,8 @@ void VMError::report(outputStream* st, bool _verbose) {
 void VMError::print_vm_info(outputStream* st) {
 
   char buf[O_BUFLEN];
+  AIX_ONLY(LoadedLibraries::reload());
+
   report_vm_version(st, buf, sizeof(buf));
 
   // STEP("printing summary")
@@ -1472,10 +1490,14 @@ void VMError::print_vm_info(outputStream* st) {
   // STEP("Native Memory Tracking")
 
   MemTracker::error_report(st);
+  st->cr();
+
+  // STEP("printing periodic trim state")
+  NativeHeapTrimmer::print_state(st);
+  st->cr();
+
 
   // STEP("printing system")
-
-  st->cr();
   st->print_cr("---------------  S Y S T E M  ---------------");
   st->cr();
 
@@ -1846,6 +1868,7 @@ void VMError::report_and_die(int id, const char* message, const char* detail_fmt
           int e = errno;
           out.print_raw("#\n# Can't open file to dump replay data. Error: ");
           out.print_raw_cr(os::strerror(e));
+          close(fd);
         }
       }
     }

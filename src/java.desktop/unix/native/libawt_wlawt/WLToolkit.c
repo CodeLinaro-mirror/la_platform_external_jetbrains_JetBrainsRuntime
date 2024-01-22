@@ -28,8 +28,10 @@
     #error This file should not be included in headless library
 #endif
 
+#include <WLToolkit.h>
+#include <WLKeyboard.h>
+
 #include <stdbool.h>
-#include <dlfcn.h>
 #include <string.h>
 #include <poll.h>
 #include <errno.h>
@@ -38,14 +40,18 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <time.h>
+#include <dlfcn.h>
+
+#include "gtk-shell1-client-protocol.h"
 
 #include "jvm_md.h"
-#include "jni_util.h"
+#include "JNIUtilities.h"
 #include "awt.h"
 #include "sun_awt_wl_WLToolkit.h"
-#include "WLToolkit.h"
 #include "WLRobotPeer.h"
 #include "WLGraphicsEnvironment.h"
+#include "memory_utils.h"
+#include "java_awt_event_KeyEvent.h"
 
 #ifdef WAKEFIELD_ROBOT
 #include "wakefield-client-protocol.h"
@@ -58,15 +64,23 @@ struct wl_display *wl_display = NULL;
 struct wl_shm *wl_shm = NULL;
 struct wl_compositor *wl_compositor = NULL;
 struct xdg_wm_base *xdg_wm_base = NULL;
+struct xdg_activation_v1 *xdg_activation_v1 = NULL;
+struct gtk_shell1* gtk_shell1 = NULL;
 struct wl_seat     *wl_seat = NULL;
 
 struct wl_keyboard *wl_keyboard;
 struct wl_pointer  *wl_pointer;
 
-struct wl_cursor_theme *wl_cursor_theme = NULL;
+#define MAX_CURSOR_SCALE 100
+struct wl_cursor_theme *cursor_themes[MAX_CURSOR_SCALE] = {NULL};
+
+struct wl_surface *wl_surface_in_focus = NULL;
+struct wl_data_device_manager *wl_ddm = NULL;
+struct zwp_primary_selection_device_manager_v1 *zwp_selection_dm = NULL;
 
 uint32_t last_mouse_pressed_serial = 0;
 uint32_t last_pointer_enter_serial = 0;
+uint32_t last_input_or_focus_serial = 0;
 
 static uint32_t num_of_outstanding_sync = 0;
 
@@ -97,128 +111,10 @@ static jfieldID isButtonPressedFID;
 static jfieldID axis_0_validFID;
 static jfieldID axis_0_valueFID;
 
-static jfieldID keyRepeatRateFID;
-static jfieldID keyRepeatDelayFID;
-
 static jmethodID dispatchKeyboardKeyEventMID;
 static jmethodID dispatchKeyboardModifiersEventMID;
 static jmethodID dispatchKeyboardEnterEventMID;
 static jmethodID dispatchKeyboardLeaveEventMID;
-
-struct xkb_state   *xkb_state;
-struct xkb_context *xkb_context;
-struct xkb_keymap  *xkb_keymap;
-
-typedef uint32_t xkb_mod_mask_t;
-typedef uint32_t xkb_layout_index_t;
-typedef uint32_t xkb_keycode_t;
-typedef uint32_t xkb_keysym_t;
-
-enum xkb_state_component {
-    XKB_STATE_MODS_DEPRESSED = (1 << 0),
-    XKB_STATE_MODS_LATCHED = (1 << 1),
-    XKB_STATE_MODS_LOCKED = (1 << 2),
-    XKB_STATE_MODS_EFFECTIVE = (1 << 3),
-    XKB_STATE_LAYOUT_DEPRESSED = (1 << 4),
-    XKB_STATE_LAYOUT_LATCHED = (1 << 5),
-    XKB_STATE_LAYOUT_LOCKED = (1 << 6),
-    XKB_STATE_LAYOUT_EFFECTIVE = (1 << 7),
-    XKB_STATE_LEDS = (1 << 8)
-};
-
-enum xkb_keymap_format {
-    XKB_KEYMAP_FORMAT_TEXT_V1 = 1
-};
-
-#define XKB_MOD_NAME_SHIFT      "Shift"
-#define XKB_MOD_NAME_CAPS       "Lock"
-#define XKB_MOD_NAME_CTRL       "Control"
-#define XKB_MOD_NAME_ALT        "Mod1"
-#define XKB_MOD_NAME_NUM        "Mod2"
-#define XKB_MOD_NAME_LOGO       "Mod4"
-
-#define XKB_LED_NAME_CAPS       "Caps Lock"
-#define XKB_LED_NAME_NUM        "Num Lock"
-#define XKB_LED_NAME_SCROLL     "Scroll Lock"
-
-static struct {
-    void * handle;
-
-    struct xkb_context * (*xkb_context_new)(int);
-    struct xkb_keymap * (*xkb_keymap_new_from_string)(
-            struct xkb_context *context,
-            const char *string,
-            int format,
-            int flags);
-    void (*xkb_keymap_unref)(struct xkb_keymap *keymap);
-    void (*xkb_state_unref)(struct xkb_state *state);
-    struct xkb_state * (*xkb_state_new)(struct xkb_keymap *keymap);
-    xkb_keysym_t (*xkb_state_key_get_one_sym)(struct xkb_state *state, xkb_keycode_t key);
-    uint32_t (*xkb_state_key_get_utf32)(struct xkb_state *state, xkb_keycode_t key);
-    int (*xkb_state_update_mask)(
-            struct xkb_state *state,
-            xkb_mod_mask_t depressed_mods,
-            xkb_mod_mask_t latched_mods,
-            xkb_mod_mask_t locked_mods,
-            xkb_layout_index_t depressed_layout,
-            xkb_layout_index_t latched_layout,
-            xkb_layout_index_t locked_layout);
-    int (*xkb_state_mod_name_is_active)(
-            struct xkb_state *state,
-            const char *name,
-            enum xkb_state_component type);
-} xkb_ifs;
-
-static inline void
-clear_dlerror(void)
-{
-    (void)dlerror();
-}
-
-static void *
-xkbcommon_bind_sym(JNIEnv *env, const char* sym_name)
-{
-    clear_dlerror();
-    void * sym_addr = dlsym(xkb_ifs.handle, sym_name);
-    if (!sym_addr) {
-        const char *dlsym_error = dlerror();
-        JNU_ThrowByName(env, "java/lang/UnsatisfiedLinkError", dlsym_error);
-    }
-
-    return sym_addr;
-}
-
-#define BIND_XKB_SYM(name)  xkb_ifs.name = xkbcommon_bind_sym(env, #name); \
-                            if (!xkb_ifs.name) return false;
-
-static bool
-xkbcommon_load(JNIEnv *env)
-{
-    void * handle = dlopen(JNI_LIB_NAME("xkbcommon"), RTLD_LAZY | RTLD_LOCAL);
-    if (!handle) {
-        handle = dlopen(VERSIONED_JNI_LIB_NAME("xkbcommon", "0"), RTLD_LAZY | RTLD_LOCAL);
-    }
-    if (!handle) {
-        JNU_ThrowByNameWithMessageAndLastError(env, "java/lang/UnsatisfiedLinkError",
-                                               JNI_LIB_NAME("xkbcommon"));
-        return false;
-    }
-
-    xkb_ifs.handle = handle;
-
-    BIND_XKB_SYM(xkb_context_new);
-    BIND_XKB_SYM(xkb_keymap_new_from_string);
-    BIND_XKB_SYM(xkb_state_key_get_utf32);
-    BIND_XKB_SYM(xkb_keymap_unref);
-    BIND_XKB_SYM(xkb_state_unref);
-    BIND_XKB_SYM(xkb_state_new);
-    BIND_XKB_SYM(xkb_state_key_get_one_sym);
-    BIND_XKB_SYM(xkb_state_key_get_utf32);
-    BIND_XKB_SYM(xkb_state_update_mask);
-    BIND_XKB_SYM(xkb_state_mod_name_is_active);
-
-    return true;
-}
 
 JNIEnv *getEnv() {
     JNIEnv *env;
@@ -418,91 +314,58 @@ static const struct wl_pointer_listener wl_pointer_listener = {
         .axis_discrete = wl_pointer_axis_discrete
 };
 
+
 static void
 wl_keyboard_keymap(void *data, struct wl_keyboard *wl_keyboard, uint32_t format,
-        int32_t fd, uint32_t size)
+                   int32_t fd, uint32_t size)
 {
+    JNIEnv* env = getEnv();
     if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) {
-        JNU_ThrowInternalError(getEnv(),
-                               "wl_keyboard_keymap supplied unknown keymap format");
+        JNU_ThrowInternalError(env, "wl_keyboard_keymap supplied unknown keymap format");
         return;
     }
 
-    char *mapped_data = mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
-    if (mapped_data == MAP_FAILED) {
-        JNU_ThrowInternalError(getEnv(),
-                               "wl_keyboard_keymap: failed to memory-map keymap");
+    char *serializedKeymap = mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
+    if (serializedKeymap == MAP_FAILED) {
+        JNU_ThrowInternalError(env, "wl_keyboard_keymap: failed to memory-map keymap");
         return;
     }
 
-    struct xkb_keymap *new_xkb_keymap = xkb_ifs.xkb_keymap_new_from_string(
-            xkb_context, mapped_data, XKB_KEYMAP_FORMAT_TEXT_V1, 0);
-    munmap(mapped_data, size);
+    wlSetKeymap(serializedKeymap);
+
+    munmap(serializedKeymap, size);
     close(fd);
-
-    xkb_ifs.xkb_keymap_unref(xkb_keymap);
-    xkb_ifs.xkb_state_unref(xkb_state);
-
-    struct xkb_state *new_xkb_state = xkb_ifs.xkb_state_new(new_xkb_keymap);
-    xkb_state = new_xkb_state;
-    xkb_keymap = new_xkb_keymap;
 }
 
 static void
 wl_keyboard_enter(void *data, struct wl_keyboard *wl_keyboard,
                   uint32_t serial, struct wl_surface *surface, struct wl_array *keys)
 {
+    wl_surface_in_focus = surface;
+    last_input_or_focus_serial = serial;
+
     JNIEnv* env = getEnv();
     (*env)->CallStaticVoidMethod(env,
                                  tkClass,
                                  dispatchKeyboardEnterEventMID,
                                  serial, jlong_to_ptr(surface));
     JNU_CHECK_EXCEPTION(env);
-
-    uint32_t *key;
-    wl_array_for_each(key, keys) {
-        const uint32_t scancode = *key + 8;
-        const uint32_t keychar32 = xkb_ifs.xkb_state_key_get_utf32(xkb_state, scancode);
-        const xkb_keysym_t keysym = xkb_ifs.xkb_state_key_get_one_sym(xkb_state, scancode);
-        (*env)->CallStaticVoidMethod(env,
-                                     tkClass,
-                                     dispatchKeyboardKeyEventMID,
-                                     serial,
-                                     0,
-                                     keysym,
-                                     keychar32,
-                                     JNI_TRUE);
-        JNU_CHECK_EXCEPTION(env);
-    }
-
 }
 
 static void
 wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
-                uint32_t serial, uint32_t time, uint32_t evdev_key, uint32_t state)
+                uint32_t serial, uint32_t time, uint32_t keycode, uint32_t state)
 {
-    const uint32_t scancode = evdev_key + 8;
-    const uint32_t keychar32 = xkb_ifs.xkb_state_key_get_utf32(xkb_state, scancode);
-    const xkb_keysym_t keysym = xkb_ifs.xkb_state_key_get_one_sym(xkb_state, scancode);
-
     JNIEnv* env = getEnv();
-    const bool pressed
-            = (state == WL_KEYBOARD_KEY_STATE_PRESSED ? JNI_TRUE : JNI_FALSE);
-    (*env)->CallStaticVoidMethod(env,
-                                 tkClass,
-                                 dispatchKeyboardKeyEventMID,
-                                 serial,
-                                 time,
-                                 keysym,
-                                 keychar32,
-                                 pressed);
-    JNU_CHECK_EXCEPTION(env);
+    wlSetKeyState(time, keycode, state ? true : false);
 }
 
 static void
 wl_keyboard_leave(void *data, struct wl_keyboard *wl_keyboard,
                   uint32_t serial, struct wl_surface *surface)
 {
+    wl_surface_in_focus = NULL;
+
     JNIEnv* env = getEnv();
     (*env)->CallStaticVoidMethod(env,
                                  tkClass,
@@ -518,54 +381,14 @@ wl_keyboard_modifiers(void *data, struct wl_keyboard *wl_keyboard,
                       uint32_t mods_latched, uint32_t mods_locked,
                       uint32_t group)
 {
-    xkb_ifs.xkb_state_update_mask(xkb_state,
-                                  mods_depressed,
-                                  mods_latched,
-                                  mods_locked,
-                                  0,
-                                  0,
-                                  group);
+    wlSetModifiers(mods_depressed, mods_latched, mods_locked, group);
 
     JNIEnv* env = getEnv();
-
-    const bool is_shift_active
-        = xkb_ifs.xkb_state_mod_name_is_active(xkb_state,
-                                               XKB_MOD_NAME_SHIFT,
-                                               XKB_STATE_MODS_EFFECTIVE);
-    // This event for ALT gets delivered only after the key has been released already.
-    const bool is_alt_active
-        = xkb_ifs.xkb_state_mod_name_is_active(xkb_state,
-                                               XKB_MOD_NAME_ALT,
-                                               XKB_STATE_MODS_EFFECTIVE);
-    const bool is_ctrl_active
-        = xkb_ifs.xkb_state_mod_name_is_active(xkb_state,
-                                               XKB_MOD_NAME_CTRL,
-                                               XKB_STATE_MODS_EFFECTIVE);
-    const bool is_meta_active
-        = xkb_ifs.xkb_state_mod_name_is_active(xkb_state,
-                                               XKB_MOD_NAME_LOGO,
-                                               XKB_STATE_MODS_EFFECTIVE);
-
-    const bool is_caps_active
-        = xkb_ifs.xkb_state_mod_name_is_active(xkb_state,
-                                               XKB_MOD_NAME_CAPS,
-                                               XKB_STATE_MODS_EFFECTIVE);
-
-    const bool is_num_active
-            = xkb_ifs.xkb_state_mod_name_is_active(xkb_state,
-                                                   XKB_MOD_NAME_NUM,
-                                                   XKB_STATE_MODS_EFFECTIVE);
 
     (*env)->CallStaticVoidMethod(env,
                                  tkClass,
                                  dispatchKeyboardModifiersEventMID,
-                                 serial,
-                                 is_shift_active,
-                                 is_alt_active,
-                                 is_ctrl_active,
-                                 is_meta_active,
-                                 is_caps_active,
-                                 is_num_active);
+                                 serial);
     JNU_CHECK_EXCEPTION(env);
 }
 
@@ -573,12 +396,28 @@ static void
 wl_keyboard_repeat_info(void *data, struct wl_keyboard *wl_keyboard,
                         int32_t rate, int32_t delay)
 {
-    JNIEnv* env = getEnv();
     if (rate > 0 && delay > 0) {
-        (*env)->SetStaticIntField(env, tkClass, keyRepeatRateFID, rate);
-        (*env)->SetStaticIntField(env, tkClass, keyRepeatDelayFID, delay);
+        wlSetRepeatInfo(rate, delay);
     }
-    J2dTrace2(J2D_TRACE_INFO, "WLToolkit: set keyboard repeat rate %d and delay %d\n", rate, delay);
+}
+
+void
+wlPostKeyEvent(const struct WLKeyEvent* event)
+{
+    JNIEnv* env = getEnv();
+    (*env)->CallStaticVoidMethod(
+            env,
+            tkClass,
+            dispatchKeyboardKeyEventMID,
+            event->timestamp,
+            event->id,
+            event->keyCode,
+            event->keyLocation,
+            event->rawCode,
+            event->extendedKeyCode,
+            event->keyChar
+    );
+    JNU_CHECK_EXCEPTION(env);
 }
 
 static const struct wl_keyboard_listener wl_keyboard_listener = {
@@ -638,6 +477,8 @@ process_new_listener_before_end_of_init() {
     // are delivered in-order, this can be used as a barrier to ensure all previous
     // requests and the resulting events have been handled."
     struct wl_callback *callback = wl_display_sync(wl_display);
+    if (callback == NULL) return;
+
     wl_callback_add_listener(callback,
                              &display_sync_listener,
                              callback);
@@ -658,31 +499,49 @@ registry_global(void *data, struct wl_registry *wl_registry,
     } else if (strcmp(interface, wl_compositor_interface.name) == 0) {
         wl_compositor = wl_registry_bind(wl_registry, name, &wl_compositor_interface, 4);
     } else if (strcmp(interface, xdg_wm_base_interface.name) == 0) {
-        xdg_wm_base = wl_registry_bind(wl_registry, name, &xdg_wm_base_interface, 1);
-        xdg_wm_base_add_listener(xdg_wm_base, &xdg_wm_base_listener, NULL);
-        process_new_listener_before_end_of_init();
+        // Need version 3, but can work with version 1.
+        // The version will be checked at the point of use.
+        int wm_base_version = MIN(3, version);
+        xdg_wm_base = wl_registry_bind(wl_registry, name, &xdg_wm_base_interface, wm_base_version);
+        if (xdg_wm_base != NULL) {
+            xdg_wm_base_add_listener(xdg_wm_base, &xdg_wm_base_listener, NULL);
+            process_new_listener_before_end_of_init();
+        }
     } else if (strcmp(interface, wl_seat_interface.name) == 0) {
         wl_seat = wl_registry_bind(wl_registry, name, &wl_seat_interface, 5);
-        wl_seat_add_listener(wl_seat, &wl_seat_listener, NULL);
-        process_new_listener_before_end_of_init();
+        if (wl_seat != NULL) {
+            wl_seat_add_listener(wl_seat, &wl_seat_listener, NULL);
+            process_new_listener_before_end_of_init();
+        }
     } else if (strcmp(interface, wl_output_interface.name) == 0) {
         WLOutputRegister(wl_registry, name);
         process_new_listener_before_end_of_init();
+    } else if (strcmp(interface, xdg_activation_v1_interface.name) == 0) {
+        xdg_activation_v1 = wl_registry_bind(wl_registry, name, &xdg_activation_v1_interface, 1);
+    } else if (strcmp(interface, gtk_shell1_interface.name) == 0) {
+        gtk_shell1 = wl_registry_bind(wl_registry, name, &gtk_shell1_interface, 1);
+    } else if (strcmp(interface, wl_data_device_manager_interface.name) == 0) {
+      wl_ddm = wl_registry_bind(wl_registry, name,&wl_data_device_manager_interface, 3);
+    } else if (strcmp(interface, zwp_primary_selection_device_manager_v1_interface.name) == 0) {
+        zwp_selection_dm = wl_registry_bind(wl_registry, name, &zwp_primary_selection_device_manager_v1_interface, 1);
     }
+
 #ifdef WAKEFIELD_ROBOT
     else if (strcmp(interface, wakefield_interface.name) == 0) {
         wakefield = wl_registry_bind(wl_registry, name, &wakefield_interface, 1);
-        wakefield_add_listener(wakefield, &wakefield_listener, NULL);
-        robot_queue = wl_display_create_queue(wl_display);
-        if (robot_queue == NULL) {
-            J2dTrace(J2D_TRACE_ERROR, "WLToolkit: Failed to create wakefield robot queue\n");
-            wakefield_destroy(wakefield);
-            wakefield = NULL;
-        } else {
-            wl_proxy_set_queue((struct wl_proxy*)wakefield, robot_queue);
+        if (wakefield != NULL) {
+            wakefield_add_listener(wakefield, &wakefield_listener, NULL);
+            robot_queue = wl_display_create_queue(wl_display);
+            if (robot_queue == NULL) {
+                J2dTrace(J2D_TRACE_ERROR, "WLToolkit: Failed to create wakefield robot queue\n");
+                wakefield_destroy(wakefield);
+                wakefield = NULL;
+            } else {
+                wl_proxy_set_queue((struct wl_proxy*)wakefield, robot_queue);
+            }
+            // TODO: call before destroying the display:
+            //  wl_event_queue_destroy(robot_queue);
         }
-        // TODO: call before destroying the display:
-        //  wl_event_queue_destroy(robot_queue);
     }
 #endif
 }
@@ -784,35 +643,17 @@ initJavaRefs(JNIEnv *env, jclass clazz)
                       JNI_FALSE);
     CHECK_NULL_RETURN(dispatchKeyboardKeyEventMID = (*env)->GetStaticMethodID(env, tkClass,
                                                                               "dispatchKeyboardKeyEvent",
-                                                                              "(JJJIZ)V"),
+                                                                              "(JIIIIIC)V"),
                       JNI_FALSE);
     CHECK_NULL_RETURN(dispatchKeyboardModifiersEventMID = (*env)->GetStaticMethodID(env, tkClass,
                                                                                     "dispatchKeyboardModifiersEvent",
-                                                                                    "(JZZZZZZ)V"),
-                      JNI_FALSE);
-
-    CHECK_NULL_RETURN(keyRepeatRateFID = (*env)->GetStaticFieldID(env, tkClass,
-                                                                  "keyRepeatRate", "I"),
-                      JNI_FALSE);
-    CHECK_NULL_RETURN(keyRepeatDelayFID = (*env)->GetStaticFieldID(env, tkClass,
-                                                                   "keyRepeatDelay", "I"),
+                                                                                    "(J)V"),
                       JNI_FALSE);
 
     jclass wlgeClass = (*env)->FindClass(env, "sun/awt/wl/WLGraphicsEnvironment");
     CHECK_NULL_RETURN(wlgeClass, JNI_FALSE);
 
     return WLGraphicsEnvironment_initIDs(env, wlgeClass);
-}
-
-static bool
-initXKB(JNIEnv* env)
-{
-    if (!xkbcommon_load(env)) {
-        return false;
-    }
-
-    xkb_context = xkb_ifs.xkb_context_new(0);
-    return true;
 }
 
 // Reading cursor theme/size using 'gsettings' command line tool proved to be faster than initializing GTK and reading
@@ -830,8 +671,12 @@ readDesktopProperty(const char* name, char *output, int outputSize) {
     return pclose(fd) ? NULL : res;
 }
 
-static void
-initCursors() {
+struct wl_cursor_theme*
+getCursorTheme(int scale) {
+    if (cursor_themes[scale]) {
+        return cursor_themes[scale];
+    }
+
     char *theme_name;
     int theme_size = 0;
     char buffer[256];
@@ -859,10 +704,17 @@ initCursors() {
         }
     }
 
-    wl_cursor_theme = wl_cursor_theme_load(theme_name, theme_size, wl_shm);
-    if (!wl_cursor_theme) {
+    if (scale >= MAX_CURSOR_SCALE) {
+        J2dTrace(J2D_TRACE_ERROR, "WLToolkit: Reach the maximum scale for cursor theme\n");
+        return NULL;
+    }
+
+    cursor_themes[scale] = wl_cursor_theme_load(theme_name, theme_size * scale, wl_shm);
+    if (!cursor_themes[scale]) {
         J2dTrace(J2D_TRACE_ERROR, "WLToolkit: Failed to load cursor theme\n");
     }
+    
+    return cursor_themes[scale];
 }
 
 static void
@@ -897,11 +749,12 @@ Java_sun_awt_wl_WLToolkit_initIDs
         return;
     }
 
-    if (!initXKB(env)) {
-        return;  // an exception has been thrown already
+    struct wl_registry *wl_registry = wl_display_get_registry(wl_display);
+    if (wl_registry == NULL) {
+        JNU_ThrowByName(env, "java/awt/AWTError", "Failed to obtain Wayland registry");
+        return;
     }
 
-    struct wl_registry *wl_registry = wl_display_get_registry(wl_display);
     wl_registry_add_listener(wl_registry, &wl_registry_listener, NULL);
     // Process info about Wayland globals here; maybe register more handlers that
     // will have to be processed later in finalize_init().
@@ -911,8 +764,6 @@ Java_sun_awt_wl_WLToolkit_initIDs
     }
 
     J2dTrace1(J2D_TRACE_INFO, "WLToolkit: Connection to display(%p) established\n", wl_display);
-
-    initCursors();
 
     finalizeInit(env);
 }
@@ -951,6 +802,9 @@ wlFlushToServer(JNIEnv *env)
 
     while (true) {
         errno = 0;
+        // From Wayland code: "if all data could not be written, errno will be set
+        // to EAGAIN and -1 returned. In that case, use poll on the display
+        // file descriptor to wait for it to become writable again."
         rc = wl_display_flush(wl_display);
         if (rc != -1 || errno != EAGAIN) {
             break;
@@ -1232,59 +1086,6 @@ Java_sun_awt_SunToolkit_closeSplashScreen(JNIEnv *env, jclass cls)
 void awt_output_flush()
 {
     wlFlushToServer(getEnv());
-}
-
-static void
-RandomName(char *buf) {
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    long r = ts.tv_nsec;
-    while (*buf) {
-        *buf++ = 'A' + (r & 15) + (r & 16) * 2;
-        r >>= 5;
-    }
-}
-
-static int
-CreateSharedMemoryFile(const char* baseName) {
-    // constructing the full name of the form /baseName-XXXXXX
-    int baseLen = strlen(baseName);
-    char *name = (char*) malloc(baseLen + 9);
-    if (!name)
-        return -1;
-    name[0] = '/';
-    strcpy(name + 1, baseName);
-    strcpy(name + baseLen + 1, "-XXXXXX");
-
-    int retries = 100;
-    do {
-        RandomName(name + baseLen + 2);
-        --retries;
-        int fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0600);
-        if (fd >= 0) {
-            shm_unlink(name);
-            free(name);
-            return fd;
-        }
-    } while (retries > 0 && errno == EEXIST);
-    free(name);
-    return -1;
-}
-
-static int
-AllocateSharedMemoryFile(size_t size, const char* baseName) {
-    int fd = CreateSharedMemoryFile(baseName);
-    if (fd < 0)
-        return -1;
-    int ret;
-    do {
-        ret = ftruncate(fd, size);
-    } while (ret < 0 && errno == EINTR);
-    if (ret < 0) {
-        close(fd);
-        return -1;
-    }
-    return fd;
 }
 
 struct wl_shm_pool *CreateShmPool(size_t size, const char *name, void **data) {

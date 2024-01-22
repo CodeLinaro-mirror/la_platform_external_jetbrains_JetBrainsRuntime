@@ -55,12 +55,12 @@ public class WLFramePeer extends WLDecoratedPeer implements FramePeer {
 
 //    @Override
 //    public void beginLayout() {
-//        log.info("Not implemented: WLFramePeer.beginLayout()");
+//        log.fine("Not implemented: WLFramePeer.beginLayout()");
 //    }
 //
 //    @Override
 //    public void endLayout() {
-//        log.info("Not implemented: WLFramePeer.endLayout()");
+//        log.fine("Not implemented: WLFramePeer.endLayout()");
 //    }
 
     @Override
@@ -128,21 +128,16 @@ public class WLFramePeer extends WLDecoratedPeer implements FramePeer {
     }
 
     @Override
-    public void toFront() {
-        //throw new UnsupportedOperationException();
-    }
-
-    @Override
     public void toBack() {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    void notifyConfigured(int newWidth, int newHeight, boolean active, boolean maximized) {
+    void notifyConfigured(int newX, int newY, int newWidth, int newHeight, boolean active, boolean maximized) {
         int widthBefore = getWidth();
         int heightBefore = getHeight();
-
-        super.notifyConfigured(newWidth, newHeight, active, maximized);
+        
+        super.notifyConfigured(newX, newY, newWidth, newHeight, active, maximized);
 
         synchronized (getStateLock()) {
             int oldState = state;

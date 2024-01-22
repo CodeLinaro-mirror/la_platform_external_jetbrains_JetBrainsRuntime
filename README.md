@@ -21,11 +21,13 @@ can be found on the [releases page](https://github.com/JetBrains/JetBrainsRuntim
 
 ## Releases based on JDK 17
 
-| IDE Version | Latest JBR                                                                                             | Date Released |
-|-------------|--------------------------------------------------------------------------------------------------------|---------------|
-| 2023.1      | [17.0.6-b829.5](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.6b829.5)   | 01-Mar-2023   |
-| 2022.3      | [17.0.6-b653.34](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.6b653.34) | 28-Feb-2023   |
-| 2022.2      | [17.0.6-b469.82](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.6b469.82) | 06-Mar-2023   |
+| IDE Version | Latest JBR                                                                                              | Date Released |
+|-------------|---------------------------------------------------------------------------------------------------------|---------------|
+| 2023.3      | [17.0.9b1087.7](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.9b1087.7)   | 20-Nov-2023   |
+| 2023.2      | [17.0.9b1000.46](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.9b1000.46) | 01-Nov-2023   | 
+| 2023.1      | [17.0.6-b829.5](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.6b829.5)    | 01-Mar-2023   |
+| 2022.3      | [17.0.6-b653.34](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.6b653.34)  | 28-Feb-2023   |
+| 2022.2      | [17.0.6-b469.82](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-17.0.6b469.82)  | 06-Mar-2023   |
 
 ## Releases based on JDK 11
 
@@ -124,8 +126,8 @@ $ docker run -v `pwd`../../../../:/JetBrainsRuntime -it 942ea9900054
 ### Ubuntu Linux
 Install the necessary tools, libraries, and headers with:
 ```
-$ sudo apt-get install autoconf make build-essential libx11-dev libxext-dev libxrender-dev libxtst-dev \
-       libxt-dev libxrandr-dev libcups2-dev libfontconfig1-dev libasound2-dev
+$ sudo apt-get install autoconf make build-essential libwayland-dev libx11-dev libxext-dev libxrender-dev \
+       libxtst-dev libxt-dev libxrandr-dev libcups2-dev libfontconfig1-dev libasound2-dev
 ```
 Get Java 19 (for instance, [Azul Zulu Builds of OpenJDK 19](https://www.azul.com/downloads/?version=java-19-sts&os=linux&package=jdk)).
 

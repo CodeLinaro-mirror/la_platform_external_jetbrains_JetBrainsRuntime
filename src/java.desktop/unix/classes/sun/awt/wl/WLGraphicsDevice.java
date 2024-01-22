@@ -27,17 +27,20 @@
 package sun.awt.wl;
 
 import sun.awt.AWTAccessor;
-import sun.awt.DisplayChangedListener;
 import sun.java2d.vulkan.WLVKGraphicsConfig;
 
-import java.awt.*;
-import java.util.ArrayList;
+import java.awt.GraphicsConfiguration;
+import java.awt.GraphicsDevice;
+import java.awt.Insets;
+import java.awt.Rectangle;
+import java.awt.Window;
 
 /**
  * Corresponds to Wayland's output and is identified by its wlID and x, y coordinates
  * in the multi-monitor setup. Whenever those change, this device is re-created.
  */
 public class WLGraphicsDevice extends GraphicsDevice {
+    private static final double MM_IN_INCH = 25.4;
     /**
      *  ID of the corresponding wl_output object received from Wayland.
      */
@@ -59,13 +62,21 @@ public class WLGraphicsDevice extends GraphicsDevice {
      */
     private volatile int y; // only changes when the device gets invalidated
 
-    private final java.util.List<WLComponentPeer> peers = new ArrayList<>();
-    private volatile WLGraphicsConfig config = null;
+    private final int widthMm;
+    private final int heightMm;
 
-    private WLGraphicsDevice(int id, int x, int y) {
+    // Configs are always the same in size and scale
+    private volatile GraphicsConfiguration[] configs = null;
+
+    // The default config is an object from the configs array
+    private volatile WLGraphicsConfig defaultConfig = null;
+
+    private WLGraphicsDevice(int id, int x, int y, int widthMm, int heightMm) {
         this.wlID = id;
         this.x = x;
         this.y = y;
+        this.widthMm = widthMm;
+        this.heightMm = heightMm;
     }
 
     int getID() {
@@ -73,13 +84,30 @@ public class WLGraphicsDevice extends GraphicsDevice {
     }
 
     void updateConfiguration(String name, int width, int height, int scale) {
-        this.name = name == null ? "wl_output." + wlID : name;
+        this.name = name;
+
+        WLGraphicsConfig config = defaultConfig;
+        // Note that all configs are of equal size and scale
         if (config == null || config.differsFrom(width, height, scale)) {
+            GraphicsConfiguration[] newConfigs;
+            WLGraphicsConfig newDefaultConfig;
             // It is necessary to create a new object whenever config changes as its
             // identity is used to detect changes in scale, among other things.
-            config = WLGraphicsEnvironment.isVulkanEnabled() ?
-                    WLVKGraphicsConfig.getConfig(this, width, height, scale) :
-                    new WLGraphicsConfig(this, width, height, scale);
+            if (WLGraphicsEnvironment.isVulkanEnabled()) {
+                newDefaultConfig = WLVKGraphicsConfig.getConfig(this, width, height, scale);
+                newConfigs = new GraphicsConfiguration[1];
+                newConfigs[0] = newDefaultConfig;
+            } else {
+                // TODO: Actually, Wayland may support a lot more shared memory buffer configurations, need to
+                //   subscribe to the wl_shm:format event and get the list from there.
+                newDefaultConfig = WLSMGraphicsConfig.getConfig(this, width, height, scale, false);
+                newConfigs = new GraphicsConfiguration[2];
+                newConfigs[0] = newDefaultConfig;
+                newConfigs[1] = WLSMGraphicsConfig.getConfig(this, width, height, scale, true);
+            }
+
+            configs = newConfigs;
+            defaultConfig = newDefaultConfig;
         }
     }
 
@@ -93,13 +121,17 @@ public class WLGraphicsDevice extends GraphicsDevice {
         this.x = similarDevice.x;
         this.y = similarDevice.y;
 
-        final int newScale = similarDevice.getScale();
-        final Rectangle newBounds = similarDevice.config.getBounds();
+        int newScale = similarDevice.getScale();
+        Rectangle newBounds = similarDevice.defaultConfig.getBounds();
         updateConfiguration(similarDevice.name, newBounds.width, newBounds.height, newScale);
     }
 
-    public static WLGraphicsDevice createWithConfiguration(int id, String name, int x, int y, int width, int height, int scale) {
-        final WLGraphicsDevice device = new WLGraphicsDevice(id, x, y);
+    public static WLGraphicsDevice createWithConfiguration(int id, String name,
+                                                           int x, int y,
+                                                           int width, int height,
+                                                           int widthMm, int heightMm,
+                                                           int scale) {
+        WLGraphicsDevice device = new WLGraphicsDevice(id, x, y, widthMm, heightMm);
         device.updateConfiguration(name, width, height, scale);
         return device;
     }
@@ -108,16 +140,22 @@ public class WLGraphicsDevice extends GraphicsDevice {
      * Compares the identity of this device with the given attributes
      * and returns true iff the attributes identify the same device.
      */
-    public boolean isSameDeviceAs(int wlID, int x, int y) {
+    boolean isSameDeviceAs(int wlID, int x, int y) {
         return this.wlID == wlID && this.x == x && this.y == y;
     }
 
-    public boolean hasSameNameAs(WLGraphicsDevice otherDevice) {
-        return name != null && otherDevice.name != null && name.equals(otherDevice.name);
+    boolean hasSameNameAs(WLGraphicsDevice otherDevice) {
+        var localName = name;
+        var otherName = otherDevice.name;
+        return localName != null && localName.equals(otherName);
     }
 
-    public boolean hasSameSizeAs(WLGraphicsDevice modelDevice) {
-        return config != null && modelDevice.config != null && config.getBounds().equals(modelDevice.config.getBounds());
+    boolean hasSameSizeAs(WLGraphicsDevice modelDevice) {
+        var config = defaultConfig;
+        var modelConfig = modelDevice.defaultConfig;
+        return config != null
+                && modelConfig != null
+                && config.getBounds().equals(modelConfig.getBounds());
     }
 
     @Override
@@ -136,17 +174,38 @@ public class WLGraphicsDevice extends GraphicsDevice {
         // "Non-current modes are deprecated. A compositor can decide to only
         //	advertise the current mode and never send other modes. Clients
         //	should not rely on non-current modes."
-        // So there is just one config, always.
-        return new GraphicsConfiguration[] {config};
+        // So there's always the same set of configs.
+        return configs.clone();
     }
 
     @Override
     public GraphicsConfiguration getDefaultConfiguration() {
-        return config;
+        return defaultConfig;
     }
 
     int getScale() {
-        return config.getScale();
+        return defaultConfig.getScale();
+    }
+
+    int getResolution() {
+        Rectangle bounds = defaultConfig.getBounds();
+        if (bounds.width == 0 || bounds.height == 0) return 0;
+
+        double diagonalPixel = Math.sqrt(bounds.width * bounds.width + bounds.height * bounds.height);
+        double diagonalMm = Math.sqrt(widthMm * widthMm + heightMm * heightMm);
+        return (int) (diagonalPixel / diagonalMm * MM_IN_INCH);
+    }
+
+    int getResolutionX(WLGraphicsConfig config) {
+        Rectangle bounds = config.getBounds();
+        if (bounds.width == 0) return 0;
+        return (int)((double)bounds.width / widthMm * MM_IN_INCH);
+    }
+
+    int getResolutionY(WLGraphicsConfig config) {
+        Rectangle bounds = config.getBounds();
+        if (bounds.height == 0) return 0;
+        return (int)((double)bounds.height / heightMm * MM_IN_INCH);
     }
 
     @Override
@@ -160,9 +219,15 @@ public class WLGraphicsDevice extends GraphicsDevice {
             return;
         }
 
+        boolean fsSupported = isFullScreenSupported();
+        if (fsSupported && old != null) {
+            // enter windowed mode and restore original display mode
+            exitFullScreenExclusive(old);
+        }
+
         super.setFullScreenWindow(w);
 
-        if (isFullScreenSupported()) {
+        if (fsSupported) {
             if (w != null) {
                 enterFullScreenExclusive(w);
             } else {
@@ -197,6 +262,13 @@ public class WLGraphicsDevice extends GraphicsDevice {
 
     @Override
     public String toString() {
-        return String.format("WLGraphicsDevice: id=%d at (%d, %d) with %s", wlID, x, y, config);
+        var config = defaultConfig;
+        return String.format("WLGraphicsDevice: '%s' id=%d at (%d, %d) with %s",
+                name, wlID, x, y,
+                config != null ? config : "<no configs>");
+    }
+
+    public Insets getInsets() {
+        return new Insets(0, 0, 0, 0);
     }
 }

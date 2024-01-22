@@ -50,18 +50,18 @@ typedef uint32_t pixel_t;
 
 /**
  * Create a WayLand Surface Buffer Manager for a surface of size width x height
- * pixels with the background color rgb.
+ * pixels with the given background 32-bit pixel value and wl_shm_format.
  *
  * At least two buffers are associated with the manager:
- * - a drawing buffer that SurfaceDataOps operate with (see WLSurfaceData.c) and
- * - a displaying buffer that is essentially wl_buffer attached to wl_surface.
+ * - a drawing buffer that SurfaceDataOps operate with (see WLSMSurfaceData.c) and
+ * - one or more displaying buffer(s) that is essentially wl_buffer attached to wl_surface.
  *
  * Wayland displays pixels from the displaying buffer and we draw pixels to
  * the drawing buffer. The manager is responsible for timely copying from
  * the drawing to displaying buffer, synchronization, and sending
  * the appropriate notifications to Wayland.
  */
-WLSurfaceBufferManager * WLSBM_Create(jint width, jint height, jint scale, jint rgb);
+WLSurfaceBufferManager * WLSBM_Create(jint width, jint height, jint scale, jint bgPixel, jint wlShmFormat);
 
 /**
  * Free all resources allocated for the WayLand Surface Buffer Manager,
@@ -76,6 +76,14 @@ void WLSBM_Destroy(WLSurfaceBufferManager *);
  */
 void WLSBM_SurfaceAssign(WLSurfaceBufferManager *, struct wl_surface *);
 
+/**
+ * Arrange to send the current drawing buffer to the Wayland server
+ * to show on the screen.
+ * If the attempt to send the buffer immediately fails (for example,
+ * because the drawing buffer is still locked or there's nothing
+ * new to send), arranges a re-try at the next 'frame' event
+ * from Wayland.
+ */
 void WLSBM_SurfaceCommit(WLSurfaceBufferManager *);
 
 /**

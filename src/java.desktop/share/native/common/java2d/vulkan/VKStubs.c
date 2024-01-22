@@ -28,11 +28,7 @@
 #ifndef VULKAN_ENABLED
 #include "jni.h"
 
-jboolean VK_Init() {
-    return 0;
-}
-
-jint VK_MaxTextureSize() {
+jboolean VK_Init(jboolean verbose, jint requestedDevice) {
     return 0;
 }
 

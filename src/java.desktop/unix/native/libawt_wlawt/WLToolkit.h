@@ -26,6 +26,10 @@
 #include <wayland-client.h>
 #include <wayland-cursor.h>
 #include "xdg-shell-client-protocol.h"
+#include "xdg-activation-v1-client-protocol.h"
+#include "primary-selection-client-protocol.h"
+#include "jvm_md.h"
+#include "jni_util.h"
 
 #define CHECK_NULL_THROW_OOME_RETURN(env, x, msg, z)\
     do {                                        \
@@ -43,18 +47,29 @@
         }                                       \
     } while(0)                                  \
 
+struct gtk_shell1;
+
 extern struct wl_seat *wl_seat;
 extern struct wl_display *wl_display;
 extern struct wl_pointer *wl_pointer;
 extern struct wl_compositor *wl_compositor;
 extern struct xdg_wm_base *xdg_wm_base;
+extern struct xdg_activation_v1 *xdg_activation_v1;
+extern struct gtk_shell1* gtk_shell1; // optional, check for NULL before use
+
 extern struct wl_cursor_theme *wl_cursor_theme;
+extern struct wl_data_device_manager *wl_ddm;
+extern struct zwp_primary_selection_device_manager_v1 *zwp_selection_dm;
+
+extern struct wl_surface *wl_surface_in_focus;
 
 extern uint32_t last_mouse_pressed_serial;
 extern uint32_t last_pointer_enter_serial;
+extern uint32_t last_input_or_focus_serial;
 
 JNIEnv *getEnv();
 
 int wlFlushToServer(JNIEnv* env);
+struct wl_cursor_theme *getCursorTheme(int scale);
 
 struct wl_shm_pool *CreateShmPool(size_t size, const char *name, void **data);

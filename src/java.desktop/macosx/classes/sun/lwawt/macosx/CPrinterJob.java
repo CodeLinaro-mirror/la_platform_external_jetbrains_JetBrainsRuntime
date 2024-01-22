@@ -30,6 +30,7 @@ import java.awt.*;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.awt.print.*;
+import java.io.File;
 import java.net.URI;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
@@ -45,6 +46,7 @@ import javax.print.attribute.standard.MediaPrintableArea;
 import javax.print.attribute.standard.MediaSize;
 import javax.print.attribute.standard.MediaSizeName;
 import javax.print.attribute.standard.PageRanges;
+import javax.print.attribute.standard.Sides;
 import javax.print.attribute.Attribute;
 
 import sun.java2d.*;
@@ -183,6 +185,15 @@ public final class CPrinterJob extends RasterPrinterJob {
 
         if (attributes == null) {
             return;
+        }
+        if (getPrintService() == null && isPrintToFile) {
+            Destination destination = (Destination)attributes.get(Destination.class);
+            if (destination != null) {
+                try {
+                    destinationAttr = "" + new File(destination.getURI().getSchemeSpecificPart());
+                } catch (Exception e) {
+                }
+            }
         }
         Attribute attr = attributes.get(Media.class);
         if (attr instanceof CustomMediaTray) {
@@ -682,6 +693,24 @@ public final class CPrinterJob extends RasterPrinterJob {
                     page.getImageableWidth(),
                     page.getImageableHeight());
         return pageFormatArea;
+    }
+
+    private int getSides() {
+        return (this.sidesAttr == null) ? -1 : this.sidesAttr.getValue();
+    }
+
+    private void setSides(int sides) {
+        if (attributes == null) {
+            return;
+        }
+
+        final Sides[] sidesTable = new Sides[] {Sides.ONE_SIDED, Sides.TWO_SIDED_LONG_EDGE, Sides.TWO_SIDED_SHORT_EDGE};
+
+        if (sides >= 0 && sides < sidesTable.length) {
+            Sides s = sidesTable[sides];
+            attributes.add(s);
+            this.sidesAttr = s;
+        }
     }
 
     private boolean cancelCheck() {

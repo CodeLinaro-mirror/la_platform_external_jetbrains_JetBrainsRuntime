@@ -34,6 +34,9 @@ AC_DEFUN_ONCE([LIB_SETUP_WAYLAND],
       (expecting the headers under PATH/include)])])
   AC_ARG_WITH(wayland-include, [AS_HELP_STRING([--with-wayland-include],
       [specify directory for the wayland include files])])
+  AC_ARG_WITH(wayland-lib, [AS_HELP_STRING([--with-wayland-lib],
+      [specify directory for the wayland library files])])
+
 
   if test "x$NEEDS_LIB_WAYLAND" = xfalse; then
     if (test "x${with_wayland}" != x && test "x${with_wayland}" != xno) || \
@@ -73,6 +76,10 @@ AC_DEFUN_ONCE([LIB_SETUP_WAYLAND],
         AC_MSG_ERROR([Can't find 'wayland-client.h' and 'wayland-cursor.h' under ${with_wayland_include} given with the --with-wayland-include option.])
       fi
     fi
+    if test "x${with_wayland_lib}" != x; then
+      WAYLAND_LIBS="-L${with_wayland_lib} -lwayland-client -lwayland-cursor"
+    fi
+ 
     if test "x$WAYLAND_FOUND" = xno; then
       # Are the wayland headers installed in the default /usr/include location?
       AC_CHECK_HEADERS([wayland-client.h wayland-cursor.h],
@@ -97,7 +104,13 @@ AC_DEFUN_ONCE([LIB_SETUP_WAYLAND],
       [specify whether we use vulkan])])
 
     AC_ARG_WITH(vulkan-include, [AS_HELP_STRING([--with-vulkan-include],
-      [specify directory for the vulkan include files])])
+      [specify directory for the vulkan include files ({with-vulkan-include}/vulkan/vulkan.h)])])
+
+    AC_ARG_WITH(vulkan-hpp, [AS_HELP_STRING([--with-vulkan-hpp],
+      [specify directory for the vulkan-hpp include files ({with-vulkan-hpp}/vulkan/vulkan_raii.hpp)])])
+
+    AC_ARG_WITH(vulkan-shader-compiler, [AS_HELP_STRING([--with-vulkan-shader-compiler],
+      [specify which shader compiler to use: glslc/glslangValidator])])
 
     if test "x$SUPPORTS_LIB_VULKAN" = xfalse; then
 
@@ -117,21 +130,38 @@ AC_DEFUN_ONCE([LIB_SETUP_WAYLAND],
         VULKAN_FOUND=no
 
         if test "x${with_vulkan_include}" != x; then
-          AC_CHECK_HEADERS([${with_vulkan_include}/include/vulkan/vulkan.h],
-            [ VULKAN_FOUND=yes
-              VULKAN_FLAGS="-DVK_USE_PLATFORM_WAYLAND_KHR -I${with_vulkan_include}/include -DVULKAN_ENABLED"
-              VULKAN_ENABLED=true
-            ],
-            [ AC_MSG_ERROR([Can't find 'vulkan/vulkan.h' under '${with_vulkan_include}']) ]
-          )
+          AC_MSG_CHECKING([for vulkan.h])
+          if test -s "${with_vulkan_include}/vulkan/vulkan.h"; then
+            VULKAN_FOUND=yes
+            VULKAN_FLAGS="-DVK_USE_PLATFORM_WAYLAND_KHR -I${with_vulkan_include} -DVULKAN_ENABLED"
+            AC_MSG_RESULT([yes])
+          else
+            AC_MSG_RESULT([no])
+            AC_MSG_ERROR([Can't find 'vulkan/vulkan.h' under '${with_vulkan_include}'])
+          fi
+          AC_MSG_CHECKING([for vulkan_raii.hpp])
+          if test "x${with_vulkan_hpp}" != x; then
+            VULKAN_FLAGS="-I${with_vulkan_hpp} ${VULKAN_FLAGS}"
+            VULKAN_HPP_DIR=${with_vulkan_hpp}
+          else
+            VULKAN_HPP_DIR=${with_vulkan_include}
+          fi
+          if test -s "$VULKAN_HPP_DIR/vulkan/vulkan_raii.hpp"; then
+            VULKAN_FOUND=yes
+            AC_MSG_RESULT([yes])
+          else
+            VULKAN_FOUND=no
+            AC_MSG_RESULT([no])
+            AC_MSG_ERROR([Can't find 'vulkan/vulkan_raii.hpp' under '$VULKAN_HPP_DIR'])
+          fi
         fi
 
+        AC_LANG_PUSH([C++])
         if test "x$VULKAN_FOUND" = xno; then
           # Check vulkan sdk location
-          AC_CHECK_HEADERS([$VULKAN_SDK/include/vulkan/vulkan.h],
+          AC_CHECK_HEADERS([$VULKAN_SDK/include/vulkan/vulkan.h $VULKAN_SDK/include/vulkan/vulkan_raii.hpp],
             [ VULKAN_FOUND=yes
               VULKAN_FLAGS="-DVK_USE_PLATFORM_WAYLAND_KHR -I${VULKAN_SDK}/include -DVULKAN_ENABLED"
-              VULKAN_ENABLED=true
             ],
             [ VULKAN_FOUND=no; break ]
           )
@@ -139,23 +169,44 @@ AC_DEFUN_ONCE([LIB_SETUP_WAYLAND],
 
         if test "x$VULKAN_FOUND" = xno; then
           # Check default /usr/include location
-          AC_CHECK_HEADERS([vulkan/vulkan.h],
+          AC_CHECK_HEADERS([vulkan/vulkan.h vulkan/vulkan_raii.hpp],
             [ VULKAN_FOUND=yes
               VULKAN_FLAGS="-DVK_USE_PLATFORM_WAYLAND_KHR -DVULKAN_ENABLED"
-              VULKAN_ENABLED=true
             ],
             [ VULKAN_FOUND=no; break ]
           )
         fi
+        AC_LANG_POP([C++])
 
         if test "x$VULKAN_FOUND" = xno; then
           HELP_MSG_MISSING_DEPENDENCY([vulkan])
           AC_MSG_ERROR([Could not find vulkan! $HELP_MSG ])
+        else
+          # Find shader compiler - glslc or glslangValidator
+          if (test "x${with_vulkan_shader_compiler}" = x || test "x${with_vulkan_shader_compiler}" = xglslc); then
+            UTIL_LOOKUP_PROGS(GLSLC, glslc)
+            SHADER_COMPILER="$GLSLC"
+            VULKAN_SHADER_COMPILER="glslc --target-env=vulkan1.2 -mfmt=num -o"
+          fi
+
+          if (test "x${with_vulkan_shader_compiler}" = x || test "x${with_vulkan_shader_compiler}" = xglslangValidator) && \
+              test "x$SHADER_COMPILER" = x; then
+            UTIL_LOOKUP_PROGS(GLSLANG, glslangValidator)
+            SHADER_COMPILER="$GLSLANG"
+            VULKAN_SHADER_COMPILER="glslangValidator --target-env vulkan1.2 -x -o"
+          fi
+
+          if test "x$SHADER_COMPILER" != x; then
+            VULKAN_ENABLED=true
+          else
+            AC_MSG_ERROR([Can't find shader compiler])
+          fi
         fi
       fi
     fi
   fi
   AC_SUBST(VULKAN_FLAGS)
+  AC_SUBST(VULKAN_SHADER_COMPILER)
   AC_SUBST(VULKAN_ENABLED)
   AC_SUBST(WAYLAND_CFLAGS)
   AC_SUBST(WAYLAND_LIBS)

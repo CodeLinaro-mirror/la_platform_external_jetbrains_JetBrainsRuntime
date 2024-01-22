@@ -104,6 +104,9 @@ abstract class XDecoratedPeer extends XWindowPeer {
     void postInit(XCreateWindowParams params) {
         // The size hints must be set BEFORE mapping the window (see 6895647)
         updateSizeHints(dimensions);
+        if (isTargetUndecorated()) {
+            XWM.setGtkFrameExtents(window);
+        }
 
         // The super method maps the window if it's visible on the shared level
         super.postInit(params);
@@ -628,6 +631,27 @@ abstract class XDecoratedPeer extends XWindowPeer {
             updateSizeHints(dimensions);
             Rectangle client = dimensions.getClientRect();
             checkShellRect(client);
+
+            if (isTargetUndecorated() && this instanceof XFramePeer framePeer) {
+                if (isMaximized()) {
+                    // Under Xorg, if an undecorated (read: client-side decorated)
+                    // window has been maximized (either vertically or horizontally),
+                    // it cannot change its size programmatically until both maximized
+                    // states have been cleared. And since the window is undecorated, it also
+                    // cannot change its size with the user's help because
+                    // "undecorated" means "no borders" and that, perhaps incorrectly, implies
+                    // that there's nothing to grab on in order to resize interactively.
+                    // To exit this viscous circle, drop the maximized state. This does have
+                    // unpleasant side effects (such as an animation played by the WM), but
+                    // those seem to be a lesser evil than the total inability to resize.
+                    int state = framePeer.getState();
+                    if ((state & Frame.MAXIMIZED_BOTH) != Frame.MAXIMIZED_BOTH) {
+                        state &= ~Frame.MAXIMIZED_BOTH;
+                        framePeer.setExtendedState(state);
+                    }
+                }
+            }
+
             setShellBounds(client);
             if (content != null &&
                 !content.getSize().equals(newDimensions.getSize()))
@@ -850,33 +874,28 @@ abstract class XDecoratedPeer extends XWindowPeer {
 
         updateChildrenSizes();
 
-        WindowLocation newLocation = getNewLocation(xe);
-        Dimension newDimension = new Dimension(xe.get_width(), xe.get_height());
+        WindowLocation eventLocation = getNewLocation(xe);
+        Dimension eventDimension = new Dimension(xe.get_width(), xe.get_height());
         boolean xinerama = XToolkit.localEnv.runningXinerama();
 
         SunToolkit.executeOnEventHandlerThread(target, () -> {
-            Point newUserLocation = newLocation.getUserLocation();
-            WindowDimensions newDimensions = new WindowDimensions(newUserLocation,
-                            new Dimension(scaleDown(newDimension.width), scaleDown(newDimension.height)), getRealInsets(), true);
-
+            Point oldLocation = getLocation();
+            Dimension newSize = xinerama
+                    ? checkIfOnNewScreen(new Rectangle(eventLocation.getDeviceLocation(), eventDimension))
+                    : new Dimension(scaleDown(eventDimension.width), scaleDown(eventDimension.height));
+            Point newUserLocation = eventLocation.getUserLocation();
+            WindowDimensions newDimensions = new WindowDimensions(newUserLocation, newSize, getRealInsets(), true);
             if (insLog.isLoggable(PlatformLogger.Level.FINER)) {
                 insLog.finer("Insets are {0}, new dimensions {1}",
                         getRealInsets(), newDimensions);
             }
-
-            Point oldLocation = getLocation();
             dimensions = newDimensions;
             if (!newUserLocation.equals(oldLocation)) {
                 handleMoved(newDimensions);
             }
             reconfigureContentWindow(newDimensions);
             updateChildrenSizes();
-
             repositionSecurityWarning();
-
-            if (xinerama) {
-                checkIfOnNewScreen(new Rectangle(newLocation.getDeviceLocation(), newDimension));
-            }
         });
     }
 
@@ -912,10 +931,9 @@ abstract class XDecoratedPeer extends XWindowPeer {
             insLog.fine("Setting shell bounds on " + this + " to " + rec);
         }
         updateSizeHints(rec.x, rec.y, rec.width, rec.height);
+        Point p = parentWindow == null ? scaleUp(rec.x, rec.y) : new Point(scaleUp(rec.x), scaleUp(rec.y));
         XlibWrapper.XMoveResizeWindow(XToolkit.getDisplay(), getShell(),
-                                      parentWindow == null ? scaleUpX(rec.x) : scaleUp(rec.x),
-                                      parentWindow == null ? scaleUpY(rec.y) : scaleUp(rec.y),
-                                      scaleUp(rec.width), scaleUp(rec.height));
+                                      p.x, p.y, scaleUp(rec.width), scaleUp(rec.height));
     }
 
     private void setShellSize(Rectangle rec) {
@@ -932,9 +950,8 @@ abstract class XDecoratedPeer extends XWindowPeer {
             insLog.fine("Setting shell position on " + this + " to " + rec);
         }
         updateSizeHints(rec.x, rec.y, rec.width, rec.height);
-        XlibWrapper.XMoveWindow(XToolkit.getDisplay(), getShell(),
-                parentWindow == null ? scaleUpX(rec.x) : scaleUp(rec.x),
-                parentWindow == null ? scaleUpY(rec.y) : scaleUp(rec.y));
+        Point p = parentWindow == null ? scaleUp(rec.x, rec.y) : new Point(scaleUp(rec.x), scaleUp(rec.y));
+        XlibWrapper.XMoveWindow(XToolkit.getDisplay(), getShell(), p.x, p.y);
     }
 
     public void setResizable(boolean resizable) {
@@ -1420,13 +1437,23 @@ abstract class XDecoratedPeer extends XWindowPeer {
         if (r.width <= ins.left + ins.right || r.height <= ins.top + ins.bottom) {
             return;
         }
-        if (syncSizeOnly && dimensions != null) {
-            dimensions.setSize(r.width, r.height);
-            dimensions.setInsets(ins);
-            xSetSize(r.width, r.height);
-        } else {
-            dimensions = new WindowDimensions(r, ins, false);
-            xSetBounds(r.x, r.y, r.width, r.height);
+
+        if (XWindowPeer.RESIZE_WITH_SCALE) {
+            if (syncSizeOnly && dimensions != null) {
+                dimensions.setSize(r.width, r.height);
+                dimensions.setInsets(ins);
+                boolean isMaximized = target instanceof Frame f && (f.getExtendedState() & Frame.MAXIMIZED_BOTH) != 0;
+                // When a window is maximized, affirming its size through an explicit request to the X server
+                // may make the window fullscreen, which has undesirable consequences. Also, when a window
+                // already has the maximized attributes, it is already properly sized, so no need to
+                // resize explicitly.
+                if (!isMaximized) {
+                    xSetSize(r.width, r.height);
+                }
+            } else {
+                dimensions = new WindowDimensions(r, ins, false);
+                xSetBounds(r.x, r.y, r.width, r.height);
+            }
         }
         reconfigureContentWindow(dimensions);
         doValidateSurface();

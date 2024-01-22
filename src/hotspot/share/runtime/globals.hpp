@@ -1050,13 +1050,9 @@ const int ObjectAlignmentInBytes = 8;
   product(bool, ErrorFileToStdout, false,                                   \
           "If true, error data is printed to stdout instead of a file")     \
                                                                             \
-  develop(bool, UseHeavyMonitors, false,                                    \
-          "(Deprecated) Use heavyweight instead of lightweight Java "       \
-          "monitors")                                                       \
-                                                                            \
   develop(bool, VerifyHeavyMonitors, false,                                 \
           "Checks that no stack locking happens when using "                \
-          "+UseHeavyMonitors")                                              \
+          "-XX:LockingMode=0 (LM_MONITOR)")                                 \
                                                                             \
   product(bool, PrintStringTableStatistics, false,                          \
           "print statistics about the StringTable and SymbolTable")         \
@@ -1976,6 +1972,13 @@ const int ObjectAlignmentInBytes = 8;
           "1: monitors & legacy stack-locking (LM_LEGACY, default), "       \
           "2: monitors & new lightweight locking (LM_LIGHTWEIGHT)")         \
           range(0, 2)                                                       \
+                                                                            \
+  product(uint, TrimNativeHeapInterval, 0, EXPERIMENTAL,                    \
+          "Interval, in ms, at which the JVM will trim the native heap if " \
+          "the platform supports that. Lower values will reclaim memory "   \
+          "more eagerly at the cost of higher overhead. A value of 0 "      \
+          "(default) disables native heap trimming.")                       \
+          range(0, UINT_MAX)                                                \
                                                                             \
   product(bool, AllowEnhancedClassRedefinition, false,                      \
              "Allow enhanced class redefinition beyond swapping method "    \

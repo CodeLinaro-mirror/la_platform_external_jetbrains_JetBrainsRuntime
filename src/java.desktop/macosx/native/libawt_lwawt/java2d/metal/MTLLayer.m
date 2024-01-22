@@ -23,6 +23,7 @@
  * questions.
  */
 
+#import <sys/sysctl.h>
 #import "PropertiesUtilities.h"
 #import "MTLGraphicsConfig.h"
 #import "MTLLayer.h"
@@ -30,6 +31,9 @@
 #import "LWCToolkit.h"
 #import "MTLSurfaceData.h"
 #import "JNIUtilities.h"
+
+#define MAX_DRAWABLE    3
+#define LAST_DRAWABLE   (MAX_DRAWABLE - 1)
 
 const NSTimeInterval DF_BLIT_FRAME_TIME=1.0/120.0;
 
@@ -57,6 +61,56 @@ BOOL isColorMatchingEnabled() {
         J2dRlsTraceLn1(J2D_TRACE_INFO, "MTLLayer_isColorMatchingEnabled: %d", colorMatchingEnabled);
     }
     return (BOOL)colorMatchingEnabled;
+}
+
+BOOL MTLLayer_isM2CPU() {
+    static int m2CPU = -1;
+    if (m2CPU == -1) {
+        char cpuBrandDefaultStr[16];
+        char *cpuBrand = cpuBrandDefaultStr;
+        size_t len;
+        sysctlbyname("machdep.cpu.brand_string", NULL, &len, NULL, 0);
+        if (len >= sizeof(cpuBrandDefaultStr)) {
+            cpuBrand = malloc(len);
+        }
+        sysctlbyname("machdep.cpu.brand_string", cpuBrand, &len, NULL, 0);
+        m2CPU = strstr(cpuBrand, "M2") != NULL;
+
+        J2dRlsTraceLn2(J2D_TRACE_INFO, "MTLLayer_isM2CPU: %d (%s)", m2CPU, cpuBrand);
+
+        if (cpuBrand != cpuBrandDefaultStr) {
+            free(cpuBrand);
+        }
+    }
+    return m2CPU;
+}
+
+BOOL MTLLayer_isSpansDisplays() {
+    static int spansDisplays = -1;
+    if (spansDisplays == -1) {
+        NSUserDefaults * defaults = [NSUserDefaults standardUserDefaults];
+        NSDictionary<NSString*,id> *spaces = [defaults persistentDomainForName:@"com.apple.spaces"];
+        spansDisplays = [(NSNumber*)[spaces valueForKey:@"spans-displays"] intValue];
+        J2dRlsTraceLn1(J2D_TRACE_INFO, "MTLLayer_isSpansDisplays: %d", spansDisplays);
+    }
+    return spansDisplays;
+}
+
+BOOL MTLLayer_isExtraRedrawEnabled() {
+    static int redrawEnabled = -1;
+    if (redrawEnabled == -1) {
+        JNIEnv *env = [ThreadUtilities getJNIEnvUncached];
+        if (env == NULL) return NO;
+        NSString *syncEnabledProp = [PropertiesUtilities javaSystemPropertyForKey:@"sun.java2d.metal.extraRedraw"
+                                                                          withEnv:env];
+        redrawEnabled = [@"false" isCaseInsensitiveLike:syncEnabledProp] ? NO : -1;
+        if (redrawEnabled == -1) {
+            redrawEnabled = [@"true" isCaseInsensitiveLike:syncEnabledProp] ?
+                    YES : MTLLayer_isSpansDisplays() && MTLLayer_isM2CPU();
+        }
+        J2dRlsTraceLn1(J2D_TRACE_INFO, "MTLLayer_isExtraRedrawEnabled: %d", redrawEnabled);
+    }
+    return (BOOL)redrawEnabled;
 }
 
 @implementation MTLLayer
@@ -87,13 +141,21 @@ BOOL isColorMatchingEnabled() {
     [actions release];
     self.topInset = 0;
     self.leftInset = 0;
-    self.framebufferOnly = YES;
+
+    // Validation with MTL_DEBUG_LAYER=1 environment variable
+    // prohibits blit operations on to the drawable texture
+    // obtained from a MTLLayer with framebufferOnly=YES
+    self.framebufferOnly = NO;
     self.nextDrawableCount = 0;
     self.opaque = YES;
     self.redrawCount = 0;
     if (@available(macOS 10.13, *)) {
         self.displaySyncEnabled = isDisplaySyncEnabled();
     }
+    if (@available(macOS 10.13.2, *)) {
+        self.maximumDrawableCount = MAX_DRAWABLE;
+    }
+    self.presentsWithTransaction = NO;
     self.avgBlitFrameTime = DF_BLIT_FRAME_TIME;
     return self;
 }
@@ -109,12 +171,14 @@ BOOL isColorMatchingEnabled() {
         return;
     }
 
-    if (self.nextDrawableCount != 0) {
+    if (self.nextDrawableCount >= LAST_DRAWABLE) {
         if (!isDisplaySyncEnabled()) {
             [self performSelectorOnMainThread:@selector(setNeedsDisplay) withObject:nil waitUntilDone:NO];
         }
         return;
     }
+
+    // Perform blit:
     [self stopRedraw:NO];
 
     @autoreleasepool {
@@ -143,26 +207,19 @@ BOOL isColorMatchingEnabled() {
             J2dTraceLn(J2D_TRACE_VERBOSE, "MTLLayer.blitTexture: nextDrawable is null)");
             return;
         }
+        // increment used drawables:
         self.nextDrawableCount++;
-        id<MTLCommandBuffer> renderBuffer =  [self.ctx createCommandBuffer];
-        self.ctx.syncCount++;
-        if (@available(macOS 10.14, *)) {
-            [renderBuffer encodeWaitForEvent:self.ctx.syncEvent value:self.ctx.syncCount];
-        }
 
         id <MTLBlitCommandEncoder> blitEncoder = [commandBuf blitCommandEncoder];
 
         [blitEncoder
-                copyFromTexture:(*self.buffer) sourceSlice:0 sourceLevel:0
+                copyFromTexture:(isDisplaySyncEnabled()) ? (*self.buffer) : (*self.outBuffer)
+                sourceSlice:0 sourceLevel:0
                 sourceOrigin:MTLOriginMake(src_x, src_y, 0)
                 sourceSize:MTLSizeMake(src_w, src_h, 1)
                 toTexture:mtlDrawable.texture destinationSlice:0 destinationLevel:0
                 destinationOrigin:MTLOriginMake(0, 0, 0)];
         [blitEncoder endEncoding];
-
-        if (@available(macOS 10.14, *)) {
-            [commandBuf encodeSignalEvent:self.ctx.syncEvent value:self.ctx.syncCount];
-        }
 
         if (isDisplaySyncEnabled()) {
             [commandBuf presentDrawable:mtlDrawable];
@@ -175,15 +232,18 @@ BOOL isColorMatchingEnabled() {
         }
 
         [self retain];
-        [commandBuf addCompletedHandler:^(id <MTLCommandBuffer> commandBuf) {
+        [commandBuf addCompletedHandler:^(id <MTLCommandBuffer> commandbuf) {
+            // free drawable:
+            self.nextDrawableCount--;
+
             if (@available(macOS 10.15.4, *)) {
                 if (!isDisplaySyncEnabled()) {
-                    const NSTimeInterval gpuTime = commandBuf.GPUEndTime - commandBuf.GPUStartTime;
+                    // Exponential smoothing on elapsed time:
+                    const NSTimeInterval gpuTime = commandbuf.GPUEndTime - commandbuf.GPUStartTime;
                     const NSTimeInterval a = 0.25;
                     self.avgBlitFrameTime = gpuTime * a + self.avgBlitFrameTime * (1.0 - a);
                 }
             }
-            self.nextDrawableCount--;
             [self release];
         }];
 
@@ -223,6 +283,15 @@ BOOL isColorMatchingEnabled() {
     [super display];
 }
 
+- (void)startRedrawIfNeeded {
+    AWT_ASSERT_APPKIT_THREAD;
+    if (isDisplaySyncEnabled()) {
+        if (self.redrawCount == 0) {
+            [self.ctx startRedraw:self];
+        }
+    }
+}
+
 - (void)startRedraw {
     if (isDisplaySyncEnabled()) {
         if (self.ctx != nil) {
@@ -234,39 +303,65 @@ BOOL isColorMatchingEnabled() {
 }
 
 - (void)stopRedraw:(BOOL)force {
-    if (self.ctx != nil && isDisplaySyncEnabled()) {
+    if (isDisplaySyncEnabled()) {
         if (force) {
             self.redrawCount = 0;
         }
-        [self.ctx performSelectorOnMainThread:@selector(stopRedraw:) withObject:self waitUntilDone:NO];
+        if (self.ctx != nil) {
+            [self.ctx performSelectorOnMainThread:@selector(stopRedraw:) withObject:self waitUntilDone:NO];
+        }
     }
+}
+- (void) flushBuffer {
+    if (self.ctx == nil || self.buffer == NULL) {
+        return;
+    }
+    // Copy the rendered texture to the output buffer (blit later) using the render command queue:
+    id <MTLCommandBuffer> commandbuf = [self.ctx createCommandBuffer];
+    id <MTLBlitCommandEncoder> blitEncoder = [commandbuf blitCommandEncoder];
+    [blitEncoder
+            copyFromTexture:(*self.buffer) sourceSlice:0 sourceLevel:0
+               sourceOrigin:MTLOriginMake(0, 0, 0)
+                 sourceSize:MTLSizeMake((*self.buffer).width, (*self.buffer).height, 1)
+                  toTexture:(*self.outBuffer) destinationSlice:0 destinationLevel:0
+          destinationOrigin:MTLOriginMake(0, 0, 0)];
+    [blitEncoder endEncoding];
+    [self retain];
+    [commandbuf addCompletedHandler:^(id <MTLCommandBuffer> commandbuf) {
+        [self startRedraw];
+        [self release];
+    }];
+    [commandbuf commit];
 }
 
 - (void)commitCommandBuffer:(MTLContext*)mtlc wait:(BOOL)waitUntilCompleted display:(BOOL)updateDisplay {
-    MTLCommandBufferWrapper * cbwrapper =[mtlc pullCommandBufferWrapper];
+    MTLCommandBufferWrapper * cbwrapper = [mtlc pullCommandBufferWrapper];
 
     if (cbwrapper != nil) {
-        id <MTLCommandBuffer> commandbuf =[cbwrapper getCommandBuffer];
-        if (isDisplaySyncEnabled() || !updateDisplay) {
-            [commandbuf addCompletedHandler:^(id <MTLCommandBuffer> commandbuf) {
-                [cbwrapper release];
-            }];
-        } else {
-            [self retain];
-            [commandbuf addCompletedHandler:^(id <MTLCommandBuffer> commandbuf) {
-                [cbwrapper release];
-                [self startRedraw];
-                [self release];
-            }];
-       }
-       [commandbuf commit];
-       if (isDisplaySyncEnabled()) {
-            [self startRedraw];
-       }
+        id <MTLCommandBuffer> commandbuf = [cbwrapper getCommandBuffer];
 
-       if (waitUntilCompleted) {
+        [self retain];
+        [commandbuf addCompletedHandler:^(id <MTLCommandBuffer> commandBuf) {
+            [cbwrapper release];
+            if (updateDisplay && isDisplaySyncEnabled()) {
+                // Ensure layer will be redrawn asap to display new content:
+                [self performSelectorOnMainThread:@selector(startRedrawIfNeeded) withObject:nil waitUntilDone:NO];
+            }
+            [self release];
+        }];
+
+        [commandbuf commit];
+
+        if (updateDisplay) {
+            if (isDisplaySyncEnabled()) {
+                [self startRedraw];
+            } else {
+                [self flushBuffer];
+            }
+        }
+        if (waitUntilCompleted && isDisplaySyncEnabled()) {
            [commandbuf waitUntilCompleted];
-       }
+        }
     } else if (updateDisplay) {
         [self startRedraw];
     }
@@ -309,6 +404,7 @@ Java_sun_java2d_metal_MTLLayer_validate
     if (surfaceData != NULL) {
         BMTLSDOps *bmtlsdo = (BMTLSDOps*) SurfaceData_GetOps(env, surfaceData);
         layer.buffer = &bmtlsdo->pTexture;
+        layer.outBuffer = &bmtlsdo->pOutTexture;
         layer.ctx = ((MTLSDOps *)bmtlsdo->privOps)->configInfo->context;
         layer.device = layer.ctx.device;
         layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
@@ -324,7 +420,11 @@ Java_sun_java2d_metal_MTLLayer_validate
         layer.drawableSize =
             CGSizeMake((*layer.buffer).width,
                        (*layer.buffer).height);
-        [layer startRedraw];
+        if (isDisplaySyncEnabled()) {
+            [layer startRedraw];
+        } else {
+            [layer flushBuffer];
+        }
     } else {
         layer.ctx = NULL;
         [layer stopRedraw:YES];

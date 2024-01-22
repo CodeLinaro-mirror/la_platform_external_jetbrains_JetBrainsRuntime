@@ -306,10 +306,6 @@ public final class AWTAccessor {
          */
         void updateWindow(Window window);
 
-        boolean needUpdateWindowAfterPaint(Window window);
-
-        boolean needUpdateWindow(Window window);
-
         void setPopupParent(Window window, Component component);
         Component getPopupParent(Window window);
 
@@ -634,9 +630,19 @@ public final class AWTAccessor {
      */
     public interface CursorAccessor {
         /**
+         * Returns pData of the Cursor class according to scale or 0 otherwise
+         */
+        long getPData(Cursor cursor, int scale);
+
+        /**
          * Returns pData of the Cursor class
          */
         long getPData(Cursor cursor);
+
+        /**
+         * Sets pData to the Cursor class according to scale
+         */
+        void setPData(Cursor cursor, int scale, long pData);
 
         /**
          * Sets pData to the Cursor class

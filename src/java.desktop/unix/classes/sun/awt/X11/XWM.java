@@ -93,6 +93,9 @@ final class XWM
 /* Root window */
     static final XAtom XA_NET_DESKTOP_GEOMETRY = new XAtom();
 
+/* Mutter */
+    static final XAtom XA_GTK_FRAME_EXTENTS = new XAtom();
+
     static final int
         UNDETERMINED_WM = 1,
         NO_WM = 2,
@@ -221,7 +224,8 @@ final class XWM
             { XA_MWM_HINTS,                  "_MOTIF_WM_HINTS"               },
             { XA_NET_FRAME_EXTENTS,          "_NET_FRAME_EXTENTS"            },
             { XA_NET_REQUEST_FRAME_EXTENTS,  "_NET_REQUEST_FRAME_EXTENTS"    },
-            { XA_NET_DESKTOP_GEOMETRY,       "_NET_DESKTOP_GEOMETRY"         }
+            { XA_NET_DESKTOP_GEOMETRY,       "_NET_DESKTOP_GEOMETRY"         },
+            { XA_GTK_FRAME_EXTENTS,          "_GTK_FRAME_EXTENTS"            }
         };
 
         String[] names = new String[atomInitList.length];
@@ -1079,10 +1083,10 @@ final class XWM
             }
             window.updateSizeHints(window.getDimensions());
             requestWMExtents(window.getWindow());
+            Point p = window.scaleUp(shellBounds.x, shellBounds.y);
             XlibWrapper.XMoveResizeWindow(XToolkit.getDisplay(),
                                           window.getShell(),
-                                          window.scaleUpX(shellBounds.x),
-                                          window.scaleUpY(shellBounds.y),
+                                          p.x, p.y,
                                           window.scaleUp(shellBounds.width),
                                           window.scaleUp(shellBounds.height));
             /* REMINDER: will need to revisit when setExtendedStateBounds is added */
@@ -1117,10 +1121,10 @@ final class XWM
                 window.updateSizeHints(newDimensions);
                 requestWMExtents(window.getWindow());
                 XToolkit.XSync();
+                Point p = window.scaleUp(shellBounds.x, shellBounds.y);
                 XlibWrapper.XMoveResizeWindow(XToolkit.getDisplay(),
                                               window.getShell(),
-                                              window.scaleUpX(shellBounds.x),
-                                              window.scaleUpY(shellBounds.y),
+                                              p.x, p.y,
                                               window.scaleUp(shellBounds.width),
                                               window.scaleUp(shellBounds.height));
             }
@@ -1828,6 +1832,31 @@ final class XWM
             return getWMID() != ICE_WM;
         }
         return false;
+    }
+
+    public static void setGtkFrameExtents(long window) {
+        // This will make Mutter think that we are "client-decorated"
+        // (see meta_window_is_client_decorated() in src/core/window.c of Mutter).
+        // It is necessary for some heuristics that Mutter has not to be applied.
+        long data = Native.allocateLongArray(4);
+        try {
+            Native.putLong(data, 0, 0);
+            Native.putLong(data, 1, 0);
+            Native.putLong(data, 2, 0);
+            Native.putLong(data, 3, 0);
+
+            XToolkit.awtLock();
+            XErrorHandlerUtil.WITH_XERROR_HANDLER(XErrorHandler.VerifyChangePropertyHandler.getInstance());
+            XlibWrapper.XChangeProperty(XToolkit.getDisplay(), window,
+                    XA_GTK_FRAME_EXTENTS.getAtom(),
+                    XAtom.XA_CARDINAL,
+                    32, XConstants.PropModeReplace,
+                    data, 4);
+            XErrorHandlerUtil.RESTORE_XERROR_HANDLER();
+        } finally {
+            XToolkit.awtUnlock();
+            unsafe.freeMemory(data);
+        }
     }
 
     public static boolean isWMMoveResizeSupported() {

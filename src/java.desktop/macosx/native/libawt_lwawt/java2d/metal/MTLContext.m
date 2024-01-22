@@ -42,11 +42,12 @@
 // Amount of blit operations per update to make sure that everything is
 // rendered into the window drawable. It does not slow things down as we
 // use separate command queue for blitting.
-#define REDRAW_INC 2
+#define REDRAW_COUNT 1
 
 extern jboolean MTLSD_InitMTLWindow(JNIEnv *env, MTLSDOps *mtlsdo);
 extern BOOL isDisplaySyncEnabled();
-        
+extern BOOL MTLLayer_isExtraRedrawEnabled();
+
 static struct TxtVertex verts[PGRAM_VERTEX_COUNT] = {
         {{-1.0, 1.0}, {0.0, 0.0}},
         {{1.0, 1.0}, {1.0, 0.0}},
@@ -139,8 +140,7 @@ MTLTransform* tempTransform = nil;
             device, pipelineStateStorage,
             commandQueue, blitCommandQueue, vertexBuffer,
             texturePool, paint=_paint, encoderManager=_encoderManager,
-            samplerManager=_samplerManager, stencilManager=_stencilManager,
-            syncEvent, syncCount;
+            samplerManager=_samplerManager, stencilManager=_stencilManager;
 
 extern void initSamplers(id<MTLDevice> device);
 
@@ -190,10 +190,6 @@ extern void initSamplers(id<MTLDevice> device);
             CVDisplayLinkCreateWithCGDisplay(displayID, &_displayLink);
             CVDisplayLinkSetOutputCallback(_displayLink, &mtlDisplayLinkCallback, (__bridge void *) self);
         }
-        if (@available(macOS 10.14, *)) {
-            syncEvent = [device newEvent];
-        }
-        self.syncCount = 0;
     }
     return self;
 }
@@ -261,10 +257,6 @@ extern void initSamplers(id<MTLDevice> device);
         }
         CVDisplayLinkRelease(_displayLink);
         _displayLink = NULL;
-    }
-
-    if (@available(macOS 10.14, *)) {
-        [syncEvent release];
     }
 
     [super dealloc];
@@ -595,10 +587,14 @@ CVReturn mtlDisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeStamp*
 
 - (void)startRedraw:(MTLLayer*)layer {
     AWT_ASSERT_APPKIT_THREAD;
-    layer.redrawCount += REDRAW_INC;
+    layer.redrawCount = REDRAW_COUNT;
     J2dTraceLn2(J2D_TRACE_VERBOSE, "MTLContext_startRedraw: ctx=%p layer=%p", self, layer);
     _displayLinkCount = KEEP_ALIVE_COUNT;
     [_layers addObject:layer];
+    if (MTLLayer_isExtraRedrawEnabled()) {
+        // Request for redraw before starting display link to avoid rendering problem on M2 processor
+        [layer setNeedsDisplay];
+    }
     if (_displayLink != NULL && !CVDisplayLinkIsRunning(_displayLink)) {
         CVDisplayLinkStart(_displayLink);
         J2dTraceLn1(J2D_TRACE_VERBOSE, "MTLContext_CVDisplayLinkStart: ctx=%p", self);

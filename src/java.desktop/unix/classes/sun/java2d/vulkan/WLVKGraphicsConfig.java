@@ -53,6 +53,7 @@ import sun.awt.wl.WLGraphicsConfig;
 import sun.awt.wl.WLGraphicsDevice;
 import sun.java2d.Surface;
 import sun.java2d.SurfaceData;
+import sun.java2d.loops.SurfaceType;
 import sun.java2d.pipe.hw.AccelGraphicsConfig;
 import sun.java2d.pipe.hw.AccelSurface;
 import sun.java2d.pipe.hw.AccelTypedVolatileImage;
@@ -66,7 +67,6 @@ public final class WLVKGraphicsConfig extends WLGraphicsConfig
             PlatformLogger.getLogger("sun.java2d.vulkan.WLVKGraphicsConfig");
 
     private static ImageCapabilities imageCaps = new VKImageCaps();
-    private final int maxTextureSize;
 
     private BufferCapabilities bufferCaps;
     private ContextCapabilities vkCaps;
@@ -74,17 +74,9 @@ public final class WLVKGraphicsConfig extends WLGraphicsConfig
 
     private static native long getVKConfigInfo();
 
-    /**
-     * Returns maximum texture size supported by Vulkan. Must be
-     * called under VKRQ lock.
-     */
-    private static native int nativeGetMaxTextureSize();
-
-    public WLVKGraphicsConfig(WLGraphicsDevice device, int width, int height, int scale, int maxTextureSize,
-                              ContextCapabilities vkCaps) {
+    public WLVKGraphicsConfig(WLGraphicsDevice device, int width, int height, int scale, ContextCapabilities vkCaps) {
         super(device, width, height, scale);
         this.vkCaps = vkCaps;
-        this.maxTextureSize = maxTextureSize;
         context = new VKContext(VKRenderQueue.getInstance());
     }
 
@@ -99,7 +91,7 @@ public final class WLVKGraphicsConfig extends WLGraphicsConfig
             CAPS_PS30 | CAPS_PS20 | CAPS_RT_TEXTURE_ALPHA |
             CAPS_RT_TEXTURE_OPAQUE | CAPS_MULTITEXTURE | CAPS_TEXNONPOW2 |
             CAPS_TEXNONSQUARE, null);
-        return new WLVKGraphicsConfig(device, width, height, scale, nativeGetMaxTextureSize(), caps);
+        return new WLVKGraphicsConfig(device, width, height, scale, caps);
     }
 
     /**
@@ -148,13 +140,19 @@ public final class WLVKGraphicsConfig extends WLGraphicsConfig
         }
     }
 
+    @Override
+    public ColorModel getColorModel() {
+        return getColorModel(Transparency.TRANSLUCENT);
+    }
+
+
     public boolean isDoubleBuffered() {
         return true;
     }
 
     @Override
     public String toString() {
-        return ("VKGraphicsConfig[" + getDevice().getIDstring() + "]");
+        return ("VKGraphicsConfig[" + getDevice().getIDstring() + "] " + super.toString());
     }
 
 
@@ -222,5 +220,14 @@ public final class WLVKGraphicsConfig extends WLGraphicsConfig
     @Override
     public ContextCapabilities getContextCapabilities() {
         return vkCaps;
+    }
+
+    public SurfaceType getSurfaceType() {
+        return SurfaceType.IntArgb;
+    }
+
+    @Override
+    public boolean isTranslucencyCapable() {
+        return true;
     }
 }

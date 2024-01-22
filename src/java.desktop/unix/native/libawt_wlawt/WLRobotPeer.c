@@ -476,6 +476,7 @@ Java_sun_awt_wl_WLRobotPeer_sendJavaKeyImpl
     }
 
     wakefield_send_key(wakefield, key, pressed ? 1 : 0);
+    wlFlushToServer(env);
 #endif
 }
 
@@ -490,6 +491,7 @@ Java_sun_awt_wl_WLRobotPeer_mouseMoveImpl
     }
 
     wakefield_send_cursor(wakefield, x, y);
+    wlFlushToServer(env);
 #endif
 }
 
@@ -508,6 +510,7 @@ Java_sun_awt_wl_WLRobotPeer_sendMouseButtonImpl
             wakefield_send_button(wakefield, item->wayland_button_code, pressed ? 1 : 0);
         }
     }
+    wlFlushToServer(env);
 #endif
 }
 
@@ -522,6 +525,30 @@ Java_sun_awt_wl_WLRobotPeer_mouseWheelImpl
     }
 
     wakefield_send_wheel(wakefield, amount);
+    wlFlushToServer(env);
+#endif
+}
+
+
+JNIEXPORT void JNICALL
+Java_sun_awt_wl_WLRobotPeer_setXKBLayout(JNIEnv *env, jclass cls, jstring jLayout, jstring jVariant, jstring jOptions)
+{
+#ifdef WAKEFIELD_ROBOT
+    if (!wakefield) {
+        JNU_ThrowByName(env, "java/awt/AWTError", "no 'wakefield' protocol extension");
+        return;
+    }
+
+    const char* layout = (*env)->GetStringUTFChars(env, jLayout, NULL);
+    const char* variant = (*env)->GetStringUTFChars(env, jVariant, NULL);
+    const char* options = (*env)->GetStringUTFChars(env, jOptions, NULL);
+
+    wakefield_set_xkb_rule_names(wakefield, "evdev", "pc105", layout, variant, options);
+    wlFlushToServer(env);
+
+    (*env)->ReleaseStringUTFChars(env, jOptions, options);
+    (*env)->ReleaseStringUTFChars(env, jVariant, variant);
+    (*env)->ReleaseStringUTFChars(env, jLayout, layout);
 #endif
 }
 

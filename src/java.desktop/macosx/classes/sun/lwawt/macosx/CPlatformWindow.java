@@ -109,7 +109,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     private static native boolean nativeDelayShowing(long nsWindowPtr);
     private static native void nativeUpdateCustomTitleBar(long nsWindowPtr);
     private static native void nativeCallDeliverMoveResizeEvent(long nsWindowPtr);
-    private static native void nativeSetRoundedCorners(long nsWindowPrt, float radius);
+    private static native void nativeSetRoundedCorners(long nsWindowPrt, float radius, int borderWidth, int borderColor);
 
     // Logger to report issues happened during execution but that do not affect functionality
     private static final PlatformLogger logger = PlatformLogger.getLogger("sun.lwawt.macosx.CPlatformWindow");
@@ -991,6 +991,14 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
         return ref.get();
     }
 
+    private boolean isTabbedWindow() {
+        AtomicBoolean ref = new AtomicBoolean();
+        execute(ptr -> {
+            ref.set(CWrapper.NSWindow.isTabbedWindow(ptr));
+        });
+        return ref.get();
+    }
+
     // We want a window to be always shown at the same space as its owning window.
     // But macOS doesn't have an API to control the target space for a window -
     // it's always shown at the active space. So if the target space isn't active now,
@@ -1353,7 +1361,9 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
         // which is going to become 'main window', are placed above their siblings.
         CPlatformWindow rootOwner = getRootOwner();
         if (rootOwner.isVisible() && !rootOwner.isIconified() && !rootOwner.isActive()) {
-            rootOwner.execute(CWrapper.NSWindow::orderFrontIfOnActiveSpace);
+            if (rootOwner != this || !isTabbedWindow()) {
+                rootOwner.execute(CWrapper.NSWindow::orderFrontIfOnActiveSpace);
+            }
         }
 
         // Do not order child windows of iconified owner.
@@ -1500,7 +1510,13 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
 
     private void setRoundedCorners(Object params) {
         if (params instanceof Float) {
-            execute(ptr -> nativeSetRoundedCorners(ptr, (float) params));
+            execute(ptr -> nativeSetRoundedCorners(ptr, (float) params, 0, 0));
+        } else if (params instanceof Object[]) {
+            Object[] values = (Object[]) params;
+            if (values.length == 3 && values[0] instanceof Float && values[1] instanceof Integer && values[2] instanceof Color) {
+                Color color = (Color) values[2];
+                execute(ptr -> nativeSetRoundedCorners(ptr, (float) values[0], (int) values[1], color.getRGB()));
+            }
         }
     }
 }

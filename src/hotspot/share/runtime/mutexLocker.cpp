@@ -227,9 +227,9 @@ void mutex_init() {
 
     MUTEX_DEFN(MarkStackFreeList_lock        , PaddedMutex  , nosafepoint);
     MUTEX_DEFN(MarkStackChunkList_lock       , PaddedMutex  , nosafepoint);
-
-    MUTEX_DEFN(MonitoringSupport_lock        , PaddedMutex  , service-1);      // used for serviceability monitoring support
   }
+  MUTEX_DEFN(MonitoringSupport_lock          , PaddedMutex  , service-1);        // used for serviceability monitoring support
+
   MUTEX_DEFN(StringDedup_lock                , PaddedMonitor, nosafepoint);
   MUTEX_DEFN(StringDedupIntern_lock          , PaddedMutex  , nosafepoint);
   MUTEX_DEFN(RawMonitor_lock                 , PaddedMutex  , nosafepoint-1);
@@ -371,7 +371,7 @@ void mutex_init() {
   MUTEX_DEFL(JVMCI_lock                     , PaddedMonitor, JVMCIRuntime_lock);
 #endif
 
-  MUTEX_DEFN(OOMEStacks_lock                , PaddedMutex  , safepoint);
+  MUTEX_DEFN(OOMEStacks_lock                , PaddedMutex  , safepoint-1);
 }
 
 #undef MUTEX_DEFL

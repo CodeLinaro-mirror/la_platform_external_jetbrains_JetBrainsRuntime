@@ -87,6 +87,7 @@ class CAccessible extends CFRetainedResource implements Accessible {
     private static native void treeNodeCollapsed(long ptr);
     private static native void selectedCellsChanged(long ptr);
     private static native void tableContentCacheClear(long ptr);
+    private static native void updateZoomCaretFocus(long ptr);
 
     private Accessible accessible;
 
@@ -132,6 +133,8 @@ class CAccessible extends CFRetainedResource implements Accessible {
                 Object oldValue = e.getOldValue();
                 if (name.equals(ACCESSIBLE_CARET_PROPERTY)) {
                     execute(ptr -> selectedTextChanged(ptr));
+                    // Notify macOS Accessibility Zoom to move focus to the new caret location.
+                    execute(ptr -> updateZoomCaretFocus(ptr));
                 } else if (name.equals(ACCESSIBLE_TEXT_PROPERTY)) {
                     execute(ptr -> valueChanged(ptr));
                 } else if (name.equals(ACCESSIBLE_SELECTION_PROPERTY)) {
@@ -220,12 +223,24 @@ class CAccessible extends CFRetainedResource implements Accessible {
                         if (newValue != null && !newValue.equals(oldValue)) {
                             execute(ptr -> valueChanged(ptr));
                         }
+
+                        // Notify native side to handle check box style menuitem
+                        if (parentRole == AccessibleRole.POPUP_MENU && newValue != null
+                                && ((AccessibleState)newValue) == AccessibleState.FOCUSED) {
+                            menuItemSelected(ptr);
+                        }
                     }
 
                     // Do send radio button state changes to native side
                     if (thisRole == AccessibleRole.RADIO_BUTTON) {
                         if (newValue != null && !newValue.equals(oldValue)) {
                             valueChanged(ptr);
+                        }
+
+                        // Notify native side to handle radio button style menuitem
+                        if (parentRole == AccessibleRole.POPUP_MENU && newValue != null
+                            && ((AccessibleState)newValue) == AccessibleState.FOCUSED) {
+                            menuItemSelected(ptr);
                         }
                     }
 
