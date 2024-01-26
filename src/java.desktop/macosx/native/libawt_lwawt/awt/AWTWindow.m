@@ -1029,6 +1029,8 @@ AWT_ASSERT_APPKIT_THREAD;
     (*env)->DeleteLocalRef(env, platformWindow);
 
     [AWTWindow synthesizeMouseEnteredExitedEventsForAllWindows];
+
+    [self updateFullScreenButtons];
 }
 
 - (void)windowDidMove:(NSNotification *)notification {
@@ -2938,6 +2940,7 @@ JNIEXPORT void JNICALL Java_sun_lwawt_macosx_CPlatformWindow_nativeSetRoundedCor
         w.contentView.wantsLayer = YES;
         w.contentView.layer.cornerRadius = radius;
         w.contentView.layer.masksToBounds = YES;
+        w.contentView.layer.opaque = NO;
 
         if (borderWidth > 0) {
             CGFloat alpha = (((borderRgb >> 24) & 0xff) / 255.0);
