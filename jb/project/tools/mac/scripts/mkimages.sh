@@ -81,6 +81,8 @@ function create_image_bundle {
     mv release $JRE_CONTENTS/Home/release
     cp $IMAGES_DIR/jdk-bundle/jdk-$JBSDK_VERSION.jdk/Contents/Home/lib/src.zip $JRE_CONTENTS/Home/lib
     copy_jmods "$__modules" "$__modules_path" "$JRE_CONTENTS"/Home/jmods
+    "$JRE_CONTENTS"/Home/bin/java -Xshare:dump
+    "$JRE_CONTENTS"/Home/bin/java -Xshare:dump -XX:-UseCompressedOops
     zip_native_debug_symbols $IMAGES_DIR/jdk-bundle/jdk-$JBSDK_VERSION.jdk "${JBR}_diz"
   fi
 

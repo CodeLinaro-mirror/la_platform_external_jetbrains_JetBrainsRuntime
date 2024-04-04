@@ -1,12 +1,10 @@
 /*
- * Copyright (c) 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright 2000-2023 JetBrains s.r.o.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ * published by the Free Software Foundation.
  *
  * This code is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
@@ -22,18 +20,37 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+package test.jb.testhelpers.TitleBar;
+public class TaskResult {
 
-package sun.font.lookup;
+    private final boolean passed;
+    private final boolean metConditions;
+    private final String error;
 
-import sun.font.SunFontManager;
-
-/**
- * Implementation-class accessed by other JDK modules to
- * locate the JDK-provided fonts.
- */
-public final class JDKFontLookup {
-
-    public static final String getJDKFontDir() {
-        return SunFontManager.getJDKFontDir();
+    public TaskResult(boolean passed, String error) {
+        this.passed = passed;
+        this.metConditions = true;
+        this.error = error;
     }
+
+    public TaskResult(boolean metConditions, boolean passed, String error) {
+        this.metConditions = metConditions;
+        this.passed = passed;
+        this.error = error;
+    }
+
+    public boolean isPassed() {
+        return passed;
+    }
+
+    public String getError() {
+        return error;
+    }
+
+    public TaskResult merge(TaskResult another) {
+        final String error = this.error + "\n" + another.error;
+        final boolean status = this.passed && another.passed;
+        return new TaskResult(status, error);
+    }
+
 }

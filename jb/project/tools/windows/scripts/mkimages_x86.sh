@@ -66,6 +66,7 @@ function create_image_bundle {
       rsync -amv --include="*/" --include="*.pdb" --exclude="*" $dir $__root_dir
     done
     copy_jmods "$__modules" "$__modules_path" "$__root_dir"/jmods
+    "$__root_dir"/bin/java -Xshare:dump
   fi
 }
 

@@ -78,6 +78,8 @@ function create_image_bundle {
     mv release "$IMAGES_DIR"/"$__root_dir"/release
     cp $IMAGES_DIR/jdk/lib/src.zip "$IMAGES_DIR"/"$__root_dir"/lib
     copy_jmods "$__modules" "$__modules_path" "$IMAGES_DIR"/"$__root_dir"/jmods
+    "$IMAGES_DIR"/"$__root_dir"/bin/java -Xshare:dump
+    "$IMAGES_DIR"/"$__root_dir"/bin/java -Xshare:dump -XX:-UseCompressedOops
     zip_native_debug_symbols $IMAGES_DIR/jdk "${JBR}_diz"
   fi
 
