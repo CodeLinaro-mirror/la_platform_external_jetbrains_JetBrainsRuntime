@@ -492,6 +492,14 @@ public:
   static void check_prohibited_package(Symbol* class_name,
                                        ClassLoaderData* loader_data,
                                        TRAPS);
+
+  JavaThread* init_thread()  { return Atomic::load(&_init_thread); }
+  // We can safely access the name as long as we hold the _init_monitor.
+  const char* init_thread_name() {
+    assert(_init_monitor->owned_by_self(), "Must hold _init_monitor here");
+    return init_thread()->name_raw();
+  }
+
  public:
   // initialization state
   bool is_loaded() const                   { return init_state() >= loaded; }
@@ -501,7 +509,7 @@ public:
   bool is_not_initialized() const          { return init_state() <  being_initialized; }
   bool is_being_initialized() const        { return init_state() == being_initialized; }
   bool is_in_error_state() const           { return init_state() == initialization_error; }
-  bool is_init_thread(JavaThread *thread)  { return thread == Atomic::load(&_init_thread); }
+  bool is_init_thread(JavaThread *thread)  { return thread == init_thread(); }
   ClassState  init_state() const           { return Atomic::load(&_init_state); }
   const char* init_state_name() const;
   bool is_rewritten() const                { return _misc_flags.rewritten(); }
@@ -543,6 +551,11 @@ public:
 
   // reference type
   ReferenceType reference_type() const     { return (ReferenceType)_reference_type; }
+  // (DCEVM)
+  void set_reference_type(ReferenceType t) {
+    assert(t == (u1)t, "overflow");
+    _reference_type = (u1)t;
+  }
 
   // this class cp index
   u2 this_class_index() const             { return _this_class_index; }
@@ -893,7 +906,8 @@ public:
  private:
   // link this class into the implementors list of every interface it implements
   void process_interfaces();
-
+  // (DCEVM)
+  void do_nonstatic_fields_dcevm_collect_fields(void* fields, int depth);
  public:
   // virtual operations from Klass
   GrowableArray<Klass*>* compute_secondary_supers(int num_extra_slots,
@@ -908,7 +922,7 @@ public:
   void do_local_static_fields(FieldClosure* cl);
   void do_nonstatic_fields(FieldClosure* cl); // including inherited fields
   // (DCEVM)
-  void do_nonstatic_fields_sorted(FieldClosure* cl);
+  void do_nonstatic_fields_dcevm(FieldClosure* cl);
   void do_local_static_fields(void f(fieldDescriptor*, Handle, TRAPS), Handle, TRAPS);
   void print_nonstatic_fields(FieldClosure* cl); // including inherited and injected fields
 
@@ -1087,6 +1101,8 @@ public:
   bool idnum_can_increment() const      { return has_been_redefined(); }
   inline jmethodID* methods_jmethod_ids_acquire() const;
   inline void release_set_methods_jmethod_ids(jmethodID* jmeths);
+  // This nulls out jmethodIDs for all methods in 'klass'
+  static void clear_jmethod_ids(InstanceKlass* klass);
 
   // Lock during initialization
 public:

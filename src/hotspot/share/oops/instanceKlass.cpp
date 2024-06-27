@@ -778,20 +778,43 @@ void InstanceKlass::link_class(TRAPS) {
 void InstanceKlass::check_link_state_and_wait(JavaThread* current) {
   MonitorLocker ml(current, _init_monitor);
 
+  bool debug_logging_enabled = log_is_enabled(Debug, class, init);
+
   // Another thread is linking this class, wait.
   while (is_being_linked() && !is_init_thread(current)) {
+    if (debug_logging_enabled) {
+      ResourceMark rm(current);
+      log_debug(class, init)("Thread \"%s\" waiting for linking of %s by thread \"%s\"",
+                             current->name(), external_name(), init_thread_name());
+    }
     ml.wait();
   }
 
   // This thread is recursively linking this class, continue
   if (is_being_linked() && is_init_thread(current)) {
+    if (debug_logging_enabled) {
+      ResourceMark rm(current);
+      log_debug(class, init)("Thread \"%s\" recursively linking %s",
+                             current->name(), external_name());
+    }
     return;
   }
 
   // If this class wasn't linked already, set state to being_linked
   if (!is_linked()) {
+    if (debug_logging_enabled) {
+      ResourceMark rm(current);
+      log_debug(class, init)("Thread \"%s\" linking %s",
+                             current->name(), external_name());
+    }
     set_init_state(being_linked);
     set_init_thread(current);
+  } else {
+    if (debug_logging_enabled) {
+      ResourceMark rm(current);
+      log_debug(class, init)("Thread \"%s\" found %s already linked",
+                             current->name(), external_name());
+      }
   }
 }
 
@@ -1060,14 +1083,22 @@ void InstanceKlass::initialize_impl(TRAPS) {
 
   JavaThread* jt = THREAD;
 
+  bool debug_logging_enabled = log_is_enabled(Debug, class, init);
+
   // refer to the JVM book page 47 for description of steps
   // Step 1
   {
-    MonitorLocker ml(THREAD, _init_monitor);
+    MonitorLocker ml(jt, _init_monitor);
 
     // Step 2
     while ((is_being_initialized() && !is_init_thread(jt))
             || (AllowEnhancedClassRedefinition && old_version() != NULL && InstanceKlass::cast(old_version())->is_being_initialized())) {
+      if (debug_logging_enabled) {
+        ResourceMark rm(jt);
+        log_debug(class, init)("Thread \"%s\" waiting for initialization of %s by thread \"%s\"",
+                               jt->name(), external_name(), init_thread_name());
+      }
+
       wait = true;
       jt->set_class_to_be_initialized(this);
       ml.wait();
@@ -1076,24 +1107,44 @@ void InstanceKlass::initialize_impl(TRAPS) {
 
     // Step 3
     if (is_being_initialized() && is_init_thread(jt)) {
+      if (debug_logging_enabled) {
+        ResourceMark rm(jt);
+        log_debug(class, init)("Thread \"%s\" recursively initializing %s",
+                               jt->name(), external_name());
+      }
       DTRACE_CLASSINIT_PROBE_WAIT(recursive, -1, wait);
       return;
     }
 
     // Step 4
     if (is_initialized()) {
+      if (debug_logging_enabled) {
+        ResourceMark rm(jt);
+        log_debug(class, init)("Thread \"%s\" found %s already initialized",
+                               jt->name(), external_name());
+      }
       DTRACE_CLASSINIT_PROBE_WAIT(concurrent, -1, wait);
       return;
     }
 
     // Step 5
     if (is_in_error_state()) {
+      if (debug_logging_enabled) {
+        ResourceMark rm(jt);
+        log_debug(class, init)("Thread \"%s\" found %s is in error state",
+                               jt->name(), external_name());
+      }
       throw_error = true;
     } else {
 
       // Step 6
       set_init_state(being_initialized);
       set_init_thread(jt);
+      if (debug_logging_enabled) {
+        ResourceMark rm(jt);
+        log_debug(class, init)("Thread \"%s\" is initializing %s",
+                               jt->name(), external_name());
+      }
     }
   }
 
@@ -1590,7 +1641,9 @@ void InstanceKlass::call_class_initializer(TRAPS) {
     LogStream ls(lt);
     ls.print("%d Initializing ", call_class_initializer_counter++);
     name()->print_value_on(&ls);
-    ls.print_cr("%s (" PTR_FORMAT ")", h_method() == nullptr ? "(no method)" : "", p2i(this));
+    ls.print_cr("%s (" PTR_FORMAT ") by thread \"%s\"",
+                h_method() == nullptr ? "(no method)" : "", p2i(this),
+                THREAD->name());
   }
   if (h_method() != nullptr) {
     JavaCallArguments args; // No arguments
@@ -1798,31 +1851,60 @@ static int compare_fields_by_offset(Pair<int,int>* a, Pair<int,int>* b) {
   return a->first - b->first;
 }
 
-void InstanceKlass::do_nonstatic_fields_sorted(FieldClosure* cl) {
+template<typename F, typename S, typename T, typename ALLOC_BASE = ResourceObj>
+class Triple : public ALLOC_BASE {
+public:
+  F first;
+  S second;
+  T third;
+
+  Triple() {}
+  Triple(F f, S s, T t) : first(f), second(s), third(t) {}
+};
+
+void InstanceKlass::do_nonstatic_fields_dcevm_collect_fields(void* fields, int depth) {
   InstanceKlass* super = superklass();
-  if (super != NULL) {
-    super->do_nonstatic_fields_sorted(cl);
+  if (super != nullptr) {
+    super->do_nonstatic_fields_dcevm_collect_fields(fields, depth + 1);
   }
-  fieldDescriptor fd;
+  GrowableArray<Triple<int,int, int> >* all_fields = (GrowableArray<Triple<int,int,int> >*) fields;
   // In DebugInfo nonstatic fields are sorted by offset.
-  GrowableArray<Pair<int,int> > fields_sorted;
-  int i = 0;
   for (AllFieldStream fs(this); !fs.done(); fs.next()) {
     if (!fs.access_flags().is_static()) {
-      fd = fs.field_descriptor();
-      Pair<int,int> f(fs.offset(), fs.index());
-      fields_sorted.push(f);
-      i++;
+      Triple<int,int, int> f(fs.offset(), fs.index(), depth);
+      all_fields->push(f);
     }
   }
-  if (i > 0) {
-    int length = i;
-    assert(length == fields_sorted.length(), "duh");
+}
+
+static int compare_fields_by_offset_dcevm(Triple<int,int,int>* a, Triple<int,int,int>* b) {
+  return a->first - b->first;
+}
+
+void InstanceKlass::do_nonstatic_fields_dcevm(FieldClosure* cl) {
+  GrowableArray<InstanceKlass*> class_hiearchy;
+  class_hiearchy.push(this);
+  InstanceKlass* super = superklass();
+  while (super != nullptr) {
+    class_hiearchy.push(super);
+    super = super->superklass();
+  }
+
+  GrowableArray<Triple<int,int, int>> fields_sorted;
+  do_nonstatic_fields_dcevm_collect_fields(&fields_sorted, 0);
+
+  int length = fields_sorted.length();
+  if (length > 0) {
     // _sort_Fn is defined in growableArray.hpp.
-    fields_sorted.sort(compare_fields_by_offset);
+    fields_sorted.sort(compare_fields_by_offset_dcevm);
+
+    fieldDescriptor fd;
+
     for (int i = 0; i < length; i++) {
-      fd.reinitialize(this, fields_sorted.at(i).second);
-      assert(!fd.is_static() && fd.offset() == fields_sorted.at(i).first, "only nonstatic fields");
+      InstanceKlass* ik = class_hiearchy.at(fields_sorted.at(i).third);
+      fd.reinitialize(ik, fields_sorted.at(i).second);
+      assert(!fd.is_static(), "only nonstatic fields");
+      assert(fd.offset() == fields_sorted.at(i).first, "offset matches");
       cl->do_field(&fd);
     }
   }
@@ -4156,6 +4238,23 @@ bool InstanceKlass::should_clean_previous_versions_and_reset() {
   return ret;
 }
 
+// This nulls out jmethodIDs for all methods in 'klass'
+// It needs to be called explicitly for all previous versions of a class because these may not be cleaned up
+// during class unloading.
+// We can not use the jmethodID cache associated with klass directly because the 'previous' versions
+// do not have the jmethodID cache filled in. Instead, we need to lookup jmethodID for each method and this
+// is expensive - O(n) for one jmethodID lookup. For all contained methods it is O(n^2).
+// The reason for expensive jmethodID lookup for each method is that there is no direct link between method and jmethodID.
+void InstanceKlass::clear_jmethod_ids(InstanceKlass* klass) {
+  Array<Method*>* method_refs = klass->methods();
+  for (int k = 0; k < method_refs->length(); k++) {
+    Method* method = method_refs->at(k);
+    if (method != nullptr && method->is_obsolete()) {
+      method->clear_jmethod_id();
+    }
+  }
+}
+
 // Purge previous versions before adding new previous versions of the class and
 // during class unloading.
 void InstanceKlass::purge_previous_version_list() {
@@ -4199,6 +4298,7 @@ void InstanceKlass::purge_previous_version_list() {
       // Unlink from previous version list.
       assert(pv_node->class_loader_data() == loader_data, "wrong loader_data");
       InstanceKlass* next = pv_node->previous_versions();
+      clear_jmethod_ids(pv_node); // jmethodID maintenance for the unloaded class
       pv_node->link_previous_versions(nullptr);   // point next to null
       last->link_previous_versions(next);
       // Delete this node directly. Nothing is referring to it and we don't
@@ -4418,4 +4518,3 @@ void ClassHierarchyIterator::next() {
   _current = _current->next_sibling();
   return; // visit next sibling subclass
 }
-

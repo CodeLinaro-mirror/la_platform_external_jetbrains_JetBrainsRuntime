@@ -55,8 +55,17 @@ record WLInputState(WLPointerEvent eventWithSurface,
      * @param clickCount number of consecutive clicks of the same button performed
      *                   within WLToolkit.getMulticlickTime() milliseconds from one another
      * @param linuxCode button code corresponding to WLPointerEvent.PointerButtonCodes.linuxCode
+     * @param surfaceX the X coordinate of the button press relative to the surface
+     * @param surfaceY the Y coordinate of the button press relative to the surface
      */
-    record PointerButtonEvent(long surface, long serial, long timestamp, int clickCount, int linuxCode) {}
+    record PointerButtonEvent(
+            long surface,
+            long serial,
+            long timestamp,
+            int clickCount,
+            int linuxCode,
+            int surfaceX,
+            int surfaceY) {}
 
     static WLInputState initialState() {
         return new WLInputState(null, null, null, null,
@@ -78,7 +87,8 @@ record WLInputState(WLPointerEvent eventWithSurface,
         final PointerButtonEvent newPointerButtonEvent = getNewPointerButtonEvent(pointerEvent,
                 newEventWithSurface,
                 newEventWithSerial,
-                newEventWithTimestamp);
+                newEventWithTimestamp,
+                newEventWithCoordinates);
         final int newModifiers = getNewModifiers(pointerEvent);
 
         boolean newPointerOverSurface = (pointerEvent.hasEnterEvent() || isPointerOverSurface)
@@ -145,7 +155,7 @@ record WLInputState(WLPointerEvent eventWithSurface,
                 eventWithTimestamp,
                 eventWithCoordinates,
                 pointerButtonPressedEvent,
-                0,
+                modifiers & ~WLPointerEvent.PointerButtonCodes.combinedMask(),
                 surfaceForKeyboardInput,
                 false);
     }
@@ -153,9 +163,10 @@ record WLInputState(WLPointerEvent eventWithSurface,
     private PointerButtonEvent getNewPointerButtonEvent(WLPointerEvent pointerEvent,
                                                         WLPointerEvent newEventWithSurface,
                                                         WLPointerEvent newEventWithSerial,
-                                                        WLPointerEvent newEventWithTimestamp) {
+                                                        WLPointerEvent newEventWithTimestamp,
+                                                        WLPointerEvent newEventWithPosition) {
         if (pointerEvent.hasButtonEvent() && pointerEvent.getIsButtonPressed() && newEventWithSurface != null) {
-            assert newEventWithSerial != null && newEventWithTimestamp != null;
+            assert newEventWithSerial != null && newEventWithTimestamp != null && newEventWithPosition != null;
             int clickCount = 1;
             final boolean pressedSameButton = pointerButtonPressedEvent != null
                     && pointerEvent.getButtonCode() == pointerButtonPressedEvent.linuxCode;
@@ -165,7 +176,10 @@ record WLInputState(WLPointerEvent eventWithSurface,
                 final boolean clickedQuickly
                         = (pointerEvent.getTimestamp() - pointerButtonPressedEvent.timestamp)
                         <= WLToolkit.getMulticlickTime();
-                if (clickedSameSurface && clickedQuickly) {
+                final boolean mouseDidNotMove =
+                        newEventWithPosition.getSurfaceX() == pointerButtonPressedEvent.surfaceX &&
+                        newEventWithPosition.getSurfaceY() == pointerButtonPressedEvent.surfaceY;
+                if (clickedSameSurface && clickedQuickly && mouseDidNotMove) {
                     clickCount = pointerButtonPressedEvent.clickCount + 1;
                 }
             }
@@ -175,7 +189,9 @@ record WLInputState(WLPointerEvent eventWithSurface,
                     newEventWithSerial.getSerial(),
                     newEventWithTimestamp.getTimestamp(),
                     clickCount,
-                    pointerEvent.getButtonCode());
+                    pointerEvent.getButtonCode(),
+                    newEventWithPosition.getSurfaceX(),
+                    newEventWithPosition.getSurfaceY());
         }
 
         return pointerButtonPressedEvent;
@@ -185,7 +201,7 @@ record WLInputState(WLPointerEvent eventWithSurface,
         int newModifiers = modifiers;
 
         if (pointerEvent.hasLeaveEvent()) {
-            return 0;
+            return modifiers & ~WLPointerEvent.PointerButtonCodes.combinedMask();
         }
 
         if (pointerEvent.hasButtonEvent()) {
@@ -193,9 +209,9 @@ record WLInputState(WLPointerEvent eventWithSurface,
                     = WLPointerEvent.PointerButtonCodes.recognizedOrNull(pointerEvent.getButtonCode());
             if (buttonCode != null) {
                 if (pointerEvent.getIsButtonPressed()) {
-                    newModifiers |= buttonCode.javaMask;
+                    newModifiers |= buttonCode.mask();
                 } else {
-                    newModifiers &= ~buttonCode.javaMask;
+                    newModifiers &= ~buttonCode.mask();
                 }
             }
         }
@@ -215,11 +231,23 @@ record WLInputState(WLPointerEvent eventWithSurface,
     }
 
     public int getPointerX() {
-        return eventWithCoordinates != null ? eventWithCoordinates.getSurfaceX() : 0;
+        int x = eventWithCoordinates != null ? eventWithCoordinates.getSurfaceX() : 0;
+        if (!WLGraphicsEnvironment.isDebugScaleEnabled()) {
+            return x;
+        } else {
+            WLComponentPeer peer = getPeer();
+            return peer == null ? x : peer.surfaceUnitsToJavaUnits(x);
+        }
     }
 
     public int getPointerY() {
-        return eventWithCoordinates != null ? eventWithCoordinates.getSurfaceY() : 0;
+        int y = eventWithCoordinates != null ? eventWithCoordinates.getSurfaceY() : 0;
+        if (!WLGraphicsEnvironment.isDebugScaleEnabled()) {
+            return y;
+        } else {
+            WLComponentPeer peer = getPeer();
+            return peer == null ? y : peer.surfaceUnitsToJavaUnits(y);
+        }
     }
 
     public WLComponentPeer getPeer() {
@@ -233,8 +261,8 @@ record WLInputState(WLPointerEvent eventWithSurface,
      */
     public boolean isPointerOverPeer() {
         if (isPointerOverSurface && eventWithCoordinates != null) {
-            int x = eventWithCoordinates.getSurfaceX();
-            int y = eventWithCoordinates.getSurfaceY();
+            int x = getPointerX();
+            int y = getPointerY();
             WLComponentPeer peer = getPeer();
             if (peer != null) {
                 return x >= 0

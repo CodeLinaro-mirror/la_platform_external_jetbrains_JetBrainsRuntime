@@ -36,6 +36,7 @@ import sun.awt.PeerEvent;
 import sun.awt.SunToolkit;
 import sun.awt.UNIXToolkit;
 import sun.awt.datatransfer.DataTransferer;
+import sun.java2d.vulkan.VKInstance;
 import sun.util.logging.PlatformLogger;
 
 import java.awt.*;
@@ -46,7 +47,6 @@ import java.awt.dnd.DragGestureRecognizer;
 import java.awt.dnd.DragSource;
 import java.awt.dnd.InvalidDnDOperationException;
 import java.awt.dnd.peer.DragSourceContextPeer;
-import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowEvent;
 import java.awt.font.TextAttribute;
@@ -129,8 +129,8 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
      * related to Wayland are reported via an exception.
      */
     private static final int READ_RESULT_ERROR = 2;
-    
-    private static final int MOUSE_BUTTONS_COUNT = 3;
+
+    private static final int MOUSE_BUTTONS_COUNT = 7;
     private static final int AWT_MULTICLICK_DEFAULT_TIME_MS = 500;
 
     private static boolean initialized = false;
@@ -138,12 +138,14 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
     private final WLClipboard clipboard;
     private final WLClipboard selection;
 
-    private static native void initIDs();
+    private static native void initIDs(long displayPtr);
 
     static {
         if (!GraphicsEnvironment.isHeadless()) {
             keyboard = new WLKeyboard();
-            initIDs();
+            long display = WLDisplay.getInstance().getDisplayPtr();
+            VKInstance.init(display);
+            initIDs(display);
         }
         initialized = true;
     }
@@ -422,21 +424,44 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
     /**
      * Maps 'struct wl_surface*' to WLComponentPeer that owns the Wayland surface.
      */
-    private static final Map<Long, WLComponentPeer> wlSurfaceToComponentMap = Collections.synchronizedMap(new HashMap<>());
+    private static final Map<Long, WLComponentPeer> wlSurfaceToComponentMap = new HashMap<>();
 
     static void registerWLSurface(long wlSurfacePtr, WLComponentPeer componentPeer) {
         if (log.isLoggable(PlatformLogger.Level.FINE)) {
             log.fine("registerWLSurface: 0x" + Long.toHexString(wlSurfacePtr) + "->" + componentPeer);
         }
-        wlSurfaceToComponentMap.put(wlSurfacePtr, componentPeer);
+        synchronized (wlSurfaceToComponentMap) {
+            wlSurfaceToComponentMap.put(wlSurfacePtr, componentPeer);
+        }
     }
 
     static void unregisterWLSurface(long wlSurfacePtr) {
-        wlSurfaceToComponentMap.remove(wlSurfacePtr);
+        synchronized (wlSurfaceToComponentMap) {
+            wlSurfaceToComponentMap.remove(wlSurfacePtr);
+        }
     }
 
     static WLComponentPeer componentPeerFromSurface(long wlSurfacePtr) {
-        return wlSurfaceToComponentMap.get(wlSurfacePtr);
+        synchronized (wlSurfaceToComponentMap) {
+            return wlSurfaceToComponentMap.get(wlSurfacePtr);
+        }
+    }
+
+    /**
+     * If there's exactly one Wayland surface present, return the native peer
+     * associated with that surface.
+     * Otherwise, throw UOE.
+     */
+    static WLComponentPeer getSingularWindowPeer() {
+        synchronized (wlSurfaceToComponentMap) {
+            if (wlSurfaceToComponentMap.size() > 1) {
+                throw new UnsupportedOperationException("More than one native window");
+            } else if (wlSurfaceToComponentMap.isEmpty()) {
+                throw new UnsupportedOperationException("No native windows");
+            }
+
+            return wlSurfaceToComponentMap.values().iterator().next();
+        }
     }
 
     @Override

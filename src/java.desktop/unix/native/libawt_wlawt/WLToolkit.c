@@ -48,6 +48,7 @@
 #include "JNIUtilities.h"
 #include "awt.h"
 #include "sun_awt_wl_WLToolkit.h"
+#include "sun_awt_wl_WLDisplay.h"
 #include "WLRobotPeer.h"
 #include "WLGraphicsEnvironment.h"
 #include "memory_utils.h"
@@ -64,6 +65,7 @@ struct wl_display *wl_display = NULL;
 struct wl_shm *wl_shm = NULL;
 struct wl_compositor *wl_compositor = NULL;
 struct xdg_wm_base *xdg_wm_base = NULL;
+struct wp_viewporter *wp_viewporter = NULL;
 struct xdg_activation_v1 *xdg_activation_v1 = NULL;
 struct gtk_shell1* gtk_shell1 = NULL;
 struct wl_seat     *wl_seat = NULL;
@@ -524,6 +526,8 @@ registry_global(void *data, struct wl_registry *wl_registry,
       wl_ddm = wl_registry_bind(wl_registry, name,&wl_data_device_manager_interface, 3);
     } else if (strcmp(interface, zwp_primary_selection_device_manager_v1_interface.name) == 0) {
         zwp_selection_dm = wl_registry_bind(wl_registry, name, &zwp_primary_selection_device_manager_v1_interface, 1);
+    } else if (strcmp(interface, wp_viewporter_interface.name) == 0) {
+        wp_viewporter = wl_registry_bind(wl_registry, name, &wp_viewporter_interface, 1);
     }
 
 #ifdef WAKEFIELD_ROBOT
@@ -733,16 +737,17 @@ finalizeInit(JNIEnv *env) {
     }
 }
 
-JNIEXPORT void JNICALL
-Java_sun_awt_wl_WLToolkit_initIDs
-  (JNIEnv *env, jclass clazz)
+JNIEXPORT jlong JNICALL
+Java_sun_awt_wl_WLDisplay_connect(JNIEnv *env, jobject obj)
 {
-    wl_display = wl_display_connect(NULL);
-    if (!wl_display) {
-        J2dTrace(J2D_TRACE_ERROR, "WLToolkit: Failed to connect to Wayland display\n");
-        JNU_ThrowByName(env, "java/awt/AWTError", "Can't connect to the Wayland server");
-        return;
-    }
+    return ptr_to_jlong(wl_display_connect(NULL));
+}
+
+JNIEXPORT void JNICALL
+Java_sun_awt_wl_WLToolkit_initIDs(JNIEnv *env, jclass clazz, jlong displayPtr)
+{
+    assert (displayPtr != 0);
+    wl_display = jlong_to_ptr(displayPtr);
 
     if (!initJavaRefs(env, clazz)) {
         JNU_ThrowInternalError(env, "Failed to find Wayland toolkit internal classes");
@@ -1088,7 +1093,7 @@ void awt_output_flush()
     wlFlushToServer(getEnv());
 }
 
-struct wl_shm_pool *CreateShmPool(size_t size, const char *name, void **data) {
+struct wl_shm_pool *CreateShmPool(size_t size, const char *name, void **data, int* poolFDPtr) {
     if (size <= 0)
         return NULL;
     int poolFD = AllocateSharedMemoryFile(size, name);
@@ -1101,7 +1106,11 @@ struct wl_shm_pool *CreateShmPool(size_t size, const char *name, void **data) {
     }
     *data = memPtr;
     struct wl_shm_pool *pool = wl_shm_create_pool(wl_shm, poolFD, size);
-    close(poolFD);
+    if (poolFDPtr != NULL) {
+        *poolFDPtr = poolFD;
+    } else {
+        close(poolFD);
+    }
     return pool;
 }
 

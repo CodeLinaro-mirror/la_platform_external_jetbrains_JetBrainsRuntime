@@ -25,7 +25,14 @@
 package sun.awt.wl;
 
 import sun.awt.AWTAccessor;
-import java.awt.*;
+
+import java.awt.Component;
+import java.awt.Dialog;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.Insets;
+import java.awt.SystemColor;
+import java.awt.Window;
 import java.awt.event.WindowEvent;
 import java.awt.peer.ComponentPeer;
 import java.awt.peer.WindowPeer;
@@ -83,13 +90,6 @@ public class WLWindowPeer extends WLComponentPeer implements WindowPeer {
     }
 
     @Override
-    void configureWLSurface() {
-        super.configureWLSurface();
-        updateMinimumSize();
-        updateMaximumSize();
-    }
-
-    @Override
     public Insets getInsets() {
         return new Insets(0, 0, 0, 0);
     }
@@ -131,14 +131,7 @@ public class WLWindowPeer extends WLComponentPeer implements WindowPeer {
 
     @Override
     public void updateMinimumSize() {
-        final Dimension minSize = getMinimumSize();
-        super.setMinimumSizeTo(minSize);
-    }
-
-    public void updateMaximumSize() {
-        // TODO: make sure this is called when our target's maximum size changes
-        final Dimension maxSize = target.isMaximumSizeSet() ? target.getMaximumSize() : null;
-        if (maxSize != null) super.setMaximumSizeTo(maxSize);
+        // No op, it gets updated at each resize
     }
 
     @Override

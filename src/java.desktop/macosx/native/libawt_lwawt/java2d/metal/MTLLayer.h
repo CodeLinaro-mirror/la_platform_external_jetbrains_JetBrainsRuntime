@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,8 +41,10 @@
 @property (readwrite, assign) int leftInset;
 @property (readwrite, atomic) int redrawCount;
 @property (readwrite, atomic) NSTimeInterval avgBlitFrameTime;
+@property (readwrite, atomic) BOOL perfCountersEnabled;
+@property (readwrite, atomic) CFTimeInterval lastPresentedTime;
 
-- (id) initWithJavaLayer:(jobject)layer;
+- (id) initWithJavaLayer:(jobject)layer usePerfCounters:(jboolean)perfCountersEnabled;
 
 - (void) blitTexture;
 - (void) fillParallelogramCtxX:(jfloat)x
@@ -58,6 +60,8 @@
 - (void) stopRedraw:(BOOL)force;
 - (void) flushBuffer;
 - (void) commitCommandBuffer:(MTLContext*)mtlc wait:(BOOL)waitUntilCompleted display:(BOOL)updateDisplay;
+- (void) countFramePresentedCallback;
+- (void) countFrameDroppedCallback;
 @end
 
 #endif /* MTLLayer_h_Included */

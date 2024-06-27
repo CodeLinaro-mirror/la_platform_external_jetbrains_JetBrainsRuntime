@@ -50,13 +50,23 @@ public class WLDialogPeer extends WLDecoratedPeer implements DialogPeer {
     }
 
     @Override
+    public boolean isInteractivelyResizable() {
+        return isResizable();
+    }
+
+    @Override
     public String getTitle() {
         return ((Dialog)target).getTitle();
     }
 
     @Override
+    public boolean isFrameStateSupported(int state) {
+        return state == Frame.NORMAL;
+    }
+
+    @Override
     public void setState(int newState) {
-        throw new UnsupportedOperationException();
+        // Ignored
     }
 
     @Override
@@ -66,6 +76,6 @@ public class WLDialogPeer extends WLDecoratedPeer implements DialogPeer {
 
     @Override
     public void setExtendedState(int newState) {
-        throw new UnsupportedOperationException();
+        // Ignored
     }
 }

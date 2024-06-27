@@ -119,7 +119,6 @@ import java.security.PrivilegedAction;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Map;
@@ -988,6 +987,14 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
                     processXkbChanges(ev);
                 }
 
+                if (ev.get_type() == XConstants.KeyPress) {
+                    doesCurrentlyDispatchedKeyPressContainThePreeditTextOfLastXResetIC =
+                        mayXResetICReturnThePreeditTextViaNextKeyPressEvent &&
+                        isKeyPressSyntetic(ev.get_xkey());
+
+                    mayXResetICReturnThePreeditTextViaNextKeyPressEvent = false;
+                }
+
                 if (XDropTargetEventProcessor.processEvent(ev) ||
                     XDragSourceContextPeer.processEvent(ev)) {
                     continue;
@@ -1013,11 +1020,22 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
                 final boolean isKeyEvent = ( (ev.get_type() == XConstants.KeyPress) ||
                                              (ev.get_type() == XConstants.KeyRelease) );
 
+                final long keyEventSerial = isKeyEvent ? ev.get_xkey().get_serial() : -1;
+
                 if (keyEventLog.isLoggable(PlatformLogger.Level.FINE) && isKeyEvent) {
                     keyEventLog.fine("before XFilterEvent:" + ev);
                 }
                 if (XlibWrapper.XFilterEvent(ev.getPData(), w)) {
                     if (isKeyEvent) {
+                        if (keyEventLog.isLoggable(PlatformLogger.Level.FINE)) {
+                            keyEventLog.fine(
+                                "Setting lastFilteredKeyEventSerial=={0} to {1}",
+                                lastFilteredKeyEventSerial, keyEventSerial
+                            );
+                        }
+                        lastFilteredKeyEventSerial = keyEventSerial;
+
+                        XInputMethod.delayAllXICDestroyUntilAFurtherNotice();
                         XInputMethod.onXKeyEventFiltering(true);
                     }
                     continue;
@@ -1029,6 +1047,14 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
 
                 if (isKeyEvent) {
                     XInputMethod.onXKeyEventFiltering(false);
+                    if (keyEventSerial == lastFilteredKeyEventSerial) {
+                        // JBR-6456: Sudden keyboard death on Linux using iBus.
+                        // If more than 1 key events are being processed by iBus
+                        //   (i.e. more than one in a row calls of XFilterEvent(...) with instances of XKeyEvent have
+                        //    returned true),
+                        //   we have to postpone destroying until the very last one is completely processed)
+                        XInputMethod.delayedXICDestroyShouldBeDone();
+                    }
                 }
 
                 dispatchEvent(ev);
@@ -1036,12 +1062,77 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
                 XBaseWindow.ungrabInput();
                 processException(thr);
             } finally {
+                doesCurrentlyDispatchedKeyPressContainThePreeditTextOfLastXResetIC = false;
                 // free event data if XGetEventData was called
                 XlibWrapper.XFreeEventData(getDisplay(), ev.pData);
                 awtUnlock();
             }
         }
     }
+
+
+    // ================================================================================================================
+    // JBR-3112 Linux: Last character issue with Korean.
+    // XmbResetIC/XwcResetIC are called (by sun.awt.X11InputMethodBase#endComposition) when
+    //   the keyboard focus goes to another Java component.
+    // By the X11 specification, these functions must return the current preedit text. However, some
+    //   input methods (e.g., iBus and fcitx4) don't return the preedit text, but instead send it later
+    //   (asynchronously) via a combination of a synthetic KeyPress event + XmbLookupString applied to it.
+    // Not only does this behavior breaks the X11 specification,
+    //   but it also causes the preedit text to wrongly go to the newly focused Java component rather than
+    //   its intended target, the previously focused component for which the preedit text was originally composed.
+    // Thus, in order to prevent the "outdated" preedit text from going to the newly focused component, let's
+    //   at least discard it at all.
+    // *How* it's done: the toolkit gets notified whenever XmbResetIC/XwcResetIC gets called and then
+    //   discards the preedit text returned from XmbLookupString/XwcLookupString, applied to the next
+    //   KeyPress event being dispatched.
+    // ================================================================================================================
+
+    private volatile boolean mayXResetICReturnThePreeditTextViaNextKeyPressEvent = false;
+    private boolean doesCurrentlyDispatchedKeyPressContainThePreeditTextOfLastXResetIC = false;
+
+    /**
+     * Notifies the toolkit that XmbResetIC/XwcResetIC has recently returned null
+     *   (likely meaning that the preedit text will be sent later via a synthetic KeyPress event,
+     *    although the focus may have already moved to another component)
+     */
+    public void xResetICMayReturnThePreeditTextViaNextKeyPressEvent() {
+        mayXResetICReturnThePreeditTextViaNextKeyPressEvent = true;
+    }
+
+    /**
+     * @return true if the composed text returned from XmbLookupString/XwcLookupString
+     *              (see function awt_x11inputmethod_lookupString in awt_InputMethod.c), applied to the currently
+     *              dispatched KeyEvent, must be discarded (instead of being dispatched to the focused component) ;
+     *         false otherwise
+     * @see XWindow#handleKeyPress(XKeyEvent)
+     */
+    public boolean doesCurrentlyDispatchedKeyPressContainThePreeditTextOfLastXResetIC() {
+        assert isToolkitThread();
+        return doesCurrentlyDispatchedKeyPressContainThePreeditTextOfLastXResetIC;
+    }
+
+    private static boolean isKeyPressSyntetic(XKeyEvent ev) {
+        assert (ev.get_type() == XConstants.KeyPress);
+
+        return ( (ev.get_root()      == 0) &&
+                 (ev.get_subwindow() == 0) &&
+                 (ev.get_time()      == 0) &&
+                 (ev.get_x()         == 0) &&
+                 (ev.get_y()         == 0) &&
+                 (ev.get_x_root()    == 0) &&
+                 (ev.get_y_root()    == 0) &&
+                 (ev.get_state()     == 0) );
+    }
+
+
+    // JBR-6456: Sudden keyboard death on Linux using iBus.
+    // The field holds the value of sun.awt.X11.XKeyEvent#get_serial of the last key event, which
+    //   XFilterEvent(...) returned True for.
+    // See the usages of the variable for more info.
+    // See sun.awt.X11.XInputMethod#disposeXIC for the detailed explanation of the whole fix.
+    private long lastFilteredKeyEventSerial = -1;
+
 
     /**
      * Listener installed to detect display changes.
@@ -1151,7 +1242,9 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
         }
         X11GraphicsDevice x11gd = (X11GraphicsDevice) gd;
         int screenNum = x11gd.getScreen();
-        if (localEnv.runningXinerama() && screenNum != 0) {
+        Rectangle screen = gc.getBounds();
+        boolean isFirstScreen = screen.x == 0 && screen.y == 0;
+        if (localEnv.runningXinerama() && !isFirstScreen) {
             // We cannot estimate insets for non-default screen,
             // there are often none.
             return new Insets(0, 0, 0, 0);
@@ -1160,7 +1253,6 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
         XToolkit.awtLock();
         try {
             Rectangle workArea = getWorkArea(XlibUtil.getRootWindow(screenNum));
-            Rectangle screen = gc.getBounds();
             if (workArea != null) {
                 Point p = x11gd.scaleDown(workArea.x, workArea.y);
                 workArea.x = p.x;
@@ -1169,8 +1261,8 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
                 workArea.height = x11gd.scaleDown(workArea.height);
                 workArea = workArea.intersection(screen);
                 if (!workArea.isEmpty()) {
-                    int top = workArea.y - screen.y;
-                    int left = workArea.x - screen.x;
+                    int top = workArea.y;
+                    int left = workArea.x;
                     int bottom = screen.height - workArea.height - top;
                     int right = screen.width - workArea.width - left;
                     return new Insets(top, left, bottom, right);
@@ -1859,6 +1951,7 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
                                                      localEnv.displayChanged());
             }
         }
+        super.initializeDesktopProperties();
     }
 
     /**

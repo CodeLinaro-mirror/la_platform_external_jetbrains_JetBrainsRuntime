@@ -26,15 +26,14 @@
 
 package sun.awt.wl;
 
-import java.awt.EventQueue;
+import java.awt.Dimension;
+import java.awt.GraphicsConfiguration;
 import java.awt.GraphicsDevice;
-import java.security.AccessController;
-import java.security.PrivilegedAction;
+import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import sun.awt.SunToolkit;
 import sun.java2d.SunGraphicsEnvironment;
 import sun.java2d.SurfaceManagerFactory;
 import sun.java2d.UnixSurfaceManagerFactory;
@@ -44,50 +43,20 @@ import sun.util.logging.PlatformLogger.Level;
 public class WLGraphicsEnvironment extends SunGraphicsEnvironment {
     private static final PlatformLogger log = PlatformLogger.getLogger("sun.awt.wl.WLGraphicsEnvironment");
 
-    private static boolean vulkanEnabled = false;
-    private static boolean verboseVulkanStatus = false;
-    private static boolean vulkanRequested = false;
-    private static int vulkanRequestedDeviceNumber = -1;
-    @SuppressWarnings("removal")
-    private static String vulkanOption =
-            AccessController.doPrivileged(
-                    (PrivilegedAction<String>) () -> System.getProperty("sun.java2d.vulkan", ""));
-
-    @SuppressWarnings("removal")
-    private static String vulkanOptionDeviceNumber =
-            AccessController.doPrivileged(
-                    (PrivilegedAction<String>) () -> System.getProperty("sun.java2d.vulkan.deviceNumber", "0"));
+    private static final boolean debugScaleEnabled;
+    private final Dimension totalDisplayBounds = new Dimension();
 
     static {
-        vulkanRequested = "true".equalsIgnoreCase(vulkanOption);
-        try {
-            vulkanRequestedDeviceNumber = Integer.parseInt(vulkanOptionDeviceNumber);
-        } catch (NumberFormatException e) {
-            log.warning("Invalid Vulkan device number:" + vulkanOptionDeviceNumber);
-        }
-        verboseVulkanStatus = "True".equals(vulkanOption);
-
-
         System.loadLibrary("awt");
         SurfaceManagerFactory.setInstance(new UnixSurfaceManagerFactory());
-        if (vulkanRequested) {
-            vulkanEnabled = initVKWL(verboseVulkanStatus, vulkanRequestedDeviceNumber);
-        }
-        if (log.isLoggable(Level.FINE)) {
-            log.fine("Vulkan rendering enabled: " + (vulkanEnabled?"YES":"NO"));
-        }
+
+        debugScaleEnabled = SunGraphicsEnvironment.isUIScaleEnabled() && SunGraphicsEnvironment.getDebugScale() >= 1;
 
         // Make sure the toolkit is loaded because otherwise this GE is going to be empty
         WLToolkit.isInitialized();
     }
 
-    private static native boolean initVKWL(boolean verbose, int deviceNumber);
-
     private WLGraphicsEnvironment() {
-    }
-
-    public static boolean isVulkanEnabled() {
-        return vulkanEnabled;
     }
 
     private static class Holder {
@@ -140,6 +109,7 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment {
                 if (gd.getID() == wlID) {
                     newOutput = false;
                     if (gd.isSameDeviceAs(wlID, x, y)) {
+                        // These coordinates and the size are not scaled.
                         gd.updateConfiguration(humanID, width, height, scale);
                     } else {
                         final WLGraphicsDevice updatedDevice = WLGraphicsDevice.createWithConfiguration(wlID, humanID,
@@ -155,7 +125,14 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment {
                         width, height, widthMm, heightMm, scale);
                 devices.add(gd);
             }
+            if (LogDisplay.ENABLED) {
+                double effectiveScale = effectiveScaleFrom(scale);
+                LogDisplay log = newOutput ? LogDisplay.ADDED : LogDisplay.CHANGED;
+                log.log(wlID, (int) (width / effectiveScale) + "x" +  (int) (height / effectiveScale), effectiveScale);
+            }
         }
+
+        updateTotalDisplayBounds();
 
         // Skip notification during the initial configuration events
         if (WLToolkit.isInitialized()) {
@@ -192,12 +169,18 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment {
                     .findFirst();
             if (deviceOptional.isPresent()) {
                 final WLGraphicsDevice destroyedDevice = deviceOptional.get();
+                if (LogDisplay.ENABLED) {
+                    WLGraphicsConfig config = (WLGraphicsConfig) destroyedDevice.getDefaultConfiguration();
+                    Rectangle bounds = config.getBounds();
+                    LogDisplay.REMOVED.log(wlID, bounds.width + "x" +  bounds.height, config.getEffectiveScale());
+                }
                 devices.remove(destroyedDevice);
                 final WLGraphicsDevice similarDevice = getSimilarDevice(destroyedDevice);
                 if (similarDevice != null) destroyedDevice.invalidate(similarDevice);
             }
         }
 
+        updateTotalDisplayBounds();
         displayChanged();
     }
 
@@ -205,7 +188,6 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment {
         synchronized (devices) {
             for (WLGraphicsDevice gd : devices) {
                 if (gd.getID() == wlOutputID) {
-                    gd.addWindow(wlComponentPeer);
                     return gd;
                 }
             }
@@ -217,11 +199,38 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment {
         synchronized (devices) {
             for (WLGraphicsDevice gd : devices) {
                 if (gd.getID() == wlOutputID) {
-                    gd.removeWindow(wlComponentPeer);
                     return gd;
                 }
             }
             return null;
         }
+    }
+
+    public Dimension getTotalDisplayBounds() {
+        synchronized (totalDisplayBounds) {
+            return totalDisplayBounds.getSize();
+        }
+    }
+
+    private void updateTotalDisplayBounds() {
+        synchronized (devices) {
+            Rectangle virtualBounds = new Rectangle();
+            for (GraphicsDevice gd : devices) {
+                for (GraphicsConfiguration gc : gd.getConfigurations()) {
+                    virtualBounds = virtualBounds.union(gc.getBounds());
+                }
+            }
+            synchronized (totalDisplayBounds) {
+                totalDisplayBounds.setSize(virtualBounds.getSize());
+            }
+        }
+    }
+
+    static double effectiveScaleFrom(int displayScale) {
+        return debugScaleEnabled ? SunGraphicsEnvironment.getDebugScale() : displayScale;
+    }
+
+    static boolean isDebugScaleEnabled() {
+        return debugScaleEnabled;
     }
 }

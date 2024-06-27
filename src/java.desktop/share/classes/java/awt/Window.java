@@ -47,7 +47,6 @@ import java.io.OptionalDataException;
 import java.io.Serial;
 import java.io.Serializable;
 import java.lang.annotation.Native;
-import java.lang.invoke.MethodHandles;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.InvocationTargetException;
 import java.security.AccessController;
@@ -55,7 +54,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EventListener;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.HashMap;
@@ -71,7 +69,7 @@ import javax.accessibility.AccessibleRole;
 import javax.accessibility.AccessibleState;
 import javax.accessibility.AccessibleStateSet;
 
-import com.jetbrains.internal.JBRApi;
+import com.jetbrains.exported.JBRApi;
 import sun.awt.AWTAccessor;
 import sun.awt.AWTPermissions;
 import sun.awt.AppContext;
@@ -410,6 +408,7 @@ public class Window extends Container implements Accessible {
 
     private static final PlatformLogger log = PlatformLogger.getLogger("java.awt.Window");
     private static final PlatformLogger focusRequestLog = PlatformLogger.getLogger("jb.focus.requests");
+    private static final PlatformLogger perfLog = PlatformLogger.getLogger("awt.window.counters");
 
     private static final boolean locationByPlatformProp;
 
@@ -4022,7 +4021,9 @@ public class Window extends Container implements Accessible {
 
     // ************************** Custom title bar support *******************************
 
-    private static class WindowDecorations {
+    @JBRApi.Service
+    @JBRApi.Provides("WindowDecorations")
+    private static final class WindowDecorations {
         WindowDecorations() { CustomTitleBar.assertSupported(); }
         void setCustomTitleBar(Frame frame, CustomTitleBar customTitleBar) { ((Window) frame).setCustomTitleBar(customTitleBar); }
         void setCustomTitleBar(Dialog dialog, CustomTitleBar customTitleBar) { ((Window) dialog).setCustomTitleBar(customTitleBar); }
@@ -4030,7 +4031,8 @@ public class Window extends Container implements Accessible {
     }
 
 
-    private static class CustomTitleBar implements Serializable {
+    @JBRApi.Provides("WindowDecorations.CustomTitleBar")
+    private static final class CustomTitleBar implements Serializable {
         @Serial
         private static final long serialVersionUID = -2330620200902241173L;
 
@@ -4125,8 +4127,7 @@ public class Window extends Container implements Accessible {
     }
 
     private interface CustomTitleBarPeer {
-        CustomTitleBarPeer INSTANCE = (CustomTitleBarPeer) JBRApi.internalServiceBuilder(MethodHandles.lookup())
-                .withStatic("update", "updateCustomTitleBar", "sun.awt.windows.WFramePeer", "sun.lwawt.macosx.CPlatformWindow").build();
+        CustomTitleBarPeer INSTANCE = JBRApi.internalService();
         void update(ComponentPeer peer);
     }
 
@@ -4162,28 +4163,6 @@ public class Window extends Container implements Accessible {
     Window updateCustomTitleBarHitTest(boolean allowNativeActions) {
         if (customTitleBar == null) return null;
         pendingCustomTitleBarHitTest = allowNativeActions ? CustomTitleBar.HIT_TITLEBAR : CustomTitleBar.HIT_CLIENT;
-        if (customDecorHitTestSpots != null) { // Compatibility bridge, to be removed with old API
-            Point p = getMousePosition(true);
-            if (p == null) return this;
-            // Perform old-style hit test
-            int result = CustomWindowDecoration.NO_HIT_SPOT;
-            for (var spot : customDecorHitTestSpots) {
-                if (spot.getKey().contains(p.x, p.y)) {
-                    result = spot.getValue();
-                    break;
-                }
-            }
-            // Convert old hit test value to new one
-            pendingCustomTitleBarHitTest = switch (result) {
-                case CustomWindowDecoration.MINIMIZE_BUTTON -> CustomTitleBar.HIT_MINIMIZE_BUTTON;
-                case CustomWindowDecoration.MAXIMIZE_BUTTON -> CustomTitleBar.HIT_MAXIMIZE_BUTTON;
-                case CustomWindowDecoration.CLOSE_BUTTON -> CustomTitleBar.HIT_CLOSE_BUTTON;
-                case CustomWindowDecoration.NO_HIT_SPOT, CustomWindowDecoration.DRAGGABLE_AREA -> CustomTitleBar.HIT_TITLEBAR;
-                default -> CustomTitleBar.HIT_CLIENT;
-            };
-            // Overwrite hit test value
-            applyCustomTitleBarHitTest();
-        }
         return this;
     }
 
@@ -4193,130 +4172,6 @@ public class Window extends Container implements Accessible {
             customTitleBarHitTestQuery = pendingCustomTitleBarHitTest;
         }
         customTitleBarHitTest = pendingCustomTitleBarHitTest;
-    }
-
-    // *** Following custom decorations code is kept for backward compatibility and will be removed soon. ***
-
-    @Deprecated
-    private transient volatile boolean hasCustomDecoration;
-    @Deprecated
-    private transient volatile List<Map.Entry<Shape, Integer>> customDecorHitTestSpots;
-    @Deprecated
-    private transient volatile int customDecorTitleBarHeight = -1; // 0 can be a legal value when no title bar is expected
-    @Deprecated
-    private static class CustomWindowDecoration {
-
-        CustomWindowDecoration() { CustomTitleBar.assertSupported(); }
-
-        @Native public static final int
-                NO_HIT_SPOT = 0,
-                OTHER_HIT_SPOT = 1,
-                MINIMIZE_BUTTON = 2,
-                MAXIMIZE_BUTTON = 3,
-                CLOSE_BUTTON = 4,
-                MENU_BAR = 5,
-                DRAGGABLE_AREA = 6;
-
-        void setCustomDecorationEnabled(Window window, boolean enabled) {
-            window.hasCustomDecoration = enabled;
-            setTitleBar(window, enabled ? Math.max(window.customDecorTitleBarHeight, 0.01f) : 0);
-        }
-        boolean isCustomDecorationEnabled(Window window) {
-            return window.hasCustomDecoration;
-        }
-
-        void setCustomDecorationHitTestSpots(Window window, List<Map.Entry<Shape, Integer>> spots) {
-            window.customDecorHitTestSpots = List.copyOf(spots);
-        }
-        List<Map.Entry<Shape, Integer>> getCustomDecorationHitTestSpots(Window window) {
-            return window.customDecorHitTestSpots;
-        }
-
-        void setCustomDecorationTitleBarHeight(Window window, int height) {
-            window.customDecorTitleBarHeight = height;
-            setTitleBar(window, window.hasCustomDecoration ? Math.max(height, 0.01f) : 0);
-        }
-        int getCustomDecorationTitleBarHeight(Window window) {
-            return window.customDecorTitleBarHeight;
-        }
-
-        // Bridge from old to new API
-        private static void setTitleBar(Window window, float height) {
-            if (height <= 0.0f) window.setCustomTitleBar(null);
-            else {
-                CustomTitleBar t = new CustomTitleBar();
-                // Old API accepts title bar height with insets, subtract it for new API.
-                // We use bottom insets here because top insets may change when toggling custom title bar, they are usually equal.
-                if (window instanceof Frame f && (f.getExtendedState() & Frame.MAXIMIZED_BOTH) != 0) {
-                    height -= window.getInsets().bottom;
-                }
-                t.setHeight(Math.max(height, 0.01f));
-                // In old API versions there were no control buttons on Windows.
-                if (System.getProperty("os.name").toLowerCase().contains("win")) t.putProperty("controls.visible", false);
-                window.setCustomTitleBar(t);
-            }
-        }
-    }
-
-    private interface WindowMovePeer {
-        void startMovingWindowTogetherWithMouse(Window window, int mouseButton);
-    }
-
-    private interface WindowMovePeerX11 extends WindowMovePeer {
-        WindowMovePeerX11 INSTANCE = (WindowMovePeerX11) JBRApi.internalServiceBuilder(MethodHandles.lookup())
-                .withStatic("startMovingWindowTogetherWithMouse",
-                        "startMovingWindowTogetherWithMouse",
-                        "sun.awt.X11.XWindowPeer")
-                .build();
-    }
-
-    private interface WindowMovePeerWayland extends WindowMovePeer {
-        WindowMovePeerWayland INSTANCE = (WindowMovePeerWayland) JBRApi.internalServiceBuilder(MethodHandles.lookup())
-                .withStatic("startMovingWindowTogetherWithMouse",
-                        "startMovingWindowTogetherWithMouse",
-                        "sun.awt.wl.WLComponentPeer")
-                .build();
-    }
-
-    private static class WindowMoveService {
-        WindowMovePeer windowMovePeer;
-
-        WindowMoveService() {
-            var toolkit = Toolkit.getDefaultToolkit();
-            var ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-            if (toolkit == null || ge == null) {
-                throw new JBRApi.ServiceNotAvailableException("Supported only with a Toolkit present");
-            }
-
-            boolean isWayland = objectIsInstanceOf(toolkit, "sun.awt.wl.WLToolkit");
-            if (isWayland) {
-                if (!objectIsInstanceOf(ge,"sun.awt.wl.WLGraphicsEnvironment")) {
-                    throw new JBRApi.ServiceNotAvailableException("On Wayland, supported only with WLGraphicsEnvironment");
-                }
-            } else {
-                if (!objectIsInstanceOf(toolkit, "sun.awt.X11.XToolkit")
-                        || !objectIsInstanceOf(ge, "sun.awt.X11GraphicsEnvironment")) {
-                    throw new JBRApi.ServiceNotAvailableException("Supported only with XToolkit and X11GraphicsEnvironment");
-                }
-            }
-
-            if (isWayland) {
-                windowMovePeer = WindowMovePeerWayland.INSTANCE;
-            } else {
-                // This will throw if the service is not supported by the underlying WM
-                windowMovePeer = WindowMovePeerX11.INSTANCE;
-            }
-        }
-
-        boolean objectIsInstanceOf(Object o, String className) {
-            Objects.requireNonNull(o);
-            return o.getClass().getName().equals(className);
-        }
-
-        void startMovingTogetherWithMouse(Window window, int mouseButton) {
-            Objects.requireNonNull(window);
-            windowMovePeer.startMovingWindowTogetherWithMouse(window, mouseButton);
-        }
     }
 
     // ************************** JBR stuff *******************************
@@ -4459,6 +4314,10 @@ public class Window extends Container implements Accessible {
     }
 
     static {
+        @SuppressWarnings("removal")
+        String counters = AccessController.doPrivileged(
+                new GetPropertyAction("awt.window.counters"));
+
         AWTAccessor.setWindowAccessor(new AWTAccessor.WindowAccessor() {
             public void updateWindow(Window window) {
                 window.updateWindow();
@@ -4503,12 +4362,103 @@ public class Window extends Container implements Accessible {
             public Window[] getOwnedWindows(Window w) {
                 return w.getOwnedWindows_NoClientCode();
             }
+
+            public boolean countersEnabled(Window w) {
+                // May want to selectively enable or disable counters per window
+                return counters != null;
+            }
+
+            public void bumpCounter(Window w, String counterName) {
+                Objects.requireNonNull(w);
+                Objects.requireNonNull(counterName);
+
+                PerfCounter newCounter;
+                long curTimeNanos = System.nanoTime();
+                synchronized (w.perfCounters) {
+                    newCounter = w.perfCounters.compute(counterName, (k, v) ->
+                            v == null
+                            ? new PerfCounter(curTimeNanos, 1L)
+                            : new PerfCounter(curTimeNanos, v.value + 1));
+                }
+                PerfCounter prevCounter;
+                synchronized (w.perfCountersPrev) {
+                    prevCounter = w.perfCountersPrev.putIfAbsent(counterName, newCounter);
+                }
+                if (prevCounter != null) {
+                    long nanosInSecond = java.util.concurrent.TimeUnit.SECONDS.toNanos(1);
+                    long timeDeltaNanos = curTimeNanos - prevCounter.updateTimeNanos;
+                    if (timeDeltaNanos > nanosInSecond) {
+                        long valPerSecond = (long) ((double) (newCounter.value - prevCounter.value)
+                                * nanosInSecond / timeDeltaNanos);
+                        boolean traceAllCounters = Objects.equals(counters, "")
+                                || Objects.equals(counters, "stdout")
+                                || Objects.equals(counters, "stderr");
+                        boolean traceEnabled = traceAllCounters || (counters != null && counters.contains(counterName));
+                        if (traceEnabled) {
+                            if (counters.contains("stderr")) {
+                                System.err.println(counterName + " per second: " + valPerSecond);
+                            } else {
+                                System.out.println(counterName + " per second: " + valPerSecond);
+                            }
+                        }
+                        if (perfLog.isLoggable(PlatformLogger.Level.FINE)) {
+                            perfLog.fine(counterName + " per second: " + valPerSecond);
+                        }
+                        synchronized (w.perfCountersPrev) {
+                            w.perfCountersPrev.put(counterName, newCounter);
+                        }
+                    }
+                }
+            }
+
+            public long getCounter(Window w, String counterName) {
+                Objects.requireNonNull(w);
+                Objects.requireNonNull(counterName);
+
+                synchronized (w.perfCounters) {
+                    PerfCounter counter = w.perfCounters.get(counterName);
+                    return counter != null ? counter.value : -1L;
+                }
+            }
+
+            public long getCounterPerSecond(Window w, String counterName) {
+                Objects.requireNonNull(w);
+                Objects.requireNonNull(counterName);
+
+                PerfCounter newCounter;
+                PerfCounter prevCounter;
+
+                synchronized (w.perfCounters) {
+                    newCounter = w.perfCounters.get(counterName);
+                }
+
+                synchronized (w.perfCountersPrev) {
+                    prevCounter = w.perfCountersPrev.get(counterName);
+                }
+
+                if (newCounter != null && prevCounter != null) {
+                    long timeDeltaNanos = newCounter.updateTimeNanos - prevCounter.updateTimeNanos;
+                    // Note that this time delta will usually be above one second.
+                    if (timeDeltaNanos > 0) {
+                        long nanosInSecond = java.util.concurrent.TimeUnit.SECONDS.toNanos(1);
+                        long valPerSecond = (long) ((double) (newCounter.value - prevCounter.value)
+                                * nanosInSecond / timeDeltaNanos);
+                        return valPerSecond;
+                    }
+                }
+                return -1;
+            }
         }); // WindowAccessor
     } // static
 
     // a window doesn't need to be updated in the Z-order.
     @Override
     void updateZOrder() {}
+
+    private record PerfCounter(Long updateTimeNanos, Long value) {}
+
+    private transient final Map<String, PerfCounter> perfCounters = new HashMap<>(4);
+    private transient final Map<String, PerfCounter> perfCountersPrev = new HashMap<>(4);
 
 } // class Window
 

@@ -45,6 +45,9 @@
 // keyboard layout
 static NSString *kbdLayout;
 
+// workaround for JBR-6704
+static unichar lastCtrlCombo;
+
 @interface AWTView()
 @property (retain) CDropTarget *_dropTarget;
 @property (retain) CDragSource *_dragSource;
@@ -57,7 +60,6 @@ static NSString *kbdLayout;
 
 // Uncomment this line to see fprintfs of each InputMethod API being called on this View
 //#define IM_DEBUG TRUE
-//#define EXTRA_DEBUG
 //#define LOG_KEY_EVENTS
 
 static BOOL shouldUsePressAndHold() {
@@ -85,12 +87,13 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, i
 
     m_cPlatformView = cPlatformView;
     fInputMethodLOCKABLE = NULL;
+    fInputMethodInteractionEnabled = YES;
     fKeyEventsNeeded = NO;
     fProcessingKeystroke = NO;
+    lastCtrlCombo = 0;
 
     fEnablePressAndHold = shouldUsePressAndHold();
     fInPressAndHold = NO;
-    fPAHNeedsToSelect = NO;
 
     mouseIsOver = NO;
     [self resetTrackingArea];
@@ -209,24 +212,31 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, i
         [NSApp activateIgnoringOtherApps:YES];
     }
 
-    NSInputManager *inputManager = [NSInputManager currentInputManager];
-    if ([inputManager wantsToHandleMouseEvents]) {
+    JNIEnv *env = [ThreadUtilities getJNIEnvUncached];
+    NSString *checkForInputManagerInMouseDown =
+            [PropertiesUtilities
+             javaSystemPropertyForKey:@"apple.awt.checkForInputManagerInMouseDown"
+                              withEnv:env];
+    if ([@"true" isCaseInsensitiveLike:checkForInputManagerInMouseDown]) {
+        NSInputManager *inputManager = [NSInputManager currentInputManager];
+        if ([inputManager wantsToHandleMouseEvents]) {
 #if IM_DEBUG
-        NSLog(@"-> IM wants to handle event");
+            NSLog(@"-> IM wants to handle event");
 #endif
-        if (![inputManager handleMouseEvent:event]) {
-            [self deliverJavaMouseEvent: event];
+            if ([inputManager handleMouseEvent:event]) {
+#if IM_DEBUG
+                NSLog(@"-> Event was handled.");
+                return;
+#endif
+            }
         } else {
 #if IM_DEBUG
-            NSLog(@"-> Event was handled.");
+            NSLog(@"-> IM does not want to handle event");
 #endif
         }
-    } else {
-#if IM_DEBUG
-        NSLog(@"-> IM does not want to handle event");
-#endif
-        [self deliverJavaMouseEvent: event];
     }
+
+    [self deliverJavaMouseEvent:event];
 }
 
 - (void) mouseUp: (NSEvent *)event {
@@ -353,6 +363,8 @@ static void debugPrintNSEvent(NSEvent* event, const char* comment) {
     fprintf(stderr, "\tmodifierFlags: 0x%08x\n", (unsigned)[event modifierFlags]);
     TISInputSourceRef is = TISCopyCurrentKeyboardLayoutInputSource();
     fprintf(stderr, "\tTISCopyCurrentKeyboardLayoutInputSource: %s\n", is == nil ? "(nil)" : [(NSString*) TISGetInputSourceProperty(is, kTISPropertyInputSourceID) UTF8String]);
+    fprintf(stderr, "\twillBeHandledByComplexInputMethod: %s\n", [event willBeHandledByComplexInputMethod] ? "true" : "false");
+    CFRelease(is);
 }
 #endif
 
@@ -364,9 +376,18 @@ static void debugPrintNSEvent(NSEvent* event, const char* comment) {
     fKeyEventsNeeded = YES;
 
     NSString *eventCharacters = [event characters];
+    unsigned mods = [event modifierFlags] & NSEventModifierFlagDeviceIndependentFlagsMask;
+
+    if (([event modifierFlags] & NSControlKeyMask) && [eventCharacters length] == 1) {
+        lastCtrlCombo = [eventCharacters characterAtIndex:0];
+    } else {
+        lastCtrlCombo = 0;
+    }
 
     // Allow TSM to look at the event and potentially send back NSTextInputClient messages.
-    [self interpretKeyEvents:[NSArray arrayWithObject:event]];
+    if (fInputMethodInteractionEnabled == YES) {
+        [self interpretKeyEvents:[NSArray arrayWithObject:event]];
+    }
 
     if (fEnablePressAndHold && [event willBeHandledByComplexInputMethod] &&
         fInputMethodLOCKABLE)
@@ -375,7 +396,6 @@ static void debugPrintNSEvent(NSEvent* event, const char* comment) {
         fProcessingKeystroke = NO;
         if (!fInPressAndHold) {
             fInPressAndHold = YES;
-            fPAHNeedsToSelect = YES;
         } else {
             // Abandon input to reset IM and unblock input after canceling
             // input accented symbols
@@ -1137,8 +1157,18 @@ static jclass jc_CInputMethod = NULL;
 - (void) insertText:(id)aString replacementRange:(NSRange)replacementRange
 {
 #ifdef IM_DEBUG
-    fprintf(stderr, "AWTView InputMethod Selector Called : [insertText]: %s\n", [aString UTF8String]);
+    fprintf(stderr,
+            "AWTView InputMethod Selector Called : [insertText]: %s, replacementRange: location=%lu, length=%lu\n",
+            [aString UTF8String], replacementRange.location, replacementRange.length);
 #endif // IM_DEBUG
+
+    NSMutableString * useString = [self parseString:aString];
+
+    // See JBR-6704
+    if (lastCtrlCombo && !fProcessingKeystroke && [useString length] == 1 && [useString characterAtIndex:0] == lastCtrlCombo) {
+        lastCtrlCombo = 0;
+        return;
+    }
 
     if (fInputMethodLOCKABLE == NULL) {
         return;
@@ -1152,8 +1182,6 @@ static jclass jc_CInputMethod = NULL;
     // text, or 'text in progress'.  We also need to send the event if we get an insert text out of the blue!
     // (i.e., when the user uses the Character palette or Inkwell), or when the string to insert is a complex
     // Unicode value.
-
-    NSMutableString * useString = [self parseString:aString];
     BOOL usingComplexIM = [self hasMarkedText] || !fProcessingKeystroke;
 
 #ifdef IM_DEBUG
@@ -1163,22 +1191,23 @@ static jclass jc_CInputMethod = NULL;
     NSLog(@"insertText kbdlayout %@ ",(NSString *)kbdLayout);
 
     NSLog(@"utf8Length %lu utf16Length %lu", (unsigned long)utf8Length, (unsigned long)utf16Length);
+    NSLog(@"hasMarkedText: %s, fProcessingKeyStroke: %s", [self hasMarkedText] ? "YES" : "NO", fProcessingKeystroke ? "YES" : "NO");
 #endif // IM_DEBUG
 
     JNIEnv *env = [ThreadUtilities getJNIEnv];
 
     GET_CIM_CLASS();
-    // We need to select the previous glyph so that it is overwritten.
-    if (fPAHNeedsToSelect) {
-        DECLARE_METHOD(jm_selectPreviousGlyph, jc_CInputMethod, "selectPreviousGlyph", "()V");
-        (*env)->CallVoidMethod(env, fInputMethodLOCKABLE, jm_selectPreviousGlyph);
+
+    if (replacementRange.length > 0) {
+        DECLARE_METHOD(jm_selectRange, jc_CInputMethod, "selectRange", "(II)V");
+        (*env)->CallVoidMethod(env, fInputMethodLOCKABLE, jm_selectRange, replacementRange.location,
+                               replacementRange.length);
         CHECK_EXCEPTION();
-        fPAHNeedsToSelect = NO;
     }
 
     if (usingComplexIM) {
         DECLARE_METHOD(jm_insertText, jc_CInputMethod, "insertText", "(Ljava/lang/String;)V");
-        jstring insertedText =  NSStringToJavaString(env, useString);
+        jstring insertedText = NSStringToJavaString(env, useString);
         (*env)->CallVoidMethod(env, fInputMethodLOCKABLE, jm_insertText, insertedText);
         CHECK_EXCEPTION();
         (*env)->DeleteLocalRef(env, insertedText);
@@ -1190,7 +1219,6 @@ static jclass jc_CInputMethod = NULL;
         actualCharacters = [useString copy];
         fKeyEventsNeeded = YES;
     }
-    fPAHNeedsToSelect = NO;
 
     // Abandon input to reset IM and unblock input after entering accented
     // symbols
@@ -1229,13 +1257,23 @@ static jclass jc_CInputMethod = NULL;
     NSAttributedString *attrString = (isAttributedString ? (NSAttributedString *)aString : nil);
     NSString *incomingString = (isAttributedString ? [aString string] : aString);
 #ifdef IM_DEBUG
-    fprintf(stderr, "AWTView InputMethod Selector Called : [setMarkedText] \"%s\", loc=%lu, length=%lu\n", [incomingString UTF8String], (unsigned long)selectionRange.location, (unsigned long)selectionRange.length);
+    fprintf(stderr, "AWTView InputMethod Selector Called :[setMarkedText] \"%s\","
+                    "selectionRange(%lu, %lu), replacementRange(%lu, %lu)\n", [incomingString UTF8String],
+            selectionRange.location, selectionRange.length, replacementRange.location, replacementRange.length);
 #endif // IM_DEBUG
     JNIEnv *env = [ThreadUtilities getJNIEnv];
     GET_CIM_CLASS();
     DECLARE_METHOD(jm_startIMUpdate, jc_CInputMethod, "startIMUpdate", "(Ljava/lang/String;)V");
     DECLARE_METHOD(jm_addAttribute, jc_CInputMethod, "addAttribute", "(ZZII)V");
     DECLARE_METHOD(jm_dispatchText, jc_CInputMethod, "dispatchText", "(IIZ)V");
+
+    if (replacementRange.length > 0) {
+        DECLARE_METHOD(jm_selectRange, jc_CInputMethod, "selectRange", "(II)V");
+        (*env)->CallVoidMethod(env, fInputMethodLOCKABLE, jm_selectRange, replacementRange.location,
+                               replacementRange.length);
+        CHECK_EXCEPTION();
+    }
+
 
     // NSInputContext already did the analysis of the TSM event and created attributes indicating
     // the underlining and color that should be done to the string.  We need to look at the underline
@@ -1270,14 +1308,6 @@ static jclass jc_CInputMethod = NULL;
                 CHECK_EXCEPTION();
             }
         }
-    }
-
-    DECLARE_METHOD(jm_selectPreviousGlyph, jc_CInputMethod, "selectPreviousGlyph", "()V");
-    // We need to select the previous glyph so that it is overwritten.
-    if (fPAHNeedsToSelect) {
-        (*env)->CallVoidMethod(env, fInputMethodLOCKABLE, jm_selectPreviousGlyph);
-         CHECK_EXCEPTION();
-        fPAHNeedsToSelect = NO;
     }
 
     (*env)->CallVoidMethod(env, fInputMethodLOCKABLE, jm_dispatchText,
@@ -1576,6 +1606,17 @@ static jclass jc_CInputMethod = NULL;
 
     [ThreadUtilities performOnMainThread:@selector(markedTextAbandoned:) on:[NSInputManager currentInputManager] withObject:self waitUntilDone:YES];
     [self unmarkText:component];
+}
+
+-(void)enableImInteraction:(BOOL)enabled
+{
+#ifdef IM_DEBUG
+    fprintf(stderr, "AWTView InputMethod Selector Called : [enableImInteraction:%d]\n", enabled);
+#endif // IM_DEBUG
+
+    AWT_ASSERT_APPKIT_THREAD;
+
+    fInputMethodInteractionEnabled = (enabled == YES) ? YES : NO;
 }
 
 /********************************   END NSTextInputClient Protocol   ********************************/

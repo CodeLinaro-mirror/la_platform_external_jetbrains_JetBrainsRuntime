@@ -68,6 +68,7 @@
 #include "utilities/globalDefinitions.hpp"
 #include "utilities/macros.hpp"
 #include "utilities/ostream.hpp"
+#include "utilities/pair.hpp"
 #include "utilities/vmError.hpp"
 #if INCLUDE_JFR
 #include "jfr/jfr.hpp"
@@ -76,13 +77,21 @@
 #include "jvmci/jvmci.hpp"
 #endif
 
-#ifdef AIX
-#include "loadlib_aix.hpp"
-#endif
-
 #ifndef PRODUCT
 #include <signal.h>
 #endif // PRODUCT
+
+#ifdef LINUX
+#include "os_linux.hpp"
+#endif
+
+#ifdef _WINDOWS
+#include <psapi.h>
+#endif
+
+#ifdef __APPLE__
+#include <mach/mach.h>
+#endif
 
 bool              VMError::coredump_status;
 char              VMError::coredump_message[O_BUFLEN];
@@ -432,7 +441,7 @@ static frame next_frame(frame fr, Thread* t) {
     if (!t->is_in_full_stack((address)(fr.real_fp() + 1))) {
       return invalid;
     }
-    if (fr.is_java_frame() || fr.is_native_frame() || fr.is_runtime_frame()) {
+    if (fr.is_interpreted_frame() || (fr.cb() != nullptr && fr.cb()->frame_size() > 0)) {
       RegisterMap map(JavaThread::cast(t),
                       RegisterMap::UpdateMap::skip,
                       RegisterMap::ProcessFrames::include,
@@ -488,7 +497,7 @@ static void print_oom_reasons(outputStream* st) {
   st->print_cr("# Possible reasons:");
   st->print_cr("#   The system is out of physical RAM or swap space");
   if (UseCompressedOops) {
-    st->print_cr("#   The process is running with CompressedOops enabled, and the Java Heap may be blocking the growth of the native heap");
+    st->print_cr("#   This process is running with CompressedOops enabled, and the Java Heap may be blocking the growth of the native heap");
   }
   if (LogBytesPerWord == 2) {
     st->print_cr("#   In 32 bit mode, the process size limit was hit");
@@ -721,6 +730,11 @@ void VMError::report(outputStream* st, bool _verbose) {
                    "Runtime Environment to continue.");
     }
 
+  // avoid the cache update for malloc/mmap errors
+  if (should_report_bug(_id)) {
+    os::prepare_native_symbols();
+  }
+
 #ifdef ASSERT
   // Error handler self tests
   // Meaning of codes passed through in the tests.
@@ -827,9 +841,9 @@ void VMError::report(outputStream* st, bool _verbose) {
                                                     "(mprotect) failed to protect ");
           jio_snprintf(buf, sizeof(buf), SIZE_FORMAT, _size);
           st->print("%s", buf);
-          st->print(" bytes");
+          st->print(" bytes.");
           if (strlen(_detail_msg) > 0) {
-            st->print(" for ");
+            st->print(" Error detail: ");
             st->print("%s", _detail_msg);
           }
           st->cr();
@@ -1310,6 +1324,9 @@ void VMError::report(outputStream* st, bool _verbose) {
   JNIHandles::print_on_unsafe(st);
   JNIHandles::print_memory_usage_on(st);
 
+  STEP_IF("Process memory usage", _verbose)
+  print_process_memory_usage(st);
+
   STEP("OOME stack traces")
   st->print_cr("OOME stack traces (most recent first):");
   print_oome_stacks(st);
@@ -1360,7 +1377,7 @@ void VMError::report(outputStream* st, bool _verbose) {
 void VMError::print_vm_info(outputStream* st) {
 
   char buf[O_BUFLEN];
-  AIX_ONLY(LoadedLibraries::reload());
+  os::prepare_native_symbols();
 
   report_vm_version(st, buf, sizeof(buf));
 
@@ -1496,6 +1513,7 @@ void VMError::print_vm_info(outputStream* st) {
   NativeHeapTrimmer::print_state(st);
   st->cr();
 
+  print_process_memory_usage(st);
 
   // STEP("printing system")
   st->print_cr("---------------  S Y S T E M  ---------------");
@@ -2328,4 +2346,74 @@ void VMError::print_dup_classes(outputStream *st) {
       st->cr();
     }
   }
+}
+
+#ifdef LINUX
+static void print_process_memory_usage_platform(outputStream *st)
+{
+  // See also os::Linux::print_process_memory_info()
+  os::Linux::meminfo_t info;
+  if (os::Linux::query_process_memory_info(&info)) {
+    ssize_t phys_total_kb = os::physical_memory() / K;
+    ssize_t phys_avail_kb = os::available_memory() / K;
+    int rss_percentile = (int)(info.vmrss * 100.0 / phys_total_kb);
+    st->print_cr("Resident Set Size: " SSIZE_FORMAT "K (%d%% of "
+                 SSIZE_FORMAT "K total physical memory with " SSIZE_FORMAT "K free physical memory)",
+                 info.vmrss, rss_percentile, phys_total_kb, phys_avail_kb);
+  } else {
+    st->print_cr("Could not open /proc/self/status to get process memory related information");
+  }
+}
+#endif
+
+#ifdef _WINDOWS
+static void print_process_memory_usage_platform(outputStream *st)
+{
+  // See os::jfr_report_memory_info() in os_windows.cpp
+  PROCESS_MEMORY_COUNTERS_EX pmex;
+  ZeroMemory(&pmex, sizeof(PROCESS_MEMORY_COUNTERS_EX));
+  pmex.cb = sizeof(pmex);
+
+  BOOL ret = GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*) &pmex, sizeof(pmex));
+  if (ret != 0) {
+    ssize_t rss_kb = pmex.WorkingSetSize / K;
+    ssize_t phys_total_kb = os::physical_memory() / K;
+    ssize_t phys_avail_kb = os::available_memory() / K;
+    int rss_percentile = (int)(rss_kb * 100.0 / phys_total_kb);
+    st->print_cr("Resident Set Size: " SSIZE_FORMAT "K (%d%% of "
+                 SSIZE_FORMAT "K total physical memory with " SSIZE_FORMAT "K free physical memory)",
+                 rss_kb, rss_percentile, phys_total_kb, phys_avail_kb);
+  } else {
+    st->print_cr("GetProcessMemoryInfo() call did not succeed");
+  }
+}
+#endif
+
+#ifdef __APPLE__
+static void print_process_memory_usage_platform(outputStream *st)
+{
+  // See os::jfr_report_memory_info() in os_bsd.cpp
+  mach_task_basic_info info;
+  mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+
+  kern_return_t ret = task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &count);
+  if (ret == KERN_SUCCESS) {
+    ssize_t rss_kb = info.resident_size / K;
+    ssize_t phys_total_kb = os::physical_memory() / K;
+    ssize_t phys_avail_kb = os::available_memory() / K;
+    int rss_percentile = (int)(rss_kb * 100.0 / phys_total_kb);
+    st->print_cr("Resident Set Size: " SSIZE_FORMAT "K (%d%% of "
+                 SSIZE_FORMAT "K total physical memory with " SSIZE_FORMAT "K free physical memory)",
+                 rss_kb, rss_percentile, phys_total_kb, phys_avail_kb);
+  } else {
+    st->print_cr("task_info() call did not succeed");
+  }
+}
+#endif
+
+void VMError::print_process_memory_usage(outputStream *st)
+{
+  st->print_cr("Process memory usage:");
+  print_process_memory_usage_platform(st);
+  st->cr();
 }

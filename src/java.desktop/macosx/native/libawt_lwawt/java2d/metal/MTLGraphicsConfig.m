@@ -37,21 +37,22 @@ void
 MTLGC_DestroyMTLGraphicsConfig(jlong pConfigInfo)
 {
     J2dTraceLn(J2D_TRACE_INFO, "MTLGC_DestroyMTLGraphicsConfig");
-
-    MTLGraphicsConfigInfo *mtlinfo =
-        (MTLGraphicsConfigInfo *)jlong_to_ptr(pConfigInfo);
+    JNI_COCOA_ENTER(env);
+    __block MTLGraphicsConfigInfo *mtlinfo = (MTLGraphicsConfigInfo *)jlong_to_ptr(pConfigInfo);
     if (mtlinfo == NULL) {
         J2dRlsTraceLn(J2D_TRACE_ERROR,
                       "MTLGC_DestroyMTLGraphicsConfig: info is null");
         return;
     }
-
-    MTLContext *mtlc = (MTLContext*)mtlinfo->context;
-    if (mtlc != NULL) {
-        [mtlinfo->context release];
-        mtlinfo->context = nil;
-    }
-    free(mtlinfo);
+    __block MTLContext *mtlc = (MTLContext*)mtlinfo->context;
+    mtlinfo->context = nil;
+    [ThreadUtilities performOnMainThreadWaiting:NO block:^() {
+        if (mtlc != NULL) {
+            [mtlc release];
+        }
+        free(mtlinfo);
+    }];
+    JNI_COCOA_EXIT(env);
 }
 
 JNIEXPORT jboolean JNICALL
@@ -83,7 +84,6 @@ JNIEXPORT jlong JNICALL
 Java_sun_java2d_metal_MTLGraphicsConfig_getMTLConfigInfo
     (JNIEnv *env, jclass mtlgc, jint displayID, jstring mtlShadersLib)
 {
-    __block MTLContext* mtlc = nil;
     __block MTLGraphicsConfigInfo* mtlinfo = nil;
 
 JNI_COCOA_ENTER(env);
@@ -92,7 +92,7 @@ JNI_COCOA_ENTER(env);
 
     [ThreadUtilities performOnMainThreadWaiting:YES block:^() {
 
-        mtlc = [[MTLContext alloc] initWithDevice:displayID
+        MTLContext* mtlc = [[MTLContext alloc] initWithDevice:displayID
                                        shadersLib:path];
         if (mtlc != 0L) {
             // create the MTLGraphicsConfigInfo record for this context

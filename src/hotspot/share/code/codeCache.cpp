@@ -472,10 +472,10 @@ CodeHeap* CodeCache::get_code_heap_containing(void* start) {
   return nullptr;
 }
 
-CodeHeap* CodeCache::get_code_heap(const CodeBlob* cb) {
+CodeHeap* CodeCache::get_code_heap(const void* cb) {
   assert(cb != nullptr, "CodeBlob is null");
   FOR_ALL_HEAPS(heap) {
-    if ((*heap)->contains_blob(cb)) {
+    if ((*heap)->contains(cb)) {
       return *heap;
     }
   }
@@ -604,6 +604,7 @@ void CodeCache::free(CodeBlob* cb) {
     heap->set_adapter_count(heap->adapter_count() - 1);
   }
 
+  cb->~CodeBlob();
   // Get heap for given CodeBlob and deallocate
   get_code_heap(cb)->deallocate(cb);
 
@@ -909,6 +910,16 @@ void CodeCache::blobs_do(CodeBlobClosure* f) {
         Universe::heap()->verify_nmethod((nmethod*)cb);
       }
 #endif //ASSERT
+    }
+  }
+}
+
+void CodeCache::blobs_do_dcevm(CodeBlobClosure* f) {
+  assert_locked_or_safepoint(CodeCache_lock);
+  FOR_ALL_ALLOCABLE_HEAPS(heap) {
+    FOR_ALL_BLOBS(cb, *heap) {
+      f->do_code_blob(cb);
+      // (DCEVM) no validation since oops in nmethod blob could be changed
     }
   }
 }

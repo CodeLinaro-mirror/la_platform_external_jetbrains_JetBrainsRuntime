@@ -35,6 +35,7 @@
 #include "prims/jvmtiExport.hpp"
 #include "prims/methodHandles.hpp"
 #include "prims/downcallLinker.hpp"
+#include "runtime/arguments.hpp"
 #include "runtime/globals.hpp"
 #include "runtime/atomic.hpp"
 #include "runtime/continuation.hpp"
@@ -115,6 +116,12 @@ void vm_init_globals() {
 jint init_globals() {
   management_init();
   JvmtiExport::initialize_oop_storage();
+#if INCLUDE_JVMTI
+  if (AlwaysRecordEvolDependencies) {
+    JvmtiExport::set_can_hotswap_or_post_breakpoint(true);
+    JvmtiExport::set_all_dependencies_are_recorded(true);
+  }
+#endif
   bytecodes_init();
   classLoader_init1();
   compilationPolicy_init();
@@ -125,6 +132,8 @@ jint init_globals() {
                                   // initial_stubs_init and metaspace_init.
   if (status != JNI_OK)
     return status;
+
+  Arguments::post_init_system_properties();
 
 #ifdef LEAK_SANITIZER
   {

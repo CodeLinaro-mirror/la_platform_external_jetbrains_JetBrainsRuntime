@@ -28,9 +28,10 @@ package sun.java2d.wl;
 
 import java.awt.GraphicsConfiguration;
 import java.awt.ImageCapabilities;
-import java.awt.Transparency;
-import java.awt.image.ColorModel;
-import sun.awt.wl.WLGraphicsConfig;
+import java.awt.geom.AffineTransform;
+import java.awt.image.VolatileImage;
+import java.util.Objects;
+
 import sun.awt.image.SunVolatileImage;
 import sun.awt.image.VolatileSurfaceManager;
 import sun.java2d.SurfaceData;
@@ -53,5 +54,15 @@ public class WLVolatileSurfaceManager extends VolatileSurfaceManager {
     public ImageCapabilities getCapabilities(GraphicsConfiguration gc) {
         // neither accelerated nor volatile
         return new ImageCapabilities(false);
+    }
+
+    @Override
+    public int validate(GraphicsConfiguration gc) {
+        AffineTransform newTx = gc.getDefaultTransform();
+        if (!Objects.equals(atCurrent, newTx)) {
+            // May need a different size on another display
+            return VolatileImage.IMAGE_INCOMPATIBLE;
+        }
+        return super.validate(gc);
     }
 }

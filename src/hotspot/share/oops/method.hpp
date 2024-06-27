@@ -794,6 +794,7 @@ public:
 
   // Clear methods
   static void clear_jmethod_ids(ClassLoaderData* loader_data);
+  void clear_jmethod_id();
   static void print_jmethod_ids_count(const ClassLoaderData* loader_data, outputStream* out) PRODUCT_RETURN;
 
   // Get this method's jmethodID -- allocate if it doesn't exist
@@ -918,7 +919,7 @@ public:
   void release_C_heap_structures();
 
   Method* get_new_method() const {
-    InstanceKlass* holder = method_holder();
+    InstanceKlass* holder = InstanceKlass::cast(method_holder()->newest_version());
     Method* new_method = holder->method_with_idnum(orig_method_idnum());
 
     assert(new_method != nullptr, "method_with_idnum() should not be null");

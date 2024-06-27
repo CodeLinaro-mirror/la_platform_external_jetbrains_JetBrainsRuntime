@@ -39,17 +39,19 @@ public abstract class WLGraphicsConfig extends GraphicsConfiguration {
     private final WLGraphicsDevice device;
     private final int width;
     private final int height;
-    private final int scale;
+    private final int wlScale; // as reported by Wayland
+    private final double effectiveScale; // as enforced by Java
 
-    protected WLGraphicsConfig(WLGraphicsDevice device, int width, int height, int scale) {
+    protected WLGraphicsConfig(WLGraphicsDevice device, int width, int height, int wlScale) {
         this.device = device;
         this.width = width;
         this.height = height;
-        this.scale = scale;
+        this.wlScale = wlScale;
+        this.effectiveScale = WLGraphicsEnvironment.effectiveScaleFrom(wlScale);
     }
 
     boolean differsFrom(int width, int height, int scale) {
-        return width != this.width || height != this.height || scale != this.scale;
+        return width != this.width || height != this.height || scale != this.wlScale;
     }
 
     @Override
@@ -67,7 +69,7 @@ public abstract class WLGraphicsConfig extends GraphicsConfiguration {
 
     @Override
     public AffineTransform getDefaultTransform() {
-        double scale = getScale();
+        double scale = effectiveScale;
         return AffineTransform.getScaleInstance(scale, scale);
     }
 
@@ -80,11 +82,25 @@ public abstract class WLGraphicsConfig extends GraphicsConfiguration {
 
     @Override
     public Rectangle getBounds() {
-        return new Rectangle(width, height);
+        // NB: despite the claims of GraphicsConfiguration.getBounds()'s javadoc,
+        // the value returned is expected to be in user-space coordinates,
+        // same as windows sizes, offsets, components' coordinates, etc.
+        return new Rectangle((int) (width / effectiveScale), (int) (height / effectiveScale));
     }
 
-    public int getScale() {
-        return scale;
+    /**
+     * Returns the preferred Wayland buffer scale for this display configuration.
+     */
+    public int getWlScale() {
+        return wlScale;
+    }
+
+    /**
+     * Returns the effective scale, which can differ from the buffer scale
+     * if overridden with the sun.java2d.uiScale system property.
+     */
+    public double getEffectiveScale() {
+       return effectiveScale;
     }
 
     public abstract SurfaceType getSurfaceType();
@@ -92,6 +108,6 @@ public abstract class WLGraphicsConfig extends GraphicsConfiguration {
 
     @Override
     public String toString() {
-        return String.format("%dx%d %dx scale", width, height, scale);
+        return String.format("%dx%d %dx scale", width, height, wlScale);
     }
 }

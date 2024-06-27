@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,6 +33,7 @@ import static java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB;
 import static java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_VBGR;
 import static java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_VRGB;
 import static java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 import java.awt.color.ColorSpace;
 
@@ -47,15 +48,20 @@ import java.awt.image.DataBuffer;
 import java.awt.image.DataBufferByte;
 import java.awt.image.Raster;
 import java.awt.image.WritableRaster;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.util.Arrays;
 
+import jdk.internal.misc.InnocuousThread;
 import sun.awt.X11.XBaseWindow;
 import sun.security.action.GetIntegerAction;
 import com.sun.java.swing.plaf.gtk.GTKConstants.TextDirection;
 import sun.java2d.opengl.OGLRenderQueue;
 import sun.security.action.GetPropertyAction;
+import sun.util.logging.PlatformLogger;
 
 public abstract class UNIXToolkit extends SunToolkit
 {
@@ -108,6 +114,16 @@ public abstract class UNIXToolkit extends SunToolkit
     private Boolean nativeGTKAvailable;
     private Boolean nativeGTKLoaded;
     private BufferedImage tmpImage = null;
+    private static final PlatformLogger log = PlatformLogger.getLogger("sun.awt.UNIXToolkit");
+
+    private static void printError(String str) {
+        log.fine(str);
+    }
+
+    @Override
+    protected void initializeDesktopProperties() {
+        initSystemPropertyWatcher();
+    }
 
     public static int getDatatransferTimeout() {
         @SuppressWarnings("removal")
@@ -238,6 +254,72 @@ public abstract class UNIXToolkit extends SunToolkit
             setDesktopProperty(longname, img);
         }
         return img;
+    }
+
+    private static volatile Boolean shouldDisableSystemTray = null;
+
+    /**
+     * There is an issue displaying the xembed icons in appIndicators
+     * area with certain Gnome Shell versions.
+     * To avoid any loss of quality of service, we are disabling
+     * SystemTray support in such cases.
+     *
+     * @return true if system tray should be disabled
+     */
+    public boolean shouldDisableSystemTray() {
+        Boolean result = shouldDisableSystemTray;
+        if (result == null) {
+            synchronized (GTK_LOCK) {
+                result = shouldDisableSystemTray;
+                if (result == null) {
+                    if ("gnome".equals(getDesktop())) {
+                        @SuppressWarnings("removal")
+                        Integer gnomeShellMajorVersion =
+                                AccessController
+                                        .doPrivileged((PrivilegedAction<Integer>)
+                                                this::getGnomeShellMajorVersion);
+
+                        if (gnomeShellMajorVersion == null
+                                || gnomeShellMajorVersion < 45) {
+
+                            return shouldDisableSystemTray = true;
+                        }
+                    }
+                    shouldDisableSystemTray = result = false;
+                }
+            }
+        }
+        return result;
+    }
+
+    private Integer getGnomeShellMajorVersion() {
+        try {
+            Process process =
+                new ProcessBuilder("/usr/bin/gnome-shell", "--version")
+                        .start();
+            try (InputStreamReader isr = new InputStreamReader(process.getInputStream());
+                 BufferedReader reader = new BufferedReader(isr)) {
+
+                if (process.waitFor(2, SECONDS) &&  process.exitValue() == 0) {
+                    String line = reader.readLine();
+                    if (line != null) {
+                        String[] versionComponents = line
+                                .replaceAll("[^\\d.]", "")
+                                .split("\\.");
+
+                        if (versionComponents.length >= 1) {
+                            return Integer.parseInt(versionComponents[0]);
+                        }
+                    }
+                }
+            }
+        } catch (IOException
+                 | InterruptedException
+                 | IllegalThreadStateException
+                 | NumberFormatException ignored) {
+        }
+
+        return null;
     }
 
     /**
@@ -478,6 +560,8 @@ public abstract class UNIXToolkit extends SunToolkit
         return result;
     }
 
+    private static native int isSystemDarkColorScheme();
+
     @Override
     public boolean isRunningOnXWayland() {
         return isOnXWayland();
@@ -496,12 +580,64 @@ public abstract class UNIXToolkit extends SunToolkit
     // application icons).
     private static final WindowFocusListener waylandWindowFocusListener;
 
+    private static final String OS_THEME_IS_DARK = "awt.os.theme.isDark";
+
+    private static Thread systemPropertyWatcher = null;
+
+    private static native boolean dbusInit();
+
+    private void initSystemPropertyWatcher() {
+        @SuppressWarnings("removal")
+        String dbusEnabled = AccessController.doPrivileged(
+                new GetPropertyAction("jbr.dbus.enabled", "true")).toLowerCase();
+        if (!"true".equals(dbusEnabled) || !dbusInit()) {
+            return;
+        }
+
+        int initialSystemDarkColorScheme = isSystemDarkColorScheme();
+        if (initialSystemDarkColorScheme >= 0) {
+            setDesktopProperty(OS_THEME_IS_DARK, initialSystemDarkColorScheme != 0);
+
+            systemPropertyWatcher = InnocuousThread.newThread("SystemPropertyWatcher",
+                    () -> {
+                        while (true) {
+                            try {
+                                int isSystemDarkColorScheme = isSystemDarkColorScheme();
+                                if (isSystemDarkColorScheme >= 0) {
+                                    setDesktopProperty(OS_THEME_IS_DARK, isSystemDarkColorScheme != 0);
+                                }
+
+                                Thread.sleep(1000);
+                            } catch (Exception ignored) {
+                            }
+                        }
+                    });
+            systemPropertyWatcher.setDaemon(true);
+            systemPropertyWatcher.start();
+        }
+    }
+
     static {
         if (isOnXWayland()) {
             waylandWindowFocusListener = new WindowAdapter() {
                 @Override
                 public void windowLostFocus(WindowEvent e) {
                     Window window = e.getWindow();
+                    Window oppositeWindow = e.getOppositeWindow();
+
+                    // The focus can move between the window calling the popup,
+                    // and the popup window itself.
+                    // We only dismiss the popup in other cases.
+                    if (oppositeWindow != null) {
+                        if (window == oppositeWindow.getParent() ) {
+                            addWaylandWindowFocusListenerToWindow(oppositeWindow);
+                            return;
+                        }
+                        if (window.getParent() == oppositeWindow) {
+                            return;
+                        }
+                    }
+
                     window.removeWindowFocusListener(this);
 
                     // AWT
@@ -516,18 +652,22 @@ public abstract class UNIXToolkit extends SunToolkit
         }
     }
 
+    private static void addWaylandWindowFocusListenerToWindow(Window window) {
+        if (!Arrays
+                .asList(window.getWindowFocusListeners())
+                .contains(waylandWindowFocusListener)
+        ) {
+            window.addWindowFocusListener(waylandWindowFocusListener);
+        }
+    }
+
     @Override
     public void dismissPopupOnFocusLostIfNeeded(Window invoker) {
-        if (!isRunningOnXWayland()
-                || invoker == null
-                || Arrays
-                    .asList(invoker.getWindowFocusListeners())
-                    .contains(waylandWindowFocusListener)
-        ) {
+        if (!isRunningOnXWayland() || invoker == null) {
             return;
         }
 
-        invoker.addWindowFocusListener(waylandWindowFocusListener);
+        addWaylandWindowFocusListenerToWindow(invoker);
     }
 
     @Override
@@ -537,5 +677,8 @@ public abstract class UNIXToolkit extends SunToolkit
         }
 
         invoker.removeWindowFocusListener(waylandWindowFocusListener);
+        for (Window ownedWindow : invoker.getOwnedWindows()) {
+            ownedWindow.removeWindowFocusListener(waylandWindowFocusListener);
+        }
     }
 }

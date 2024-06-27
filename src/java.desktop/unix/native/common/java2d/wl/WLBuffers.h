@@ -48,6 +48,9 @@ typedef struct WLDrawBuffer WLDrawBuffer;
  */
 typedef uint32_t pixel_t;
 
+typedef void (*BufferEventCallback)(jobject);
+
+
 /**
  * Create a WayLand Surface Buffer Manager for a surface of size width x height
  * pixels with the given background 32-bit pixel value and wl_shm_format.
@@ -61,7 +64,11 @@ typedef uint32_t pixel_t;
  * the drawing to displaying buffer, synchronization, and sending
  * the appropriate notifications to Wayland.
  */
-WLSurfaceBufferManager * WLSBM_Create(jint width, jint height, jint scale, jint bgPixel, jint wlShmFormat);
+WLSurfaceBufferManager * WLSBM_Create(jint width, jint height, jint bgPixel, jint wlShmFormat,
+                                      jobject surfaceDataWeakRef,
+                                      BufferEventCallback frameSentCallback,
+                                      BufferEventCallback frameDroppedCallback,
+                                      BufferEventCallback bufferAttachedCallback);
 
 /**
  * Free all resources allocated for the WayLand Surface Buffer Manager,
@@ -108,7 +115,7 @@ jint WLSBM_HeightGet(WLSurfaceBufferManager *);
  * displays things will change later, but before the changes in drawing buffer
  * are propagated to the display buffer.
  */
-void WLSBM_SizeChangeTo(WLSurfaceBufferManager *, jint width, jint height, jint scale);
+void WLSBM_SizeChangeTo(WLSurfaceBufferManager *, jint width, jint height);
 
 /**
  * Returns a buffer managed by the WayLand Surface Buffer Manager

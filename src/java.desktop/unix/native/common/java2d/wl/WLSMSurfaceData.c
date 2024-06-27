@@ -36,6 +36,7 @@
 #include "Trace.h"
 #include "WLSMSurfaceData.h"
 #include "WLBuffers.h"
+#include "WLToolkit.h"
 
 struct WLSDOps {
     SurfaceDataOps      sdOps;
@@ -62,6 +63,23 @@ typedef struct WLSDPrivate {
     jint           lockFlags;
     WLDrawBuffer * wlBuffer;
 } WLSDPrivate;
+
+static jmethodID countNewFrameMID;
+static jmethodID countDroppedFrameMID;
+static jmethodID bufferAttachedMID;
+
+JNIEXPORT void JNICALL
+Java_sun_java2d_wl_WLSMSurfaceData_initIDs
+        (JNIEnv *env, jclass clazz)
+{
+    // NB: don't care if those "count" methods are found.
+    countNewFrameMID = (*env)->GetMethodID(env, clazz, "countNewFrame", "()V");
+    countDroppedFrameMID = (*env)->GetMethodID(env, clazz, "countDroppedFrame", "()V");
+    CHECK_NULL_THROW_IE(env,
+                        bufferAttachedMID = (*env)->GetMethodID(env, clazz, "bufferAttached", "()V"),
+                        "Failed to find method WLSMSurfaceData.bufferAttached"
+    );
+}
 
 JNIEXPORT WLSDOps * JNICALL
 WLSMSurfaceData_GetOps(JNIEnv *env, jobject sData)
@@ -117,7 +135,96 @@ Java_sun_java2d_wl_WLSMSurfaceData_revalidate(JNIEnv *env, jobject wsd,
         return;
     }
 
-    WLSBM_SizeChangeTo(wsdo->bufferManager, width, height, scale);
+    WLSBM_SizeChangeTo(wsdo->bufferManager, width, height);
+#endif /* !HEADLESS */
+}
+
+JNIEXPORT jint JNICALL
+Java_sun_java2d_wl_WLSMSurfaceData_pixelAt(JNIEnv *env, jobject wsd, jint x, jint y)
+{
+#ifndef HEADLESS
+    J2dTrace(J2D_TRACE_INFO, "Java_sun_java2d_wl_WLSMSurfaceData_pixelAt\n");
+    int pixel = 0xFFB6C1; // the color pink to make errors visible
+
+    SurfaceDataOps *ops = SurfaceData_GetOps(env, wsd);
+    JNU_CHECK_EXCEPTION_RETURN(env, pixel);
+    if (ops == NULL) {
+        return pixel;
+    }
+
+    SurfaceDataRasInfo rasInfo = {.bounds = {x, y, x + 1, y + 1}};
+    if (ops->Lock(env, ops, &rasInfo, SD_LOCK_READ)) {
+        JNU_ThrowByName(env, "java/lang/ArrayIndexOutOfBoundsException", "Coordinate out of bounds");
+        return pixel;
+    }
+
+    ops->GetRasInfo(env, ops, &rasInfo);
+    if (rasInfo.rasBase) {
+        unsigned char *pixelPtr =
+                (unsigned char *) rasInfo.rasBase
+                + (x * rasInfo.pixelStride + y * rasInfo.scanStride);
+        if (rasInfo.pixelStride == 4) {
+            // We don't have any other pixel sizes at the moment,
+            // but this check will future-proof the code somewhat
+            pixel = *(int *) pixelPtr;
+        }
+    }
+    SurfaceData_InvokeRelease(env, ops, &rasInfo);
+    SurfaceData_InvokeUnlock(env, ops, &rasInfo);
+
+    return pixel;
+#endif /* !HEADLESS */
+}
+
+JNIEXPORT jarray JNICALL
+Java_sun_java2d_wl_WLSMSurfaceData_pixelsAt(JNIEnv *env, jobject wsd, jint x, jint y, jint width, jint height)
+{
+#ifndef HEADLESS
+    J2dTrace(J2D_TRACE_INFO, "Java_sun_java2d_wl_WLSMSurfaceData_pixelAt\n");
+
+    SurfaceDataOps *ops = SurfaceData_GetOps(env, wsd);
+    JNU_CHECK_EXCEPTION_RETURN(env, NULL);
+    if (ops == NULL) {
+        return NULL;
+    }
+
+    SurfaceDataRasInfo rasInfo = {.bounds = {x, y, x + width, y + height}};
+    if (ops->Lock(env, ops, &rasInfo, SD_LOCK_READ)) {
+        JNU_ThrowByName(env, "java/lang/ArrayIndexOutOfBoundsException", "Coordinate out of bounds");
+        return NULL;
+    }
+
+    if (rasInfo.bounds.x2 - rasInfo.bounds.x1 < width || rasInfo.bounds.y2 - rasInfo.bounds.y1 < height) {
+        SurfaceData_InvokeUnlock(env, ops, &rasInfo);
+        JNU_ThrowByName(env, "java/lang/ArrayIndexOutOfBoundsException", "Surface too small");
+        return NULL;
+    }
+
+    jintArray arrayObj = NULL;
+    ops->GetRasInfo(env, ops, &rasInfo);
+    if (rasInfo.rasBase && rasInfo.pixelStride == sizeof(jint)) {
+        size_t bufferSizeInPixels = width * height;
+        arrayObj = (*env)->NewIntArray(env, bufferSizeInPixels);
+        if (arrayObj != NULL) {
+            jint *array = (*env)->GetPrimitiveArrayCritical(env, arrayObj, NULL);
+            if (array == NULL) {
+                JNU_ThrowOutOfMemoryError(env, "Wayland window pixels capture");
+            } else {
+                for (int i = y; i < y + height; i += 1) {
+                    jint *destRow = &array[(i - y) * width];
+                    jint *srcRow = (int*)((unsigned char *) rasInfo.rasBase + i * rasInfo.scanStride);
+                    for (int j = x; j < x + width; j += 1) {
+                        destRow[j - x] = srcRow[j];
+                    }
+                }
+                (*env)->ReleasePrimitiveArrayCritical(env, arrayObj, array, 0);
+            }
+        }
+    }
+    SurfaceData_InvokeRelease(env, ops, &rasInfo);
+    SurfaceData_InvokeUnlock(env, ops, &rasInfo);
+
+    return arrayObj;
 #endif /* !HEADLESS */
 }
 
@@ -136,9 +243,6 @@ WLSD_Lock(JNIEnv *env,
     logWSDOp("WLSD_Lock", wlso, lockflags);
 
     pthread_mutex_lock(&wlso->lock);
-    WLSDPrivate *priv = (WLSDPrivate *) &(pRasInfo->priv);
-    priv->lockFlags = lockflags;
-    priv->wlBuffer = WLSBM_BufferAcquireForDrawing(wlso->bufferManager);
 
     J2dTrace4(J2D_TRACE_INFO, "WLSD_Lock() at %d, %d for %dx%d\n",
               pRasInfo->bounds.x1, pRasInfo->bounds.y1,
@@ -149,6 +253,13 @@ WLSD_Lock(JNIEnv *env,
                                     0,
                                     WLSBM_WidthGet(wlso->bufferManager),
                                     WLSBM_HeightGet(wlso->bufferManager));
+    if (pRasInfo->bounds.x2 <= pRasInfo->bounds.x1 || pRasInfo->bounds.y2 <= pRasInfo->bounds.y1) {
+        pthread_mutex_unlock(&wlso->lock);
+        return SD_FAILURE;
+    }
+    WLSDPrivate *priv = (WLSDPrivate *) &(pRasInfo->priv);
+    priv->lockFlags = lockflags;
+    priv->wlBuffer = WLSBM_BufferAcquireForDrawing(wlso->bufferManager);
 #endif
     return SD_SUCCESS;
 }
@@ -221,6 +332,46 @@ WLSD_Dispose(JNIEnv *env, SurfaceDataOps *ops)
 #endif
 }
 
+static void
+BufferAttachedHandler(jobject surfaceDataWeakRef)
+{
+    JNIEnv *env = getEnv();
+    jobject surfaceData = (*env)->NewLocalRef(env, surfaceDataWeakRef);
+    if (surfaceData != NULL) {
+        (*env)->CallVoidMethod(env, surfaceData, bufferAttachedMID);
+        (*env)->DeleteLocalRef(env, surfaceData);
+        JNU_CHECK_EXCEPTION(env);
+    }
+}
+
+static void
+CountFrameSent(jobject surfaceDataWeakRef)
+{
+    if (countNewFrameMID != NULL) {
+        JNIEnv *env = getEnv();
+        jobject surfaceData = (*env)->NewLocalRef(env, surfaceDataWeakRef);
+        if (surfaceData != NULL) {
+            (*env)->CallVoidMethod(env, surfaceData, countNewFrameMID);
+            (*env)->DeleteLocalRef(env, surfaceData);
+            JNU_CHECK_EXCEPTION(env);
+        }
+    }
+}
+
+static void
+CountFrameDropped(jobject surfaceDataWeakRef)
+{
+    if (countDroppedFrameMID != NULL) {
+        JNIEnv *env = getEnv();
+        jobject surfaceData = (*env)->NewLocalRef(env, surfaceDataWeakRef);
+        if (surfaceData != NULL) {
+            (*env)->CallVoidMethod(env, surfaceData, countDroppedFrameMID);
+            (*env)->DeleteLocalRef(env, surfaceData);
+            JNU_CHECK_EXCEPTION(env);
+        }
+    }
+}
+
 /*
  * Class:     sun_java2d_wl_WLSMSurfaceData
  * Method:    initOps
@@ -230,9 +381,9 @@ JNIEXPORT void JNICALL
 Java_sun_java2d_wl_WLSMSurfaceData_initOps(JNIEnv *env, jobject wsd,
                                            jint width,
                                            jint height,
-                                           jint scale,
                                            jint backgroundRGB,
-                                           jint wlShmFormat)
+                                           jint wlShmFormat,
+                                           jboolean perfCountersEnabled)
 {
 #ifndef HEADLESS
 
@@ -251,11 +402,23 @@ Java_sun_java2d_wl_WLSMSurfaceData_initOps(JNIEnv *env, jobject wsd,
         height = 1;
     }
 
+    jobject surfaceDataWeakRef = NULL;
+    surfaceDataWeakRef = (*env)->NewWeakGlobalRef(env, wsd);
+    JNU_CHECK_EXCEPTION(env);
+
     wsdo->sdOps.Lock = WLSD_Lock;
     wsdo->sdOps.Unlock = WLSD_Unlock;
     wsdo->sdOps.GetRasInfo = WLSD_GetRasInfo;
     wsdo->sdOps.Dispose = WLSD_Dispose;
-    wsdo->bufferManager = WLSBM_Create(width, height, scale, backgroundRGB, wlShmFormat);
+    wsdo->bufferManager = WLSBM_Create(width, height, backgroundRGB, wlShmFormat,
+                                       surfaceDataWeakRef,
+                                       perfCountersEnabled ? CountFrameSent : NULL,
+                                       perfCountersEnabled ? CountFrameDropped : NULL,
+                                       BufferAttachedHandler);
+    if (wsdo->bufferManager == NULL) {
+        JNU_ThrowOutOfMemoryError(env, "Failed to create Wayland surface buffer manager");
+        return;
+    }
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
     // Recursive mutex is required because blit can be done with both source

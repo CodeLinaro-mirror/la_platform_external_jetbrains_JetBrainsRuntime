@@ -45,7 +45,9 @@ public abstract class WLDecoratedPeer extends WLWindowPeer {
     }
 
     public abstract boolean isResizable();
+    public abstract boolean isInteractivelyResizable();
 
+    public abstract boolean isFrameStateSupported(int state);
     public abstract void setState(int newState);
     public abstract int getState();
     public abstract void setExtendedState(int newState);
@@ -108,8 +110,8 @@ public abstract class WLDecoratedPeer extends WLWindowPeer {
     }
 
     @Override
-    void notifyConfigured(int newX, int newY, int newWidth, int newHeight, boolean active, boolean maximized) {
-        super.notifyConfigured(newX, newY, newWidth, newHeight, active, maximized);
+    void notifyConfigured(int newX, int newY, int newWidthNative, int newHeightNative, boolean active, boolean maximized) {
+        super.notifyConfigured(newX, newY, newWidthNative, newHeightNative, active, maximized);
         decoration.setActive(active);
     }
 

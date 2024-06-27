@@ -74,8 +74,22 @@ public class WLFramePeer extends WLDecoratedPeer implements FramePeer {
     }
 
     @Override
+    public boolean isInteractivelyResizable() {
+        return getFrame().isResizable() && !isMaximized();
+    }
+
+    @Override
     public String getTitle() {
         return getFrame().getTitle();
+    }
+
+    @Override
+    public boolean isFrameStateSupported(int state) {
+        return switch (state) {
+            case Frame.NORMAL, Frame.ICONIFIED, Frame.MAXIMIZED_BOTH, Frame.MAXIMIZED_HORIZ, Frame.MAXIMIZED_VERT ->
+                    true;
+            default -> false;
+        };
     }
 
     @Override
@@ -108,6 +122,10 @@ public class WLFramePeer extends WLDecoratedPeer implements FramePeer {
         }
     }
 
+    public boolean isMaximized() {
+        return (getState() & Frame.MAXIMIZED_BOTH) != 0;
+    }
+
     @Override
     public void setMaximizedBounds(Rectangle bounds) {
     }
@@ -133,11 +151,11 @@ public class WLFramePeer extends WLDecoratedPeer implements FramePeer {
     }
 
     @Override
-    void notifyConfigured(int newX, int newY, int newWidth, int newHeight, boolean active, boolean maximized) {
+    void notifyConfigured(int newXNative, int newYNative, int newWidthNative, int newHeightNative, boolean active, boolean maximized) {
         int widthBefore = getWidth();
         int heightBefore = getHeight();
-        
-        super.notifyConfigured(newX, newY, newWidth, newHeight, active, maximized);
+
+        super.notifyConfigured(newXNative, newYNative, newWidthNative, newHeightNative, active, maximized);
 
         synchronized (getStateLock()) {
             int oldState = state;
@@ -147,7 +165,7 @@ public class WLFramePeer extends WLDecoratedPeer implements FramePeer {
                 if (maximized) {
                     widthBeforeMaximized = widthBefore;
                     heightBeforeMaximized = heightBefore;
-                } else if (newWidth == 0 && newHeight == 0 && widthBeforeMaximized > 0 && heightBeforeMaximized > 0) {
+                } else if (newWidthNative == 0 && newHeightNative == 0 && widthBeforeMaximized > 0 && heightBeforeMaximized > 0) {
                     performUnlocked(() -> target.setSize(widthBeforeMaximized, heightBeforeMaximized));
                 }
                 WLToolkit.postEvent(new WindowEvent(getFrame(), WindowEvent.WINDOW_STATE_CHANGED, oldState, state));

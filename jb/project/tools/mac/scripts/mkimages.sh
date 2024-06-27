@@ -38,6 +38,7 @@ function do_configure {
     --with-version-opt=b"$build_number" \
     --with-boot-jdk="$BOOT_JDK" \
     --enable-cds=yes \
+    $DISABLE_WARNINGS_AS_ERRORS \
     $STATIC_CONF_ARGS \
     $REPRODUCIBLE_BUILD_OPTS \
     $WITH_ZIPPED_NATIVE_DEBUG_SYMBOLS \
@@ -51,6 +52,8 @@ function create_image_bundle {
   __modules=$4
 
   fastdebug_infix=''
+  __cds_opt=''
+  if [ "$__arch_name" == "$JBRSDK_BUNDLE" ]; then __cds_opt="--generate-cds-archive"; fi
 
   tmp=.bundle.$$.tmp
   mkdir "$tmp" || do_exit $?
@@ -65,14 +68,13 @@ function create_image_bundle {
   echo Running jlink...
   "$JSDK"/bin/jlink \
     --module-path "$__modules_path" --no-man-pages --compress=2 \
-    --add-modules "$__modules" --output "$JRE_CONTENTS/Home" || do_exit $?
+    $__cds_opt --add-modules "$__modules" --output "$JRE_CONTENTS/Home" || do_exit $?
 
   grep -v "^JAVA_VERSION" "$JSDK"/release | grep -v "^MODULES" >> "$JRE_CONTENTS/Home/release"
   if [ "$__arch_name" == "$JBRSDK_BUNDLE" ]; then
     sed 's/JBR/JBRSDK/g' $JRE_CONTENTS/Home/release > release
     mv release $JRE_CONTENTS/Home/release
     cp $IMAGES_DIR/jdk-bundle/jdk-$JBSDK_VERSION.jdk/Contents/Home/lib/src.zip $JRE_CONTENTS/Home/lib
-    cp $IMAGES_DIR/jdk-bundle/jdk-$JBSDK_VERSION.jdk/Contents/Home/lib/server/*.jsa $JRE_CONTENTS/Home/lib/server
     copy_jmods "$__modules" "$__modules_path" "$JRE_CONTENTS"/Home/jmods
     zip_native_debug_symbols $IMAGES_DIR/jdk-bundle/jdk-$JBSDK_VERSION.jdk "${JBR}_diz"
   fi
@@ -88,7 +90,7 @@ function create_image_bundle {
 
   echo Creating "$JBR".tar.gz ...
   # Normalize timestamp
-  #find "$tmp"/"$__root_dir" -print0 | xargs -0 touch -c -h -t "$TOUCH_TIME"
+  find "$tmp"/"$__root_dir" -print0 | xargs -0 touch -c -h -t "$TOUCH_TIME"
 
   (cd "$tmp" &&
       find "$__root_dir" -print0 | LC_ALL=C sort -z | \
@@ -158,8 +160,7 @@ if [ $do_maketest -eq 1 ]; then
     JBRSDK_TEST=${JBRSDK_BUNDLE}-${JBSDK_VERSION}-osx-test-${architecture}-b${build_number}
     echo Creating "$JBRSDK_TEST" ...
     [ $do_reset_changes -eq 1 ] && git checkout HEAD jb/project/tools/common/modules.list src/java.desktop/share/classes/module-info.java
-    make test-image jbr-api CONF=$RELEASE_NAME JBR_API_JBR_VERSION=TEST || do_exit $?
-    cp "build/${RELEASE_NAME}/jbr-api/jbr-api.jar" "${IMAGES_DIR}/test"
+    make test-image CONF=$RELEASE_NAME JBR_API_JBR_VERSION=TEST || do_exit $?
     [ -f "$JBRSDK_TEST.tar.gz" ] && rm "$JBRSDK_TEST.tar.gz"
     COPYFILE_DISABLE=1 tar -pczf "$JBRSDK_TEST".tar.gz -C $IMAGES_DIR --exclude='test/jdk/demos' test || do_exit $?
 fi

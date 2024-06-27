@@ -27,6 +27,7 @@
 package sun.awt.wl;
 
 import sun.awt.AWTAccessor;
+import sun.java2d.vulkan.VKInstance;
 import sun.java2d.vulkan.WLVKGraphicsConfig;
 
 import java.awt.GraphicsConfiguration;
@@ -34,6 +35,8 @@ import java.awt.GraphicsDevice;
 import java.awt.Insets;
 import java.awt.Rectangle;
 import java.awt.Window;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Corresponds to Wayland's output and is identified by its wlID and x, y coordinates
@@ -71,6 +74,10 @@ public class WLGraphicsDevice extends GraphicsDevice {
     // The default config is an object from the configs array
     private volatile WLGraphicsConfig defaultConfig = null;
 
+    // Top-level window peers that consider this device as their primary one
+    // and get their graphics configuration from it
+    private final Set<WLComponentPeer> toplevels = new HashSet<>(); // guarded by 'this'
+
     private WLGraphicsDevice(int id, int x, int y, int widthMm, int heightMm) {
         this.wlID = id;
         this.x = x;
@@ -93,7 +100,7 @@ public class WLGraphicsDevice extends GraphicsDevice {
             WLGraphicsConfig newDefaultConfig;
             // It is necessary to create a new object whenever config changes as its
             // identity is used to detect changes in scale, among other things.
-            if (WLGraphicsEnvironment.isVulkanEnabled()) {
+            if (VKInstance.isVulkanEnabled()) {
                 newDefaultConfig = WLVKGraphicsConfig.getConfig(this, width, height, scale);
                 newConfigs = new GraphicsConfiguration[1];
                 newConfigs[0] = newDefaultConfig;
@@ -109,6 +116,24 @@ public class WLGraphicsDevice extends GraphicsDevice {
             configs = newConfigs;
             defaultConfig = newDefaultConfig;
         }
+
+        // It is important that by the time displayChanged() events are delivered,
+        // all the peers on this device had their graphics configuration updated
+        // to refer to the new ones with, perhaps, different scale or resolution.
+        // This affects various BufferStrategy that use volatile images as their buffers.
+        notifyToplevels();
+    }
+
+    private void notifyToplevels() {
+        Set<WLComponentPeer> toplevelsCopy = new HashSet<>(toplevels.size());
+        synchronized (this) {
+            toplevelsCopy.addAll(toplevels);
+        }
+        int wlOutputID = this.wlID;
+        // NB: each of those peers will likely receive another such notification
+        // from Wayland when it gets the wl_surface::enter event, but the second one
+        // will effectively be a no-op.
+        toplevelsCopy.forEach((peer) -> peer.notifyEnteredOutput(wlOutputID));
     }
 
     /**
@@ -121,7 +146,7 @@ public class WLGraphicsDevice extends GraphicsDevice {
         this.x = similarDevice.x;
         this.y = similarDevice.y;
 
-        int newScale = similarDevice.getScale();
+        int newScale = similarDevice.getWlScale();
         Rectangle newBounds = similarDevice.defaultConfig.getBounds();
         updateConfiguration(similarDevice.name, newBounds.width, newBounds.height, newScale);
     }
@@ -183,29 +208,25 @@ public class WLGraphicsDevice extends GraphicsDevice {
         return defaultConfig;
     }
 
-    int getScale() {
-        return defaultConfig.getScale();
+    int getWlScale() {
+        return defaultConfig.getWlScale();
     }
 
     int getResolution() {
-        Rectangle bounds = defaultConfig.getBounds();
-        if (bounds.width == 0 || bounds.height == 0) return 0;
-
-        double diagonalPixel = Math.sqrt(bounds.width * bounds.width + bounds.height * bounds.height);
-        double diagonalMm = Math.sqrt(widthMm * widthMm + heightMm * heightMm);
-        return (int) (diagonalPixel / diagonalMm * MM_IN_INCH);
+        // must match the horizontal resolution to pass tests
+        return getResolutionX(defaultConfig);
     }
 
     int getResolutionX(WLGraphicsConfig config) {
         Rectangle bounds = config.getBounds();
         if (bounds.width == 0) return 0;
-        return (int)((double)bounds.width / widthMm * MM_IN_INCH);
+        return (int)((double)bounds.width  * MM_IN_INCH / widthMm);
     }
 
     int getResolutionY(WLGraphicsConfig config) {
         Rectangle bounds = config.getBounds();
         if (bounds.height == 0) return 0;
-        return (int)((double)bounds.height / heightMm * MM_IN_INCH);
+        return (int)((double)bounds.height * MM_IN_INCH / heightMm);
     }
 
     @Override
@@ -251,13 +272,15 @@ public class WLGraphicsDevice extends GraphicsDevice {
     }
 
     public void addWindow(WLComponentPeer peer) {
-        // TODO: may be needed to keep track of windows on the device to notify
-        // them of display change events, perhaps.
+        synchronized (this) {
+            toplevels.add(peer);
+        }
     }
 
     public void removeWindow(WLComponentPeer peer) {
-        // TODO: may be needed to keep track of windows on the device to notify
-        // them of display change events, perhaps.
+        synchronized (this) {
+            toplevels.remove(peer);
+        }
     }
 
     @Override

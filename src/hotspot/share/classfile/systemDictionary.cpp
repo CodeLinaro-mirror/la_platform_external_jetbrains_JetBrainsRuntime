@@ -1834,8 +1834,8 @@ bool SystemDictionary::add_loader_constraint(Symbol* class_name,
 // Add entry to resolution error table to record the error when the first
 // attempt to resolve a reference to a class has failed.
 void SystemDictionary::add_resolution_error(const constantPoolHandle& pool, int which,
-                                            Symbol* error, Symbol* message,
-                                            Symbol* cause, Symbol* cause_msg) {
+                                            Symbol* error, const char* message,
+                                            Symbol* cause, const char* cause_msg) {
   {
     MutexLocker ml(Thread::current(), SystemDictionary_lock);
     ResolutionErrorEntry* entry = ResolutionErrorTable::find_entry(pool, which);
@@ -1852,7 +1852,8 @@ void SystemDictionary::delete_resolution_error(ConstantPool* pool) {
 
 // Lookup resolution error table. Returns error if found, otherwise null.
 Symbol* SystemDictionary::find_resolution_error(const constantPoolHandle& pool, int which,
-                                                Symbol** message, Symbol** cause, Symbol** cause_msg) {
+                                                const char** message,
+                                                Symbol** cause, const char** cause_msg) {
 
   {
     MutexLocker ml(Thread::current(), SystemDictionary_lock);
@@ -2333,7 +2334,7 @@ Handle SystemDictionary::link_method_handle_constant(Klass* caller,
 
   // call java.lang.invoke.MethodHandleNatives::linkMethodHandleConstant(Class caller, int refKind, Class callee, String name, Object type) -> MethodHandle
   JavaCallArguments args;
-  args.push_oop(Handle(THREAD, caller->java_mirror()));  // the referring class
+  args.push_oop(Handle(THREAD, caller->newest_version()->java_mirror()));  // the referring class
   args.push_int(ref_kind);
   args.push_oop(Handle(THREAD, callee->java_mirror()));  // the target class
   args.push_oop(name_str);

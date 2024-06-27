@@ -40,6 +40,7 @@ function do_configure {
     --with-nvdacontrollerclient=$NVDA_PATH \
     --disable-ccache \
     --enable-cds=yes \
+    $DISABLE_WARNINGS_AS_ERRORS \
     $STATIC_CONF_ARGS \
     $REPRODUCIBLE_BUILD_OPTS \
     || do_exit $?
@@ -52,6 +53,8 @@ function create_image_bundle {
   __modules=$4
 
   fastdebug_infix=''
+  __cds_opt=''
+  if [ "$__arch_name" == "$JBRSDK_BUNDLE" ]; then __cds_opt="--generate-cds-archive"; fi
 
   [ "$bundle_type" == "fd" ] && [ "$__arch_name" == "$JBRSDK_BUNDLE" ] && __bundle_name=$__arch_name && fastdebug_infix="fastdebug-"
   __root_dir=${__bundle_name}-${JBSDK_VERSION}-windows-x64-${fastdebug_infix}b${build_number}
@@ -59,14 +62,13 @@ function create_image_bundle {
   echo Running jlink ...
   ${JSDK}/bin/jlink \
     --module-path $__modules_path --no-man-pages --compress=2 \
-    --add-modules $__modules --output $__root_dir || do_exit $?
+    $__cds_opt --add-modules $__modules --output $__root_dir || do_exit $?
 
-    grep -v "^JAVA_VERSION" "$JSDK"/release | grep -v "^MODULES" >> $__root_dir/release
-    if [ "$__arch_name" == "$JBRSDK_BUNDLE" ]; then
+  grep -v "^JAVA_VERSION" "$JSDK"/release | grep -v "^MODULES" >> $__root_dir/release
+  if [ "$__arch_name" == "$JBRSDK_BUNDLE" ]; then
     sed 's/JBR/JBRSDK/g' $__root_dir/release > release
     mv release $__root_dir/release
     cp $IMAGES_DIR/jdk/lib/src.zip $__root_dir/lib
-    cp $IMAGES_DIR/jdk/bin/server/*.jsa $__root_dir/bin/server
     for dir in $(ls -d $IMAGES_DIR/jdk/*); do
       rsync -amv --include="*/" --include="*.pdb" --exclude="*" $dir $__root_dir
     done
@@ -95,13 +97,13 @@ esac
 if [ -z "${INC_BUILD:-}" ]; then
   do_configure || do_exit $?
   if [ $do_maketest -eq 1 ]; then
-    make LOG=info CONF=$RELEASE_NAME clean images test-image jbr-api JBR_API_JBR_VERSION=TEST || do_exit $?
+    make LOG=info CONF=$RELEASE_NAME clean images test-image JBR_API_JBR_VERSION=TEST || do_exit $?
   else
     make LOG=info CONF=$RELEASE_NAME clean images || do_exit $?
   fi
 else
   if [ $do_maketest -eq 1 ]; then
-    make LOG=info CONF=$RELEASE_NAME images test-image jbr-api JBR_API_JBR_VERSION=TEST || do_exit $?
+    make LOG=info CONF=$RELEASE_NAME images test-image JBR_API_JBR_VERSION=TEST || do_exit $?
   else
     make LOG=info CONF=$RELEASE_NAME images || do_exit $?
   fi

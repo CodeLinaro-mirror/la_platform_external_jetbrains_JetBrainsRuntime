@@ -235,6 +235,8 @@ public class CInputMethod extends InputMethodAdapter {
      */
     public void activate() {
         isActive = true;
+
+        enableListening(true);
     }
 
     public void deactivate(boolean isTemporary) {
@@ -267,6 +269,7 @@ public class CInputMethod extends InputMethodAdapter {
         if (fAwtFocussedComponentPeer != null) {
             long modelPtr = getNativeViewPtr(fAwtFocussedComponentPeer);
             nativeEndComposition(modelPtr, fAwtFocussedComponent);
+            nativeEnableListening(modelPtr, false);
             nativeNotifyPeer(modelPtr, null);
         }
 
@@ -307,6 +310,11 @@ public class CInputMethod extends InputMethodAdapter {
 
             nativeNotifyPeer(modelPtr, imInstance);
         }
+    }
+
+    @Override
+    protected void stopListening() {
+        enableListening(false);
     }
 
     /**
@@ -414,6 +422,16 @@ public class CInputMethod extends InputMethodAdapter {
         return null;
     }
 
+    private void enableListening(boolean enable) {
+        if (fAwtFocussedComponentPeer != null) {
+            final long modelPtr = getNativeViewPtr(fAwtFocussedComponentPeer);
+
+            if (modelPtr != 0) {
+                nativeEnableListening(modelPtr, enable);
+            }
+        }
+    }
+
     // =========================== NSTextInput callbacks ===========================
     // The 'marked text' that we get from Cocoa.  We need to track this separately, since
     // Java doesn't let us ask the IM context for it.
@@ -497,25 +515,29 @@ public class CInputMethod extends InputMethodAdapter {
         fCurrentText.addAttribute(TextAttribute.INPUT_METHOD_HIGHLIGHT, theHighlight, begin, end);
     }
 
-   /* Called from JNI to select the previously typed glyph during press and hold */
-    private void selectPreviousGlyph() {
-        if (fIMContext == null || fAwtFocussedComponent == null) return; // ???
+    private void selectRange(int selectionStart, int length) {
+        if (fIMContext == null || fAwtFocussedComponent == null) {
+            return;
+        }
+        final int selectionEnd = selectionStart + length;
         try {
             LWCToolkit.invokeLater(new Runnable() {
                 public void run() {
-                    final int offset = fIMContext.getInsertPositionOffset();
-                    if (offset < 1) return; // ???
-
                     if (fAwtFocussedComponent instanceof JTextComponent) {
-                        ((JTextComponent) fAwtFocussedComponent).select(offset - 1, offset);
+                        ((JTextComponent) fAwtFocussedComponent).select(selectionStart, selectionEnd);
                         return;
                     }
 
                     if (fAwtFocussedComponent instanceof TextComponent) {
-                        ((TextComponent) fAwtFocussedComponent).select(offset - 1, offset);
+                        ((TextComponent) fAwtFocussedComponent).select(selectionStart, selectionEnd);
                         return;
                     }
-                    // TODO: Ideally we want to disable press-and-hold in this case
+
+                    var desc = (CInputMethodDescriptor)LWCToolkit.getLWCToolkit().getInputMethodAdapterDescriptor();
+                    if (desc.textInputEventListener != null) {
+                        var event = new JBRTextInputMacOS.SelectTextRangeEvent(fAwtFocussedComponent, selectionStart, length);
+                        desc.textInputEventListener.handleSelectTextRangeEvent(event);
+                    }
                 }
             }, fAwtFocussedComponent);
         } catch (Exception e) {
@@ -809,6 +831,13 @@ public class CInputMethod extends InputMethodAdapter {
     private native void nativeNotifyPeer(long nativePeer, CInputMethod imInstance);
     private native void nativeEndComposition(long nativePeer, Component component);
     private native void nativeHandleEvent(LWComponentPeer<?, ?> peer, AWTEvent event);
+
+    /*
+     * Passing false to the second parameter disables any interaction with
+     *   the AppKit text input management subsystem (i.e. input methods, dead keys, maybe smth else)
+     * Passing true there enables it back
+     */
+    private native void nativeEnableListening(long nativePeerTarget, boolean enable);
 
     // Returns the locale of the active input method.
     static native Locale getNativeLocale();
