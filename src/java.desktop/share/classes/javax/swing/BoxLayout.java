@@ -459,8 +459,7 @@ public class BoxLayout implements LayoutManager2, Serializable {
     }
 
     void checkRequests() {
-        // check yTotal, as it's assigned the last, to ensure initialization completed without exceptions:
-        if (yTotal == null) {
+        if (xChildren == null || yChildren == null) {
             // The requests have been invalidated... recalculate
             // the request information.
             int n = target.getComponentCount();

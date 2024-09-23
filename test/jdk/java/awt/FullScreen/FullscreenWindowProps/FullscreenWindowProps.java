@@ -72,10 +72,6 @@ public final class FullscreenWindowProps {
             GraphicsConfiguration frameGC = frame.getGraphicsConfiguration();
             Rectangle frameBounds = frame.getBounds();
 
-            // Retrieve default screen device again,
-            // as setDisplayMode() or setFullScreenWindow()
-            // may have caused display reconfiguration.
-            gd = ge.getDefaultScreenDevice();
             GraphicsConfiguration screenGC = gd.getDefaultConfiguration();
             Rectangle screenBounds = screenGC.getBounds();
 

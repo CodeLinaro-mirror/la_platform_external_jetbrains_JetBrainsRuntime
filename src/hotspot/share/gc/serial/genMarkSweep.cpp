@@ -188,8 +188,7 @@ void GenMarkSweep::mark_sweep_phase1(bool clear_all_softrefs) {
 
     gch->full_process_roots(false, // not the adjust phase
                             GenCollectedHeap::SO_None,
-                            // (DCEVM) always process all roots (simulate ClassUnloading=false)
-                            !AllowEnhancedClassRedefinition && ClassUnloading, // only strong roots if ClassUnloading
+                            ClassUnloading, // only strong roots if ClassUnloading
                                             // is enabled
                             &follow_root_closure,
                             &follow_cld_closure);

@@ -143,24 +143,21 @@ public class XEmbeddedFramePeer extends XFramePeer {
             xembedLog.fine(xe.toString());
         }
 
-        WindowLocation eventLocation = getNewLocation(xe);
-        Dimension eventDimension = new Dimension(xe.get_width(), xe.get_height());
+        WindowLocation newLocation = getNewLocation(xe);
+        Dimension newDimension = new Dimension(xe.get_width(), xe.get_height());
         boolean xinerama = XToolkit.localEnv.runningXinerama();
         // fix for 5063031
         // if we use super.handleConfigureNotifyEvent() we would get wrong
         // size and position because embedded frame really is NOT a decorated one
         SunToolkit.executeOnEventHandlerThread(target, () -> {
-            Point newUserLocation = eventLocation.getUserLocation();
+            Point newUserLocation = newLocation.getUserLocation();
             Rectangle oldBounds = getBounds();
-            Dimension newSize = xinerama
-                    ? checkIfOnNewScreen(new Rectangle(eventLocation.getDeviceLocation(), eventDimension))
-                    : new Dimension(scaleDown(eventDimension.width), scaleDown(eventDimension.height));
 
             synchronized (getStateLock()) {
                 x = newUserLocation.x;
                 y = newUserLocation.y;
-                width = newSize.width;
-                height = newSize.height;
+                width = scaleDown(newDimension.width);
+                height = scaleDown(newDimension.height);
 
                 dimensions.setClientSize(width, height);
                 dimensions.setLocation(x, y);
@@ -170,6 +167,10 @@ public class XEmbeddedFramePeer extends XFramePeer {
                 handleMoved(dimensions);
             }
             reconfigureContentWindow(dimensions);
+
+            if (xinerama) {
+                checkIfOnNewScreen(new Rectangle(newLocation.getDeviceLocation(), newDimension));
+            }
         });
     }
 
@@ -281,7 +282,7 @@ public class XEmbeddedFramePeer extends XFramePeer {
         Point absoluteLoc = XlibUtil.translateCoordinates(getWindow(),
                                                           XToolkit.getDefaultRootWindow(),
                                                           0, 0);
-        return absoluteLoc != null ? scaleDown(absoluteLoc.x, absoluteLoc.y).x : 0;
+        return absoluteLoc != null ? scaleDownX(absoluteLoc.x) : 0;
     }
 
     public int getAbsoluteY()
@@ -289,7 +290,7 @@ public class XEmbeddedFramePeer extends XFramePeer {
         Point absoluteLoc = XlibUtil.translateCoordinates(getWindow(),
                                                           XToolkit.getDefaultRootWindow(),
                                                           0, 0);
-        return absoluteLoc != null ? scaleDown(absoluteLoc.x, absoluteLoc.y).y : 0;
+        return absoluteLoc != null ? scaleDownY(absoluteLoc.y) : 0;
     }
 
     public int getWidth() {

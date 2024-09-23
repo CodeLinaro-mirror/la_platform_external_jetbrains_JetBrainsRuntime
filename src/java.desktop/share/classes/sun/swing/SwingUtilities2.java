@@ -1010,11 +1010,7 @@ public class SwingUtilities2 {
             } else {
                 layout = new TextLayout(iterator, frc);
             }
-            if (Boolean.TRUE.equals(Toolkit.getDefaultToolkit().getDesktopProperty("jb.swing.avoid.text.layout"))) {
-                g2d.drawString(iterator, x, y);
-            } else {
-                layout.draw(g2d, x, y);
-            }
+            layout.draw(g2d, x, y);
             retVal = layout.getAdvance();
         }
 

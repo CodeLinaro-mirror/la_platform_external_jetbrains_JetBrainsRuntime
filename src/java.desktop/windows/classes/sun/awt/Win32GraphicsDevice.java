@@ -105,12 +105,11 @@ public class Win32GraphicsDevice extends GraphicsDevice implements
 
     private static native void initIDs();
 
-    private native void initDevice(int screen);
-    private static native void initNativeScale(int screen);
-    private static native void setNativeScale(int screen, float scaleX, float scaleY);
-    private static native float getNativeScaleX(int screen);
-    private static native float getNativeScaleY(int screen);
-    private static native Rectangle getBounds(int screen);
+    native void initDevice(int screen);
+    native void initNativeScale(int screen);
+    native void setNativeScale(int screen, float scaleX, float scaleY);
+    native float getNativeScaleX(int screen);
+    native float getNativeScaleY(int screen);
 
     public Win32GraphicsDevice(int screennum) {
         this.screen = screennum;
@@ -167,10 +166,6 @@ public class Win32GraphicsDevice extends GraphicsDevice implements
             scaleX = 1;
             scaleY = 1;
         }
-    }
-
-    public Rectangle getBounds() {
-        return getBounds(getScreen());
     }
 
     /**
@@ -261,7 +256,7 @@ public class Win32GraphicsDevice extends GraphicsDevice implements
         }
     }
 
-    private static native int getMaxConfigsImpl(int screen);
+    private native int getMaxConfigsImpl(int screen);
 
     /**
      * Returns whether or not the PixelFormat indicated by index is
@@ -273,7 +268,7 @@ public class Win32GraphicsDevice extends GraphicsDevice implements
      * are disabled.  Do not call this function with an index of 0.
      * @param index a PixelFormat index
      */
-    private static native boolean isPixFmtSupported(int index, int screen);
+    private native boolean isPixFmtSupported(int index, int screen);
 
     /**
      * Returns the PixelFormatID of the default graphics configuration
@@ -292,7 +287,7 @@ public class Win32GraphicsDevice extends GraphicsDevice implements
      * Returns the default PixelFormat ID from GDI.  Do not call if PixelFormats
      * are disabled.
      */
-    private static native int getDefaultPixIDImpl(int screen);
+    private native int getDefaultPixIDImpl(int screen);
 
     /**
      * Returns the default graphics configuration
@@ -472,7 +467,7 @@ public class Win32GraphicsDevice extends GraphicsDevice implements
                 dm.getBitDepth(), dm.getRefreshRate());
             // resize the fullscreen window to the dimensions of the new
             // display mode
-            Rectangle screenBounds = getBounds();
+            Rectangle screenBounds = getDefaultConfiguration().getBounds();
             w.setBounds(screenBounds.x, screenBounds.y,
                         screenBounds.width, screenBounds.height);
             // Note: no call to replaceSurfaceData is required here since
@@ -535,6 +530,7 @@ public class Win32GraphicsDevice extends GraphicsDevice implements
         dynamicColorModel = null;
         defaultConfig = null;
         configs = null;
+        initScaleFactors();
         // pass on to all top-level windows on this display
         topLevels.notifyListeners();
     }
@@ -566,8 +562,8 @@ public class Win32GraphicsDevice extends GraphicsDevice implements
     /**
      * Creates and returns the color model associated with this device
      */
-    private static native ColorModel makeColorModel(int screen,
-                                                    boolean dynamic);
+    private native ColorModel makeColorModel (int screen,
+                                              boolean dynamic);
 
     /**
      * Returns a dynamic ColorModel which is updated when there

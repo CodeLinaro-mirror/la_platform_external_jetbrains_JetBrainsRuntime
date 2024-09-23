@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2003, 2015, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2023, JetBrains s.r.o.. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,32 +25,17 @@
 
 package sun.awt.X11;
 
-import java.awt.*;
-import java.awt.event.*;
-import java.awt.im.InputMethodRequests;
+import java.awt.AWTException;
+import java.awt.Component;
+import java.awt.Container;
+import java.awt.Rectangle;
 import java.awt.im.spi.InputMethodContext;
 import java.awt.peer.ComponentPeer;
-import java.lang.ref.WeakReference;
-import java.util.Arrays;
-import java.util.ArrayDeque;
-import java.util.Iterator;
-import java.util.Objects;
-import java.util.Queue;
-import java.util.function.Supplier;
-import java.util.stream.Stream;
 
 import sun.awt.AWTAccessor;
-import sun.awt.SunToolkit;
-import sun.awt.X11GraphicsDevice;
-import sun.awt.X11GraphicsEnvironment;
 import sun.awt.X11InputMethod;
 
 import sun.util.logging.PlatformLogger;
-
-import javax.swing.*;
-import javax.swing.event.CaretEvent;
-import javax.swing.event.CaretListener;
-import javax.swing.text.JTextComponent;
 
 /**
  * Input Method Adapter for XIM (without Motif)
@@ -63,7 +47,6 @@ public class XInputMethod extends X11InputMethod {
 
     public XInputMethod() throws AWTException {
         super();
-        clientComponentCaretPositionTracker = new ClientComponentCaretPositionTracker(this);
     }
 
     public void setInputMethodContext(InputMethodContext context) {
@@ -75,81 +58,7 @@ public class XInputMethod extends X11InputMethod {
         if (peer != null) {
             adjustStatusWindow(peer.getContentWindow());
         }
-
-        if (doesSupportMovingCandidatesNativeWindow) {
-            clientComponentCaretPositionTracker.onNotifyClientWindowChange(location);
-        }
     }
-
-    @Override
-    public synchronized void activate() {
-        super.activate();
-
-        if (doesSupportMovingCandidatesNativeWindow) {
-            updateCandidatesNativeWindowPosition(true);
-            clientComponentCaretPositionTracker.startTracking(getClientComponent());
-        }
-    }
-
-    @Override
-    public synchronized void deactivate(boolean isTemporary) {
-        clientComponentCaretPositionTracker.stopTrackingCurrentComponent();
-        super.deactivate(isTemporary);
-    }
-
-    @Override
-    public void dispatchEvent(AWTEvent e) {
-        if (doesSupportMovingCandidatesNativeWindow) {
-            clientComponentCaretPositionTracker.onDispatchEvent(e);
-        }
-        super.dispatchEvent(e);
-    }
-
-
-    // Is called from native
-    private static boolean isJbNewXimClientEnabled() {
-        try {
-            final String strVal = System.getProperty("jb.awt.newXimClient.enabled");
-            final boolean defVal = true;
-
-            return (strVal == null) ? defVal : Boolean.parseBoolean(strVal);
-        } catch (Exception err) {
-            if (log.isLoggable(PlatformLogger.Level.SEVERE)) {
-                log.severe("Error at isJbNewXimClientEnabled", err);
-            }
-        }
-
-        return false;
-    }
-
-    protected boolean preferXBelowTheSpot() {
-        try {
-            if (BrokenImDetectionContext.EATEN_EVENTS_THRESHOLD > 0) {
-                // The fix of JBR-1573,
-                //   which is incompatible with the implementation of the native below-the-spot mode (a.k.a. X over-the-spot),
-                //   is explicitly enabled.
-                // So let's disable this mode in favor of that fix.
-
-                if (log.isLoggable(PlatformLogger.Level.WARNING)) {
-                    log.warning("The property \"jb.awt.newXimClient.preferBelowTheSpot\" is ignored in favor of the explicitly enabled \"recreate.x11.input.method\"");
-                }
-
-                return false;
-            }
-
-            final String strVal = System.getProperty("jb.awt.newXimClient.preferBelowTheSpot");
-            final boolean defVal = true;
-
-            return (strVal == null) ? defVal : Boolean.parseBoolean(strVal);
-        } catch (Exception err) {
-            if (log.isLoggable(PlatformLogger.Level.SEVERE)) {
-                log.severe("Error at isJbNewXimClientEnabled", err);
-            }
-        }
-
-        return false;
-    }
-
 
     protected boolean openXIM() {
         return openXIMNative(XToolkit.getDisplay());
@@ -160,14 +69,14 @@ public class XInputMethod extends X11InputMethod {
         if (peer == null) {
             return false;
         }
-        return createXICNative(peer.getContentWindow(), preferXBelowTheSpot());
+        return createXICNative(peer.getContentWindow());
     }
 
     protected boolean recreateXIC(int ctxid) {
         final XComponentPeer peer = (XComponentPeer)getPeer(clientComponentWindow);
         if (peer == null || pData == 0)
             return true;
-        return recreateXICNative(peer.getContentWindow(), pData, ctxid, preferXBelowTheSpot());
+        return recreateXICNative(peer.getContentWindow(), pData, ctxid);
     }
     protected int releaseXIC() {
         if (pData == 0)
@@ -177,7 +86,8 @@ public class XInputMethod extends X11InputMethod {
 
     private static volatile long xicFocus = 0;
 
-    protected void setXICFocus(ComponentPeer peer, boolean value, boolean active) {
+    protected void setXICFocus(ComponentPeer peer,
+                                    boolean value, boolean active) {
         if (peer == null) {
             return;
         }
@@ -185,17 +95,15 @@ public class XInputMethod extends X11InputMethod {
         setXICFocusNative(((XComponentPeer)peer).getContentWindow(),
                           value,
                           active);
-
-        doesSupportMovingCandidatesNativeWindow = value && doesFocusedXICSupportMovingCandidatesNativeWindow();
     }
 
     public static long getXICFocus() {
         return xicFocus;
     }
 
-    /* XAWT_HACK  FIX ME!
-       do NOT call client code!
-    */
+/* XAWT_HACK  FIX ME!
+   do NOT call client code!
+*/
     protected Container getParent(Component client) {
         return client.getParent();
     }
@@ -246,155 +154,6 @@ public class XInputMethod extends X11InputMethod {
         XWindow peer = AWTAccessor.getComponentAccessor()
                                   .getPeer(clientComponentWindow);
         return peer.getContentWindow();
-    }
-
-
-    // JBR-6456: Sudden keyboard death on Linux using iBus.
-    // xicDestroyMustBeDelayed, XIC_DELAYED_TO_BE_DESTROYED_CAPACITY, xicDelayedToBeDestroyed can only be accessed
-    //   under the AWT lock
-    // See the #disposeXIC method for the purpose of these fields
-    private static boolean xicDestroyMustBeDelayed = false;
-    private static final int XIC_DELAYED_TO_BE_DESTROYED_CAPACITY = 16;
-    private static final Queue<Long> xicDelayedToBeDestroyed = new ArrayDeque<>(XIC_DELAYED_TO_BE_DESTROYED_CAPACITY);
-
-    static void delayAllXICDestroyUntilAFurtherNotice()  {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("delayAllXICDestroyUntilAFurtherNotice(): is being called", new Throwable("Stacktrace"));
-        }
-
-        XToolkit.awtLock();
-        try {
-            if (log.isLoggable(PlatformLogger.Level.FINE)) {
-                log.fine("delayAllXICDestroyUntilAFurtherNotice(): xicDestroyMustBeDelayed=={0}", xicDestroyMustBeDelayed);
-            }
-
-            xicDestroyMustBeDelayed = true;
-        } finally {
-            XToolkit.awtUnlock();
-        }
-    }
-
-    static void delayedXICDestroyShouldBeDone() {
-        XToolkit.awtLock();
-        try {
-            xicDestroyMustBeDelayed = false;
-            doDelayedXICDestroy(false, -1);
-        } finally {
-            XToolkit.awtUnlock();
-        }
-    }
-
-    private static void doDelayedXICDestroy(boolean forced, int maxCountToDestroy) {
-        final boolean isFineLoggable = log.isLoggable(PlatformLogger.Level.FINE);
-
-        if (isFineLoggable) {
-            log.fine(
-                "doDelayedXICDestroy(forced==" + forced + ", maxCountToDestroy==" + maxCountToDestroy + "): is being called",
-                new Throwable("Stacktrace")
-            );
-        }
-
-        assert(SunToolkit.isAWTLockHeldByCurrentThread());
-        assert(forced || !xicDestroyMustBeDelayed);
-
-        while ( (maxCountToDestroy != 0) && !xicDelayedToBeDestroyed.isEmpty() ) {
-            final long pX11IMData = xicDelayedToBeDestroyed.remove();
-            --maxCountToDestroy;
-
-            if (isFineLoggable) {
-                log.fine("doDelayedXICDestroy(): destroying pX11IMData={0}", pX11IMData);
-            }
-
-            assert(pX11IMData != 0);
-            delayedDisposeXIC_disposeXICNative(pX11IMData);
-        }
-    }
-
-    @Override
-    protected void disposeXIC() {
-        awtLock();
-        try {
-            if (log.isLoggable(PlatformLogger.Level.FINE)) {
-                log.fine("disposeXIC(): xicDestroyMustBeDelayed=={0}", xicDestroyMustBeDelayed);
-            }
-
-            if (!xicDestroyMustBeDelayed) {
-                // JBR-6456: Sudden keyboard death on Linux using iBus.
-                // iBus's X11 frontend being run in the async mode (IBUS_ENABLE_SYNC_MODE=0) has a bug leading to a
-                //   violation of the communication protocol between iBus and Xlib (so-called "XIM protocol"),
-                //   later causing Xlib to behave unexpectedly from iBus's point of view, breaking iBus's
-                //   internal state. After all, iBus starts to "steal" all the keyboard events
-                //   (so that each call of XFilterEvent(...) with an instance of XKeyEvent returns True).
-                // The initial iBus's bug only appears when XDestroyIC(...) gets called right after a call of
-                //   XFilterEvent(...) with an instance of XKeyEvent returned True,
-                //   meaning that iBus has started, but hasn't finished yet processing of the key event.
-                // In case of AWT/Swing apps, XDestroyIC gets called whenever a focused HW window gets closed
-                //   (because it leads to disposing of the associated input context,
-                //    see java.awt.Window#doDispose and sun.awt.im.InputContext#dispose)
-                // So, to work around iBus's bug, we have to avoid calling XDestroyIC until iBus finishes processing of
-                //   all the keyboard events it has already started processing of, i.e. until a call of
-                //   XFilterEvent(...) returns False.
-                // To achieve that, the implemented fix delays destroying of input contexts whenever a call of
-                //   XFilterEvent(...) with an instance of XKeyEvent returns True until one of the next calls of
-                //   XFilterEvent(...) with the same instance of XKeyEvent returns False.
-                //   The delaying is implemented via storing the native pointers to the input contexts to
-                //   xicDelayedToBeDestroyed instead of applying XDestroyIC(...) immediately.
-                //   The xicDelayedToBeDestroyed's size is explicitly limited to
-                //      XIC_DELAYED_TO_BE_DESTROYED_CAPACITY. If the limit gets reached, a few input contexts gets
-                //      pulled from there and destroyed regardless of the current value of xicDestroyMustBeDelayed.
-                // The xicDestroyMustBeDelayed field is responsible for indication whether it's required to delay
-                //   the destroying or not. It gets set in #delayAllXICDestroyUntilAFurtherNotice
-                //   and unset in delayedXICDestroyShouldBeDone; both are called by sun.awt.X11.XToolkit depending on
-                //   the value returned by the calls of sun.awt.X11.XlibWrapper#XFilterEvent.
-
-                super.disposeXIC();
-                return;
-            }
-
-            final long pX11IMData = pData;
-
-            // To make sure that the delayed to be destroyed input context won't get used by AWT/Swing or Xlib
-            //   by a mistake, the following things are done:
-            //     1. The input method focus gets detached from the input context (via a call of XUnsetICFocus)
-            //     2. All the native pointers to this instance of XInputMethod
-            //        (now it's just the variable currentX11InputMethodInstance in awt_InputMethod.c) get unset
-            //     3. All the java pointers to the native context (now it's just sun.awt.X11InputMethodBase#pData)
-            //        get unset as well
-            delayedDisposeXIC_preparation_unsetFocusAndDetachCurrentXICNative();
-
-            //     4. The state of the native context gets reset (effectively via a call of XmbResetIC)
-            delayedDisposeXIC_preparation_resetSpecifiedCtxNative(pX11IMData);
-
-            if (pX11IMData == 0) {
-                if (log.isLoggable(PlatformLogger.Level.FINE)) {
-                    log.fine("disposeXIC(): pX11IMData==NULL, skipped");
-                }
-                return;
-            }
-
-            // If the storage is full, a few input context are pulled from there and destroyed regardless of
-            //   the value of xicDestroyMustBeDelayed
-            if (xicDelayedToBeDestroyed.size() >= XIC_DELAYED_TO_BE_DESTROYED_CAPACITY) {
-                if (log.isLoggable(PlatformLogger.Level.FINE)) {
-                    log.fine(
-                        "disposeXIC(): xicDelayedToBeDestroyed.size()=={0} >= XIC_DELAYED_TO_BE_DESTROYED_CAPACITY",
-                        xicDelayedToBeDestroyed.size()
-                    );
-                }
-
-                doDelayedXICDestroy(true, xicDelayedToBeDestroyed.size() - XIC_DELAYED_TO_BE_DESTROYED_CAPACITY + 1);
-            }
-
-            if (log.isLoggable(PlatformLogger.Level.FINE)) {
-                log.fine(
-                    "disposeXIC(): adding pX11IMData=={0} to xicDelayedToBeDestroyed (which already contains {1} elements)",
-                    pX11IMData, xicDelayedToBeDestroyed.size()
-                );
-            }
-            xicDelayedToBeDestroyed.add(pX11IMData);
-        } finally {
-            awtUnlock();
-        }
     }
 
 
@@ -463,12 +222,12 @@ public class XInputMethod extends X11InputMethod {
 
 
         static {
-            int eatenEventsThresholdInitializer = 0;
-            final String eventsThresholdMode = System.getProperty("recreate.x11.input.method", "false");
+            int eatenEventsThresholdInitializer = 7;
+            final String eventsThresholdMode = System.getProperty("recreate.x11.input.method", "true");
 
-            if ("true".equalsIgnoreCase(eventsThresholdMode)) {
-                eatenEventsThresholdInitializer = 7;
-            } else if (!"false".equalsIgnoreCase(eventsThresholdMode)) {
+            if ("false".equals(eventsThresholdMode)) {
+                eatenEventsThresholdInitializer = 0;
+            } else if (!"true".equals(eventsThresholdMode)) {
                 try {
                     eatenEventsThresholdInitializer = Integer.parseInt(eventsThresholdMode);
                 } catch (NumberFormatException err) {
@@ -486,408 +245,14 @@ public class XInputMethod extends X11InputMethod {
     }
 
 
-    // JBR-2460
-    private volatile boolean doesSupportMovingCandidatesNativeWindow = false;
-    private Point lastKnownCandidatesNativeWindowAbsolutePosition = null;
-
-    private void updateCandidatesNativeWindowPosition(final boolean forceUpdate) {
-        assert(SwingUtilities.isEventDispatchThread());
-
-        if (!doesSupportMovingCandidatesNativeWindow) {
-            return;
-        }
-
-        final Component clientComponent = getClientComponent();
-        if (clientComponent == null) {
-            // No client
-            return;
-        }
-
-        final Window clientComponentWindow = getClientComponentWindow();
-        if (clientComponentWindow == null) {
-            // Impossible?
-            return;
-        }
-
-        if (!clientComponent.isShowing() || (!clientComponentWindow.isShowing())) {
-            // Components are not showing yet, so it's impossible to determine their location on the screen
-            //   and/or the location of the caret
-            return;
-        }
-
-        final Point clientComponentAbsolutePos = clientComponent.getLocationOnScreen();
-        final int clientComponentAbsoluteMaxX = clientComponentAbsolutePos.x + clientComponent.getWidth();
-        final int clientComponentAbsoluteMaxY = clientComponentAbsolutePos.y + clientComponent.getHeight();
-
-        // Initial values are the fallback which is the bottom-left corner of the component
-        Point expectedCandidatesNativeWindowAbsolutePos = new Point(
-            clientComponentAbsolutePos.x,
-            clientComponentAbsoluteMaxY
-        );
-
-        final InputMethodRequests clientImr = clientComponent.getInputMethodRequests();
-        if (clientImr != null) {
-            // An active client
-
-            final Rectangle caretRect = clientImr.getTextLocation(null);
-            if (caretRect != null) {
-                expectedCandidatesNativeWindowAbsolutePos.x = caretRect.x;
-                expectedCandidatesNativeWindowAbsolutePos.y = caretRect.y + caretRect.height;
-            }
-        }
-
-        // Clamping within the client component's visible rect (if available and not empty) or just its bounds
-        final var clientComponentVisibleRect = getJComponentVisibleRectIfNotEmpty(clientComponent);
-        if (clientComponentVisibleRect == null) {
-            expectedCandidatesNativeWindowAbsolutePos.x =
-                Math.max(clientComponentAbsolutePos.x, Math.min(expectedCandidatesNativeWindowAbsolutePos.x, clientComponentAbsoluteMaxX - 1));
-            expectedCandidatesNativeWindowAbsolutePos.y =
-                Math.max(clientComponentAbsolutePos.y, Math.min(expectedCandidatesNativeWindowAbsolutePos.y, clientComponentAbsoluteMaxY - 1));
-        } else {
-            final int visibleBoundsAbsoluteMinX = clientComponentAbsolutePos.x + clientComponentVisibleRect.x;
-            final int visibleBoundsAbsoluteMaxX = visibleBoundsAbsoluteMinX + clientComponentVisibleRect.width;
-            final int visibleBoundsAbsoluteMinY = clientComponentAbsolutePos.y + clientComponentVisibleRect.y;
-            final int visibleBoundsAbsoluteMaxY = visibleBoundsAbsoluteMinY + clientComponentVisibleRect.height;
-
-            expectedCandidatesNativeWindowAbsolutePos.x =
-                Math.max(visibleBoundsAbsoluteMinX, Math.min(expectedCandidatesNativeWindowAbsolutePos.x, visibleBoundsAbsoluteMaxX - 1));
-            expectedCandidatesNativeWindowAbsolutePos.y =
-                Math.max(visibleBoundsAbsoluteMinY, Math.min(expectedCandidatesNativeWindowAbsolutePos.y, visibleBoundsAbsoluteMaxY - 1));
-        }
-
-        // Scaling the coordinates according to the screen's current scaling settings.
-        // To do it properly, we have to know the screen which the point is on.
-        // The code below supposes this is the one which clientComponent belongs to, because we've clamped
-        //   the point coordinates within the component's bounds above.
-        final X11GraphicsEnvironment graphicsEnvironment =
-                ((X11GraphicsEnvironment) GraphicsEnvironment.getLocalGraphicsEnvironment());
-        final X11GraphicsDevice candidatesNativeWindowDevice = getComponentX11Device(clientComponent);
-        Point scaledExpectedCandidatesNativeWindowAbsolutePos = graphicsEnvironment.scaleUp(candidatesNativeWindowDevice,
-                expectedCandidatesNativeWindowAbsolutePos.x,
-                expectedCandidatesNativeWindowAbsolutePos.y);
-        if (scaledExpectedCandidatesNativeWindowAbsolutePos != null) {
-            expectedCandidatesNativeWindowAbsolutePos = scaledExpectedCandidatesNativeWindowAbsolutePos;
-        }
-
-        // Clamping within screen bounds (to avoid the input candidates window to appear outside a screen).
-        final Rectangle closestScreenScaledBounds = new Rectangle();
-        final X11GraphicsDevice candidatesNativeWindowClosestScreen = findClosestScreenToPoint(
-            closestScreenScaledBounds,
-            expectedCandidatesNativeWindowAbsolutePos,
-            candidatesNativeWindowDevice
-        );
-        if (candidatesNativeWindowClosestScreen != null) {
-            final int screenScaledBoundsXMax = closestScreenScaledBounds.x + closestScreenScaledBounds.width - 1;
-            final int screenScaledBoundsYMax = closestScreenScaledBounds.y + closestScreenScaledBounds.height - 1;
-
-            expectedCandidatesNativeWindowAbsolutePos.x =
-                Math.max(closestScreenScaledBounds.x, Math.min(expectedCandidatesNativeWindowAbsolutePos.x, screenScaledBoundsXMax));
-            expectedCandidatesNativeWindowAbsolutePos.y =
-                    Math.max(closestScreenScaledBounds.y, Math.min(expectedCandidatesNativeWindowAbsolutePos.y, screenScaledBoundsYMax));
-        }
-
-        if (forceUpdate || !expectedCandidatesNativeWindowAbsolutePos.equals(lastKnownCandidatesNativeWindowAbsolutePosition)) {
-            // adjustCandidatesNativeWindowPosition expects coordinates relative to the client window
-            Point clientComponentWindowAbsolutePos = clientComponentWindow.getLocationOnScreen();
-            final X11GraphicsDevice clientComponentWindowDevice = getComponentX11Device(clientComponentWindow);
-            Point scaledClientComponentWindowAbsolutePos = graphicsEnvironment.scaleUp(clientComponentWindowDevice,
-                    clientComponentWindowAbsolutePos.x,
-                    clientComponentWindowAbsolutePos.y);
-            if (scaledClientComponentWindowAbsolutePos != null) {
-                clientComponentWindowAbsolutePos = scaledClientComponentWindowAbsolutePos;
-            }
-
-            final int relativeX = expectedCandidatesNativeWindowAbsolutePos.x - clientComponentWindowAbsolutePos.x;
-            final int relativeY = expectedCandidatesNativeWindowAbsolutePos.y - clientComponentWindowAbsolutePos.y;
-
-            awtLock();
-            try {
-                adjustCandidatesNativeWindowPosition(relativeX, relativeY);
-            } finally {
-                awtUnlock();
-            }
-
-            lastKnownCandidatesNativeWindowAbsolutePosition = expectedCandidatesNativeWindowAbsolutePos;
-        }
-    }
-
-    private static Rectangle getJComponentVisibleRectIfNotEmpty(final Component component) {
-        if (component instanceof JComponent jComponent) {
-            final Rectangle result = jComponent.getVisibleRect();
-            if ((result != null) && (result.width > 0) && (result.height > 0)) {
-                return result;
-            }
-        }
-        return null;
-    }
-
-    private static X11GraphicsDevice getComponentX11Device(final Component component) {
-        if (component == null) return null;
-
-        final var componentGc = component.getGraphicsConfiguration();
-        if (componentGc == null) return null;
-
-        return (componentGc.getDevice() instanceof X11GraphicsDevice result) ? result : null;
-    }
-
-    private static X11GraphicsDevice findClosestScreenToPoint(
-        final Rectangle outScreenScaledBounds,
-        final Point absolutePointScaled,
-        final X11GraphicsDevice... screensToCheckFirst
-    ) {
-        assert(outScreenScaledBounds != null);
-
-        if (absolutePointScaled == null) {
-            return null;
-        }
-
-        final Iterator<X11GraphicsDevice> screensToCheck =
-            Stream.concat( // screensToCheckFirst + GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices()
-                Arrays.stream(screensToCheckFirst),
-                Stream.<Supplier<GraphicsDevice[]>>of(() -> {
-                    final var localGe = GraphicsEnvironment.getLocalGraphicsEnvironment();
-                    if (localGe != null) {
-                        return localGe.getScreenDevices();
-                    }
-                    return null;
-                }).flatMap(supplier -> Stream.of(supplier.get()))
-            ).map(device -> (device instanceof X11GraphicsDevice screen) ? screen : null)
-             .filter(Objects::nonNull)
-             .iterator();
-
-        int closestScreenMinDistance = Integer.MAX_VALUE;
-        X11GraphicsDevice result = null;
-        while (screensToCheck.hasNext()) {
-            final X11GraphicsDevice screen = screensToCheck.next();
-
-            final Rectangle screenBoundsScaled = screen.getBounds();
-            if (screenBoundsScaled == null) {
-                continue;
-            }
-            screenBoundsScaled.width = screen.scaleUp(screenBoundsScaled.width);
-            screenBoundsScaled.height = screen.scaleUp(screenBoundsScaled.height);
-
-            final int distance = obtainDistanceBetween(screenBoundsScaled, absolutePointScaled);
-            if (distance < closestScreenMinDistance) {
-                result = screen;
-                closestScreenMinDistance = distance;
-
-                outScreenScaledBounds.x = screenBoundsScaled.x;
-                outScreenScaledBounds.y = screenBoundsScaled.y;
-                outScreenScaledBounds.width = screenBoundsScaled.width;
-                outScreenScaledBounds.height = screenBoundsScaled.height;
-
-                if (distance < 1) {
-                    break;
-                }
-            }
-        }
-
-        return result;
-    }
-
-    private static int obtainDistanceBetween(final Rectangle rectangle, final Point absolutePointScaled) {
-        if ((rectangle.width < 1) || (rectangle.height < 1)) {
-            return Integer.MAX_VALUE;
-        }
-
-        final int screenBoundsScaledXMax = rectangle.x + rectangle.width - 1;
-        final int screenBoundsScaledYMax = rectangle.y + rectangle.height - 1;
-
-        final int dx = Math.max(0, Math.max(rectangle.x - absolutePointScaled.x, absolutePointScaled.x - screenBoundsScaledXMax));
-        final int dy = Math.max(0, Math.max(rectangle.y - absolutePointScaled.y, absolutePointScaled.y - screenBoundsScaledYMax));
-
-        return dx + dy; // just sum is enough for our purposes
-    }
-
-
     /*
      * Native methods
      */
     private native boolean openXIMNative(long display);
-    private native boolean createXICNative(long window, boolean preferBelowTheSpot);
-    private native boolean recreateXICNative(long window, long px11data, int ctxid, boolean preferBelowTheSpot);
+    private native boolean createXICNative(long window);
+    private native boolean recreateXICNative(long window, long px11data, int ctxid);
     private native int releaseXICNative(long px11data);
-    private native void setXICFocusNative(long window, boolean value, boolean active);
+    private native void setXICFocusNative(long window,
+                                    boolean value, boolean active);
     private native void adjustStatusWindow(long window);
-
-    // 1. Applies XUnsetICFocus to the current input context
-    // 2. Unsets currentX11InputMethodInstance if it's set to this instance of XInputMethod
-    // 3. Unsets sun.awt.X11InputMethodBase#pData
-    private native void delayedDisposeXIC_preparation_unsetFocusAndDetachCurrentXICNative();
-    // Applies XmbResetIC to the passed input context
-    private static native void delayedDisposeXIC_preparation_resetSpecifiedCtxNative(long pX11IMData);
-    // Applies XDestroyIC to the passed input context
-    private static native void delayedDisposeXIC_disposeXICNative(long pX11IMData);
-
-    private native boolean doesFocusedXICSupportMovingCandidatesNativeWindow();
-
-    private native void adjustCandidatesNativeWindowPosition(int x, int y);
-
-
-    /**
-     * This class tries to track all the cases when the position of the parent XInputMethod's candidate window has
-     * to be updated. Here are the examples of such cases:
-     * <ul>
-     * <li>The caret position has changed ;
-     * <li>The component has been moved/resized ;
-     * <li>The component's window has been moved/resized ;
-     * <li>The component's text has been changed ;
-     * </ul>
-     * Tracking makes sense only when the parent XIM is in a mode allowing to move a native candidates window.
-     * This is controlled by a flag {@link XInputMethod#doesSupportMovingCandidatesNativeWindow}.
-     * Thus, the tracking gets enabled (via {@link #startTracking(Component)}) only when the flag is evaluated to true.
-     */
-    private static class ClientComponentCaretPositionTracker implements ComponentListener, CaretListener, TextListener
-    {
-        public ClientComponentCaretPositionTracker(XInputMethod owner) {
-            this.owner = new WeakReference<>(owner);
-        }
-
-
-        public void startTracking(final Component component) {
-            stopTrackingCurrentComponent();
-
-            if (component == null) {
-                return;
-            }
-
-            trackedComponent = new WeakReference<>(component);
-
-            // Moving and changing the size causes a possible change of caret position
-            component.addComponentListener(this);
-
-            if (component instanceof JTextComponent jtc) {
-                jtc.addCaretListener(this);
-                isCaretListenerInstalled = true;
-            } else if (component instanceof TextComponent tc) {
-                tc.addTextListener(this);
-                isTextListenerInstalled = true;
-            }
-        }
-
-        public void stopTrackingCurrentComponent() {
-            final Component trackedComponentStrong;
-            if (trackedComponent == null) {
-                trackedComponentStrong = null;
-            } else {
-                trackedComponentStrong = trackedComponent.get();
-                trackedComponent.clear();
-                trackedComponent = null;
-            }
-
-            if (trackedComponentStrong == null) {
-                isCaretListenerInstalled = false;
-                isTextListenerInstalled = false;
-                return;
-            }
-
-            if (isTextListenerInstalled) {
-                isTextListenerInstalled = false;
-                ((TextComponent)trackedComponentStrong).removeTextListener(this);
-            }
-
-            if (isCaretListenerInstalled) {
-                isCaretListenerInstalled = false;
-                ((JTextComponent)trackedComponentStrong).removeCaretListener(this);
-            }
-
-            trackedComponentStrong.removeComponentListener(this);
-        }
-
-        /* Listening callbacks */
-
-        public void onDispatchEvent(AWTEvent event) {
-            if (isCaretListenerInstalled) {
-                return;
-            }
-
-            final int eventId = event.getID();
-
-            if ( (eventId >= MouseEvent.MOUSE_FIRST) && (eventId <= MouseEvent.MOUSE_LAST) ) {
-                // The event hasn't been dispatched yet, so the caret position couldn't be changed.
-                // Hence, we have to postpone the updating request.
-                SwingUtilities.invokeLater(() -> updateImCandidatesNativeWindowPosition(false));
-                return;
-            }
-
-            if ( !isTextListenerInstalled && (eventId >= KeyEvent.KEY_FIRST) && (eventId <= KeyEvent.KEY_LAST) ) {
-                // The event hasn't been dispatched yet, so the caret position couldn't be changed.
-                // Hence, we have to postpone the updating request.
-                SwingUtilities.invokeLater(() -> updateImCandidatesNativeWindowPosition(false));
-            }
-        }
-
-        public void onNotifyClientWindowChange(Rectangle location) {
-            if (location != null) {
-                updateImCandidatesNativeWindowPosition(lastKnownClientWindowBounds == null);
-            }
-            lastKnownClientWindowBounds = location;
-        }
-
-        // ComponentListener
-
-        @Override
-        public void componentHidden(ComponentEvent e) {}
-
-        @Override
-        public void componentMoved(ComponentEvent e) {
-            updateImCandidatesNativeWindowPosition(false);
-        }
-
-        @Override
-        public void componentResized(ComponentEvent e) {
-            updateImCandidatesNativeWindowPosition(false);
-        }
-
-        @Override
-        public void componentShown(ComponentEvent e) {
-            updateImCandidatesNativeWindowPosition(false);
-        }
-
-        // CaretListener
-
-        @Override
-        public void caretUpdate(CaretEvent e) {
-            updateImCandidatesNativeWindowPosition(false);
-        }
-
-        // TextListener
-
-        @Override
-        public void textValueChanged(TextEvent e) {
-            updateImCandidatesNativeWindowPosition(false);
-        }
-
-        /* Private parts */
-
-        private final WeakReference<XInputMethod> owner;
-        private WeakReference<Component> trackedComponent = null;
-        private boolean isCaretListenerInstalled = false;
-        private boolean isTextListenerInstalled = false;
-        private Rectangle lastKnownClientWindowBounds = null;
-
-
-        private void updateImCandidatesNativeWindowPosition(boolean forceUpdate) {
-            final XInputMethod ownerStrong = owner.get();
-
-            if ((ownerStrong == null) || (ownerStrong.isDisposed())) {
-                // The owning XInputMethod instance is no longer valid
-
-                stopTrackingCurrentComponent();
-                owner.clear();
-
-                return;
-            }
-
-            if (!ownerStrong.isActive) {
-                stopTrackingCurrentComponent(); // will start tracking back when the owner gets active back
-                return;
-            }
-
-            ownerStrong.updateCandidatesNativeWindowPosition(forceUpdate);
-        }
-    }
-
-    final ClientComponentCaretPositionTracker clientComponentCaretPositionTracker;
 }

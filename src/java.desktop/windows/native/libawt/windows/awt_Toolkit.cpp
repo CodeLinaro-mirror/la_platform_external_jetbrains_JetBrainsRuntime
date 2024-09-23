@@ -919,20 +919,6 @@ void AwtToolkit::DestroyComponentHWND(HWND hwnd)
 void SpyWinMessage(HWND hwnd, UINT message, LPCTSTR szComment);
 #endif
 
-static BOOL CALLBACK UpdateAllThreadWindowSizes(HWND hWnd, LPARAM)
-{
-    TRY;
-    AwtComponent *c = AwtComponent::GetComponent(hWnd);
-    if (c) {
-        RECT r;
-        GetWindowRect(hWnd, &r);
-        c->WmSize(SIZENORMAL, r.right-r.left, r.bottom-r.top);
-        c->Invalidate(NULL);
-    }
-    return TRUE;
-    CATCH_BAD_ALLOC_RET(FALSE);
-}
-
 /*
  * An AwtToolkit window is just a means of routing toolkit messages to here.
  */
@@ -1261,33 +1247,16 @@ LRESULT CALLBACK AwtToolkit::WndProc(HWND hWnd, UINT message,
           return (LRESULT)activateKeyboardLayout((HKL)lParam);
       }
       case WM_AWT_OPENCANDIDATEWINDOW: {
-          jobject peerObject = reinterpret_cast<jobject>(wParam);
-          AwtComponent* p = reinterpret_cast<AwtComponent*>( JNI_GET_PDATA(peerObject) );
+          jobject peerObject = (jobject)wParam;
+          AwtComponent* p = (AwtComponent*)JNI_GET_PDATA(peerObject);
           DASSERT( !IsBadReadPtr(p, sizeof(AwtObject)));
-
-          ::RECT* caretRect = reinterpret_cast<::RECT*>(lParam);
-          DASSERT( !IsBadReadPtr(caretRect, sizeof(*caretRect)) );
-
-          if ( (p != nullptr) && (caretRect != nullptr) ) {
-              p->OpenCandidateWindow(caretRect->left, caretRect->top, caretRect->right, caretRect->bottom);
-          }
-
-          // Cleaning up
-          if (caretRect != nullptr) {
-              free(caretRect);
-              caretRect = nullptr;
-          }
-          if (peerObject != nullptr) {
-              env->DeleteGlobalRef(peerObject);
-              peerObject = nullptr;
-          }
-          p = nullptr;
-
-          // Returning to AwtToolkit::InvokeInputMethodFunction
+          // fix for 4805862: use GET_X_LPARAM and GET_Y_LPARAM macros
+          // instead of LOWORD and HIWORD
+          p->OpenCandidateWindow(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+          env->DeleteGlobalRef(peerObject);
           AwtToolkit& tk = AwtToolkit::GetInstance();
           tk.m_inputMethodData = 0;
           ::SetEvent(tk.m_inputMethodWaitEvent);
-
           return 0;
       }
 
@@ -1323,7 +1292,6 @@ LRESULT CALLBACK AwtToolkit::WndProc(HWND hWnd, UINT message,
       case WM_DISPLAYCHANGE: {
           // Reinitialize screens
           initScreens(env);
-          ::EnumThreadWindows(MainThread(), (WNDENUMPROC)UpdateAllThreadWindowSizes, 0);
 
           // Notify Java side - call WToolkit.displayChanged()
           jclass clazz = env->FindClass("sun/awt/windows/WToolkit");
@@ -1342,10 +1310,8 @@ LRESULT CALLBACK AwtToolkit::WndProc(HWND hWnd, UINT message,
       }
       /* Session management */
       case WM_QUERYENDSESSION: {
-          // Shut down cleanly
-          // If m_messageLoopResult is EXIT_ALL_ENCLOSING_LOOPS means that application is already in process a closing.
-          // No need to repeat such logic via WM_QUERYENDSESSION and WM_ENDSESSION.
-          if (!isSuddenTerminationEnabled || AwtToolkit::GetInstance().m_messageLoopResult == EXIT_ALL_ENCLOSING_LOOPS) {
+          /* Shut down cleanly */
+          if (!isSuddenTerminationEnabled) {
               return FALSE;
           }
           if (JVM_RaiseSignal(SIGTERM)) {

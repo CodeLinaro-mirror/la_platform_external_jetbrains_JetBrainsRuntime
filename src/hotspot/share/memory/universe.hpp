@@ -192,16 +192,13 @@ class Universe: AllStatic {
   static uintptr_t _verify_oop_mask;
   static uintptr_t _verify_oop_bits;
   static bool _is_redefining_gc_run;
-  static bool _is_inside_redefinition;
 
  public:
   static void calculate_verify_data(HeapWord* low_boundary, HeapWord* high_boundary) PRODUCT_RETURN;
 
-  // (DCEVM) Advanced class redefinition.
+  // Advanced class redefinition. FIXME: review?
   static bool is_redefining_gc_run()               { return _is_redefining_gc_run; }
   static void set_redefining_gc_run(bool b)        { _is_redefining_gc_run = b;    }
-  static bool is_inside_redefinition()               { return _is_inside_redefinition; }
-  static void set_inside_redefinition(bool b)        { _is_inside_redefinition = b;    }
 
   // Known classes in the VM
   static Klass* boolArrayKlassObj()                 { return typeArrayKlassObj(T_BOOLEAN); }
@@ -214,9 +211,6 @@ class Universe: AllStatic {
   static Klass* doubleArrayKlassObj()               { return typeArrayKlassObj(T_DOUBLE); }
 
   static Klass* objectArrayKlassObj()               { return _objectArrayKlassObj; }
-
-  // (DCEVM)
-  static void update_vmClasses_dcevm();
 
   static Klass* typeArrayKlassObj(BasicType t) {
     assert((uint)t >= T_BOOLEAN, "range check for type: %s", type2name(t));
@@ -274,7 +268,7 @@ class Universe: AllStatic {
   // Function to initialize these
   static void initialize_known_methods(TRAPS);
 
-  static void reinitialize_known_method_dcevm(TRAPS);
+  static void reinitialize_loader_addClass_method(TRAPS);
 
   static void create_preallocated_out_of_memory_errors(TRAPS);
 

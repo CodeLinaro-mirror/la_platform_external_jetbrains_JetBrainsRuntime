@@ -53,20 +53,8 @@ GET_CACCESSIBILITY_CLASS_RETURN(nil);
         [value release];
         value = nil;
     }
-    value = [[CommonComponentAccessibility createWithAccessible:axSelectedChild withEnv:env withView:fView] retain];
+    value = [CommonComponentAccessibility createWithAccessible:axSelectedChild withEnv:env withView:fView];
     return value;
-}
-
-- (BOOL)isEditable
-{
-    JNIEnv* env = [ThreadUtilities getJNIEnv];
-    GET_CACCESSIBILITY_CLASS_RETURN(NO);
-    DECLARE_STATIC_METHOD_RETURN(sjm_isComboBoxEditable, sjc_CAccessibility, "isComboBoxEditable", "(Ljavax/accessibility/Accessible;Ljava/awt/Component;)Z", NO);
-
-    BOOL isEditable = (*env)->CallStaticBooleanMethod(env, sjc_CAccessibility, sjm_isComboBoxEditable, fAccessible, fComponent);
-    CHECK_EXCEPTION();
-
-    return isEditable;
 }
 
 // NSAccessibilityElement protocol methods
@@ -78,22 +66,17 @@ GET_CACCESSIBILITY_CLASS_RETURN(nil);
     if (expanded) {
         return nil;
     }
+    if (!expanded &&
+        (value == nil)) {
+        [self accessibleSelection];
+    }
 
-    [self accessibleSelection];
-
-    return value != nil ? [value accessibilityLabel] : nil;
+    return [value accessibilityLabel];
 }
 
 - (NSArray *)accessibilitySelectedChildren
 {
     return [NSArray arrayWithObject:[self accessibleSelection]];
-}
-
-- (NSAccessibilityRole)accessibilityRole
-{
-    return [self isEditable]
-           ? NSAccessibilityComboBoxRole
-           : NSAccessibilityPopUpButtonRole;
 }
 
 - (void)dealloc

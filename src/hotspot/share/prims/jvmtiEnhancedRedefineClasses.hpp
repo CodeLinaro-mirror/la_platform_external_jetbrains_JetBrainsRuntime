@@ -55,11 +55,11 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
   static Method**      _matching_new_methods;
   static Method**      _deleted_methods;
   static Method**      _added_methods;
-  static int           _matching_methods_length;
-  static int           _deleted_methods_length;
-  static int           _added_methods_length;
-  static Klass*        _the_class_oop;
-  static u8            _id_counter;
+  static int             _matching_methods_length;
+  static int             _deleted_methods_length;
+  static int             _added_methods_length;
+  static Klass*          _the_class_oop;
+  static u8              _id_counter;
 
   // The instance fields are used to pass information from
   // doit_prologue() to doit() and doit_epilogue().
@@ -78,12 +78,7 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
   // have any entries.
   bool _any_class_has_resolved_methods;
 
-  // true if vmClasses::Object_klass() is redefined
-  bool _object_klass_redefined;
-  // true if vmClasses::*_klass is redefined
-  bool _vm_class_redefined;
-
-  // Enhanced class redefinition, affected klasses contain all classes which should be redefined
+  // (DCEVM) Enhanced class redefinition, affected klasses contain all classes which should be redefined
   // either because of redefine, class hierarchy or interface change
   GrowableArray<Klass*>*      _affected_klasses;
 
@@ -110,13 +105,12 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
   // - calculate modified fields and mapping to old fields
   // - link new classes
   //
-  // The result is sorted in _affected_klasses(old definitions) and _new_classes(new definitions) arrays.
+  // The result is sotred in _affected_klasses(old definitions) and _new_classes(new definitions) arrays.
   jvmtiError load_new_class_versions(TRAPS);
-  jvmtiError load_new_class_versions_single_step(TRAPS);
 
   // Searches for all affected classes and performs a sorting such tha
   // a supertype is always before a subtype.
-  jvmtiError find_sorted_affected_classes(bool do_initial_mark, GrowableArray<Klass*>* prev_affected_klasses, TRAPS);
+  jvmtiError find_sorted_affected_classes(TRAPS);
 
   jvmtiError do_topological_class_sorting(TRAPS);
 
@@ -144,7 +138,7 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
   void transfer_old_native_function_registrations(InstanceKlass* new_class);
 
   // Install the redefinition of a class
-  void redefine_single_class(Thread* current, InstanceKlass* new_class);
+  void redefine_single_class(Thread* current, InstanceKlass* new_class_oop);
 
   // Increment the classRedefinedCount field in the specific InstanceKlass
   // and in all direct and indirect subclasses.
@@ -155,6 +149,8 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
   void flush_dependent_code();
 
   u8 next_id();
+
+  void reinitializeJDKClasses();
 
   static void check_class(InstanceKlass* k_oop);
 
@@ -201,6 +197,5 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
   // Modifiable test must be shared between IsModifiableClass query
   // and redefine implementation
   static bool is_modifiable_class(oop klass_mirror);
-  // true if is inside VM redefinition phase
 };
 #endif // SHARE_VM_PRIMS_JVMTIREDEFINECLASSES2_HPP

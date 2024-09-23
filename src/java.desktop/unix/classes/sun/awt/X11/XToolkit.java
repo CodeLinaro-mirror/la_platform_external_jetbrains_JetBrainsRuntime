@@ -841,7 +841,13 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
             XMotionEvent ev = e.get_xmotion();
             awtLock();
             try {
-                lastCursorPos = win.scaleDown(ev.get_x_root(), ev.get_y_root());
+                if (lastCursorPos == null) {
+                    lastCursorPos = new Point(win.scaleDownX(ev.get_x_root()),
+                                              win.scaleDownY(ev.get_y_root()));
+                } else {
+                    lastCursorPos.setLocation(win.scaleDownX(ev.get_x_root()),
+                                              win.scaleDownY(ev.get_y_root()));
+                }
             } finally {
                 awtUnlock();
             }
@@ -858,7 +864,13 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
             XCrossingEvent ev = e.get_xcrossing();
             awtLock();
             try {
-                lastCursorPos = win.scaleDown(ev.get_x_root(), ev.get_y_root());
+                if (lastCursorPos == null) {
+                    lastCursorPos = new Point(win.scaleDownX(ev.get_x_root()),
+                                              win.scaleDownY(ev.get_y_root()));
+                } else {
+                    lastCursorPos.setLocation(win.scaleDownX(ev.get_x_root()),
+                                              win.scaleDownY(ev.get_y_root()));
+                }
             } finally {
                 awtUnlock();
             }
@@ -1016,22 +1028,11 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
                 final boolean isKeyEvent = ( (ev.get_type() == XConstants.KeyPress) ||
                                              (ev.get_type() == XConstants.KeyRelease) );
 
-                final long keyEventSerial = isKeyEvent ? ev.get_xkey().get_serial() : -1;
-
                 if (keyEventLog.isLoggable(PlatformLogger.Level.FINE) && isKeyEvent) {
                     keyEventLog.fine("before XFilterEvent:" + ev);
                 }
                 if (XlibWrapper.XFilterEvent(ev.getPData(), w)) {
                     if (isKeyEvent) {
-                        if (keyEventLog.isLoggable(PlatformLogger.Level.FINE)) {
-                            keyEventLog.fine(
-                                "Setting lastFilteredKeyEventSerial=={0} to {1}",
-                                lastFilteredKeyEventSerial, keyEventSerial
-                            );
-                        }
-                        lastFilteredKeyEventSerial = keyEventSerial;
-
-                        XInputMethod.delayAllXICDestroyUntilAFurtherNotice();
                         XInputMethod.onXKeyEventFiltering(true);
                     }
                     continue;
@@ -1043,14 +1044,6 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
 
                 if (isKeyEvent) {
                     XInputMethod.onXKeyEventFiltering(false);
-                    if (keyEventSerial == lastFilteredKeyEventSerial) {
-                        // JBR-6456: Sudden keyboard death on Linux using iBus.
-                        // If more than 1 key events are being processed by iBus
-                        //   (i.e. more than one in a row calls of XFilterEvent(...) with instances of XKeyEvent have
-                        //    returned true),
-                        //   we have to postpone destroying until the very last one is completely processed)
-                        XInputMethod.delayedXICDestroyShouldBeDone();
-                    }
                 }
 
                 dispatchEvent(ev);
@@ -1070,15 +1063,6 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
             }
         }
     }
-
-
-    // JBR-6456: Sudden keyboard death on Linux using iBus.
-    // The field holds the value of sun.awt.X11.XKeyEvent#get_serial of the last key event, which
-    //   XFilterEvent(...) returned True for.
-    // See the usages of the variable for more info.
-    // See sun.awt.X11.XInputMethod#disposeXIC for the detailed explanation of the whole fix.
-    private long lastFilteredKeyEventSerial = -1;
-
 
     /**
      * Listener installed to detect display changes.
@@ -1199,9 +1183,8 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
             Rectangle workArea = getWorkArea(XlibUtil.getRootWindow(screenNum));
             Rectangle screen = gc.getBounds();
             if (workArea != null) {
-                Point p = x11gd.scaleDown(workArea.x, workArea.y);
-                workArea.x = p.x;
-                workArea.y = p.y;
+                workArea.x = x11gd.scaleDownX(workArea.x);
+                workArea.y = x11gd.scaleDownY(workArea.y);
                 workArea.width = x11gd.scaleDown(workArea.width);
                 workArea.height = x11gd.scaleDown(workArea.height);
                 workArea = workArea.intersection(screen);
@@ -1220,25 +1203,15 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
         }
     }
 
-    private final Map<GraphicsConfiguration, Insets> cachedInsets = new HashMap<>();
+    private final Hashtable<GraphicsConfiguration, Insets> cachedInsets = new Hashtable<>();
     private void resetScreenInsetsCache() {
-        XToolkit.awtLock();
-        try {
-            cachedInsets.clear();
-        } finally {
-            XToolkit.awtUnlock();
-        }
+        cachedInsets.clear();
     }
 
     @Override
     public Insets getScreenInsets(final GraphicsConfiguration gc) {
         if (useCachedInsets) {
-            XToolkit.awtLock();
-            try {
-                return (Insets) cachedInsets.computeIfAbsent(gc, this::getScreenInsetsImpl).clone();
-            } finally {
-                XToolkit.awtUnlock();
-            }
+            return (Insets)cachedInsets.computeIfAbsent(gc, this::getScreenInsetsImpl).clone();
         } else {
             return getScreenInsetsImpl(gc);
         }

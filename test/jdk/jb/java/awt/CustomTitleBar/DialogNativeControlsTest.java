@@ -21,11 +21,7 @@
  * questions.
  */
 import com.jetbrains.JBR;
-import test.jb.testhelpers.screenshot.ScreenShotHelpers;
-import test.jb.testhelpers.screenshot.Rect;
-import test.jb.testhelpers.TitleBar.TaskResult;
-import test.jb.testhelpers.TitleBar.TestUtils;
-import test.jb.testhelpers.TitleBar.Task;
+import util.*;
 
 import java.awt.event.InputEvent;
 import java.awt.event.WindowAdapter;
@@ -40,8 +36,6 @@ import java.util.List;
  * @test
  * @summary Detect and check behavior of clicking to native controls
  * @requires (os.family == "windows" | os.family == "mac")
- * @library ../../../testhelpers/screenshot ../../../testhelpers/TitleBar ../../../testhelpers/utils
- * @build TestUtils TaskResult Task CommonAPISuite MouseUtils ScreenShotHelpers Rect RectCoordinates MouseUtils
  * @run main/othervm DialogNativeControlsTest
  * @run main/othervm -Dsun.java2d.uiScale.enabled=true -Dsun.java2d.uiScale=1.0 DialogNativeControlsTest
  * @run main/othervm -Dsun.java2d.uiScale.enabled=true -Dsun.java2d.uiScale=1.25 DialogNativeControlsTest

@@ -35,7 +35,6 @@
 #import "JNIUtilities.h"
 #import "jni_util.h"
 #import "PropertiesUtilities.h"
-#import "sun_lwawt_macosx_CPlatformWindow.h"
 
 #import <Carbon/Carbon.h>
 
@@ -44,9 +43,6 @@
 
 // keyboard layout
 static NSString *kbdLayout;
-
-// workaround for JBR-6704
-static unichar lastCtrlCombo;
 
 @interface AWTView()
 @property (retain) CDropTarget *_dropTarget;
@@ -88,10 +84,8 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, i
 
     m_cPlatformView = cPlatformView;
     fInputMethodLOCKABLE = NULL;
-    fInputMethodInteractionEnabled = YES;
     fKeyEventsNeeded = NO;
     fProcessingKeystroke = NO;
-    lastCtrlCombo = 0;
 
     fEnablePressAndHold = shouldUsePressAndHold();
     fInPressAndHold = NO;
@@ -214,31 +208,24 @@ extern bool isSystemShortcut_NextWindowInApplication(NSUInteger modifiersMask, i
         [NSApp activateIgnoringOtherApps:YES];
     }
 
-    JNIEnv *env = [ThreadUtilities getJNIEnvUncached];
-    NSString *checkForInputManagerInMouseDown =
-            [PropertiesUtilities
-             javaSystemPropertyForKey:@"apple.awt.checkForInputManagerInMouseDown"
-                              withEnv:env];
-    if ([@"true" isCaseInsensitiveLike:checkForInputManagerInMouseDown]) {
-        NSInputManager *inputManager = [NSInputManager currentInputManager];
-        if ([inputManager wantsToHandleMouseEvents]) {
+    NSInputManager *inputManager = [NSInputManager currentInputManager];
+    if ([inputManager wantsToHandleMouseEvents]) {
 #if IM_DEBUG
-            NSLog(@"-> IM wants to handle event");
+        NSLog(@"-> IM wants to handle event");
 #endif
-            if ([inputManager handleMouseEvent:event]) {
-#if IM_DEBUG
-                NSLog(@"-> Event was handled.");
-                return;
-#endif
-            }
+        if (![inputManager handleMouseEvent:event]) {
+            [self deliverJavaMouseEvent: event];
         } else {
 #if IM_DEBUG
-            NSLog(@"-> IM does not want to handle event");
+            NSLog(@"-> Event was handled.");
 #endif
         }
+    } else {
+#if IM_DEBUG
+        NSLog(@"-> IM does not want to handle event");
+#endif
+        [self deliverJavaMouseEvent: event];
     }
-
-    [self deliverJavaMouseEvent:event];
 }
 
 - (void) mouseUp: (NSEvent *)event {
@@ -377,16 +364,8 @@ static void debugPrintNSEvent(NSEvent* event, const char* comment) {
 
     NSString *eventCharacters = [event characters];
 
-    if (([event modifierFlags] & NSControlKeyMask) && [eventCharacters length] == 1) {
-        lastCtrlCombo = [eventCharacters characterAtIndex:0];
-    } else {
-        lastCtrlCombo = 0;
-    }
-
     // Allow TSM to look at the event and potentially send back NSTextInputClient messages.
-    if (fInputMethodInteractionEnabled == YES) {
-        [self interpretKeyEvents:[NSArray arrayWithObject:event]];
-    }
+    [self interpretKeyEvents:[NSArray arrayWithObject:event]];
 
     if (fEnablePressAndHold && [event willBeHandledByComplexInputMethod] &&
         fInputMethodLOCKABLE)
@@ -414,7 +393,7 @@ static void debugPrintNSEvent(NSEvent* event, const char* comment) {
                 case kVK_End:
                     // Abandon input to reset IM and unblock input after
                     // canceling input accented symbols
-                    [self abandonInput:nil];
+                    [self abandonInput];
                     break;
             }
         }
@@ -871,7 +850,7 @@ static void debugPrintNSEvent(NSEvent* event, const char* comment) {
 - (BOOL)replaceAccessibleTextSelection:(NSString *)text
 {
     id focused = [self accessibilityFocusedUIElement];
-    if (![focused respondsToSelector:@selector(setAccessibilitySelectedText:)]) return NO;
+    if (![focused respondsToSelector:@selector(setAccessibilitySelectedText)]) return NO;
     [focused setAccessibilitySelectedText:text];
     return YES;
 }
@@ -1117,56 +1096,11 @@ static jclass jc_CInputMethod = NULL;
 #define GET_CIM_CLASS_RETURN(ret) \
     GET_CLASS_RETURN(jc_CInputMethod, "sun/lwawt/macosx/CInputMethod", ret);
 
-- (NSInteger) windowLevel
-{
-#ifdef IM_DEBUG
-    fprintf(stderr, "AWTView InputMethod Selector Called : [windowLevel]\n");
-#endif // IM_DEBUG
-
-    NSWindow* const ownerWindow = [self window];
-    if (ownerWindow == nil) {
-        return NSNormalWindowLevel;
-    }
-
-    const NSWindowLevel ownerWindowLevel = [ownerWindow level];
-    if ( (ownerWindowLevel != NSNormalWindowLevel) && (ownerWindowLevel != NSFloatingWindowLevel) ) {
-        // the window level has been overridden, let's believe it
-        return ownerWindowLevel;
-    }
-
-    AWTWindow* const delegate = (AWTWindow*)[ownerWindow delegate];
-    if (delegate == nil) {
-        return ownerWindowLevel;
-    }
-
-    const jint styleBits = [delegate styleBits];
-
-    const BOOL isPopup = ( (styleBits & sun_lwawt_macosx_CPlatformWindow_IS_POPUP) != 0 );
-    if (isPopup) {
-        return NSPopUpMenuWindowLevel;
-    }
-
-    const BOOL isModal = ( (styleBits & sun_lwawt_macosx_CPlatformWindow_IS_MODAL) != 0 );
-    if (isModal) {
-        return NSFloatingWindowLevel;
-    }
-
-    return ownerWindowLevel;
-}
-
 - (void) insertText:(id)aString replacementRange:(NSRange)replacementRange
 {
 #ifdef IM_DEBUG
     fprintf(stderr, "AWTView InputMethod Selector Called : [insertText]: %s\n", [aString UTF8String]);
 #endif // IM_DEBUG
-
-    NSMutableString * useString = [self parseString:aString];
-
-    // See JBR-6704
-    if (lastCtrlCombo && !fProcessingKeystroke && [useString length] == 1 && [useString characterAtIndex:0] == lastCtrlCombo) {
-        lastCtrlCombo = 0;
-        return;
-    }
 
     if (fInputMethodLOCKABLE == NULL) {
         return;
@@ -1180,6 +1114,8 @@ static jclass jc_CInputMethod = NULL;
     // text, or 'text in progress'.  We also need to send the event if we get an insert text out of the blue!
     // (i.e., when the user uses the Character palette or Inkwell), or when the string to insert is a complex
     // Unicode value.
+
+    NSMutableString * useString = [self parseString:aString];
     BOOL usingComplexIM = [self hasMarkedText] || !fProcessingKeystroke;
 
 #ifdef IM_DEBUG
@@ -1188,7 +1124,6 @@ static jclass jc_CInputMethod = NULL;
 
     NSLog(@"insertText kbdlayout %@ ",(NSString *)kbdLayout);
     NSLog(@"utf8Length %lu utf16Length %lu", (unsigned long)utf8Length, (unsigned long)utf16Length);
-    NSLog(@"hasMarkedText: %s, fProcessingKeyStroke: %s", [self hasMarkedText] ? "YES" : "NO", fProcessingKeystroke ? "YES" : "NO");
 #endif // IM_DEBUG
 
     JNIEnv *env = [ThreadUtilities getJNIEnv];
@@ -1204,7 +1139,7 @@ static jclass jc_CInputMethod = NULL;
 
     if (usingComplexIM) {
         DECLARE_METHOD(jm_insertText, jc_CInputMethod, "insertText", "(Ljava/lang/String;)V");
-        jstring insertedText = NSStringToJavaString(env, useString);
+        jstring insertedText =  NSStringToJavaString(env, useString);
         (*env)->CallVoidMethod(env, fInputMethodLOCKABLE, jm_insertText, insertedText);
         CHECK_EXCEPTION();
         (*env)->DeleteLocalRef(env, insertedText);
@@ -1221,7 +1156,7 @@ static jclass jc_CInputMethod = NULL;
     // Abandon input to reset IM and unblock input after entering accented
     // symbols
 
-    [self abandonInput:nil];
+    [self abandonInput];
 }
 
 + (void)keyboardInputSourceChanged:(NSNotification *)notification
@@ -1315,11 +1250,7 @@ static jclass jc_CInputMethod = NULL;
     }
 }
 
-- (void) unmarkText {
-    [self unmarkText:nil];
-}
-
-- (void) unmarkText:(jobject) component
+- (void) unmarkText
 {
 #ifdef IM_DEBUG
     fprintf(stderr, "AWTView InputMethod Selector Called : [unmarkText]\n");
@@ -1332,8 +1263,8 @@ static jclass jc_CInputMethod = NULL;
     // unmarkText cancels any input in progress and commits it to the text field.
     JNIEnv *env = [ThreadUtilities getJNIEnv];
     GET_CIM_CLASS();
-    DECLARE_METHOD(jm_unmarkText, jc_CInputMethod, "unmarkText", "(Ljava/awt/Component;)V");
-    (*env)->CallVoidMethod(env, fInputMethodLOCKABLE, jm_unmarkText, component);
+    DECLARE_METHOD(jm_unmarkText, jc_CInputMethod, "unmarkText", "()V");
+    (*env)->CallVoidMethod(env, fInputMethodLOCKABLE, jm_unmarkText);
     CHECK_EXCEPTION();
 }
 
@@ -1594,25 +1525,14 @@ static jclass jc_CInputMethod = NULL;
                                              object:nil];
 }
 
-- (void)abandonInput:(jobject) component
+- (void)abandonInput
 {
 #ifdef IM_DEBUG
     fprintf(stderr, "AWTView InputMethod Selector Called : [abandonInput]\n");
 #endif // IM_DEBUG
 
     [ThreadUtilities performOnMainThread:@selector(markedTextAbandoned:) on:[NSInputManager currentInputManager] withObject:self waitUntilDone:YES];
-    [self unmarkText:component];
-}
-
--(void)enableImInteraction:(BOOL)enabled
-{
-#ifdef IM_DEBUG
-    fprintf(stderr, "AWTView InputMethod Selector Called : [enableImInteraction:%d]\n", enabled);
-#endif // IM_DEBUG
-
-    AWT_ASSERT_APPKIT_THREAD;
-
-    fInputMethodInteractionEnabled = (enabled == YES) ? YES : NO;
+    [self unmarkText];
 }
 
 /********************************   END NSTextInputClient Protocol   ********************************/

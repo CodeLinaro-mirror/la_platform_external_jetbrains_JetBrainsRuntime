@@ -34,43 +34,37 @@
 import java.awt.Frame;
 import java.awt.Robot;
 import java.awt.TextArea;
+import java.awt.AWTException;
 import java.awt.event.KeyEvent;
-import java.lang.reflect.InvocationTargetException;
-
 import test.java.awt.regtesthelpers.Util;
-
-import javax.swing.*;
 
 public class TextAreaEditing {
 
     final static Robot robot = Util.createRobot();
-    private volatile int testFailCount = 0;
-    private volatile boolean isTestFail = false;
-    private final StringBuilder testFailMessage = new StringBuilder();
+    private int testFailCount;
+    private boolean isTestFail;
+    private StringBuilder testFailMessage;
 
-    private Frame mainFrame = null;
-    private TextArea textArea = null;
+    private Frame mainFrame;
+    private TextArea textArea;
 
-    private TextAreaEditing() throws InterruptedException, InvocationTargetException {
-        SwingUtilities.invokeAndWait(() -> {
-            mainFrame = new Frame();
-            mainFrame.setSize(200, 200);
+    private TextAreaEditing() {
+        testFailMessage = new StringBuilder();
+        mainFrame = new Frame();
+        mainFrame.setSize(200, 200);
 
-            textArea = new TextArea();
-            mainFrame.add(textArea);
-            mainFrame.setVisible(true);
-        });
+        textArea = new TextArea();
+        mainFrame.add(textArea);
+        mainFrame.setVisible(true);
     }
 
-    private void dispose() throws InterruptedException, InvocationTargetException {
-        SwingUtilities.invokeAndWait(() -> {
-            if (mainFrame != null) {
-                mainFrame.dispose();
-            }
-        });
+    private void dispose() {
+        if (mainFrame != null) {
+            mainFrame.dispose();
+        }
     }
 
-    public static void main(String[] s) throws InterruptedException, InvocationTargetException {
+    public static void main(String[] s) {
         TextAreaEditing textArea = new TextAreaEditing();
         textArea.testReplaceRange();
         textArea.testInsert();
@@ -80,90 +74,79 @@ public class TextAreaEditing {
         textArea.dispose();
     }
 
-    private void testReplaceRange() throws InterruptedException, InvocationTargetException {
-        SwingUtilities.invokeAndWait(() -> {
-            textArea.setText(null);
-            textArea.replaceRange("Replace", 0, 0);
-            textArea.setText(null);
-            checkTest("");
+    private void testReplaceRange() {
+        textArea.setText(null);
+        textArea.replaceRange("Replace", 0, 0);
+        textArea.setText(null);
+        checkTest("");
 
-            textArea.setText("SetText");
-            textArea.replaceRange("Replace", 0, 3);
-            checkTest("ReplaceText");
+        textArea.setText("SetText");
+        textArea.replaceRange("Replace", 0, 3);
+        checkTest("ReplaceText");
 
-            textArea.replaceRange("String", textArea.getText().length(),
-                    textArea.getText().length());
-            checkTest("ReplaceTextString");
+        textArea.replaceRange("String", textArea.getText().length(),
+                textArea.getText().length());
+        checkTest("ReplaceTextString");
 
-            textArea.replaceRange("String", 0, 0);
-            checkTest("StringReplaceTextString");
+        textArea.replaceRange("String", 0, 0);
+        checkTest("StringReplaceTextString");
 
-            textArea.replaceRange("replaceRange", 0, textArea.getText().length());
-            checkTest("replaceRange");
-        });
+        textArea.replaceRange("replaceRange", 0, textArea.getText().length());
+        checkTest("replaceRange");
     }
 
-    private void testInsert() throws InterruptedException, InvocationTargetException {
-        SwingUtilities.invokeAndWait(() -> {
-            textArea.setText(null);
-            textArea.insert("Insert", 0);
-            textArea.setText("");
-            checkTest("");
+    private void testInsert() {
+        textArea.setText(null);
+        textArea.insert("Insert", 0);
+        textArea.setText("");
+        checkTest("");
 
-            textArea.setText("SetText");
-            textArea.insert("Insert", 3);
-            checkTest("SetInsertText");
+        textArea.setText("SetText");
+        textArea.insert("Insert", 3);
+        checkTest("SetInsertText");
 
-            textArea.insert("Insert", 0);
-            checkTest("InsertSetInsertText");
+        textArea.insert("Insert", 0);
+        checkTest("InsertSetInsertText");
 
-            textArea.insert("Insert", textArea.getText().length());
-            checkTest("InsertSetInsertTextInsert");
-        });
+        textArea.insert("Insert", textArea.getText().length());
+        checkTest("InsertSetInsertTextInsert");
     }
 
-    private void testAppend() throws InterruptedException, InvocationTargetException {
-        SwingUtilities.invokeAndWait(() -> {
-            textArea.setText(null);
-            textArea.append("Append");
-            textArea.setText(null);
-            checkTest("");
+    private void testAppend() {
+        textArea.setText(null);
+        textArea.append("Append");
+        textArea.setText(null);
+        checkTest("");
 
-            textArea.setText("SetText");
-            textArea.append("Append");
-            checkTest("SetTextAppend");
+        textArea.setText("SetText");
+        textArea.append("Append");
+        checkTest("SetTextAppend");
 
-            textArea.append("");
-            checkTest("SetTextAppend");
-            textArea.setText("");
-            checkTest("");
-        });
+        textArea.append("");
+        checkTest("SetTextAppend");
+        textArea.setText("");
+        checkTest("");
     }
 
-    private void testSetText() throws InterruptedException, InvocationTargetException {
-        SwingUtilities.invokeAndWait(() -> {
-            textArea.setText(null);
-            textArea.requestFocus();
-        });
+    private void testSetText() {
+        textArea.setText(null);
+        textArea.requestFocus();
         Util.clickOnComp(textArea, robot);
         Util.waitForIdle(robot);
         robot.keyPress(KeyEvent.VK_A);
         robot.delay(5);
         robot.keyRelease(KeyEvent.VK_A);
         Util.waitForIdle(robot);
-        SwingUtilities.invokeAndWait(() -> {
-            textArea.setText(null);
-            checkTest("");
-            textArea.setText("CaseSensitive");
-            checkTest("CaseSensitive");
-            textArea.setText("caseSensitive");
-            checkTest("caseSensitive");
-        });
+        textArea.setText(null);
+        checkTest("");
+        textArea.setText("CaseSensitive");
+        checkTest("CaseSensitive");
+        textArea.setText("caseSensitive");
+        checkTest("caseSensitive");
+
     }
 
     private void checkTest(String str) {
-        assert SwingUtilities.isEventDispatchThread();
-
         if (str != null && !str.equals(textArea.getText())) {
             testFailMessage.append("TestFail line : ");
             testFailMessage.append(Thread.currentThread().getStackTrace()[2].
@@ -178,7 +161,7 @@ public class TextAreaEditing {
         }
     }
 
-    private void checkFailures() throws InterruptedException, InvocationTargetException {
+    private void checkFailures() {
         if (isTestFail) {
             testFailMessage.insert(0, "Test Fail count : " + testFailCount
                     + System.getProperty("line.separator"));

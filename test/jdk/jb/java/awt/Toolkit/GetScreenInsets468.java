@@ -23,7 +23,6 @@
 
 import java.awt.Robot;
 import java.awt.Toolkit;
-import java.lang.reflect.InvocationTargetException;
 import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
@@ -86,17 +85,10 @@ public class GetScreenInsets468 implements Runnable {
         }
     }
 
-    private void disposeAll() throws InterruptedException, InvocationTargetException {
-
+    private void disposeAll() {
         for (JFrame frame : frames) {
-            SwingUtilities.invokeAndWait(() -> {
-                frame.setVisible(false);
-            });
-
-            SwingUtilities.invokeAndWait(() -> {
-                frame.dispose();
-            });
-            robot.delay(100);
+            frame.setVisible(false);
+            frame.dispose();
         }
     }
 

@@ -46,7 +46,6 @@ public class InputMethodTest {
     private static final List<KeyEvent> triggeredEvents = new ArrayList<>();
 
     private enum TestCases {
-        CtrlShortcutNewWindowTest (new CtrlShortcutNewWindowTest()),
         DeadKeysTest (new DeadKeysTest()),
         FocusMoveUncommitedCharactersTest (new FocusMoveUncommitedCharactersTest()),
         KeyCodesTest (new KeyCodesTest()),
@@ -186,7 +185,7 @@ public class InputMethodTest {
 
     public static void layout(String name) {
         List<String> layouts = new ArrayList<>();
-        if (name.matches("com\\.apple\\.inputmethod\\.(SCIM|TCIM|TYIM|Korean|VietnameseIM|Kotoeri\\.\\w+)\\.\\w+")) {
+        if (name.matches("com\\.apple\\.inputmethod\\.(SCIM|TCIM|TYIM|Kotoeri\\.\\w+)\\.\\w+")) {
             layouts.add(name.replaceFirst("\\.\\w+$", ""));
         }
 
@@ -332,9 +331,5 @@ public class InputMethodTest {
 
     public static void fail(String comment) {
         expectTrue(false, comment);
-    }
-
-    public static void delay(int millis) {
-        robot.delay(millis);
     }
 }

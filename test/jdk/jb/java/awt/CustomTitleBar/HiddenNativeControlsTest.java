@@ -21,13 +21,7 @@
  * questions.
  */
 import com.jetbrains.JBR;
-
-import test.jb.testhelpers.screenshot.ScreenShotHelpers;
-import test.jb.testhelpers.screenshot.Rect;
-import test.jb.testhelpers.TitleBar.CommonAPISuite;
-import test.jb.testhelpers.TitleBar.TaskResult;
-import test.jb.testhelpers.TitleBar.TestUtils;
-import test.jb.testhelpers.TitleBar.Task;
+import util.*;
 
 import java.awt.Robot;
 import java.awt.image.BufferedImage;
@@ -38,8 +32,6 @@ import java.util.List;
  * @test
  * @summary Verify a property to change visibility of native controls
  * @requires (os.family == "windows" | os.family == "mac")
- * @library ../../../testhelpers/screenshot ../../../testhelpers/TitleBar ../../../testhelpers/utils
- * @build TestUtils TaskResult Task CommonAPISuite MouseUtils ScreenShotHelpers Rect RectCoordinates MouseUtils
  * @run main/othervm HiddenNativeControlsTest
  * @run main/othervm -Dsun.java2d.uiScale.enabled=true -Dsun.java2d.uiScale=1.0 HiddenNativeControlsTest
  * @run main/othervm -Dsun.java2d.uiScale.enabled=true -Dsun.java2d.uiScale=1.25 HiddenNativeControlsTest
@@ -97,7 +89,7 @@ public class HiddenNativeControlsTest {
             System.out.println("Found controls at the title bar:");
             foundControls.forEach(System.out::println);
 
-            if (!foundControls.isEmpty()) {
+            if (foundControls.size() != 0) {
                 err("controls are disabled, but found in the screenshot");
             }
 

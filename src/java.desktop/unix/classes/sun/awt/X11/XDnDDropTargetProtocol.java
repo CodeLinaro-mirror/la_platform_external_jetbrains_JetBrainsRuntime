@@ -33,7 +33,6 @@ import java.awt.event.MouseEvent;
 
 import java.io.IOException;
 
-import sun.awt.X11GraphicsEnvironment;
 import sun.util.logging.PlatformLogger;
 
 import jdk.internal.misc.Unsafe;
@@ -607,15 +606,20 @@ class XDnDDropTargetProtocol extends XDropTargetProtocol {
         y = (int)(xclient.get_data(2) & 0xFFFF);
 
         if (xwindow != null) {
-            Point p = xwindow.scaleDown(x, y);
-            x = p.x;
-            y = p.y;
+            x = xwindow.scaleDownX(x);
+            y = xwindow.scaleDownY(y);
         } else {
-            Point p = ((X11GraphicsEnvironment) GraphicsEnvironment.getLocalGraphicsEnvironment())
-                    .scaleDown(null, x, y);
-            if (p != null) {
-                x = p.x;
-                y = p.y;
+            GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+            for (GraphicsDevice gd : ge.getScreenDevices()) {
+                X11GraphicsConfig gc = (X11GraphicsConfig)gd.getDefaultConfiguration();
+                Rectangle rt = gc.getBounds();
+                rt.width  = gc.scaleUp(rt.width);
+                rt.height = gc.scaleUp(rt.height);
+                if (rt.contains(x, y)) {
+                    x = gc.scaleDownX(x);
+                    y = gc.scaleDownY(y);
+                    break;
+                }
             }
 
             long receiver =

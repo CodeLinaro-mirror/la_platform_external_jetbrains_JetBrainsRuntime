@@ -1029,8 +1029,6 @@ AWT_ASSERT_APPKIT_THREAD;
     (*env)->DeleteLocalRef(env, platformWindow);
 
     [AWTWindow synthesizeMouseEnteredExitedEventsForAllWindows];
-
-    [self updateFullScreenButtons];
 }
 
 - (void)windowDidMove:(NSNotification *)notification {
@@ -1423,10 +1421,10 @@ AWT_ASSERT_APPKIT_THREAD;
         [self updateCustomTitleBarInsets:NO];
 
         JNIEnv *env = [ThreadUtilities getJNIEnvUncached];
-        NSString *newFullScreenControls = [PropertiesUtilities
-            javaSystemPropertyForKey:@"apple.awt.newFullScreenControls" withEnv:env];
-        if ([@"true" isCaseInsensitiveLike:newFullScreenControls]) {
-            [self setWindowFullScreenControls];
+        NSString *newFullScreeControls = [PropertiesUtilities
+            javaSystemPropertyForKey:@"apple.awt.newFullScreeControls" withEnv:env];
+        if ([@"true" isCaseInsensitiveLike:newFullScreeControls]) {
+            [self setWindowFullScreeControls];
         }
     }
     [self allowMovingChildrenBetweenSpaces:NO];
@@ -1474,7 +1472,7 @@ AWT_ASSERT_APPKIT_THREAD;
 }
 
 - (void)windowDidExitFullScreen:(NSNotification *)notification {
-    [self resetWindowFullScreenControls];
+    [self resetWindowFullScreeControls];
 
     self.isEnterFullScreen = NO;
 
@@ -1736,7 +1734,7 @@ static const CGFloat DefaultHorizontalTitleBarButtonOffset = 20.0;
     [self.nsWindow standardWindowButton:NSWindowMiniaturizeButton].hidden = hidden;
 }
 
-- (void) setWindowFullScreenControls {
+- (void) setWindowFullScreeControls {
     JNIEnv *env = [ThreadUtilities getJNIEnvUncached];
     NSString *dfmMode = [PropertiesUtilities javaSystemPropertyForKey:@"apple.awt.distraction.free.mode" withEnv:env];
     if ([@"true" isCaseInsensitiveLike:dfmMode]) {
@@ -1804,19 +1802,21 @@ static const CGFloat DefaultHorizontalTitleBarButtonOffset = 20.0;
 - (void)updateFullScreenButtons: (BOOL) dfm {
     if (dfm) {
         if (_fullScreenButtons == nil || _fullScreenOriginalButtons == nil) {
+            NSLog(@"WARNING: updateFullScreenButtons after dfm open but _fullScreenButtons == nil");
             return;
         }
         [_fullScreenOriginalButtons.window.contentView setHidden:NO];
-        [self resetWindowFullScreenControls];
+        [self resetWindowFullScreeControls];
     } else {
-        if (!self.isCustomTitleBarEnabled || _fullScreenButtons != nil) {
+        if (_fullScreenButtons != nil) {
+            NSLog(@"WARNING: updateFullScreenButtons after dfm exit but _fullScreenButtons != nil");
             return;
         }
-        [self setWindowFullScreenControls];
+        [self setWindowFullScreeControls];
     }
 }
 
-- (void) resetWindowFullScreenControls {
+- (void) resetWindowFullScreeControls {
     if (_fullScreenButtons != nil) {
         [_fullScreenButtons removeFromSuperview];
         _fullScreenButtons = nil;
@@ -1869,8 +1869,6 @@ static const CGFloat DefaultHorizontalTitleBarButtonOffset = 20.0;
             } else {
                 [self resetCustomTitleBar];
             }
-        } else {
-            [self updateFullScreenButtons];
         }
     } else if (enabled) {
         [self updateCustomTitleBarConstraints];
@@ -2002,7 +2000,7 @@ static const CGFloat DefaultHorizontalTitleBarButtonOffset = 20.0;
 
 - (void)configureColors {
     JNIEnv *env = [ThreadUtilities getJNIEnvUncached];
-    NSString *javaColor = [PropertiesUtilities javaSystemPropertyForKey:@"apple.awt.newFullScreenControls.background" withEnv:env];
+    NSString *javaColor = [PropertiesUtilities javaSystemPropertyForKey:@"apple.awt.newFullScreeControls.background" withEnv:env];
 
     [_color release];
 
@@ -2692,8 +2690,6 @@ void enableFullScreenSpecial(NSWindow *nsWindow) {
     [nsWindow encodeRestorableStateWithCoder:coder];
     [coder encodeBool:YES forKey:@"NSIsFullScreen"];
     NSKeyedUnarchiver *decoder = [[NSKeyedUnarchiver alloc] initForReadingWithData:coder.encodedData];
-    decoder.requiresSecureCoding = YES;
-    decoder.decodingFailurePolicy = NSDecodingFailurePolicySetErrorAndReturn;
     [nsWindow restoreStateWithCoder:decoder];
     [decoder finishDecoding];
     [decoder release];
@@ -2940,7 +2936,6 @@ JNIEXPORT void JNICALL Java_sun_lwawt_macosx_CPlatformWindow_nativeSetRoundedCor
         w.contentView.wantsLayer = YES;
         w.contentView.layer.cornerRadius = radius;
         w.contentView.layer.masksToBounds = YES;
-        w.contentView.layer.opaque = NO;
 
         if (borderWidth > 0) {
             CGFloat alpha = (((borderRgb >> 24) & 0xff) / 255.0);
