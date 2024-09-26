@@ -156,6 +156,8 @@ runtime/CompressedOops/CompressedClassPointers.java 8305765 generic-all
 runtime/StackGuardPages/TestStackGuardPagesNative.java 8303612 linux-all
 runtime/ErrorHandling/TestDwarf.java 8305489 linux-all
 runtime/ErrorHandling/MachCodeFramesInErrorFile.java 8313315,JBR-6289 linux-ppc64le,windows-aarch64
+runtime/ErrorHandling/UncaughtNativeExceptionTest.java 8338353 windows-aarch64
+runtime/Thread/ThreadCountLimit.java#id0 JBR-7286 linux-x64
 
 applications/jcstress/copy.java 8229852 linux-all
 
@@ -182,6 +184,7 @@ serviceability/jvmti/vthread/GetSetLocalTest/GetSetLocalTest.java 8286836 generi
 serviceability/jvmti/RedefineClasses/RedefineSharedClassJFR.java JBR-6245 generic-all
 serviceability/jvmti/RedefineClasses/TestMultipleClasses.java initial_run windows-all
 serviceability/jvmti/SetBreakpoint/TestManyBreakpoints.java initial_run generic-aarch64
+serviceability/jvmti/stress/StackTrace/NotSuspended/GetStackTraceNotSuspendedStressTest.java 8315980,JBR-7403 linux-aarch64,windows-aarch64
 
 serviceability/dcmd/gc/RunFinalizationTest.java 8227120 linux-all,windows-x64,aix-ppc64
 
@@ -236,9 +239,10 @@ vmTestbase/nsk/jdb/options/listconnectors/listconnectors001/listconnectors001.ja
 vmTestbase/nsk/jdi/LaunchingConnector/launch/launch001/TestDescription.java initial_run windows-all
 vmTestbase/nsk/jdi/LaunchingConnector/launch/launch003/TestDescription.java initial_run windows-all
 vmTestbase/nsk/jdi/LaunchingConnector/launchnosuspend/launchnosuspend001/TestDescription.java initial_run windows-all
-
+vmTestbase/nsk/jdi/MethodExitRequest/addClassFilter_rt/filter_rt001/TestDescription.java JBR-7585 macosx-all
 vmTestbase/nsk/jdi/ThreadReference/stop/stop001/TestDescription.java 7034630 generic-all
 vmTestbase/nsk/jdi/ReferenceType/instances/instances002/instances002.java initial_run linux-all
+vmTestbase/nsk/jdi/Value/type/type002/type002.java JBR-7553 macosx-x64
 vmTestbase/nsk/jdi/Value/type/type003/TestDescription.java time_out_intermittent macosx-all
 vmTestbase/nsk/jdi/VirtualMachine/allClasses/allclasses002/TestDescription.java JBR-6715 macosx-all
 vmTestbase/nsk/jdi/VirtualMachine/allThreads/allthreads001/TestDescription.java JBR-6530 macosx-all

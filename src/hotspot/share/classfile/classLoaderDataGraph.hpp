@@ -43,8 +43,6 @@ class ClassLoaderDataGraph : public AllStatic {
  private:
   // All CLDs (except unlinked CLDs) can be reached by walking _head->_next->...
   static ClassLoaderData* volatile _head;
-  // All unlinked CLDs
-  static ClassLoaderData* _unloading_head;
 
   // Set if there's anything to purge in the deallocate lists or previous versions
   // during a safepoint after class unloading in a full GC.
@@ -102,11 +100,6 @@ class ClassLoaderDataGraph : public AllStatic {
   static void dictionary_classes_do(KlassClosure* klass_closure);
   static void rollback_redefinition();
   static bool dictionary_classes_do_update_klass(Thread* current, Symbol* name, InstanceKlass* k, InstanceKlass* old_klass);
-
-  // VM_CounterDecay iteration support
-  static InstanceKlass* try_get_next_class();
-  static void adjust_saved_class(ClassLoaderData* cld);
-  static void adjust_saved_class(Klass* klass);
 
   static void verify_dictionary();
   static void print_dictionary(outputStream* st);

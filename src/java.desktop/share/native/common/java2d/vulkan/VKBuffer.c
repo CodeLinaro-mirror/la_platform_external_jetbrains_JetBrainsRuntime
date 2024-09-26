@@ -25,15 +25,14 @@
  */
 
 #include <string.h>
-#include <Trace.h>
-#include "CArrayUtil.h"
+#include "VKUtil.h"
 #include "VKBase.h"
 #include "VKBuffer.h"
 
 VkResult VKBuffer_FindMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter,
                                  VkMemoryPropertyFlags properties, uint32_t* pMemoryType) {
-    VkPhysicalDeviceMemoryProperties memProperties;
     VKGraphicsEnvironment* ge = VKGE_graphics_environment();
+    VkPhysicalDeviceMemoryProperties memProperties;
     ge->vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
 
     for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
@@ -46,12 +45,11 @@ VkResult VKBuffer_FindMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeF
     return VK_ERROR_UNKNOWN;
 }
 
-VKBuffer* VKBuffer_Create(VkDeviceSize size, VkBufferUsageFlags usage,
-                          VkMemoryPropertyFlags properties)
+VKBuffer* VKBuffer_Create(VKDevice* device, VkDeviceSize size,
+                          VkBufferUsageFlags usage, VkMemoryPropertyFlags properties)
 {
-    VKGraphicsEnvironment* ge = VKGE_graphics_environment();
-    VKLogicalDevice* logicalDevice = &ge->devices[ge->enabledDeviceNum];
-    VKBuffer* buffer = malloc(sizeof (VKBuffer));
+    VKBuffer* buffer = calloc(1, sizeof(VKBuffer));
+    VK_RUNTIME_ASSERT(buffer);
 
     VkBufferCreateInfo bufferInfo = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -60,23 +58,22 @@ VKBuffer* VKBuffer_Create(VkDeviceSize size, VkBufferUsageFlags usage,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE
     };
 
-    if (ge->vkCreateBuffer(logicalDevice->device, &bufferInfo, NULL, &buffer->buffer) != VK_SUCCESS) {
-        J2dRlsTraceLn(J2D_TRACE_ERROR, "failed to allocate descriptor sets!")
+    VK_IF_ERROR(device->vkCreateBuffer(device->handle, &bufferInfo, NULL, &buffer->buffer)) {
+        VKBuffer_free(device, buffer);
         return NULL;
     }
 
     buffer->size = size;
 
     VkMemoryRequirements memRequirements;
-    ge->vkGetBufferMemoryRequirements(logicalDevice->device, buffer->buffer, &memRequirements);
+    device->vkGetBufferMemoryRequirements(device->handle, buffer->buffer, &memRequirements);
 
     uint32_t memoryType;
 
-    if (VKBuffer_FindMemoryType(logicalDevice->physicalDevice,
-                          memRequirements.memoryTypeBits,
-                          properties, &memoryType) != VK_SUCCESS)
-    {
-        J2dRlsTraceLn(J2D_TRACE_ERROR, "failed to find memory!")
+    VK_IF_ERROR(VKBuffer_FindMemoryType(device->physicalDevice,
+                                     memRequirements.memoryTypeBits,
+                                     properties, &memoryType)) {
+        VKBuffer_free(device, buffer);
         return NULL;
     }
 
@@ -86,31 +83,28 @@ VKBuffer* VKBuffer_Create(VkDeviceSize size, VkBufferUsageFlags usage,
             .memoryTypeIndex = memoryType
     };
 
-    if (ge->vkAllocateMemory(logicalDevice->device, &allocInfo, NULL, &buffer->memory) != VK_SUCCESS) {
-        J2dRlsTraceLn(J2D_TRACE_ERROR, "failed to allocate buffer memory!");
+    VK_IF_ERROR(device->vkAllocateMemory(device->handle, &allocInfo, NULL, &buffer->memory)) {
+        VKBuffer_free(device, buffer);
         return NULL;
     }
 
-    if (ge->vkBindBufferMemory(logicalDevice->device, buffer->buffer, buffer->memory, 0) != VK_SUCCESS) {
-        J2dRlsTraceLn(J2D_TRACE_ERROR, "failed to bind buffer memory!");
+    VK_IF_ERROR(device->vkBindBufferMemory(device->handle, buffer->buffer, buffer->memory, 0)) {
+        VKBuffer_free(device, buffer);
         return NULL;
     }
     return buffer;
 }
 
-VKBuffer* VKBuffer_CreateFromData(void* vertices, VkDeviceSize bufferSize)
+VKBuffer* VKBuffer_CreateFromData(VKDevice* device, void* vertices, VkDeviceSize bufferSize)
 {
-    VKGraphicsEnvironment* ge = VKGE_graphics_environment();
-    VKLogicalDevice* logicalDevice = &ge->devices[ge->enabledDeviceNum];
-
-    VKBuffer* buffer = VKBuffer_Create(bufferSize,
+    VKBuffer* buffer = VKBuffer_Create(device, bufferSize,
                                        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
     void* data;
-    if (ge->vkMapMemory(logicalDevice->device, buffer->memory, 0, bufferSize, 0, &data) != VK_SUCCESS) {
-        J2dRlsTraceLn(J2D_TRACE_ERROR, "failed to map memory!");
+    VK_IF_ERROR(device->vkMapMemory(device->handle, buffer->memory, 0, VK_WHOLE_SIZE, 0, &data)) {
+        VKBuffer_free(device, buffer);
         return NULL;
     }
     memcpy(data, vertices, bufferSize);
@@ -124,26 +118,24 @@ VKBuffer* VKBuffer_CreateFromData(void* vertices, VkDeviceSize bufferSize)
     };
 
 
-    if (ge->vkFlushMappedMemoryRanges(logicalDevice->device, 1, &memoryRange) != VK_SUCCESS) {
-        J2dRlsTraceLn(J2D_TRACE_ERROR, "failed to flush memory!");
+    VK_IF_ERROR(device->vkFlushMappedMemoryRanges(device->handle, 1, &memoryRange)) {
+        VKBuffer_free(device, buffer);
         return NULL;
     }
-    ge->vkUnmapMemory(logicalDevice->device, buffer->memory);
+    device->vkUnmapMemory(device->handle, buffer->memory);
     buffer->size = bufferSize;
 
     return buffer;
 }
 
-void VKBuffer_free(VKBuffer* buffer) {
-    VKGraphicsEnvironment* ge = VKGE_graphics_environment();
-    VKLogicalDevice* logicalDevice = &ge->devices[ge->enabledDeviceNum];
-
+void VKBuffer_free(VKDevice* device, VKBuffer* buffer) {
     if (buffer != NULL) {
         if (buffer->buffer != VK_NULL_HANDLE) {
-            ge->vkDestroyBuffer(logicalDevice->device, buffer->buffer, NULL);
+            device->vkDestroyBuffer(device->handle, buffer->buffer, NULL);
         }
         if (buffer->memory != VK_NULL_HANDLE) {
-            ge->vkFreeMemory(logicalDevice->device, buffer->memory, NULL);
+            device->vkFreeMemory(device->handle, buffer->memory, NULL);
         }
+        free(buffer);
     }
 }

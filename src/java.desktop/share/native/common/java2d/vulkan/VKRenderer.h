@@ -27,27 +27,58 @@
 #ifndef VKRenderer_h_Included
 #define VKRenderer_h_Included
 
-#include "j2d_md.h"
-#include "VKBase.h"
-#include "VKSurfaceData.h"
+#include "VKTypes.h"
+#include "VKPipelines.h"
 
-VKRenderer* VKRenderer_CreateFillTexturePoly();
+struct VKRenderingContext {
+    VKSDOps* surface;
+    Color color;
+};
 
-VKRenderer* VKRenderer_CreateFillColorPoly();
+VKRenderer* VKRenderer_Create(VKDevice* device);
 
-VKRenderer* VKRenderer_CreateFillMaxColorPoly();
+void VKRenderer_Destroy(VKRenderer* renderer);
 
-void VKRenderer_BeginRendering();
-void VKRenderer_EndRendering(VkBool32 notifyRenderFinish, VkBool32 waitForDisplayImage);
-void VKRenderer_TextureRender(VKImage *destImage, VKImage *srcImage, VkBuffer vertexBuffer, uint32_t vertexNum);
-void VKRenderer_ColorRender(VKImage *destImage, uint32_t rgba, VkBuffer vertexBuffer, uint32_t vertexNum);
-void VKRenderer_ColorRenderMaxRect(VKImage *destImage, uint32_t rgba);
+/**
+ * Wait for all rendering commands to complete.
+ */
+void VKRenderer_Sync(VKRenderer* renderer);
+
+/**
+ * Submit pending command buffer, completed render passes & presentation requests.
+ */
+void VKRenderer_Flush(VKRenderer* renderer);
+
+/**
+ * Cancel render pass of the surface, release all associated resources and deallocate render pass.
+ */
+void VKRenderer_ReleaseRenderPass(VKSDOps* surface);
+
+/**
+ * Flush pending render pass and queue surface for presentation (if applicable).
+ */
+void VKRenderer_FlushSurface(VKSDOps* surface);
+
+/**
+ * Request size for the surface. It has no effect, if it is already of the same size.
+ * Actual resize will be performed later, before starting a new frame.
+ */
+void VKRenderer_ConfigureSurface(VKSDOps* surface, VkExtent2D extent);
+
+// Blit ops.
+
+void VKRenderer_TextureRender(VKRenderingContext* context,
+                              VKImage *destImage, VKImage *srcImage,
+                              VkBuffer vertexBuffer, uint32_t vertexNum);
+
 // fill ops
-void VKRenderer_FillRect(jint x, jint y, jint w, jint h);
-void VKRenderer_FillParallelogram(jint color, VKSDOps *dstOps,
-                                  jfloat x11, jfloat y11,
-                                  jfloat dx21, jfloat dy21,
-                                  jfloat dx12, jfloat dy12);
-void VKRenderer_FillSpans(jint color, VKSDOps *dstOps, jint spanCount, jint *spans);
+void VKRenderer_FillRect(VKRenderingContext* context, jint x, jint y, jint w, jint h);
+
+void VKRenderer_RenderParallelogram(VKRenderingContext* context, VKPipeline pipeline,
+                                    jfloat x11, jfloat y11,
+                                    jfloat dx21, jfloat dy21,
+                                    jfloat dx12, jfloat dy12);
+
+void VKRenderer_FillSpans(VKRenderingContext* context, jint spanCount, jint *spans);
 
 #endif //VKRenderer_h_Included

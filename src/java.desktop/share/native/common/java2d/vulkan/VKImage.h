@@ -27,30 +27,20 @@
 #ifndef VKImage_h_Included
 #define VKImage_h_Included
 
-#include <vulkan/vulkan.h>
+#include "VKTypes.h"
 
-typedef struct {
+struct VKImage {
     VkImage                 image;
     VkDeviceMemory          memory;
-    VkFramebuffer           framebuffer;
     VkImageView             view;
     VkFormat                format;
     VkExtent2D              extent;
-    VkBool32                noImageDealloc;
-} VKImage;
+};
 
-VKImage* VKImage_Create(uint32_t width, uint32_t height,
+VKImage* VKImage_Create(VKDevice* device, uint32_t width, uint32_t height,
                         VkFormat format, VkImageTiling tiling,
                         VkImageUsageFlags usage,
                         VkMemoryPropertyFlags properties);
 
-VKImage* VKImage_CreateImageArrayFromSwapChain(VkSwapchainKHR swapchainKhr,
-                                               VkRenderPass renderPass,
-                                               VkFormat format,
-                                               VkExtent2D extent);
-
-VkBool32 VKImage_CreateFramebuffer(VKImage *image, VkRenderPass renderPass);
-
-void VKImage_free(VKImage* image);
-void VKImage_dealloc(VKImage* image);
+void VKImage_free(VKDevice* device, VKImage* image);
 #endif // VKImage_h_Included
