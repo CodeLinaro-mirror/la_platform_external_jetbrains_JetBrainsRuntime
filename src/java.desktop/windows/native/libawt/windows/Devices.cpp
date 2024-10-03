@@ -103,7 +103,21 @@ static BOOL IsValidMonitor(HMONITOR hMon)
         return FALSE;
     }
 
-    HDC hDC = CreateDC(mieInfo.szDevice, NULL, NULL, NULL);
+    // AndroidStudio (b/371006595, JDK-8336862) Allow "WinDisc" monitor for non-interactive session.
+    //
+    // Device context for actual display only becomes available after login, and automatic tests we run in headless mode
+    // only have access to "WinDisc" and compatible device context
+    //
+    // https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-createdcw
+    // https://learn.microsoft.com/en-us/answers/questions/515606/windows-service-not-detecting-multiple-monitors-(c
+    // https://github.com/openjdk/jdk/pull/17614
+    HDC hDC;
+    if (wcscmp(mieInfo.szDevice, L"WinDisc") == 0) {
+        hDC = CreateDC(TEXT("DISPLAY"), NULL, NULL, NULL);
+    } else {
+        hDC = CreateDC(mieInfo.szDevice, NULL, NULL, NULL);
+    }
+
     if (NULL == hDC) {
         J2dTraceLn2(J2D_TRACE_INFO, "Devices::IsValidMonitor: CreateDC failed for monitor with handle %p, device: %S", hMon, mieInfo.szDevice);
         return FALSE;
