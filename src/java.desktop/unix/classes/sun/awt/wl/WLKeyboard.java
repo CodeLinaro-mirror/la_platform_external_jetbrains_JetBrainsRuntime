@@ -38,36 +38,68 @@ class WLKeyboard {
     }
 
     private class KeyRepeatManager {
+        // Methods and fields should only be accessed from the EDT
         private final Timer timer = new Timer("WLKeyboard.KeyRepeatManager", true);
         private TimerTask currentRepeatTask;
-        private int delayBeforeRepeatMillis = 500;
-        private int delayBetweenRepeatMillis = 50;
+        private int currentRepeatKeycode;
+        private int delayBeforeRepeatMillis;
+        private int delayBetweenRepeatMillis;
 
+        // called from native code
         void setRepeatInfo(int charsPerSecond, int delayMillis) {
+            // this function receives (0, 0) when key repeat is disabled
+            assert EventQueue.isDispatchThread();
             this.delayBeforeRepeatMillis = delayMillis;
-            this.delayBetweenRepeatMillis = (int) (1000.0 / charsPerSecond);
+            if (charsPerSecond > 0) {
+                this.delayBetweenRepeatMillis = (int) (1000.0 / charsPerSecond);
+            } else {
+                this.delayBetweenRepeatMillis = 0;
+            }
+
+            cancelRepeat();
+        }
+
+        boolean isRepeatEnabled() {
+            return this.delayBeforeRepeatMillis > 0 || this.delayBetweenRepeatMillis > 0;
         }
 
         void cancelRepeat() {
+            assert EventQueue.isDispatchThread();
             if (currentRepeatTask != null) {
                 currentRepeatTask.cancel();
                 currentRepeatTask = null;
+                currentRepeatKeycode = 0;
             }
         }
 
-        void startRepeat(long timestamp, int keycode) {
+        // called from native code
+        void stopRepeat(int keycode) {
+            assert EventQueue.isDispatchThread();
+            if (currentRepeatKeycode == keycode) {
+                cancelRepeat();
+            }
+        }
+
+        // called from native code
+        void startRepeat(long serial, long timestamp, int keycode) {
+            assert EventQueue.isDispatchThread();
             cancelRepeat();
-            if (keycode == 0) {
+            if (keycode == 0 || !isRepeatEnabled()) {
                 return;
             }
 
+            currentRepeatKeycode = keycode;
+
             long delta = timestamp - System.currentTimeMillis();
+
             currentRepeatTask = new TimerTask() {
                 @Override
                 public void run() {
                     try {
                         EventQueue.invokeAndWait(() -> {
-                            handleKeyPress(delta + System.currentTimeMillis(), keycode, true);
+                            if (this == currentRepeatTask) {
+                                handleKeyRepeat(serial, delta + System.currentTimeMillis(), keycode);
+                            }
                         });
                     } catch (InterruptedException ignored) {
                     } catch (InvocationTargetException e) {
@@ -125,11 +157,12 @@ class WLKeyboard {
     }
 
     public void onLostFocus() {
+        assert EventQueue.isDispatchThread();
         keyRepeatManager.cancelRepeat();
         cancelCompose();
     }
 
-    private native void handleKeyPress(long timestamp, int keycode, boolean isRepeat);
+    private native void handleKeyRepeat(long serial, long timestamp, int keycode);
 
     private native void cancelCompose();
 

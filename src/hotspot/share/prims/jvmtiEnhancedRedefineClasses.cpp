@@ -106,6 +106,7 @@ u8        VM_EnhancedRedefineClasses::_id_counter = 0;
 // @param class_load_kind always jvmti_class_load_kind_redefine
 VM_EnhancedRedefineClasses::VM_EnhancedRedefineClasses(jint class_count, const jvmtiClassDefinition *class_defs, JvmtiClassLoadKind class_load_kind) :
         VM_GC_Operation(Universe::heap()->total_collections(), GCCause::_heap_inspection, Universe::heap()->total_full_collections(), true) {
+  _new_classes = nullptr;
   _affected_klasses = nullptr;
   _class_count = class_count;
   _class_defs = class_defs;
@@ -717,12 +718,6 @@ void VM_EnhancedRedefineClasses::doit() {
     Universe::objectArrayKlassObj()->append_to_sibling_list();
   }
 
-  if (_object_klass_redefined) {
-    // TODO: This is a hack; it keeps old mirror instances on the heap. A correct solution could be to hold the old mirror class in the new mirror class.
-    ClassUnloading = false;
-    ClassUnloadingWithConcurrentMark = false;
-  }
-
   if (needs_instance_update) {
     // Do a full garbage collection to update the instance sizes accordingly
     log_trace(redefine, class, redefine, metadata)("Before redefinition full GC run");
@@ -788,6 +783,10 @@ void VM_EnhancedRedefineClasses::doit() {
 
   Universe::set_inside_redefinition(false);
   _timer_vm_op_doit.stop();
+
+  if (log_is_enabled(Trace, redefine, class, codecache)) {
+    CodeCache::print();
+  }
 }
 
 // Cleanup - runs in JVM thread
@@ -953,6 +952,8 @@ jvmtiError VM_EnhancedRedefineClasses::load_new_class_versions_single_step(TRAPS
           log_info(redefine, class, load, exceptions)("link_class exception: '%s'", ex_name->as_C_string());
         }
         CLEAR_PENDING_EXCEPTION;
+
+        the_class->set_redefinition_flags(Klass::NoRedefinition);
         if (ex_name == vmSymbols::java_lang_OutOfMemoryError()) {
           return JVMTI_ERROR_OUT_OF_MEMORY;
         } else if (ex_name == vmSymbols::java_lang_NoClassDefFoundError()) {
@@ -1025,9 +1026,11 @@ jvmtiError VM_EnhancedRedefineClasses::load_new_class_versions_single_step(TRAPS
         // The hidden class loader data has been artificially been kept alive to
         // this point. The mirror and any instances of this class have to keep
         // it alive afterwards.
-        if (the_class->class_loader_data()->keep_alive_cnt() > 0) {
-          the_class->class_loader_data()->dec_keep_alive();
-        }
+
+        // Keep old classloader data alive otherwise it crashes with ClassUnloading=true
+//        if (the_class->class_loader_data()->keep_alive_cnt() > 0) {
+//          the_class->class_loader_data()->dec_keep_alive();
+//        }
       }
 
     } else {
@@ -1614,6 +1617,7 @@ void VM_EnhancedRedefineClasses::rollback() {
     new_class->set_redefining(false);
     new_class->old_version()->set_new_version(nullptr);
     new_class->set_old_version(nullptr);
+    new_class->set_rolled_back(true);
   }
   _new_classes->clear();
 }
@@ -2239,6 +2243,10 @@ class AffectedKlassClosure : public KlassClosure {
     }
 
     if (klass->is_redefining()) {
+      return;
+    }
+
+    if (klass->is_rolled_back()) {
       return;
     }
 

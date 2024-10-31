@@ -48,6 +48,7 @@ import java.awt.image.DirectColorModel;
 import java.awt.image.VolatileImage;
 import java.awt.image.WritableRaster;
 import sun.awt.image.SunVolatileImage;
+import sun.awt.image.SurfaceManager;
 import sun.awt.wl.WLComponentPeer;
 import sun.awt.wl.WLGraphicsConfig;
 import sun.awt.wl.WLGraphicsDevice;
@@ -74,24 +75,25 @@ public final class WLVKGraphicsConfig extends WLGraphicsConfig
 
     private static native long getVKConfigInfo();
 
-    public WLVKGraphicsConfig(WLGraphicsDevice device, int width, int height, int scale, ContextCapabilities vkCaps) {
-        super(device, width, height, scale);
+    public WLVKGraphicsConfig(WLGraphicsDevice device, int x, int y, int width, int height, int scale, ContextCapabilities vkCaps) {
+        super(device, x, y, width, height, scale);
         this.vkCaps = vkCaps;
         context = new VKContext(VKRenderQueue.getInstance());
     }
 
     @Override
-    public Object getProxyKey() {
-        return this;
+    public SurfaceManager.ProxyCache getSurfaceDataProxyCache() {
+        // TODO on which level should we cache surface data proxies? Single cache per GPU?
+        throw new UnsupportedOperationException("getSurfaceDataProxyCache not yet implemented");
     }
 
-    public static WLVKGraphicsConfig getConfig(WLGraphicsDevice device, int width, int height, int scale)
+    public static WLVKGraphicsConfig getConfig(WLGraphicsDevice device, int x, int y, int width, int height, int scale)
     {
         ContextCapabilities caps = new VKContext.VKContextCaps(
             CAPS_PS30 | CAPS_PS20 | CAPS_RT_TEXTURE_ALPHA |
             CAPS_RT_TEXTURE_OPAQUE | CAPS_MULTITEXTURE | CAPS_TEXNONPOW2 |
             CAPS_TEXNONSQUARE, null);
-        return new WLVKGraphicsConfig(device, width, height, scale, caps);
+        return new WLVKGraphicsConfig(device, x, y, width, height, scale, caps);
     }
 
     /**

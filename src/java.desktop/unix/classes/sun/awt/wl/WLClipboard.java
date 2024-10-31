@@ -61,6 +61,7 @@ public final class WLClipboard extends SunClipboard {
 
     // A handle to the native clipboard representation, 0 if not available.
     private long clipboardNativePtr;     // guarded by 'this'
+    private long ourOfferNativePtr;      // guarded by 'this'
 
     // The list of numeric format IDs the current clipboard is available in;
     // could be null or empty.
@@ -134,8 +135,19 @@ public final class WLClipboard extends SunClipboard {
     protected void setContentsNative(Transferable contents) {
         // The server requires "serial number of the event that triggered this request"
         // as a proof of the right to copy data.
-        WLPointerEvent wlPointerEvent = WLToolkit.getInputState().eventWithSerial();
-        long eventSerial = wlPointerEvent == null ? 0 : wlPointerEvent.getSerial();
+
+        // It is not specified which event's serial number the Wayland server expects here,
+        // so the following is a speculation based on experiments.
+        // The worst case is that a "wrong" serial will be silently ignored, and our clipboard
+        // will be out of sync with the real one that Wayland maintains.
+        long eventSerial = isPrimary
+                ? WLToolkit.getInputState().pointerButtonSerial()
+                : WLToolkit.getInputState().keySerial();
+        if (!isPrimary && eventSerial == 0) {
+            // The "regular" clipboard's content can be changed with either a mouse click
+            // (like on a menu item) or with the keyboard (Ctrl-C).
+            eventSerial = WLToolkit.getInputState().pointerButtonSerial();
+        }
         if (log.isLoggable(PlatformLogger.Level.FINE)) {
             log.fine("Clipboard: About to offer new contents using Wayland event serial " + eventSerial);
         }
@@ -161,7 +173,12 @@ public final class WLClipboard extends SunClipboard {
                     log.fine("Clipboard: Offering new contents (" + contents + ") in these MIME formats: " + Arrays.toString(mime));
                 }
 
-                offerData(eventSerial, mime, contents, dataOfferQueuePtr);
+                synchronized (this) {
+                    if (ourOfferNativePtr != 0) {
+                        cancelOffer(ourOfferNativePtr);
+                    }
+                    ourOfferNativePtr = offerData(eventSerial, mime, contents, dataOfferQueuePtr);
+                }
 
                 // Once we have offered the data, someone may come back and ask to provide them.
                 // In that event, the transferContentsWithType() will be called from native on the
@@ -303,28 +320,36 @@ public final class WLClipboard extends SunClipboard {
      * has been made available. The list of supported formats
      * should have already been received and saved in newClipboardFormats.
      *
-     * @param nativePtr a native handle to the clipboard
+     * @param newClipboardNativePtr a native handle to the clipboard
      */
-    private void handleNewClipboard(long nativePtr) {
+    private void handleNewClipboard(long newClipboardNativePtr) {
         // Since we have a new clipboard, the existing one is no longer valid.
-        // We have now way of knowing whether this "new" one is the same as the "old" one.
+        // We have no way of knowing whether this "new" one is the same as the "old" one.
         lostOwnershipNow(null);
 
         if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Clipboard: new clipboard is available: " + nativePtr);
+            log.fine("Clipboard: new clipboard is available: " + newClipboardNativePtr);
         }
 
         synchronized (this) {
             long oldClipboardNativePtr = clipboardNativePtr;
             if (oldClipboardNativePtr != 0) {
+                // "The client must destroy the previous selection data_offer, if any, upon receiving this event."
                 destroyClipboard(oldClipboardNativePtr);
             }
             clipboardFormats = newClipboardFormats;
-            clipboardNativePtr = nativePtr; // Could be NULL
+            clipboardNativePtr = newClipboardNativePtr; // Could be NULL
 
             newClipboardFormats = new ArrayList<>(INITIAL_MIME_FORMATS_COUNT);
 
             notifyOfNewFormats(getClipboardFormats());
+        }
+    }
+
+    private void handleOfferCancelled(long offerNativePtr) {
+        synchronized (this) {
+            assert offerNativePtr == ourOfferNativePtr;
+            ourOfferNativePtr = 0;
         }
     }
 
@@ -416,8 +441,8 @@ public final class WLClipboard extends SunClipboard {
     private static native long createDataOfferQueue();
     private static native void dispatchDataOfferQueueImpl(long dataOfferQueuePtr);
     private native long initNative(boolean isPrimary);
-    private native void offerData(long eventSerial, String[] mime, Object data, long dataOfferQueuePtr);
-    private native void cancelOffer(long eventSerial); // TODO: this is unused, delete, maybe?
+    private native long offerData(long eventSerial, String[] mime, Object data, long dataOfferQueuePtr);
+    private native void cancelOffer(long offerNativePtr);
 
     private native int requestDataInFormat(long clipboardNativePtr, String mime);
     private native void destroyClipboard(long clipboardNativePtr);
