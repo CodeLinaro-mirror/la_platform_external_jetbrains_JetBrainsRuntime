@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2024 SAP SE. All rights reserved.
+ * Copyright (c) 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2024, JetBrains s.r.o.. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,15 +24,30 @@
  * questions.
  */
 
-#include <sun_awt_PlatformGraphicsInfo.h>
-#include "Devices.h"
+#ifndef VKBlitLoops_h_Included
+#define VKBlitLoops_h_Included
 
-/*
- * Class:     sun_awt_PlatformGraphicsInfo
- * Method:    hasDisplays0
- * Signature: ()Z
- */
-JNIEXPORT jboolean JNICALL
-Java_sun_awt_PlatformGraphicsInfo_hasDisplays0(JNIEnv *env, jclass thisClass) {
-    return CountMonitors() > 0 ? JNI_TRUE : JNI_FALSE;
-}
+#include "jni.h"
+#include "sun_java2d_vulkan_VKBlitLoops.h"
+#include "VKBase.h"
+
+void VKBlitLoops_IsoBlit(JNIEnv *env,
+                          VKRenderingContext* context, jlong pSrcOps,
+                          jboolean xform, jint hint,
+                          jboolean texture,
+                          jint sx1, jint sy1,
+                          jint sx2, jint sy2,
+                          jdouble dx1, jdouble dy1,
+                          jdouble dx2, jdouble dy2);
+
+void VKBlitLoops_Blit(JNIEnv *env,
+                       VKRenderingContext* context, jlong pSrcOps,
+                       jboolean xform, jint hint,
+                       jint srctype, jboolean texture,
+                       jint sx1, jint sy1,
+                       jint sx2, jint sy2,
+                       jdouble dx1, jdouble dy1,
+                       jdouble dx2, jdouble dy2);
+
+
+#endif /* VKBlitLoops_h_Included */

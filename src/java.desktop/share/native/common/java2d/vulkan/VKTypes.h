@@ -26,7 +26,7 @@
 #include <vulkan/vulkan.h>
 
 /**
- * Floating-point RGBA color with sRGB encoding.
+ * Floating-point RGBA color with sRGB encoding and pre-multiplied alpha.
  */
 typedef union {
     struct {
@@ -35,14 +35,27 @@ typedef union {
     VkClearValue vkClearValue;
 } Color;
 
+/**
+ * Transform matrix
+ * [ x']   [  m00  m01  m02  ] [ x ]   [ m00x + m01y + m02 ]
+ * [ y'] = [  m10  m11  m12  ] [ y ] = [ m10x + m11y + m12 ]
+ * [ 1 ]   [   0    0    1   ] [ 1 ]   [         1         ]
+ */
+typedef struct {
+    double m00, m01, m02;
+    double m10, m11, m12;
+} VKTransform;
+
+VK_DEFINE_NON_DISPATCHABLE_HANDLE(VKMemory);
+
 typedef struct VKGraphicsEnvironment VKGraphicsEnvironment;
 typedef struct VKDevice VKDevice;
+typedef struct VKAllocator VKAllocator;
 typedef struct VKRenderer VKRenderer;
 typedef struct VKRenderPass VKRenderPass;
 typedef struct VKRenderingContext VKRenderingContext;
 typedef struct VKPipelineContext VKPipelineContext;
 typedef struct VKRenderPassContext VKRenderPassContext;
-typedef struct VKShaders VKShaders;
 typedef struct VKBuffer VKBuffer;
 typedef struct VKImage VKImage;
 typedef struct VKSDOps VKSDOps;

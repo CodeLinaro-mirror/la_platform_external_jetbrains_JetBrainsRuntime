@@ -4531,6 +4531,13 @@ public abstract class Component implements ImageObserver, MenuContainer,
                 // to translate to client area.
                 g.translate(insets.left, insets.top);
                 for (int i = 0; i < backBuffers.length; i++) {
+                    // If we try to draw outside the buffer's bounds, some backends may
+                    // fill this area with some color rather than avoid drawing altogether.
+                    // Protect against that by clipping the area to the back buffer's rectangle.
+                    x1 = Math.max(0, x1);
+                    y1 = Math.max(0, y1);
+                    x2 = Math.min(backBuffers[i].getWidth(), x2);
+                    y2 = Math.min(backBuffers[i].getHeight(), y2);
                     g.drawImage(backBuffers[i],
                                 x1, y1, x2, y2,
                                 x1, y1, x2, y2,
@@ -4626,7 +4633,11 @@ public abstract class Component implements ImageObserver, MenuContainer,
         }
 
         public void show(int x1, int y1, int x2, int y2) {
-            showSubRegion(x1, y1, x2, y2);
+            try {
+                showSubRegion(x1, y1, x2, y2);
+            } catch (IllegalComponentStateException exception) {
+                return;
+            }
         }
 
         // This is invoked by Swing on the toolkit thread.
@@ -4876,6 +4887,9 @@ public abstract class Component implements ImageObserver, MenuContainer,
             eventLog.finest("{0}", e);
         }
 
+        if (id == MouseEvent.MOUSE_ENTERED && getToolkit() instanceof SunToolkit toolkit) {
+            toolkit.updateLastMouseEventComponent(this);
+        }
         /*
          * 0. Set timestamp and modifiers of current event.
          */
@@ -7155,6 +7169,12 @@ public abstract class Component implements ImageObserver, MenuContainer,
         {
             KeyboardFocusManager.getCurrentKeyboardFocusManager().
                 setGlobalPermanentFocusOwner(null);
+        }
+
+        if (getToolkit() instanceof SunToolkit toolkit) {
+            if (toolkit.getLastMouseEventComponent() == this) {
+                toolkit.updateLastMouseEventComponent(null);
+            }
         }
 
         synchronized (getTreeLock()) {

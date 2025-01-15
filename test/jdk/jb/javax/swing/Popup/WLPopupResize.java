@@ -1,4 +1,27 @@
 /*
+ * Copyright 2024 JetBrains s.r.o.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
+ */
+
+/*
  * Copyright (c) 2024, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2024, JetBrains s.r.o.. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
@@ -27,10 +50,8 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JWindow;
 import javax.swing.SwingUtilities;
-import java.awt.Dimension;
-import java.awt.Robot;
-import java.awt.Toolkit;
-import java.awt.Window;
+import java.awt.*;
+import java.awt.geom.AffineTransform;
 
 import static javax.swing.WindowConstants.EXIT_ON_CLOSE;
 
@@ -41,7 +62,11 @@ import static javax.swing.WindowConstants.EXIT_ON_CLOSE;
  * @requires os.family == "linux"
  * @key headful
  * @modules java.desktop/sun.awt
- * @run main WLPopupResize
+ * @run main/othervm WLPopupResize
+ * @run main/othervm -Dsun.java2d.uiScale.enabled=true -Dsun.java2d.uiScale=1.0 WLPopupResize
+ * @run main/othervm -Dsun.java2d.uiScale.enabled=true -Dsun.java2d.uiScale=1.25 WLPopupResize
+ * @run main/othervm -Dsun.java2d.uiScale.enabled=true -Dsun.java2d.uiScale=1.5 WLPopupResize
+ * @run main/othervm -Dsun.java2d.uiScale.enabled=true -Dsun.java2d.uiScale=2.0 WLPopupResize
  */
 public class WLPopupResize {
     private static JFrame frame;
@@ -80,15 +105,45 @@ public class WLPopupResize {
         SwingUtilities.invokeAndWait(WLPopupResize::showPopup);
         pause(robot);
 
-        SwingUtilities.invokeAndWait(() -> {
-            popup.setBounds(10, 20, 120, 80);
-        });
-        pause(robot);
+        try {
+            int tolerance = getTolerance();
 
-        Dimension newSize = popup.getSize();
-        if (newSize.width != 120 || newSize.height != 80) {
-            throw new RuntimeException("Wrong popup size: " + newSize.width + ", " + newSize.height);
+            int x = 10, y = 20, w = 120, h = 80;
+            System.out.println("Set popup size to (120, 80)");
+            SwingUtilities.invokeAndWait(() -> {
+                popup.setBounds(x, y, w, h);
+            });
+            Rectangle bounds = popup.getBounds();
+            if (isOutsideTolerance(x, y, bounds.x, bounds.y, tolerance)) {
+                throw new RuntimeException("Popup position has unexpectedly changed. Bounds: " + popup.getBounds());
+            }
+            if (isOutsideTolerance(w, h, bounds.width, bounds.height, tolerance)) {
+                throw new RuntimeException("Popup size wasn't correctly changed. Bounds: " + popup.getBounds());
+            }
+            pause(robot);
+            System.out.println("Next checks after robot's waiting for idle.");
+
+            bounds = popup.getBounds();
+            if (isOutsideTolerance(x, y, bounds.x, bounds.y, tolerance)) {
+                throw new RuntimeException("Popup position has unexpectedly changed. Bounds: " + popup.getBounds());
+            }
+            if (isOutsideTolerance(w, h, bounds.width, bounds.height, tolerance)) {
+                throw new RuntimeException("Popup size wasn't correctly changed. Bounds: " + popup.getBounds());
+            }
+        } finally {
+            SwingUtilities.invokeAndWait(frame::dispose);
         }
+    }
+
+    private static int getTolerance() {
+        String uiScaleString = System.getProperty("sun.java2d.uiScale");
+        int tolerance = uiScaleString == null ? 0 : (int) Math.ceil(Double.parseDouble(uiScaleString));
+        System.out.printf("Scale settings: debug scale: %s, tolerance level: %d\n", uiScaleString, tolerance);
+        return tolerance;
+    }
+
+    private static boolean isOutsideTolerance(int expectedX, int expectedY, int realX, int realY, int tolerance) {
+        return Math.abs(realX - expectedX) > tolerance || Math.abs(realY - expectedY) > tolerance;
     }
 
     private static void pause(Robot robot) {

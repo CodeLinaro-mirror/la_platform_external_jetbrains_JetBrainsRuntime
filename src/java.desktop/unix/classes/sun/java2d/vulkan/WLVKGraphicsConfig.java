@@ -72,28 +72,36 @@ public final class WLVKGraphicsConfig extends WLGraphicsConfig
     private BufferCapabilities bufferCaps;
     private ContextCapabilities vkCaps;
     private final VKContext context;
+    // TODO this is wrong caching level!
+    //      on which level should we cache surface data proxies? Single cache per GPU?
+    private final SurfaceManager.ProxyCache surfaceDataProxyCache = new SurfaceManager.ProxyCache();
 
     private static native long getVKConfigInfo();
 
-    public WLVKGraphicsConfig(WLGraphicsDevice device, int x, int y, int width, int height, int scale, ContextCapabilities vkCaps) {
-        super(device, x, y, width, height, scale);
+    public WLVKGraphicsConfig(WLGraphicsDevice device,
+                              int x, int y, int xLogical, int yLogical,
+                              int width, int height, int widthLogical, int heightLogical,
+                              int scale, ContextCapabilities vkCaps) {
+        super(device, x, y, xLogical, yLogical, width, height, widthLogical, heightLogical, scale);
         this.vkCaps = vkCaps;
         context = new VKContext(VKRenderQueue.getInstance());
     }
 
     @Override
     public SurfaceManager.ProxyCache getSurfaceDataProxyCache() {
-        // TODO on which level should we cache surface data proxies? Single cache per GPU?
-        throw new UnsupportedOperationException("getSurfaceDataProxyCache not yet implemented");
+        return surfaceDataProxyCache;
     }
 
-    public static WLVKGraphicsConfig getConfig(WLGraphicsDevice device, int x, int y, int width, int height, int scale)
+    public static WLVKGraphicsConfig getConfig(WLGraphicsDevice device,
+                                               int x, int y, int xLogical, int yLogical,
+                                               int width, int height, int widthLogical, int heightLogical,
+                                               int scale)
     {
         ContextCapabilities caps = new VKContext.VKContextCaps(
             CAPS_PS30 | CAPS_PS20 | CAPS_RT_TEXTURE_ALPHA |
             CAPS_RT_TEXTURE_OPAQUE | CAPS_MULTITEXTURE | CAPS_TEXNONPOW2 |
             CAPS_TEXNONSQUARE, null);
-        return new WLVKGraphicsConfig(device, x, y, width, height, scale, caps);
+        return new WLVKGraphicsConfig(device, x, y, xLogical, yLogical, width, height, widthLogical, heightLogical, scale, caps);
     }
 
     /**
