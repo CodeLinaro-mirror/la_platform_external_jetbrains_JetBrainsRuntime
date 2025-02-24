@@ -134,13 +134,13 @@ data_device_handle_drop(void *data, struct wl_data_device *wl_data_device)
 {
     // TODO
 }
-
 static const struct wl_data_device_listener wl_data_device_listener = {
         .data_offer = data_device_handle_data_offer,
         .selection = data_device_handle_selection,
         .enter = data_device_handle_enter,
         .leave = data_device_handle_leave,
-        .motion = data_device_handle_motion
+        .motion = data_device_handle_motion,
+        .drop = data_device_handle_drop
 };
 
 static void
@@ -681,7 +681,7 @@ Java_sun_awt_wl_WLClipboard_requestDataInFormat(
     const char * mimeType = (*env)->GetStringUTFChars(env, mimeTypeJava, NULL);
     if (mimeType) {
         int fds[2];
-        int rc = pipe(fds);
+        int rc = pipe2(fds, O_CLOEXEC);
         if (rc == 0) {
             if (isPrimary) {
                 struct zwp_primary_selection_offer_v1 * offer = jlong_to_ptr(clipboardNativePtr);
