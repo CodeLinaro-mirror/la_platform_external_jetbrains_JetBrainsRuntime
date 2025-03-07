@@ -92,3 +92,36 @@ $(LIB_DST_DIR)/fonts/%: $(FONTFILE_SRC_DIR)/fonts/%
 
 
 TARGETS += $(FONTFILE_TARGET_FILES)
+
+ifeq ($(call isTargetOs, macosx), true)
+    FONTFILE_MAC_SRC_DIR := $(TOPDIR)/src/java.desktop/macosx
+    FONTFILE_MAC_SRCS := $(wildcard $(FONTFILE_MAC_SRC_DIR)/fonts/*.ttf)
+    FONTFILE_MAC_TARGET_FILES := $(subst $(FONTFILE_MAC_SRC_DIR),$(LIB_DST_DIR),$(FONTFILE_MAC_SRCS))
+
+    $(LIB_DST_DIR)/fonts/%: $(FONTFILE_MAC_SRC_DIR)/fonts/%
+	    $(call install-file)
+
+    TARGETS += $(FONTFILE_MAC_TARGET_FILES)
+endif
+
+ifeq ($(call isTargetOs, windows), true)
+    FONTFILE_WINDOWS_SRC_DIR := $(TOPDIR)/src/java.desktop/windows
+    FONTFILE_WINDOWS_SRCS := $(wildcard $(FONTFILE_WINDOWS_SRC_DIR)/fonts/*.ttf)
+    FONTFILE_WINDOWS_TARGET_FILES := $(subst $(FONTFILE_WINDOWS_SRC_DIR),$(LIB_DST_DIR),$(FONTFILE_WINDOWS_SRCS))
+
+    $(LIB_DST_DIR)/fonts/%: $(FONTFILE_WINDOWS_SRC_DIR)/fonts/%
+	    $(call install-file)
+
+    TARGETS += $(FONTFILE_WINDOWS_TARGET_FILES)
+endif
+
+ifeq ($(call isTargetOs, linux), true)
+    FONTFILE_LINUX_SRC_DIR := $(TOPDIR)/src/java.desktop/linux
+    FONTFILE_LINUX_SRCS := $(wildcard $(FONTFILE_LINUX_SRC_DIR)/fonts/*.ttf)
+    FONTFILE_LINUX_TARGET_FILES := $(subst $(FONTFILE_LINUX_SRC_DIR),$(LIB_DST_DIR),$(FONTFILE_LINUX_SRCS))
+
+    $(LIB_DST_DIR)/fonts/%: $(FONTFILE_LINUX_SRC_DIR)/fonts/%
+	    $(call install-file)
+
+    TARGETS += $(FONTFILE_LINUX_TARGET_FILES)
+endif
