@@ -24,13 +24,13 @@
  * questions.
  */
 
+#include <stdlib.h>
 #include <pthread.h>
 
 #include "VKImage.h"
-#include "VKUtil.h"
 #include "VKTexturePool.h"
-#include "AccelTexturePool.h"
 #include "jni.h"
+#include "jni_util.h"
 #include "Trace.h"
 
 
@@ -72,10 +72,6 @@ void VKTexturePoolLock_unlockImpl(ATexturePoolLockPrivPtr *lock) {
     if (TRACE_LOCK) J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKTexturePoolLock_unlockImpl: lock=%p - unlocked", l);
 }
 
-static void VKTexturePool_FindImageMemoryType(VKMemoryRequirements* requirements) {
-    // TODO both DEVICE_LOCAL and HOST_VISIBLE memory is very precious, we may need to use just DEVICE_LOCAL instead.
-    VKAllocator_FindMemoryType(requirements, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, VK_ALL_MEMORY_PROPERTIES);
-}
 
 /* Texture allocate/free API */
 static ATexturePrivPtr* VKTexturePool_createTexture(ADevicePrivPtr *device,
@@ -85,10 +81,10 @@ static ATexturePrivPtr* VKTexturePool_createTexture(ADevicePrivPtr *device,
 {
     CHECK_NULL_RETURN(device, NULL);
     VKImage* texture = VKImage_Create((VKDevice*)device, width, height,
-                                      0, (VkFormat)format,
-                                      VK_IMAGE_TILING_OPTIMAL,
+                                      (VkFormat)format,
+                                      VK_IMAGE_TILING_LINEAR,
                                       VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                                      VK_SAMPLE_COUNT_1_BIT, VKTexturePool_FindImageMemoryType);
+                                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
     if IS_NULL(texture) {
         J2dRlsTrace(J2D_TRACE_ERROR, "VKTexturePool_createTexture: Cannot create VKImage");
         return NULL;
@@ -102,11 +98,15 @@ static ATexturePrivPtr* VKTexturePool_createTexture(ADevicePrivPtr *device,
 }
 
 static int VKTexturePool_bytesPerPixel(long format) {
-    FormatGroup group = VKUtil_GetFormatGroup((VkFormat)format);
-    if (group.bytes == 0) {
-        J2dRlsTraceLn1(J2D_TRACE_ERROR, "VKTexturePool_bytesPerPixel: format=%d not supported (4 bytes by default)", format);
-        return 4;
-    } else return (int) group.bytes;
+    switch ((VkFormat)format) {
+        case VK_FORMAT_R8G8B8A8_UNORM:
+            return 4;
+        case VK_FORMAT_R8_UNORM:
+            return 1;
+        default:
+            J2dRlsTraceLn1(J2D_TRACE_ERROR, "VKTexturePool_bytesPerPixel: format=%d not supported (4 bytes by default)", format);
+            return 4;
+    }
 }
 
 static void VKTexturePool_freeTexture(ADevicePrivPtr *device, ATexturePrivPtr *texture) {
@@ -116,7 +116,7 @@ static void VKTexturePool_freeTexture(ADevicePrivPtr *device, ATexturePrivPtr *t
     if (TRACE_TEX) J2dRlsTraceLn4(J2D_TRACE_VERBOSE, "VKTexturePool_freeTexture: free texture: tex=%p, w=%d h=%d, pf=%d",
                                   tex, tex->extent.width, tex->extent.height, tex->format);
 
-    VKImage_Destroy((VKDevice*)device, tex);
+    VKImage_free((VKDevice*)device, tex);
 }
 
 /* VKTexturePoolHandle API */
@@ -134,14 +134,6 @@ jint VKTexturePoolHandle_GetRequestedWidth(VKTexturePoolHandle *handle) {
 
 jint VKTexturePoolHandle_GetRequestedHeight(VKTexturePoolHandle *handle) {
     return ATexturePoolHandle_GetRequestedHeight(handle);
-}
-
-jint VKTexturePoolHandle_GetActualWidth(VKTexturePoolHandle *handle) {
-    return ATexturePoolHandle_GetActualWidth(handle);
-}
-
-jint VKTexturePoolHandle_GetActualHeight(VKTexturePoolHandle *handle) {
-    return ATexturePoolHandle_GetActualHeight(handle);
 }
 
 

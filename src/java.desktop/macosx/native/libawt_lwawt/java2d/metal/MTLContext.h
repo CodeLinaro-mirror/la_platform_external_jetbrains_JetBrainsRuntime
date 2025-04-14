@@ -90,7 +90,7 @@
 @property (strong) id<MTLCommandQueue>         blitCommandQueue;
 @property (strong) id<MTLBuffer>               vertexBuffer;
 
-@property (readonly) NSMutableDictionary<NSNumber*, NSValue*>* displayLinkStates;
+@property (readonly) NSMutableDictionary<NSNumber*, NSValue*>* displayLinks;
 
 @property (readonly) EncoderManager * encoderManager;
 @property (readonly) MTLSamplerManager * samplerManager;
@@ -111,11 +111,10 @@
 
 + (NSMutableDictionary*) contextStore;
 + (MTLContext*) createContextWithDeviceIfAbsent:(jint)displayID shadersLib:(NSString*)mtlShadersLib;
-- (id)initWithDevice:(id<MTLDevice>)device shadersLib:(NSString*)mtlShadersLib;
+- (id)initWithDevice:(id<MTLDevice>)device display:(jint) displayID shadersLib:(NSString*)mtlShadersLib;
 - (void)dealloc;
 
-- (NSArray<NSNumber*>*)getDisplayLinkDisplayIds;
-- (void)handleDisplayLink:(BOOL)enabled displayID:(jint)displayID source:(const char*)src;
+- (void)handleDisplayLink:(BOOL)enabled display:(jint)display source:(const char*)src;
 - (void)createDisplayLinkIfAbsent: (jint)displayID;
 
 /**
@@ -254,7 +253,6 @@
 - (void)commitCommandBuffer:(BOOL)waitUntilCompleted display:(BOOL)updateDisplay;
 - (void)startRedraw:(MTLLayer*)layer;
 - (void)stopRedraw:(MTLLayer*)layer;
-- (void)stopRedraw:(jint)displayID layer:(MTLLayer*)layer;
 - (void)haltRedraw;
 @end
 

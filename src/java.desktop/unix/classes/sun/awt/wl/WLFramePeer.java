@@ -154,15 +154,11 @@ public class WLFramePeer extends WLDecoratedPeer implements FramePeer {
     }
 
     @Override
-    void notifyConfigured(int newSurfaceX, int newSurfaceY, int newSurfaceWidth, int newSurfaceHeight,
-                          boolean active, boolean maximized, boolean fullscreen) {
+    void notifyConfigured(int newSurfaceX, int newSurfaceY, int newSurfaceWidth, int newSurfaceHeight, boolean active, boolean maximized) {
         int widthBefore = getWidth();
         int heightBefore = getHeight();
-        boolean notifyOfDecorationChange = isFullscreen() ^ fullscreen;
 
-        super.notifyConfigured(newSurfaceX, newSurfaceY, newSurfaceWidth, newSurfaceHeight,
-                active, maximized, fullscreen);
-
+        super.notifyConfigured(newSurfaceX, newSurfaceY, newSurfaceWidth, newSurfaceHeight, active, maximized);
 
         synchronized (getStateLock()) {
             int oldState = state;
@@ -177,17 +173,12 @@ public class WLFramePeer extends WLDecoratedPeer implements FramePeer {
                     performUnlocked(() -> target.setSize(widthBeforeMaximized, heightBeforeMaximized));
                 }
                 WLToolkit.postEvent(new WindowEvent(getFrame(), WindowEvent.WINDOW_STATE_CHANGED, oldState, state));
-                notifyOfDecorationChange = true;
+                notifyClientDecorationsChanged();
             }
-        }
-
-        if (notifyOfDecorationChange) {
-            notifyClientDecorationsChanged();
         }
     }
 
     private Frame getFrame() {
         return (Frame)target;
     }
-
 }

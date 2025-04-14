@@ -27,17 +27,8 @@
 #include <dlfcn.h>
 #include "VKUtil.h"
 #include "VKBase.h"
-#include "VKAllocator.h"
 #include "VKRenderer.h"
 #include "VKTexturePool.h"
-
-// For old Vulkan headers - define version-related macros.
-#ifndef VK_MAKE_API_VERSION
-#   define VK_MAKE_API_VERSION(variant, major, minor, patch) VK_MAKE_VERSION(major, minor, patch)
-#   define VK_API_VERSION_MAJOR(version) VK_VERSION_MAJOR(version)
-#   define VK_API_VERSION_MINOR(version) VK_VERSION_MINOR(version)
-#   define VK_API_VERSION_PATCH(version) VK_VERSION_PATCH(version)
-#endif
 
 #define VULKAN_DLL JNI_LIB_NAME("vulkan")
 #define VULKAN_1_DLL VERSIONED_JNI_LIB_NAME("vulkan", "1")
@@ -66,11 +57,10 @@ static void vulkanLibClose() {
                     VKDevice* device = &geInstance->devices[i];
                     VKRenderer_Destroy(device->renderer);
                     VKTexturePool_Dispose(device->texturePool);
-                    VKAllocator_Destroy(device->allocator);
                     ARRAY_FREE(device->enabledExtensions);
                     ARRAY_FREE(device->enabledLayers);
                     free(device->name);
-                    if (device->vkDestroyDevice != NULL) {
+                    if (device->vkDestroyDevice != NULL && device->handle != NULL) {
                         device->vkDestroyDevice(device->handle, NULL);
                     }
                 }
@@ -78,12 +68,13 @@ static void vulkanLibClose() {
             }
 
 #if defined(DEBUG)
-            if (geInstance->vkDestroyDebugUtilsMessengerEXT != NULL && geInstance->vkInstance != VK_NULL_HANDLE) {
+            if (geInstance->vkDestroyDebugUtilsMessengerEXT != NULL &&
+                geInstance->debugMessenger != NULL && geInstance->vkInstance != NULL) {
                 geInstance->vkDestroyDebugUtilsMessengerEXT(geInstance->vkInstance, geInstance->debugMessenger, NULL);
             }
 #endif
 
-            if (geInstance->vkDestroyInstance != NULL) {
+            if (geInstance->vkDestroyInstance != NULL && geInstance->vkInstance != NULL) {
                 geInstance->vkDestroyInstance(geInstance->vkInstance, NULL);
             }
             free(geInstance);
@@ -379,7 +370,7 @@ static jboolean VK_FindDevices() {
 
         geInstance->vkGetPhysicalDeviceFeatures2(geInstance->physicalDevices[i], &deviceFeatures2);
 
-        VkPhysicalDeviceProperties2 deviceProperties2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
+        VkPhysicalDeviceProperties2 deviceProperties2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
         geInstance->vkGetPhysicalDeviceProperties2(geInstance->physicalDevices[i], &deviceProperties2);
         J2dRlsTrace5(J2D_TRACE_INFO, "\t- %s (%d.%d.%d, %s) ",
                      (const char *) deviceProperties2.properties.deviceName,
@@ -562,7 +553,7 @@ static jboolean VK_InitDevice(VKDevice* device) {
         J2dRlsTraceLn1(J2D_TRACE_ERROR, "Vulkan: Cannot create device: %s", device->name)
         return JNI_FALSE;
     }
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "VK_InitDevice(%s)", device->name);
+    J2dRlsTraceLn1(J2D_TRACE_INFO, "Vulkan: Device created (%s)", device->name)
 
 #define DEVICE_PROC(NAME) GET_VK_PROC_RET_FALSE_IF_ERR(geInstance->vkGetDeviceProcAddr, device, device->handle, NAME)
     DEVICE_PROC(vkDestroyDevice);
@@ -616,9 +607,9 @@ static jboolean VK_InitDevice(VKDevice* device) {
     DEVICE_PROC(vkCreateDescriptorPool);
     DEVICE_PROC(vkAllocateDescriptorSets);
     DEVICE_PROC(vkCmdBindDescriptorSets);
-    DEVICE_PROC(vkGetImageMemoryRequirements2);
+    DEVICE_PROC(vkGetImageMemoryRequirements);
     DEVICE_PROC(vkCreateBuffer);
-    DEVICE_PROC(vkGetBufferMemoryRequirements2);
+    DEVICE_PROC(vkGetBufferMemoryRequirements);
     DEVICE_PROC(vkBindBufferMemory);
     DEVICE_PROC(vkMapMemory);
     DEVICE_PROC(vkUnmapMemory);
@@ -631,21 +622,11 @@ static jboolean VK_InitDevice(VKDevice* device) {
     DEVICE_PROC(vkDestroyImage);
     DEVICE_PROC(vkDestroyFramebuffer);
     DEVICE_PROC(vkFlushMappedMemoryRanges);
-    DEVICE_PROC(vkInvalidateMappedMemoryRanges);
     DEVICE_PROC(vkCmdPushConstants);
-    DEVICE_PROC(vkCmdCopyBufferToImage);
-    DEVICE_PROC(vkCmdCopyImageToBuffer);
 
     device->vkGetDeviceQueue(device->handle, device->queueFamily, 0, &device->queue);
     if (device->queue == NULL) {
         J2dRlsTraceLn(J2D_TRACE_INFO, "Vulkan: Failed to get device queue");
-        VK_UNHANDLED_ERROR();
-        return JNI_FALSE;
-    }
-
-    device->allocator = VKAllocator_Create(device);
-    if (!device->allocator) {
-        J2dRlsTraceLn(J2D_TRACE_ERROR, "Vulkan: Cannot create allocator")
         VK_UNHANDLED_ERROR();
         return JNI_FALSE;
     }
@@ -680,10 +661,6 @@ VKGraphicsEnvironment* VKGE_graphics_environment() {
  */
 JNIEXPORT jboolean JNICALL
 Java_sun_java2d_vulkan_VKInstance_initNative(JNIEnv *env, jclass wlge, jlong nativePtr, jboolean verb, jint requestedDevice) {
-#ifdef DEBUG
-    // Init random for debug-related validation tricks.
-    srand(nativePtr);
-#endif
     verbose = verb;
     PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = vulkanLibOpen();
     if (vkGetInstanceProcAddr == NULL) {

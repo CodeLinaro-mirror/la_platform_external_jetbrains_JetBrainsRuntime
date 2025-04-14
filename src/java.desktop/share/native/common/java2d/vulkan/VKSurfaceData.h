@@ -40,7 +40,6 @@
 #define VKSD_UNDEFINED       sun_java2d_pipe_hw_AccelSurface_UNDEFINED
 #define VKSD_WINDOW          sun_java2d_pipe_hw_AccelSurface_WINDOW
 #define VKSD_RT_TEXTURE      sun_java2d_pipe_hw_AccelSurface_RT_TEXTURE
-
 /**
  * The VKSDOps structure describes a native Vulkan surface and contains all
  * information pertaining to the native surface.
@@ -57,8 +56,6 @@ struct VKSDOps {
     VKRenderPass*  renderPass;
 };
 
-typedef void (*VKWinSD_SurfaceResizeCallback)(VKWinSDOps* surface, VkExtent2D extent);
-
 /**
  * The VKWinSDOps structure describes a native Vulkan surface connected with a window.
  */
@@ -69,7 +66,6 @@ struct VKWinSDOps {
     VkImage*       swapchainImages;
     VKDevice*      swapchainDevice;
     VkExtent2D     swapchainExtent;
-    VKWinSD_SurfaceResizeCallback resizeCallback;
 };
 
 /**

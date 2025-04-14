@@ -109,7 +109,6 @@ struct WLFrame {
     int32_t configuredHeight;
     jboolean configuredActive;
     jboolean configuredMaximized;
-    jboolean configuredFullscreen;
 };
 
 static void
@@ -131,7 +130,7 @@ xdg_surface_configure(void *data,
             (*env)->CallVoidMethod(env, nativeFramePeer, notifyConfiguredMID,
                                    wlFrame->configuredX, wlFrame->configuredY,
                                    wlFrame->configuredWidth, wlFrame->configuredHeight,
-                                   wlFrame->configuredActive, wlFrame->configuredMaximized, wlFrame->configuredFullscreen);
+                                   wlFrame->configuredActive, wlFrame->configuredMaximized);
             (*env)->DeleteLocalRef(env, nativeFramePeer);
             JNU_CHECK_EXCEPTION(env);
         }
@@ -201,7 +200,6 @@ xdg_toplevel_configure(void *data,
 
     jboolean active = JNI_FALSE;
     jboolean maximized = JNI_FALSE;
-    jboolean fullscreen = JNI_FALSE;
     uint32_t *p;
     wl_array_for_each(p, states) {
         uint32_t state = *p;
@@ -210,7 +208,6 @@ xdg_toplevel_configure(void *data,
                 active = JNI_TRUE;
                 break;
             case XDG_TOPLEVEL_STATE_FULLSCREEN:
-                fullscreen = JNI_TRUE;
                 break;
             case XDG_TOPLEVEL_STATE_MAXIMIZED:
                 maximized = JNI_TRUE;
@@ -225,7 +222,6 @@ xdg_toplevel_configure(void *data,
     wlFrame->configuredHeight = height;
     wlFrame->configuredActive = active;
     wlFrame->configuredMaximized = maximized;
-    wlFrame->configuredFullscreen= fullscreen;
 }
 
 static void
@@ -318,7 +314,7 @@ Java_sun_awt_wl_WLComponentPeer_initIDs
         (JNIEnv *env, jclass clazz)
 {
     CHECK_NULL_THROW_IE(env,
-                        notifyConfiguredMID = (*env)->GetMethodID(env, clazz, "notifyConfigured", "(IIIIZZZ)V"),
+                        notifyConfiguredMID = (*env)->GetMethodID(env, clazz, "notifyConfigured", "(IIIIZZ)V"),
                         "Failed to find method WLComponentPeer.notifyConfigured");
     CHECK_NULL_THROW_IE(env,
                         notifyEnteredOutputMID = (*env)->GetMethodID(env, clazz, "notifyEnteredOutput", "(I)V"),
@@ -355,10 +351,13 @@ FrameSetTitle
 {
     if (!frame->xdg_toplevel) return;
 
-    const char *title_c_str = GetStringUTF8Chars(env, title);
+    jboolean iscopy = JNI_FALSE;
+    const char *title_c_str = JNU_GetStringPlatformChars(env, title, &iscopy);
     if (title_c_str) {
         xdg_toplevel_set_title(frame->xdg_toplevel, title_c_str);
-        ReleaseStringUTF8Chars(env, title, title_c_str);
+        if (iscopy) {
+            JNU_ReleaseStringPlatformChars(env, title, title_c_str);
+        }
     }
 }
 
@@ -368,10 +367,13 @@ FrameSetAppID
 {
     if (!frame->xdg_toplevel) return;
 
-    const char *id_c_str = GetStringUTF8Chars(env, appid);
+    jboolean iscopy = JNI_FALSE;
+    const char *id_c_str = JNU_GetStringPlatformChars(env, appid, &iscopy);
     if (id_c_str) {
         xdg_toplevel_set_app_id(frame->xdg_toplevel, id_c_str);
-        ReleaseStringUTF8Chars(env, appid, id_c_str);
+        if (iscopy) {
+            JNU_ReleaseStringPlatformChars(env, appid, id_c_str);
+        }
     }
 }
 

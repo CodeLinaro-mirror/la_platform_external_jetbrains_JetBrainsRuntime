@@ -73,18 +73,15 @@ public class WLPopupNoSize {
         SwingUtilities.invokeAndWait(WLPopupNoSize::initPopup);
         pause(robot);
 
-        try {
-            SwingUtilities.invokeAndWait(() -> popup.setVisible(true));
-            boolean isVisible1 = popup.isVisible();
-            pause(robot);
-            boolean isVisible2 = popup.isVisible();
+        SwingUtilities.invokeAndWait(() -> popup.setVisible(true));
+        boolean isVisible1 = popup.isVisible();
+        pause(robot);
+        boolean isVisible2 = popup.isVisible();
 
-            if (!isVisible1 || !isVisible2) {
-                throw new RuntimeException("Expected result: popup is visible");
-            }
-        } finally {
-            SwingUtilities.invokeAndWait(frame::dispose);
+        if (!isVisible1 || !isVisible2) {
+            throw new RuntimeException("Expected result: popup is visible");
         }
+        SwingUtilities.invokeAndWait(frame::dispose);
     }
 
     private static void pause(Robot robot) {

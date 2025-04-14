@@ -29,10 +29,10 @@
 #include "sun_java2d_pipe_BufferedOpCodes.h"
 #include "sun_java2d_pipe_BufferedRenderPipe.h"
 #include "sun_java2d_pipe_BufferedTextPipe.h"
+#include "sun_java2d_vulkan_VKBlitLoops.h"
 #include "Trace.h"
 #include "jlong.h"
 #include "VKBase.h"
-#include "VKBlitLoops.h"
 #include "VKSurfaceData.h"
 #include "VKRenderer.h"
 #include "VKUtil.h"
@@ -93,19 +93,7 @@
 
 // Rendering context is only accessed from VKRenderQueue_flushBuffer,
 // which is only called from queue flusher thread, no need for synchronization.
-static VKRenderingContext context = {
-        .surface = NULL,
-        .transform = {1.0, 0.0, 0.0,0.0, 1.0, 0.0},
-        .clipRect = {{0, 0},{INT_MAX, INT_MAX}},
-        .color = {},
-        .composite = ALPHA_COMPOSITE_SRC_OVER,
-        .extraAlpha = 1.0f
-};
-// We keep this color separately from context.color,
-// because we need consistent state when switching between XOR and alpha composite modes.
-// This variable holds last value set by SET_COLOR, while context.color holds color,
-// currently used for drawing, which may have also been provided by SET_XOR_COMPOSITE.
-Color color;
+static VKRenderingContext context = {};
 
 JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
     (JNIEnv *env, jobject oglrq, jlong buf, jint limit)
@@ -156,7 +144,6 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 J2dRlsTraceLn4(J2D_TRACE_VERBOSE,
                             "VKRenderQueue_flushBuffer: DRAW_RECT(%d, %d, %d, %d)",
                             x, y, w, h);
-                VKRenderer_RenderRect(&context, PIPELINE_DRAW_COLOR, x, y, w, h);
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_DRAW_POLY:
@@ -226,7 +213,7 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 jint h = NEXT_INT(b);
                 J2dRlsTraceLn4(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: FILL_RECT(%d, %d, %d, %d)", x, y, w, h);
-                VKRenderer_RenderRect(&context, PIPELINE_FILL_COLOR, x, y, w, h);
+                VKRenderer_FillRect(&context, x, y, w, h);
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_FILL_SPANS:
@@ -332,28 +319,7 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                                                     OFFSET_XFORM);
                 jboolean isoblit  = EXTRACT_BOOLEAN(packedParams,
                                                     OFFSET_ISOBLIT);
-                VKSDOps *dstOps = (VKSDOps *)jlong_to_ptr(pDst);
-                VKSDOps *oldSurface = context.surface;
-                context.surface = dstOps;
-                if (isoblit) {
-                    VKBlitLoops_IsoBlit(env, &context, pSrc,
-                                         xform, hint, texture,
-                                         sx1, sy1, sx2, sy2,
-                                         dx1, dy1, dx2, dy2);
-                } else {
-                    jint srctype = EXTRACT_BYTE(packedParams, OFFSET_SRCTYPE);
-                    VKBlitLoops_Blit(env, &context, pSrc,
-                                      xform, hint, srctype, texture,
-                                      sx1, sy1, sx2, sy2,
-                                      dx1, dy1, dx2, dy2);
-                }
-                context.surface = oldSurface;
-                break;
-                J2dRlsTraceLn8(J2D_TRACE_VERBOSE, "VKRenderQueue_flushBuffer: BLIT (%d %d %d %d) -> (%f %f %f %f) ",
-                               sx1, sy1, sx2, sy2, dx1, dy1, dx2, dy2)
-                J2dRlsTraceLn4(J2D_TRACE_VERBOSE, "VKRenderQueue_flushBuffer: BLIT texture=%d rtt=%d xform=%d isoblit=%d",
-                               texture, rtt, xform, isoblit)
-
+                J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderQueue_flushBuffer: BLIT");
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_SURFACE_TO_SW_BLIT:
@@ -368,7 +334,6 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 jlong pSrc   = NEXT_LONG(b);
                 jlong pDst   = NEXT_LONG(b);
                 J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderQueue_flushBuffer: SURFACE_TO_SW_BLIT");
-                VKBlitLoops_SurfaceToSwBlit(env, &context, pSrc, pDst, dsttype, sx, sy, dx, dy, w, h);
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_MASK_FILL:
@@ -404,9 +369,6 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 jint y1 = NEXT_INT(b);
                 jint x2 = NEXT_INT(b);
                 jint y2 = NEXT_INT(b);
-                context.clipRect = (VkRect2D){
-                    {x1, y1},
-                    {x2-x1, y2 - y1}};
                 J2dRlsTraceLn4(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: SET_RECT_CLIP(%d, %d, %d, %d)",
                     x1, y1, x2, y2);
@@ -440,14 +402,11 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
             break;
         case sun_java2d_pipe_BufferedOpCodes_SET_ALPHA_COMPOSITE:
             {
-                jint   rule       = NEXT_INT(b);
+                jint rule         = NEXT_INT(b);
                 jfloat extraAlpha = NEXT_FLOAT(b);
-                jint   flags      = NEXT_INT(b);
-                J2dRlsTraceLn3(J2D_TRACE_VERBOSE,
-                    "VKRenderQueue_flushBuffer: SET_ALPHA_COMPOSITE(%d, %f, %d)", rule, extraAlpha, flags);
-                context.color      = color;
-                context.composite  = (VKCompositeMode) rule;
-                context.extraAlpha = extraAlpha;
+                jint flags        = NEXT_INT(b);
+                J2dRlsTraceLn(J2D_TRACE_VERBOSE,
+                    "VKRenderQueue_flushBuffer: SET_ALPHA_COMPOSITE");
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_SET_XOR_COMPOSITE:
@@ -455,19 +414,12 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 jint xorPixel = NEXT_INT(b);
                 J2dRlsTraceLn(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: SET_XOR_COMPOSITE");
-                context.color = VKUtil_DecodeJavaColor(xorPixel);
-                context.color.a = 0.0f; // Alpha is left unchanged in XOR mode.
-                context.composite  = LOGIC_COMPOSITE_XOR;
-                context.extraAlpha = 1.0f;
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_RESET_COMPOSITE:
             {
                 J2dRlsTraceLn(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: RESET_COMPOSITE");
-                context.color      = color;
-                context.composite  = ALPHA_COMPOSITE_SRC;
-                context.extraAlpha = 1.0f;
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_SET_TRANSFORM:
@@ -478,18 +430,8 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 jdouble m11 = NEXT_DOUBLE(b);
                 jdouble m02 = NEXT_DOUBLE(b);
                 jdouble m12 = NEXT_DOUBLE(b);
-                J2dRlsTraceLn3(J2D_TRACE_VERBOSE,
-                    "VKRenderQueue_flushBuffer: SET_TRANSFORM | %.2f %.2f %.2f |", m00, m01, m02);
-                J2dRlsTraceLn3(J2D_TRACE_VERBOSE,
-                    "                                         | %.2f %.2f %.2f |", m10, m11, m12);
                 J2dRlsTraceLn(J2D_TRACE_VERBOSE,
-                    "                                         | 0.00 0.00 1.00 |");
-                context.transform.m00 = m00;
-                context.transform.m10 = m10;
-                context.transform.m01 = m01;
-                context.transform.m11 = m11;
-                context.transform.m02 = m02;
-                context.transform.m12 = m12;
+                    "VKRenderQueue_flushBuffer: SET_TRANSFORM");
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_RESET_TRANSFORM:
@@ -602,11 +544,10 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
         case sun_java2d_pipe_BufferedOpCodes_SET_COLOR:
             {
                 jint javaColor = NEXT_INT(b);
-                color = VKUtil_DecodeJavaColor(javaColor);
-                if (COMPOSITE_GROUP(context.composite) == ALPHA_COMPOSITE_GROUP) context.color = color;
-                J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKRenderQueue_flushBuffer: SET_COLOR(0x%08x)", javaColor);
-                J2dTraceLn4(J2D_TRACE_VERBOSE, // Print color values with straight alpha for convenience.
-                    "    srgb={%.3f, %.3f, %.3f, %.3f}", color.r/color.a, color.g/color.a, color.b/color.a, color.a);
+                context.color = VKUtil_DecodeJavaColor(javaColor);
+                J2dRlsTraceLn5(J2D_TRACE_VERBOSE,
+                    "VKRenderQueue_flushBuffer: SET_COLOR 0x%08x, linear_rgba={%.3f, %.3f, %.3f, %.3f}",
+                    javaColor, context.color.r, context.color.g, context.color.b, context.color.a);
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_SET_GRADIENT_PAINT:

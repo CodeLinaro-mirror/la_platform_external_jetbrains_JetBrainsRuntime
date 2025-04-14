@@ -28,7 +28,6 @@
 #define VKBase_h_Included
 #include "VKTypes.h"
 #include "VKTexturePool.h"
-#include "VKRenderState.h"
 
 struct VKDevice {
     VkDevice         handle;
@@ -39,7 +38,6 @@ struct VKDevice {
     pchar*           enabledExtensions;
     VkQueue          queue;
 
-    VKAllocator*     allocator;
     VKRenderer*      renderer;
     VKTexturePool*   texturePool;
 
@@ -94,9 +92,9 @@ struct VKDevice {
     PFN_vkCreateDescriptorPool vkCreateDescriptorPool;
     PFN_vkAllocateDescriptorSets vkAllocateDescriptorSets;
     PFN_vkCmdBindDescriptorSets vkCmdBindDescriptorSets;
-    PFN_vkGetImageMemoryRequirements2 vkGetImageMemoryRequirements2;
+    PFN_vkGetImageMemoryRequirements vkGetImageMemoryRequirements;
     PFN_vkCreateBuffer vkCreateBuffer;
-    PFN_vkGetBufferMemoryRequirements2 vkGetBufferMemoryRequirements2;
+    PFN_vkGetBufferMemoryRequirements vkGetBufferMemoryRequirements;
     PFN_vkBindBufferMemory vkBindBufferMemory;
     PFN_vkMapMemory vkMapMemory;
     PFN_vkUnmapMemory vkUnmapMemory;
@@ -109,10 +107,7 @@ struct VKDevice {
     PFN_vkDestroyImage vkDestroyImage;
     PFN_vkDestroyFramebuffer vkDestroyFramebuffer;
     PFN_vkFlushMappedMemoryRanges vkFlushMappedMemoryRanges;
-    PFN_vkInvalidateMappedMemoryRanges vkInvalidateMappedMemoryRanges;
     PFN_vkCmdPushConstants vkCmdPushConstants;
-    PFN_vkCmdCopyBufferToImage vkCmdCopyBufferToImage;
-    PFN_vkCmdCopyImageToBuffer vkCmdCopyImageToBuffer;
 };
 
 struct VKGraphicsEnvironment {

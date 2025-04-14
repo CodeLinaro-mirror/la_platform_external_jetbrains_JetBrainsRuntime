@@ -423,7 +423,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
         if (peer != null && peer.getTarget() instanceof Window window) {
             WLKeyboardFocusManagerPeer.getInstance().setCurrentFocusedWindow(window);
             final WindowEvent windowEnterEvent = new WindowEvent(window, WindowEvent.WINDOW_GAINED_FOCUS);
-            postPriorityEvent(windowEnterEvent);
+            postEvent(windowEnterEvent);
         }
         inputState = newInputState;
     }
@@ -445,7 +445,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
             final WindowEvent winLostFocusEvent = new WindowEvent(window, WindowEvent.WINDOW_LOST_FOCUS);
             WLKeyboardFocusManagerPeer.getInstance().setCurrentFocusedWindow(null);
             WLKeyboardFocusManagerPeer.getInstance().setCurrentFocusOwner(null);
-            postPriorityEvent(winLostFocusEvent);
+            postEvent(winLostFocusEvent);
         }
         inputState = newInputState;
     }

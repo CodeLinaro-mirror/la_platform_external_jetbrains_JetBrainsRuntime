@@ -27,14 +27,12 @@ package sun.java2d.d3d;
 
 import java.awt.Composite;
 import java.awt.Transparency;
-import java.awt.Toolkit;
 import java.awt.geom.AffineTransform;
 import java.awt.image.AffineTransformOp;
 import java.awt.image.BufferedImage;
 import java.awt.image.BufferedImageOp;
 import java.lang.ref.WeakReference;
 import java.lang.annotation.Native;
-import sun.awt.windows.WToolkit;
 import sun.java2d.ScreenUpdateManager;
 import sun.java2d.SurfaceData;
 import sun.java2d.loops.Blit;
@@ -279,10 +277,12 @@ final class D3DBlitLoops {
             rq.unlock();
         }
 
-        if (d3dDst instanceof D3DSurfaceData.D3DWindowSurfaceData d3DWindowDst) {
+        if (d3dDst.getType() == D3DSurfaceData.WINDOW) {
             // flush immediately when copying to the screen to improve
             // responsiveness of applications using VI or BI backbuffers
-            d3DWindowDst.displayContent((int) dx1, (int) dy1, (int) dx2, (int) dy2);
+            D3DScreenUpdateManager mgr =
+                (D3DScreenUpdateManager)ScreenUpdateManager.getInstance();
+            mgr.runUpdateNow();
         }
     }
 
@@ -347,11 +347,13 @@ final class D3DBlitLoops {
             rq.unlock();
         }
 
-        if (rtt && (d3dDst instanceof D3DSurfaceData.D3DWindowSurfaceData d3DWindowDst)) {
+        if (rtt && (d3dDst.getType() == D3DSurfaceData.WINDOW)) {
             // we only have to flush immediately when copying from a
             // (non-texture) surface to the screen; otherwise Swing apps
             // might appear unresponsive until the auto-flush completes
-            d3DWindowDst.displayContent((int) dx1, (int) dy1, (int) dx2, (int) dy2);
+            D3DScreenUpdateManager mgr =
+                (D3DScreenUpdateManager)ScreenUpdateManager.getInstance();
+            mgr.runUpdateNow();
         }
     }
 }

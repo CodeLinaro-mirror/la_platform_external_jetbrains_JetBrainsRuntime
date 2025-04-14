@@ -38,18 +38,14 @@
 
 static BOOL bNoHwCheck = (getenv("J2D_D3D_NO_HWCHECK") != NULL);
 
-struct CheckAndResetDeviceData {
-    D3DContext *d3dc;
-    HRESULT res;
-};
-
 D3DPipelineManager *D3DPipelineManager::pMgr = NULL;
 
 
 D3DPipelineManager * D3DPipelineManager::CreateInstance(void)
 {
     if (!IsD3DEnabled() ||
-        FAILED((D3DPipelineManager::CheckOSVersion())))
+        FAILED((D3DPipelineManager::CheckOSVersion())) ||
+        FAILED((D3DPipelineManager::GDICheckForBadHardware())))
     {
         return NULL;
     }
@@ -244,11 +240,6 @@ HRESULT D3DPipelineManager::HandleAdaptersChange(HMONITOR *pHMONITORs, UINT monN
     return res;
 }
 
-void D3DContext_CheckAndResetDevice(void *pData) {
-    D3DContext *d3dc = ((CheckAndResetDeviceData*)(pData))->d3dc;
-    ((CheckAndResetDeviceData*)(pData))->res = d3dc->CheckAndResetDevice();
-}
-
 HRESULT D3DPipelineManager::HandleLostDevices()
 {
     J2dTraceLn(J2D_TRACE_INFO, "D3DPPLM::HandleLostDevices()");
@@ -287,9 +278,8 @@ HRESULT D3DPipelineManager::HandleLostDevices()
             if (pAdapters[i].pd3dContext != NULL) {
                 J2dTraceLn1(J2D_TRACE_VERBOSE,
                             "  HandleLostDevices: checking adapter %d", i);
-                CheckAndResetDeviceData data = {pAdapters[i].pd3dContext, S_OK};
-                AwtToolkit::GetInstance().InvokeFunction(D3DContext_CheckAndResetDevice, &data);
-                if (FAILED(data.res)) {
+                D3DContext *d3dc = pAdapters[i].pd3dContext;
+                if (FAILED(d3dc->CheckAndResetDevice())) {
                     bAllClear = FALSE;
                 }
             }
@@ -387,6 +377,14 @@ D3DPipelineManager::GDICheckForBadHardware()
                     J2dTraceLn2(J2D_TRACE_VERBOSE,
                                 "  device: vendorID=0x%04x, deviceId=0x%04x",
                                 dwVId, dwDId);
+                    // since we don't have a driver version here we will
+                    // just ask to ignore the version for now; bad hw
+                    // entries with specific drivers information will be
+                    // processed later when d3d is initialized and we can
+                    // obtain a driver version
+                    if (FAILED(CheckForBadHardware(dwVId, dwDId, MAX_VERSION))){
+                        failedDevices++;
+                    }
                 }
             }
         }
@@ -578,7 +576,9 @@ HRESULT D3DPipelineManager::CheckAdaptersInfo()
                        aid.DeviceIdentifier.Data4[6],
                        aid.DeviceIdentifier.Data4[7]);
 
-        if (FAILED(CheckDeviceCaps(Adapter))  ||
+        if (FAILED(CheckForBadHardware(aid.VendorId, aid.DeviceId,
+                                       aid.DriverVersion.QuadPart)) ||
+            FAILED(CheckDeviceCaps(Adapter))  ||
             FAILED(D3DEnabledOnAdapter(Adapter)))
         {
             pAdapters[Adapter].state = CONTEXT_INIT_FAILED;

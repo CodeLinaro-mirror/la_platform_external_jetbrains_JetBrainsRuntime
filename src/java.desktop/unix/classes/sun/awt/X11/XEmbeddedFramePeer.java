@@ -143,10 +143,7 @@ public class XEmbeddedFramePeer extends XFramePeer {
         }
 
         WindowLocation eventLocation = getNewLocation(xe);
-        var insets = dimensions.getInsets();
-        var insetsWidth = scaleUp(insets.left + insets.right);
-        var insetsHeight = scaleUp(insets.top + insets.bottom);
-        Dimension eventDimension = new Dimension(xe.get_width() + insetsWidth, xe.get_height() + insetsHeight);
+        Dimension eventDimension = new Dimension(xe.get_width(), xe.get_height());
         boolean xinerama = XToolkit.localEnv.runningXinerama();
         // fix for 5063031
         // if we use super.handleConfigureNotifyEvent() we would get wrong
@@ -164,7 +161,7 @@ public class XEmbeddedFramePeer extends XFramePeer {
                 width = newSize.width;
                 height = newSize.height;
 
-                dimensions.setSize(width, height);
+                dimensions.setClientSize(width, height);
                 dimensions.setLocation(x, y);
             }
 

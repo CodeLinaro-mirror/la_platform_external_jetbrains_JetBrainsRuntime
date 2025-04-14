@@ -25,9 +25,7 @@
 
 package sun.nio.fs;
 
-import java.io.IOException;
 import java.nio.file.FileSystems;
-import java.nio.file.Path;
 import java.nio.file.spi.FileTypeDetector;
 import java.nio.file.spi.FileSystemProvider;
 
@@ -36,14 +34,6 @@ public class DefaultFileTypeDetector {
 
     public static FileTypeDetector create() {
         FileSystemProvider provider = FileSystems.getDefault().provider();
-        if (provider instanceof UnixFileSystemProvider unixProvider) {
-            return unixProvider.getFileTypeDetector();
-        }
-        return new FileTypeDetector() {
-            @Override
-            public String probeContentType(Path path) throws IOException {
-                return null;
-            }
-        };
+        return ((UnixFileSystemProvider)provider).getFileTypeDetector();
     }
 }
