@@ -75,9 +75,11 @@ public abstract class VKSurfaceData extends SurfaceData
     private static final String DESC_VK_TEXTURE = "VK Texture";
 
 
+    // We want non-premultiplied alpha to prevent precision loss, so use PixelConverter.Argb
+    // See also VKUtil_DecodeJavaColor.
     static final SurfaceType VKSurface =
             SurfaceType.Any.deriveSubType(DESC_VK_SURFACE,
-                    PixelConverter.ArgbPre.instance);
+                    PixelConverter.Argb.instance);
     static final SurfaceType VKSurfaceRTT =
             VKSurface.deriveSubType(DESC_VK_SURFACE_RTT);
     static final SurfaceType VKTexture =
@@ -110,6 +112,7 @@ public abstract class VKSurfaceData extends SurfaceData
         }
     }
 
+    // TODO Do we really want to have scale there? It is used by getDefaultScaleX/Y...
     protected int scale;
     protected int width;
     protected int height;

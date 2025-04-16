@@ -27,6 +27,7 @@
 #define __THREADUTILITIES_H
 
 #import <Foundation/Foundation.h>
+#import <stdatomic.h>
 
 #include "jni.h"
 
@@ -127,24 +128,24 @@ do {                                  \
 // --------------------------------------------------------------------------
 
 @interface ThreadTraceContext : NSObject <NSCopying>
+    @property (readwrite, atomic) BOOL sleep;
+    @property (readwrite, atomic) BOOL useJavaModes;
+    @property (readwrite, atomic) long actionId;
+    @property (readwrite, atomic) char* operation;
+    @property (readwrite, atomic) CFTimeInterval timestamp;
+    @property (readwrite, atomic, retain) NSString* threadName;
+    @property (readwrite, atomic, retain) NSString* caller;
+    @property (readwrite, atomic, retain) NSString* callStack;
 
-@property (readwrite, atomic) BOOL sleep;
-@property (readwrite, atomic) BOOL useJavaModes;
-@property (readwrite, atomic) long actionId;
-@property (readwrite, atomic) char* operation;
-@property (readwrite, atomic) CFTimeInterval timestamp;
-@property (readwrite, atomic, retain) NSString* caller;
-@property (readwrite, atomic, retain) NSString* callStack;
+    /* autorelease in init and copy */
+    - (id)init;
+    - (void)reset;
+    - (void)updateThreadState:(BOOL)sleepValue;
 
-/* autorelease in init and copy */
-- (id)init;
-- (void)reset;
-- (void)updateThreadState:(BOOL)sleepValue;
+    - (void)set:(long)pActionId operation:(char*)pOperation useJavaModes:(BOOL)pUseJavaModes
+                caller:(NSString *)pCaller callstack:(NSString *)pCallStack;
 
-- (id)set:(long)pActionId operation:(char*)pOperation useJavaModes:(BOOL)pUseJavaModes
-            caller:(NSString *)pCaller callstack:(NSString *)pCallStack;
-
-- (const char*)identifier;
+    - (const char*)identifier;
 @end
 
 
@@ -174,14 +175,20 @@ __attribute__((visibility("default")))
 + (NSString*)criticalRunLoopMode;
 + (NSString*)javaRunLoopMode;
 
-+ (ThreadTraceContext*) getTraceContext;
-+ (void)                removeTraceContext;
-+ (void)                resetTraceContext;
++ (ThreadTraceContext*)getTraceContext;
++ (void)removeTraceContext;
++ (void)resetTraceContext;
 
 + (ThreadTraceContext*)recordTraceContext;
-+ (ThreadTraceContext*)recordTraceContext:(NSString*) prefix;
++ (ThreadTraceContext*)recordTraceContext:(NSString*)prefix;
 + (ThreadTraceContext*)recordTraceContext:(NSString*)prefix actionId:(long)actionId useJavaModes:(BOOL)useJavaModes operation:(char*) operation;
 
++ (void)dumpThreadTraceContext;
+
++ (NSString*)getThreadTraceContexts;
+
++ (void)registerForSystemAndScreenNotifications;
++ (BOOL)isWithinPowerTransition:(double)periodInSeconds;
 @end
 
 JNIEXPORT void OSXAPP_SetJavaVM(JavaVM *vm);

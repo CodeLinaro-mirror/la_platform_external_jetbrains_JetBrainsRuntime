@@ -33,6 +33,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
+import java.io.IOException;
 
 public class JEditorPaneFontFallback {
     public static final char CHINESE_CHAR = '\u4e2d';
@@ -77,15 +78,28 @@ public class JEditorPaneFontFallback {
     private static BufferedImage renderJEditorPaneInSubprocess(String fontFamilyName, boolean afterFontInfoCaching)
             throws Exception {
         String tmpFileName = "image.png";
-        int exitCode = Runtime.getRuntime().exec(new String[]{
+        String[] processCmd = new String[]{
                 System.getProperty("java.home") + File.separator + "bin" + File.separator + "java",
                 "-cp",
                 System.getProperty("test.classes", "."),
+                System.getProperty("test.java.opts", ""),
                 JEditorPaneRenderer.class.getName(),
                 fontFamilyName,
                 Boolean.toString(afterFontInfoCaching),
-                tmpFileName
-        }).waitFor();
+                tmpFileName};
+        System.out.println("===> Sub-process command: " + String.join(" ", processCmd));
+        Process process = Runtime.getRuntime().exec(processCmd);
+        int exitCode = process.waitFor();
+        try {
+            System.out.println("===> Sub-process stdout:");
+            process.getInputStream().transferTo(System.out);
+            System.out.println("===> Sub-process stderr:");
+            process.getErrorStream().transferTo(System.out);
+            System.out.println("===> Sub-process exit code: " + exitCode);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
         if (exitCode != 0) {
             throw new RuntimeException("Sub-process exited abnormally: " + exitCode);
         }

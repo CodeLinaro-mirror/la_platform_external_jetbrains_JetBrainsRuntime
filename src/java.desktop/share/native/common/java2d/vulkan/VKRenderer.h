@@ -31,11 +31,40 @@
 #include "VKPipelines.h"
 
 struct VKRenderingContext {
-    VKSDOps* surface;
-    Color color;
+    VKSDOps*        surface;
+    VKTransform     transform;
+    VkRect2D        clipRect;
+    Color           color;
+    VKCompositeMode composite;
+    // Extra alpha is not used when painting with plain color,
+    // in this case color.a already includes it.
+    float extraAlpha;
 };
 
+typedef struct {
+    uint32_t barrierCount;
+    VkPipelineStageFlags srcStages;
+    VkPipelineStageFlags dstStages;
+} VKBarrierBatch;
+
 VKRenderer* VKRenderer_Create(VKDevice* device);
+
+/**
+ * Setup pipeline for drawing. Returns FALSE if surface is not yet ready for drawing.
+ */
+VkBool32 VKRenderer_Validate(VKRenderingContext* context, VKPipeline pipeline);
+
+/**
+ * Record commands into primary command buffer (outside of a render pass).
+ * Recorded commands will be sent for execution via VKRenderer_Flush.
+ */
+VkCommandBuffer VKRenderer_Record(VKRenderer* renderer);
+
+/**
+ * Prepare image barrier info to be executed in batch, if needed.
+ */
+void VKRenderer_AddImageBarrier(VkImageMemoryBarrier* barriers, VKBarrierBatch* batch,
+                                VKImage* image, VkPipelineStageFlags stage, VkAccessFlags access, VkImageLayout layout);
 
 void VKRenderer_Destroy(VKRenderer* renderer);
 
@@ -52,7 +81,7 @@ void VKRenderer_Flush(VKRenderer* renderer);
 /**
  * Cancel render pass of the surface, release all associated resources and deallocate render pass.
  */
-void VKRenderer_ReleaseRenderPass(VKSDOps* surface);
+void VKRenderer_DestroyRenderPass(VKSDOps* surface);
 
 /**
  * Flush pending render pass and queue surface for presentation (if applicable).
@@ -65,14 +94,21 @@ void VKRenderer_FlushSurface(VKSDOps* surface);
  */
 void VKRenderer_ConfigureSurface(VKSDOps* surface, VkExtent2D extent);
 
-// Blit ops.
+/**
+ * End render pass for the surface and record it into the primary command buffer,
+ * which will be executed on the next VKRenderer_Flush.
+ */
+void VKRenderer_FlushRenderPass(VKSDOps* surface);
+
+// Blit operations.
 
 void VKRenderer_TextureRender(VKRenderingContext* context,
                               VKImage *destImage, VKImage *srcImage,
                               VkBuffer vertexBuffer, uint32_t vertexNum);
 
-// fill ops
-void VKRenderer_FillRect(VKRenderingContext* context, jint x, jint y, jint w, jint h);
+// Drawing operations.
+
+void VKRenderer_RenderRect(VKRenderingContext* context, VKPipeline pipeline, jint x, jint y, jint w, jint h);
 
 void VKRenderer_RenderParallelogram(VKRenderingContext* context, VKPipeline pipeline,
                                     jfloat x11, jfloat y11,

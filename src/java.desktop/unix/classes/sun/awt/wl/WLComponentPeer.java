@@ -33,15 +33,19 @@ import sun.awt.SunToolkit;
 import sun.awt.event.IgnorePaintEvent;
 import sun.awt.image.SunVolatileImage;
 import sun.java2d.SunGraphics2D;
+import sun.java2d.SunGraphicsEnvironment;
 import sun.java2d.SurfaceData;
 import sun.java2d.pipe.Region;
 import sun.java2d.wl.WLSurfaceDataExt;
 import sun.util.logging.PlatformLogger;
 import sun.util.logging.PlatformLogger.Level;
 
+import javax.swing.JRootPane;
+import javax.swing.RootPaneContainer;
 import javax.swing.SwingUtilities;
 import java.awt.AWTEvent;
 import java.awt.AWTException;
+import java.awt.AlphaComposite;
 import java.awt.BufferCapabilities;
 import java.awt.Color;
 import java.awt.Component;
@@ -57,6 +61,7 @@ import java.awt.GraphicsConfiguration;
 import java.awt.Image;
 import java.awt.Point;
 import java.awt.Rectangle;
+import java.awt.RenderingHints;
 import java.awt.SystemColor;
 import java.awt.Toolkit;
 import java.awt.Window;
@@ -69,6 +74,7 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.event.PaintEvent;
 import java.awt.event.WindowEvent;
+import java.awt.geom.Path2D;
 import java.awt.image.ColorModel;
 import java.awt.image.VolatileImage;
 import java.awt.peer.ComponentPeer;
@@ -85,6 +91,8 @@ public class WLComponentPeer implements ComponentPeer {
     private static final int MINIMUM_WIDTH = 1;
     private static final int MINIMUM_HEIGHT = 1;
 
+    public static final String WINDOW_CORNER_RADIUS = "apple.awt.windowCornerRadius";
+
     private long nativePtr; // accessed under AWT lock
     private volatile boolean surfaceAssigned = false;
     protected final Component target;
@@ -100,11 +108,20 @@ public class WLComponentPeer implements ComponentPeer {
     boolean visible = false;
 
     private final Object dataLock = new Object();
+    private boolean isFullscreen = false;  // protected by dataLock
     boolean sizeIsBeingConfigured = false; // protected by dataLock
     int displayScale; // protected by dataLock
     double effectiveScale; // protected by dataLock
     private final WLSize wlSize = new WLSize();
     boolean repositionPopup = false; // protected by dataLock
+    boolean resizePending = false; // protected by dataLock
+
+    private WLRoundedCornersManager.RoundedCornerKind roundedCornerKind = WLRoundedCornersManager.RoundedCornerKind.DEFAULT; // guarded by dataLock
+    private Path2D.Double topLeftMask;      // guarded by dataLock
+    private Path2D.Double topRightMask;     // guarded by dataLock
+    private Path2D.Double bottomLeftMask;   // guarded by dataLock
+    private Path2D.Double bottomRightMask;  // guarded by dataLock
+    private SunGraphics2D graphics;// guarded by dataLock
 
     static {
         initIDs();
@@ -117,7 +134,7 @@ public class WLComponentPeer implements ComponentPeer {
         this.target = target;
         this.background = target.getBackground();
         Dimension size = constrainSize(target.getBounds().getSize());
-        final WLGraphicsConfig config = (WLGraphicsConfig)target.getGraphicsConfiguration();
+        final WLGraphicsConfig config = (WLGraphicsConfig) target.getGraphicsConfiguration();
         displayScale = config.getDisplayScale();
         effectiveScale = config.getEffectiveScale();
         wlSize.deriveFromJavaSize(size.width, size.height);
@@ -126,6 +143,16 @@ public class WLComponentPeer implements ComponentPeer {
         paintArea = new WLRepaintArea();
         if (log.isLoggable(Level.FINE)) {
             log.fine("WLComponentPeer: target=" + target + " with size=" + wlSize);
+        }
+
+        if (target instanceof RootPaneContainer) {
+            JRootPane rootpane = ((RootPaneContainer)target).getRootPane();
+            if (rootpane != null) {
+                Object roundedCornerKind = rootpane.getClientProperty(WINDOW_CORNER_RADIUS);
+                if (roundedCornerKind != null) {
+                    setRoundedCornerKind(WLRoundedCornersManager.roundedCornerKindFrom(roundedCornerKind));
+                }
+            }
         }
         // TODO
         // setup parent window for target
@@ -175,6 +202,12 @@ public class WLComponentPeer implements ComponentPeer {
 
     boolean hasSurface() {
         return surfaceAssigned;
+    }
+
+    boolean isFullscreen() {
+        synchronized (dataLock) {
+            return isFullscreen;
+        }
     }
 
     @Override
@@ -251,7 +284,7 @@ public class WLComponentPeer implements ComponentPeer {
 
     private static Window getToplevelFor(Component component) {
         Container container = component instanceof Container c ? c : component.getParent();
-        for(Container p = container; p != null; p = p.getParent()) {
+        for (Container p = container; p != null; p = p.getParent()) {
             if (p instanceof Window window && !isWlPopup(window)) {
                 return window;
             }
@@ -295,7 +328,7 @@ public class WLComponentPeer implements ComponentPeer {
     protected void wlSetVisible(boolean v) {
         synchronized (getStateLock()) {
             if (this.visible == v) return;
-            
+
             this.visible = v;
         }
         if (v) {
@@ -361,10 +394,11 @@ public class WLComponentPeer implements ComponentPeer {
     private boolean targetIsModal() {
         return target instanceof Dialog dialog
                 && (dialog.getModalityType() == Dialog.ModalityType.APPLICATION_MODAL
-                    || dialog.getModalityType() == Dialog.ModalityType.TOOLKIT_MODAL);
+                || dialog.getModalityType() == Dialog.ModalityType.TOOLKIT_MODAL);
     }
 
     void updateSurfaceData() {
+        resetCornerMasks();
         SurfaceData.convertTo(WLSurfaceDataExt.class, surfaceData).revalidate(
                 getBufferWidth(), getBufferHeight(), getDisplayScale());
     }
@@ -467,12 +501,111 @@ public class WLComponentPeer implements ComponentPeer {
      * the displaying buffer is ready to accept new data.
      */
     public void commitToServer() {
+        if (roundedCornersRequested() && canPaintRoundedCorners()) {
+            paintRoundCorners();
+        }
         performLocked(() -> {
             if (getWLSurface(nativePtr) != 0) {
                 SurfaceData.convertTo(WLSurfaceDataExt.class, surfaceData).commit();
             }
         });
         Toolkit.getDefaultToolkit().sync();
+    }
+
+    private boolean canPaintRoundedCorners() {
+        int roundedCornerSize = WLRoundedCornersManager.roundCornerRadiusFor(roundedCornerKind);
+        // Note: You would normally get a transparency-capable color model when using
+        // the default graphics configuration
+        return surfaceData.getColorModel().hasAlpha()
+                && getWidth() > roundedCornerSize * 2
+                && getHeight() > roundedCornerSize * 2;
+    }
+
+    protected boolean roundedCornersRequested() {
+        synchronized (dataLock) {
+            return roundedCornerKind == WLRoundedCornersManager.RoundedCornerKind.FULL
+                    || roundedCornerKind == WLRoundedCornersManager.RoundedCornerKind.SMALL;
+        }
+    }
+
+    WLRoundedCornersManager.RoundedCornerKind getRoundedCornerKind() {
+        synchronized (dataLock) {
+            return roundedCornerKind;
+        }
+    }
+
+    void setRoundedCornerKind(WLRoundedCornersManager.RoundedCornerKind kind) {
+        synchronized (dataLock) {
+            if (roundedCornerKind != kind) {
+                roundedCornerKind = kind;
+                resetCornerMasks();
+            }
+        }
+    }
+
+    private void createCornerMasks() {
+        if (graphics == null) {
+            graphics = new SunGraphics2D(surfaceData, Color.WHITE, Color.BLACK, null);
+            graphics.setComposite(AlphaComposite.Clear);
+            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            graphics.setRenderingHint(RenderingHints.KEY_ALPHA_INTERPOLATION, RenderingHints.VALUE_ALPHA_INTERPOLATION_QUALITY);
+        }
+
+        if (topLeftMask == null) {
+            createCornerMasks(WLRoundedCornersManager.roundCornerRadiusFor(roundedCornerKind));
+        }
+    }
+
+    private void resetCornerMasks() {
+        synchronized (dataLock) {
+            if (graphics != null) graphics.dispose();
+            graphics = null;
+            topLeftMask = null;
+            topRightMask = null;
+            bottomLeftMask = null;
+            bottomRightMask = null;
+        }
+    }
+
+    private void createCornerMasks(int size) {
+        int w = getWidth();
+        int h = getHeight();
+
+        topLeftMask = new Path2D.Double();
+        topLeftMask.moveTo(0, 0);
+        topLeftMask.lineTo(size, 0);
+        topLeftMask.quadTo(0, 0, 0, size);
+        topLeftMask.closePath();
+
+        topRightMask = new Path2D.Double();
+        topRightMask.moveTo(w - size, 0);
+        topRightMask.quadTo(w, 0, w, size);
+        topRightMask.lineTo(w, 0);
+        topRightMask.closePath();
+
+        bottomLeftMask = new Path2D.Double();
+        bottomLeftMask.moveTo(0, h - size);
+        bottomLeftMask.quadTo(0, h, size, h);
+        bottomLeftMask.lineTo(0, h);
+        bottomLeftMask.closePath();
+
+        bottomRightMask = new Path2D.Double();
+        bottomRightMask.moveTo(w - size, h);
+        bottomRightMask.quadTo(w, h, w, h - size);
+        bottomRightMask.lineTo(w, h);
+        bottomRightMask.closePath();
+    }
+
+    private void paintRoundCorners() {
+        synchronized (dataLock) {
+            createCornerMasks();
+
+            graphics.fill(topLeftMask);
+            graphics.fill(topRightMask);
+            graphics.fill(bottomLeftMask);
+            graphics.fill(bottomRightMask);
+        }
     }
 
     public Component getTarget() {
@@ -495,6 +628,7 @@ public class WLComponentPeer implements ComponentPeer {
             return repositionPopup;
         }
     }
+
     private void markPopupNeedsReposition() {
         synchronized (dataLock) {
             repositionPopup = true;
@@ -504,6 +638,24 @@ public class WLComponentPeer implements ComponentPeer {
     private void popupRepositioned() {
         synchronized (dataLock) {
             repositionPopup = false;
+        }
+    }
+
+    private boolean resizePending() {
+        synchronized (dataLock) {
+            return resizePending;
+        }
+    }
+
+    private void markResizePending() {
+        synchronized (dataLock) {
+            resizePending = true;
+        }
+    }
+
+    private void resizeCompleted() {
+        synchronized (dataLock) {
+            resizePending = false;
         }
     }
 
@@ -532,7 +684,10 @@ public class WLComponentPeer implements ComponentPeer {
         }
 
         if (sizeChanged) {
-            setSizeTo(newSize.width, newSize.height);
+            if (!isSizeBeingConfigured()) {
+                wlSize.deriveFromJavaSize(newSize.width, newSize.height);
+                markResizePending();
+            }
             if (log.isLoggable(PlatformLogger.Level.FINE)) {
                 log.fine(String.format("%s is resizing its buffer to %dx%d pixels",
                         this, getBufferWidth(), getBufferHeight()));
@@ -555,18 +710,6 @@ public class WLComponentPeer implements ComponentPeer {
     private void setSizeIsBeingConfigured(boolean value) {
         synchronized (dataLock) {
             sizeIsBeingConfigured = value;
-        }
-    }
-
-    private void setSizeTo(int newWidth, int newHeight) {
-        if (isSizeBeingConfigured() && wlSize.hasPixelSizeSet()) {
-            // Must be careful not to override the size of the Wayland surface because
-            // some implementations (Weston) react badly when the size of the surface
-            // mismatches the configured size. We can't always precisely derive the surface
-            // size from the Java (client) size because of scaling rounding errors.
-            wlSize.setJavaSize(newWidth, newHeight);
-        } else {
-            wlSize.deriveFromJavaSize(newWidth, newHeight);
         }
     }
 
@@ -813,6 +956,7 @@ public class WLComponentPeer implements ComponentPeer {
 
     @Override
     public void dispose() {
+        resetCornerMasks();
         performLocked(() -> {
             SurfaceData oldData = surfaceData;
             surfaceData = null;
@@ -1454,6 +1598,16 @@ public class WLComponentPeer implements ComponentPeer {
         }
     }
 
+    int surfaceUnitsToJavaSize(int value) {
+        if (!WLGraphicsEnvironment.isDebugScaleEnabled()) {
+            return value;
+        } else {
+            synchronized (dataLock) {
+                return (int) Math.ceil(value * displayScale / effectiveScale);
+            }
+        }
+    }
+
     /**
      * Converts a value in the Java coordinate system into the Wayland
      * surface-local coordinate system.
@@ -1486,15 +1640,30 @@ public class WLComponentPeer implements ComponentPeer {
         return new Dimension(javaUnitsToSurfaceSize(d.width), javaUnitsToSurfaceSize(d.height));
     }
 
-    void notifyConfigured(int newSurfaceX, int newSurfaceY, int newSurfaceWidth, int newSurfaceHeight, boolean active, boolean maximized) {
+    /**
+     * Converts a point in the device (screen) space into coordinates on this surface
+     */
+    Point convertPontFromDeviceSpace(int x, int y) {
+        Point userLoc = getLocationOnScreen();
+        Point topLeft = SunGraphicsEnvironment.toDeviceSpace(getGraphicsConfiguration(), userLoc.x, userLoc.y, 0, 0).getLocation();
+        return new Point(x - topLeft.x, y - topLeft.y);
+    }
+
+    void notifyConfigured(int newSurfaceX, int newSurfaceY, int newSurfaceWidth, int newSurfaceHeight,
+                          boolean active, boolean maximized, boolean fullscreen) {
         // NB: The width and height, as well as X and Y arguments, specify the size and the location
         //     of the window in surface-local coordinates.
         if (log.isLoggable(PlatformLogger.Level.FINE)) {
             log.fine(String.format("%s configured to %dx%d surface units", this, newSurfaceWidth, newSurfaceHeight));
         }
 
+        synchronized (dataLock) {
+            isFullscreen = fullscreen;
+        }
+
         boolean isWlPopup = targetIsWlPopup();
-        if (isWlPopup) { // Only popups provide (relative) location
+        boolean acceptNewLocation = !popupNeedsReposition();
+        if (isWlPopup && acceptNewLocation) { // Only popups provide (relative) location
             int newX = surfaceUnitsToJavaUnits(newSurfaceX);
             int newY = surfaceUnitsToJavaUnits(newSurfaceY);
 
@@ -1511,8 +1680,12 @@ public class WLComponentPeer implements ComponentPeer {
         // From xdg-shell.xml: "If the width or height arguments are zero,
         // it means the client should decide its own window dimension".
         boolean clientDecidesDimension = newSurfaceWidth == 0 || newSurfaceHeight == 0;
-        if (!clientDecidesDimension) {
-            changeSizeToConfigured(newSurfaceWidth, newSurfaceHeight, maximized);
+        boolean desiredSize =
+                (wlSize.javaSize.width == surfaceUnitsToJavaSize(newSurfaceWidth)
+                && wlSize.javaSize.height == surfaceUnitsToJavaSize(newSurfaceHeight));
+        boolean acceptNewSize = !resizePending() || maximized || desiredSize;
+        if (!clientDecidesDimension && acceptNewSize) {
+            changeSizeToConfigured(newSurfaceWidth, newSurfaceHeight);
         }
 
         if (!surfaceAssigned) {
@@ -1534,16 +1707,13 @@ public class WLComponentPeer implements ComponentPeer {
         }
     }
 
-    private void changeSizeToConfigured(int newSurfaceWidth, int newSurfaceHeight, boolean honorSurfaceSize) {
+    private void changeSizeToConfigured(int newSurfaceWidth, int newSurfaceHeight) {
+        resizeCompleted();
         wlSize.deriveFromSurfaceSize(newSurfaceWidth, newSurfaceHeight);
         int newWidth = wlSize.getJavaWidth();
         int newHeight = wlSize.getJavaHeight();
         try {
-            // When 'honorSurfaceSize' is in effect, we shall not confuse the size given by the server with
-            // the size set by the user. The former originates from the surface size in surface-local coordinates,
-            // while the latter is set in the client (Java) units. These are not always precisely convertible
-            // when the scale differs from 100%.
-            setSizeIsBeingConfigured(honorSurfaceSize);
+            setSizeIsBeingConfigured(true);
             performUnlocked(() -> target.setSize(newWidth, newHeight));
         } finally {
             setSizeIsBeingConfigured(false);
@@ -1748,8 +1918,8 @@ public class WLComponentPeer implements ComponentPeer {
 
         void deriveFromSurfaceSize(int width, int height) {
             synchronized (dataLock) {
-                javaSize.width = surfaceUnitsToJavaUnits(width);
-                javaSize.height = surfaceUnitsToJavaUnits(height);
+                javaSize.width = surfaceUnitsToJavaSize(width);
+                javaSize.height = surfaceUnitsToJavaSize(height);
                 pixelSize.width = width * displayScale;
                 pixelSize.height = height * displayScale;
                 surfaceSize.width = width;

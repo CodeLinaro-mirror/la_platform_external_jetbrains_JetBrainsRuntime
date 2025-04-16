@@ -108,36 +108,42 @@ coverage of all the details.
 > It would usually have meaningful advice on how to solve the problem.
 
 ### Linux (Docker)
-Create a container:
+Download an image from [Docker Hub](https://hub.docker.com/repository/docker/jetbrains/runtime/general) related to your architecture:
 ```
-$ cd jb/project/docker
-$ docker build .
-...
-Successfully built 942ea9900054
+$ docker pull jetbrains/runtime:oraclelinux8_aarch64
 ```
-Run these commands in the new container:
+or
 ```
-$ docker run -v `pwd`../../../../:/JetBrainsRuntime -it 942ea9900054
+$ docker pull jetbrains/runtime:oraclelinux8_x64
+```
+Create and run a new container from the downloaded image
+```
+$ docker run -v $JetBrainsRuntime:/JetBrainsRuntime -it jetbrains/runtime:oraclelinux8_[arch]
+```
+where `$JetBrainsRuntime` is a full path to the directory where the repository was cloned to.
+
+Run these commands in the container:
+```
+# yum install java-21-openjdk-devel
 # cd /JetBrainsRuntime
-# sh ./configure
-# make images CONF=linux-x86_64-normal-server-release
+# BOOT_JDK=/usr/lib/jvm/java-21/ ./jb/project/tools/linux/scripts/mkimages_x64.sh 99 nomod
 ```
 
 ### Ubuntu Linux
 Install the necessary tools, libraries, and headers with:
 ```
-$ sudo apt-get install autoconf make build-essential libx11-dev libxext-dev libxrender-dev \
-       libxtst-dev libxt-dev libxrandr-dev libcups2-dev libfontconfig1-dev libasound2-dev libwayland-dev \
-       libxkbcommon-x11-0
+$ sudo wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | tee /etc/apt/trusted.gpg.d/lunarg.asc
+$ sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list https://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
+$ sudo apt update
+$ sudo apt-get -y install openjdk-21-jdk file zip unzip autoconf make build-essential libx11-dev libxext-dev libxrender-dev \
+       libxtst-dev libxt-dev libxrandr-dev libcups2-dev libfontconfig1-dev libasound2-dev libspeechd-dev libwayland-dev \
+       libxkbcommon-x11-0 vulkan-sdk vulkan-utility-libraries-dev
 ```
-Get Java 19 (for instance, [Azul Zulu Builds of OpenJDK 19](https://www.azul.com/downloads/?version=java-19-sts&os=linux&package=jdk)).
 
 Then run the following:
 ```
-$ cd JetBrainsRuntime
-$ git checkout main
-$ sh ./configure
-$ make images
+$ cd /JetBrainsRuntime
+$ BOOT_JDK=/usr/lib/jvm/java-21-openjdk-amd64 ./jb/project/tools/linux/scripts/mkimages_x64.sh 99 nomod
 ```
 This will build the release configuration under `./build/linux-x86_64-server-release/`.
 
@@ -168,6 +174,18 @@ $ bash configure --with-toolchain-version=2019
 $ make images
 ```
 This will build the release configuration under `./build/windows-x86_64-server-release/`.
+
+#### Enable optional NVDA screen reader support
+If you want to add support of a11y announcing via [NVDA screen reader](https://www.nvaccess.org/about-nvda/),
+you will need to bundle the NVDA Controller Client library.
+You can do it with the following steps:
+1. Download the NVDA Controller Client library. You can find the link in its official README [here](https://github.com/nvaccess/nvda/blob/master/extras/controllerClient/readme.md)
+2. Pass the path to the unpacked package to `configure` via an additional flag `--with-nvdacontrollerclient=<path>`.
+   The build system will search the required library files under `<path>/<target-arch>`.
+
+#### Disable optional JAWS screen reader support
+JBR is built with built-in support of JAWS screen reader.
+If you want to disable it, run `configure` with the additional flag `--disable-jaws-client`.
 
 ### macOS
 Install the following:
