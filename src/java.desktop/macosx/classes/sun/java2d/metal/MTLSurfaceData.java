@@ -262,7 +262,10 @@ public abstract class MTLSurfaceData extends SurfaceData
         }
 
         if (!success) {
-            throw new OutOfMemoryError("can't create offscreen surface");
+            throw new OutOfMemoryError("can't create offscreen surface. type=" + type
+            + ", nativeOps=" + getNativeOps() + ", isOpaque=" + isOpaque + ", width=" + width
+            + ", height=" + height + ", scale=" + scale + ", nativeWidth=" + nativeWidth
+            + ", nativeHeight=" + nativeHeight + ", graphicsConfig=" + graphicsConfig);
         }
     }
 
