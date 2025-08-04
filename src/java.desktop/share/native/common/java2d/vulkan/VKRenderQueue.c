@@ -26,9 +26,11 @@
 
 #ifndef HEADLESS
 
+#include "sun_font_StrikeCache.h"
 #include "sun_java2d_pipe_BufferedOpCodes.h"
 #include "sun_java2d_pipe_BufferedRenderPipe.h"
 #include "sun_java2d_pipe_BufferedTextPipe.h"
+#include "fontscalerdefs.h"
 #include "Trace.h"
 #include "jlong.h"
 #include "VKBase.h"
@@ -91,15 +93,19 @@
 #define OFFSET_XFORM   sun_java2d_vulkan_VKBlitLoops_OFFSET_XFORM
 #define OFFSET_ISOBLIT sun_java2d_vulkan_VKBlitLoops_OFFSET_ISOBLIT
 
+#define NO_CLIP ((VkRect2D) {{0, 0}, {0x7FFFFFFFU, 0x7FFFFFFFU}})
+
 // Rendering context is only accessed from VKRenderQueue_flushBuffer,
 // which is only called from queue flusher thread, no need for synchronization.
 static VKRenderingContext context = {
         .surface = NULL,
         .transform = {1.0, 0.0, 0.0,0.0, 1.0, 0.0},
-        .clipRect = {{0, 0},{INT_MAX, INT_MAX}},
         .color = {},
         .composite = ALPHA_COMPOSITE_SRC_OVER,
-        .extraAlpha = 1.0f
+        .extraAlpha = 1.0f,
+        .clipModCount = 1,
+        .clipRect = NO_CLIP,
+        .clipSpanVertices = NULL
 };
 // We keep this color separately from context.color,
 // because we need consistent state when switching between XOR and alpha composite modes.
@@ -156,7 +162,7 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 J2dRlsTraceLn4(J2D_TRACE_VERBOSE,
                             "VKRenderQueue_flushBuffer: DRAW_RECT(%d, %d, %d, %d)",
                             x, y, w, h);
-                VKRenderer_RenderRect(&context, PIPELINE_DRAW_COLOR, x, y, w, h);
+                VKRenderer_RenderRect(&context, VK_FALSE, x, y, w, h);
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_DRAW_POLY:
@@ -198,7 +204,7 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 J2dRlsTraceLn8(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: DRAW_PARALLELOGRAM(%f, %f, %f, %f, %f, %f, %f, %f)",
                     x11, y11, dx21, dy21, dx12, dy12, lwr21, lwr12);
-                VKRenderer_RenderParallelogram(&context, PIPELINE_DRAW_COLOR, x11, y11, dx21, dy21, dx12, dy12);
+                VKRenderer_RenderParallelogram(&context, VK_FALSE, x11, y11, dx21, dy21, dx12, dy12);
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_DRAW_AAPARALLELOGRAM:
@@ -226,7 +232,7 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 jint h = NEXT_INT(b);
                 J2dRlsTraceLn4(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: FILL_RECT(%d, %d, %d, %d)", x, y, w, h);
-                VKRenderer_RenderRect(&context, PIPELINE_FILL_COLOR, x, y, w, h);
+                VKRenderer_RenderRect(&context, VK_TRUE, x, y, w, h);
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_FILL_SPANS:
@@ -249,7 +255,7 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 J2dRlsTraceLn6(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: FILL_PARALLELOGRAM(%f, %f, %f, %f, %f, %f)",
                     x11, y11, dx21, dy21, dx12, dy12);
-                VKRenderer_RenderParallelogram(&context, PIPELINE_FILL_COLOR, x11, y11, dx21, dy21, dx12, dy12);
+                VKRenderer_RenderParallelogram(&context, VK_TRUE, x11, y11, dx21, dy21, dx12, dy12);
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_FILL_AAPARALLELOGRAM:
@@ -263,6 +269,8 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 J2dRlsTraceLn6(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: FILL_AAPARALLELOGRAM(%f, %f, %f, %f, %f, %f)",
                     x11, y11, dx21, dy21, dx12, dy12);
+                // TODO this is not AA!
+                VKRenderer_RenderParallelogram(&context, VK_TRUE, x11, y11, dx21, dy21, dx12, dy12);
             }
             break;
 
@@ -292,6 +300,25 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                     bytesPerGlyph = BYTES_PER_GLYPH_IMAGE;
                 }
                 J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderQueue_flushBuffer: DRAW_GLYPH_LIST");
+                // TODO this is a quick and dirty implementation of greyscale-AA text rendering over MASK_FILL. Need to do better.
+                jfloat glyphx, glyphy;
+                for (int i = 0; i < numGlyphs; i++) {
+                    GlyphInfo *ginfo = (GlyphInfo *)jlong_to_ptr(NEXT_LONG(images));
+                    if (usePositions) {
+                        jfloat posx = NEXT_FLOAT(positions);
+                        jfloat posy = NEXT_FLOAT(positions);
+                        glyphx = glyphListOrigX + posx + ginfo->topLeftX;
+                        glyphy = glyphListOrigY + posy + ginfo->topLeftY;
+                    } else {
+                        glyphx = glyphListOrigX + ginfo->topLeftX;
+                        glyphy = glyphListOrigY + ginfo->topLeftY;
+                        glyphListOrigX += ginfo->advanceX;
+                        glyphListOrigY += ginfo->advanceY;
+                    }
+                    if (ginfo->format != sun_font_StrikeCache_PIXEL_FORMAT_GREYSCALE) continue;
+                    if (ginfo->height*ginfo->rowBytes == 0) continue;
+                    VKRenderer_MaskFill(&context, (int) glyphx, (int) glyphy, ginfo->width, ginfo->height, 0, ginfo->rowBytes, ginfo->height*ginfo->rowBytes, ginfo->image);
+                }
                 SKIP_BYTES(b, numGlyphs * bytesPerGlyph);
             }
             break;
@@ -348,7 +375,7 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                                       dx1, dy1, dx2, dy2);
                 }
                 context.surface = oldSurface;
-                break;
+                J2dRlsTraceLn2(J2D_TRACE_VERBOSE, "VKRenderQueue_flushBuffer: BLIT %p -> %p ", pSrc, pDst)
                 J2dRlsTraceLn8(J2D_TRACE_VERBOSE, "VKRenderQueue_flushBuffer: BLIT (%d %d %d %d) -> (%f %f %f %f) ",
                                sx1, sy1, sx2, sy2, dx1, dy1, dx2, dy2)
                 J2dRlsTraceLn4(J2D_TRACE_VERBOSE, "VKRenderQueue_flushBuffer: BLIT texture=%d rtt=%d xform=%d isoblit=%d",
@@ -381,7 +408,10 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 jint maskscan = NEXT_INT(b);
                 jint masklen  = NEXT_INT(b);
                 unsigned char *pMask = (masklen > 0) ? b : NULL;
-                J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderQueue_flushBuffer: MASK_FILL");
+                J2dRlsTraceLn7(J2D_TRACE_VERBOSE,
+                               "VKRenderQueue_flushBuffer: MASK_FILL(%d, %d, %dx%d, maskoff=%d, maskscan=%d, masklen=%d)",
+                               x, y, w, h, maskoff, maskscan, masklen);
+                VKRenderer_MaskFill(&context, x, y, w, h, maskoff, maskscan, masklen, pMask);
                 SKIP_BYTES(b, masklen);
             }
             break;
@@ -404,18 +434,21 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 jint y1 = NEXT_INT(b);
                 jint x2 = NEXT_INT(b);
                 jint y2 = NEXT_INT(b);
-                context.clipRect = (VkRect2D){
-                    {x1, y1},
-                    {x2-x1, y2 - y1}};
                 J2dRlsTraceLn4(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: SET_RECT_CLIP(%d, %d, %d, %d)",
                     x1, y1, x2, y2);
+                ARRAY_RESIZE(context.clipSpanVertices, 0);
+                jint width = x2 - x1, height = y2 - y1;
+                context.clipRect = (VkRect2D) {{x1, y1}, {CARR_MAX(width, 0), CARR_MAX(height, 0)}};
+                context.clipModCount++;
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_BEGIN_SHAPE_CLIP:
             {
                 J2dRlsTraceLn(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: BEGIN_SHAPE_CLIP");
+                ARRAY_RESIZE(context.clipSpanVertices, 0);
+                context.clipModCount++;
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_SET_SHAPE_CLIP_SPANS:
@@ -423,19 +456,38 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 jint count = NEXT_INT(b);
                 J2dRlsTraceLn(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: SET_SHAPE_CLIP_SPANS");
-                SKIP_BYTES(b, count * BYTES_PER_SPAN);
+                size_t offset = ARRAY_SIZE(context.clipSpanVertices);
+                ARRAY_RESIZE(context.clipSpanVertices, offset + count * 6);
+                for (jint i = 0; i < count; i++) {
+                    jint x1 = NEXT_INT(b);
+                    jint y1 = NEXT_INT(b);
+                    jint x2 = NEXT_INT(b);
+                    jint y2 = NEXT_INT(b);
+                    context.clipSpanVertices[offset + i * 6 + 0] = (VKIntVertex) {x1, y1};
+                    context.clipSpanVertices[offset + i * 6 + 1] = (VKIntVertex) {x2, y1};
+                    context.clipSpanVertices[offset + i * 6 + 2] = (VKIntVertex) {x2, y2};
+                    context.clipSpanVertices[offset + i * 6 + 3] = (VKIntVertex) {x2, y2};
+                    context.clipSpanVertices[offset + i * 6 + 4] = (VKIntVertex) {x1, y2};
+                    context.clipSpanVertices[offset + i * 6 + 5] = (VKIntVertex) {x1, y1};
+                }
+                context.clipModCount++;
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_END_SHAPE_CLIP:
             {
                 J2dRlsTraceLn(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: END_SHAPE_CLIP");
+                context.clipRect = NO_CLIP;
+                context.clipModCount++;
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_RESET_CLIP:
             {
                 J2dRlsTraceLn(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: RESET_CLIP");
+                ARRAY_RESIZE(context.clipSpanVertices, 0);
+                context.clipRect = NO_CLIP;
+                context.clipModCount++;
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_SET_ALPHA_COMPOSITE:
@@ -504,9 +556,16 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
             {
                 VKSDOps* src = NEXT_SURFACE(b);
                 VKSDOps* dst = NEXT_SURFACE(b);
+                J2dRlsTraceLn2(J2D_TRACE_VERBOSE,
+                               "VKRenderQueue_flushBuffer: SET_SURFACES src=%p dst=%p", src, dst);
 
-                J2dRlsTraceLn(J2D_TRACE_VERBOSE,
-                    "VKRenderQueue_flushBuffer: SET_SURFACES");
+                if (context.surface != NULL && context.surface != dst) {
+                    // TODO Problematic surface flush on a context switch without explicit presentation request.
+                    //      Its presence here should not make any difference, but for some reason does.
+                    //      Related scenarios need an investigation, e.g. J2Demo.
+                    VKRenderer_FlushSurface(context.surface);
+                }
+
                 context.surface = dst;
             }
             break;
@@ -521,8 +580,8 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
         case sun_java2d_pipe_BufferedOpCodes_FLUSH_SURFACE:
             {
                 VKSDOps* surface = NEXT_SURFACE(b);
-                J2dRlsTraceLn(J2D_TRACE_VERBOSE,
-                    "VKRenderQueue_flushBuffer: FLUSH_SURFACE");
+                J2dRlsTraceLn1(J2D_TRACE_VERBOSE,
+                    "VKRenderQueue_flushBuffer: FLUSH_SURFACE (%p)", surface)
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_DISPOSE_SURFACE:
@@ -559,8 +618,8 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 VKSDOps* surface = NEXT_SURFACE(b);
                 jint width = NEXT_INT(b);
                 jint height = NEXT_INT(b);
-                J2dRlsTraceLn2(J2D_TRACE_VERBOSE,
-                              "VKRenderQueue_flushBuffer: CONFIGURE_SURFACE %dx%d", width, height);
+                J2dRlsTraceLn3(J2D_TRACE_VERBOSE,
+                              "VKRenderQueue_flushBuffer: CONFIGURE_SURFACE (%p) %dx%d", surface, width, height);
                 VKRenderer_ConfigureSurface(surface, (VkExtent2D) {width, height});
             }
             break;
@@ -577,8 +636,8 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
         case sun_java2d_pipe_BufferedOpCodes_FLUSH_BUFFER:
             {
                 VKSDOps* surface = NEXT_SURFACE(b);
-                J2dRlsTraceLn(J2D_TRACE_VERBOSE,
-                    "VKRenderQueue_flushBuffer: FLUSH_BUFFER");
+                J2dRlsTraceLn1(J2D_TRACE_VERBOSE,
+                    "VKRenderQueue_flushBuffer: FLUSH_BUFFER (%p)", surface)
 
                 VKRenderer_FlushSurface(surface);
             }

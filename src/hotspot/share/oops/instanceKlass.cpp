@@ -371,6 +371,11 @@ void InstanceKlass::set_nest_host(InstanceKlass* host) {
   // Can't assert this as package is not set yet:
   // assert(is_same_class_package(host), "proposed host is in wrong package");
 
+  // set dynamic nest host
+  _nest_host = host;
+  // Record dependency to keep nest host from being unloaded before this class.
+  ClassLoaderData* this_key = class_loader_data();
+
   if (log_is_enabled(Trace, class, nestmates)) {
     ResourceMark rm;
     const char* msg = "";
@@ -379,18 +384,19 @@ void InstanceKlass::set_nest_host(InstanceKlass* host) {
       msg = "(the NestHost attribute in the current class is ignored)";
     } else if (_nest_members != nullptr && _nest_members != Universe::the_empty_short_array()) {
       msg = "(the NestMembers attribute in the current class is ignored)";
+    } else if (this_key == nullptr) {
+      msg = "(the NestMembers classloader data in the current class is ignored)";
     }
+
     log_trace(class, nestmates)("Injected type %s into the nest of %s %s",
                                 this->external_name(),
                                 host->external_name(),
                                 msg);
   }
-  // set dynamic nest host
-  _nest_host = host;
-  // Record dependency to keep nest host from being unloaded before this class.
-  ClassLoaderData* this_key = class_loader_data();
-  assert(this_key != nullptr, "sanity");
-  this_key->record_dependency(host);
+
+  if (this_key != nullptr) {
+    this_key->record_dependency(host);
+  }
 }
 
 // check if 'this' and k are nestmates (same nest_host), or k is our nest_host,
@@ -1458,12 +1464,26 @@ bool InstanceKlass::implements_interface(Klass* k) const {
 
 
 // (DCEVM)
-bool InstanceKlass::implements_interface_any_version(Klass* k) const {
-  k = k->newest_version();
-  if (this->newest_version() == k) return true;
+bool InstanceKlass::implements_interface_dcevm(Klass* k, Old2NewKlassMap* old_2_new_klass_map) const {
+  Klass** new_klass = old_2_new_klass_map->get(k);
+  if (new_klass != nullptr) {
+    k = *new_klass;
+  }
+  Klass* this_klass = (Klass*) this;
+  Klass** new_this = old_2_new_klass_map->get(this_klass);
+  if (new_this != nullptr) {
+    this_klass = *new_this;
+  }
+
+  if (this_klass == k) return true;
   assert(k->is_interface(), "should be an interface class");
   for (int i = 0; i < transitive_interfaces()->length(); i++) {
-    if (transitive_interfaces()->at(i)->newest_version() == k) {
+    Klass* ti = (Klass*) transitive_interfaces()->at(i);
+    Klass** new_ti = old_2_new_klass_map->get(ti);
+    if (new_ti != nullptr) {
+      ti = *new_ti;
+    }
+    if (ti == k) {
       return true;
     }
   }
@@ -1762,6 +1782,18 @@ bool InstanceKlass::find_field_from_offset(int offset, bool is_static, fieldDesc
       return true;
     }
     klass = klass->super();
+  }
+  return false;
+}
+
+
+bool InstanceKlass::find_local_field_by_name(Symbol* name, fieldDescriptor* fd) const {
+  for (JavaFieldStream fs(this); !fs.done(); fs.next()) {
+    Symbol* f_name = fs.name();
+    if (f_name == name) {
+      fd->reinitialize(const_cast<InstanceKlass*>(this), fs.index());
+      return true;
+    }
   }
   return false;
 }
@@ -4419,15 +4451,19 @@ Method* InstanceKlass::method_with_idnum(int idnum) {
 
 Method* InstanceKlass::method_with_orig_idnum(int idnum) {
   if (idnum >= methods()->length()) {
-    return nullptr;
-  }
-  Method* m = methods()->at(idnum);
-  if (m != nullptr && m->orig_method_idnum() == idnum) {
-    return m;
+    // (DCEVM) The provided idnum may exceed the current number of methods.
+    if (!AllowEnhancedClassRedefinition) {
+      return nullptr;
+    }
+  } else {
+    Method* m = methods()->at(idnum);
+    if (m != nullptr && m->orig_method_idnum() == idnum) {
+      return m;
+    }
   }
   // Obsolete method idnum does not match the original idnum
   for (int index = 0; index < methods()->length(); ++index) {
-    m = methods()->at(index);
+    Method* m = methods()->at(index);
     if (m->orig_method_idnum() == idnum) {
       return m;
     }

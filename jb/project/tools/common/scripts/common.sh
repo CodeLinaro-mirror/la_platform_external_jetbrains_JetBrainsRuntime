@@ -18,10 +18,12 @@ function getVersionProp() {
 }
 
 DISABLE_WARNINGS_AS_ERRORS=""
-while getopts ":iw?" o; do
+CONTINUOUS_INTEGRATION=""
+while getopts ":iwc?" o; do
     case "${o}" in
         i) INC_BUILD=1 ;;
         w) DISABLE_WARNINGS_AS_ERRORS="--disable-warnings-as-errors" ;;
+        c) CONTINUOUS_INTEGRATION=1 ;;
     esac
 done
 shift $((OPTIND-1))
@@ -38,8 +40,6 @@ architecture=${3:-x64} # aarch64 or x64
 
 check_bundle_type_maketest
 
-tag_prefix="jbr-"
-OPENJDK_TAG=$(git log --simplify-by-decoration --decorate=short --pretty=short | grep "$tag_prefix" | cut -d "(" -f2 | cut -d ")" -f1 | awk '{print $2}' | sort -t "-" -k 2 -g | tail -n 1 | tr -d ",")
 VERSION_FEATURE=$(getVersionProp "DEFAULT_VERSION_FEATURE")
 VERSION_INTERIM=$(getVersionProp "DEFAULT_VERSION_INTERIM")
 VERSION_UPDATE=$(getVersionProp "DEFAULT_VERSION_UPDATE")
@@ -47,8 +47,15 @@ VERSION_PATCH=$(getVersionProp "DEFAULT_VERSION_PATCH")
 [[ $VERSION_UPDATE = 0 ]] && JBSDK_VERSION="$VERSION_FEATURE" || JBSDK_VERSION="${VERSION_FEATURE}.${VERSION_INTERIM}.${VERSION_UPDATE}"
 [[ $VERSION_PATCH = 0 ]] || JBSDK_VERSION="${VERSION_FEATURE}.${VERSION_INTERIM}.${VERSION_UPDATE}.${VERSION_PATCH}"
 echo "##teamcity[setParameter name='env.JBSDK_VERSION' value='${JBSDK_VERSION}']"
-JDK_BUILD_NUMBER=${JDK_BUILD_NUMBER:=$(echo $OPENJDK_TAG | awk -F "-|[+]" '{print $3}')}
+tag_prefix="jbr-"
+OPENJDK_TAG=$(git log --simplify-by-decoration --decorate=short --pretty=short | grep "${tag_prefix}${JBSDK_VERSION}" | cut -d "(" -f2 | cut -d ")" -f1 | awk '{print $2}' | sort -t "-" -k 2 -V -f | tail -n 1 | tr -d ",")
+JDK_BUILD_NUMBER=$(echo $OPENJDK_TAG | awk -F "-|[+]" '{print $3}')
 [ -z $JDK_BUILD_NUMBER ] && JDK_BUILD_NUMBER=1
+re='^[0-9]+$'
+if ! [[ $JDK_BUILD_NUMBER =~ $re ]] ; then
+  echo "error: JDK_BUILD_NUMBER Not a number: $JDK_BUILD_NUMBER"
+  JDK_BUILD_NUMBER=1
+fi
 echo "##teamcity[setParameter name='env.JDK_UPDATE_NUMBER' value='${JDK_BUILD_NUMBER}']"
 
 VENDOR_NAME="JetBrains s.r.o."
@@ -102,10 +109,10 @@ else
   WITH_BUNDLED_FREETYPE=""
 fi
 
-if [ "$bundle_type" == "vk" ]; then
-  WITH_VULKAN="--with-vulkan"
-else
+if [ "$bundle_type" == "lb" ]; then
   WITH_VULKAN=""
+else
+  WITH_VULKAN="--with-vulkan"
 fi
 
 REPRODUCIBLE_BUILD_OPTS="--with-source-date=$SOURCE_DATE_EPOCH

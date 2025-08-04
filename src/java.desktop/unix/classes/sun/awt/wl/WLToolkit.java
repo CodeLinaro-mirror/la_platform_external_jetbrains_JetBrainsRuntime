@@ -37,6 +37,7 @@ import sun.awt.SunToolkit;
 import sun.awt.UNIXToolkit;
 import sun.awt.datatransfer.DataTransferer;
 import sun.java2d.vulkan.VKInstance;
+import sun.java2d.vulkan.VKRenderQueue;
 import sun.util.logging.PlatformLogger;
 
 import java.awt.*;
@@ -46,6 +47,7 @@ import java.awt.dnd.DragGestureListener;
 import java.awt.dnd.DragGestureRecognizer;
 import java.awt.dnd.DragSource;
 import java.awt.dnd.InvalidDnDOperationException;
+import java.awt.dnd.MouseDragGestureRecognizer;
 import java.awt.dnd.peer.DragSourceContextPeer;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowEvent;
@@ -155,10 +157,11 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
 
     private static boolean initialized = false;
     private static Thread toolkitThread;
-    private final WLClipboard clipboard;
-    private final WLClipboard selection;
+    private final WLDataDevice dataDevice;
 
     private static Cursor currentCursor;
+
+    private static Boolean sunAwtDisableGtkFileDialogs = null;
 
     private static native void initIDs(long displayPtr);
 
@@ -188,18 +191,17 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
             toolkitSystemThread.setDaemon(true);
             toolkitSystemThread.start();
 
-            WLClipboard selectionClipboard = null;
-            try {
-                selectionClipboard = new WLClipboard("Selection", true);
-            } catch (UnsupportedOperationException ignored) {
-            }
-
-            clipboard = new WLClipboard("System", false);
-            selection = selectionClipboard;
+            dataDevice = new WLDataDevice(0); // TODO: for multiseat support pass wl_seat pointer here
         } else {
-            clipboard = null;
-            selection = null;
+            dataDevice = null;
         }
+    }
+
+    public static synchronized boolean getSunAwtDisableGtkFileDialogs() {
+        if (sunAwtDisableGtkFileDialogs == null) {
+            sunAwtDisableGtkFileDialogs = Boolean.getBoolean("sun.awt.disableGtkFileDialogs");
+        }
+        return sunAwtDisableGtkFileDialogs;
     }
 
     private static void initSystemProperties() {
@@ -411,6 +413,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
     private static void dispatchKeyboardModifiersEvent(long serial) {
         assert EventQueue.isDispatchThread();
         inputState = inputState.updatedFromKeyboardModifiersEvent(serial, keyboard.getModifiers());
+        WLDropTargetContextPeer.getInstance().handleModifiersUpdate();
     }
 
     private static void dispatchKeyboardEnterEvent(long serial, long surfacePtr) {
@@ -549,13 +552,11 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
 
     @Override
     public DragSourceContextPeer createDragSourceContextPeer(DragGestureEvent dge) throws InvalidDnDOperationException {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.createDragSourceContextPeer()");
-        }
-        return null;
+        return new WLDragSourceContextPeer(dge, dataDevice);
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public <T extends DragGestureRecognizer> T
     createDragGestureRecognizer(Class<T> recognizerClass,
                     DragSource ds,
@@ -563,9 +564,15 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
                     int srcActions,
                     DragGestureListener dgl)
     {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.createDragGestureRecognizer()");
+        final LightweightFrame f = SunToolkit.getLightweightFrame(c);
+        if (f != null) {
+            return f.createDragGestureRecognizer(recognizerClass, ds, c, srcActions, dgl);
         }
+
+        if (recognizerClass.isAssignableFrom(WLMouseDragGestureRecognizer.class)) {
+            return (T)new WLMouseDragGestureRecognizer(ds, c, srcActions, dgl);
+        }
+
         return null;
     }
 
@@ -680,10 +687,17 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
 
     @Override
     public FileDialogPeer createFileDialog(FileDialog target) {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.createFileDialog()");
+        FileDialogPeer peer = null;
+        if (!getSunAwtDisableGtkFileDialogs() && checkGtkVersion(3, 0, 0)) {
+            peer = new GtkFileDialogPeer(target);
+            targetCreatedPeer(target, peer);
+            return peer;
+        } else {
+            if (log.isLoggable(PlatformLogger.Level.FINE)) {
+                log.fine("Not implemented: WLToolkit.createFileDialog()");
+            }
+            return null;
         }
-        return null;
     }
 
     @Override
@@ -795,7 +809,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
             security.checkPermission(AWTPermissions.ACCESS_CLIPBOARD_PERMISSION);
         }
 
-        return clipboard;
+        return dataDevice.getSystemClipboard();
     }
 
     @Override
@@ -805,7 +819,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
         if (security != null) {
             security.checkPermission(AWTPermissions.ACCESS_CLIPBOARD_PERMISSION);
         }
-        return selection;
+        return dataDevice.getPrimarySelectionClipboard();
     }
 
     @Override
@@ -906,13 +920,6 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
         return null;
     }
 
-    @Override
-    public synchronized void addPropertyChangeListener(String name, PropertyChangeListener pcl) {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.addPropertyChangeListener()");
-        }
-    }
-
     /**
      * @see SunToolkit#needsXEmbedImpl
      */
@@ -984,18 +991,12 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
      */
     @Override
     public boolean isDesktopSupported() {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.isDesktopSupported()");
-        }
-        return false;
+        return WLDesktopPeer.isDesktopSupported();
     }
 
     @Override
     public DesktopPeer createDesktopPeer(Desktop target) {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.createDesktopPeer()");
-        }
-        return null;
+        return new WLDesktopPeer();
     }
 
     @Override
@@ -1044,12 +1045,14 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
     }
 
     @Override
-    public boolean isNativeGTKAvailable() {
-        return false;
+    public void sync() {
+        if(VKInstance.isVulkanEnabled()) {
+            VKRenderQueue.sync();
+        }
+        flushImpl();
     }
 
-    @Override
-    public void sync() {
+    public void flush() {
         flushImpl();
     }
 

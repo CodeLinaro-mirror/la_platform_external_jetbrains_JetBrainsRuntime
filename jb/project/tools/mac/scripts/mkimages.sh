@@ -25,7 +25,24 @@ source jb/project/tools/common/scripts/common.sh
 JCEF_PATH=${JCEF_PATH:=./jcef_mac}
 BOOT_JDK=${BOOT_JDK:=$(/usr/libexec/java_home -v 17)}
 XCODE_PATH=${XCODE_PATH:-}
-[ -d "$XCODE_PATH" ] && WITH_XCODE_PATH="--with-xcode-path=$XCODE_PATH" || WITH_XCODE_PATH=""
+if [ -d "$XCODE_PATH" ]; then
+  WITH_XCODE_PATH="--with-xcode-path=$XCODE_PATH"
+else
+  if [ -z "${CONTINUOUS_INTEGRATION:-}" ]; then
+    WITH_XCODE_PATH=""
+    if [ -n "${XCODE_PATH}" ]; then
+      echo "XCode not found in the directory: ${XCODE_PATH}"
+      echo "default XCode will be used"
+    fi
+  else
+    if [ -z "${XCODE_PATH}" ]; then
+      echo "specify XCode via setting XCODE_PATH"
+    else
+      echo "XCode not found in the directory: ${XCODE_PATH}"
+    fi
+    do_exit 1
+  fi
+fi
 
 function do_configure {
   sh configure \
@@ -139,9 +156,11 @@ JSDK_MODS_DIR=$IMAGES_DIR/jmods
 JBRSDK_BUNDLE=jbrsdk
 
 if [ "$bundle_type" == "jcef" ] || [ "$bundle_type" == "fd" ]; then
-  git apply -p0 < jb/project/tools/patches/add_jcef_module.patch || do_exit $?
-  update_jsdk_mods "$JSDK" "$JCEF_PATH"/jmods "$JSDK"/jmods "$JSDK_MODS_DIR" || do_exit $?
-  cp $JCEF_PATH/jmods/* $JSDK_MODS_DIR # $JSDK/jmods is not changed
+  if [ "$bundle_type" == "jcef" ]; then
+    git apply -p0 < jb/project/tools/patches/add_jcef_module.patch || do_exit $?
+    update_jsdk_mods "$JSDK" "$JCEF_PATH"/jmods "$JSDK"/jmods "$JSDK_MODS_DIR" || do_exit $?
+    cp $JCEF_PATH/jmods/* $JSDK_MODS_DIR # $JSDK/jmods is not changed
+  fi
 
   jbr_name_postfix="_${bundle_type}"
 else
@@ -154,7 +173,7 @@ create_image_bundle "jbr${jbr_name_postfix}" "jbr" $JSDK_MODS_DIR "$modules" || 
 
 # create sdk image bundle
 modules=$(cat "$JSDK"/release | grep MODULES | sed s/MODULES=//g | sed s/' '/','/g | sed s/\"//g | sed s/\\n//g) || do_exit $?
-if [ "$bundle_type" == "jcef" ] || [ "$bundle_type" == "fd" ] || [ "$bundle_type" == "$JBRSDK_BUNDLE" ]; then
+if [ "$bundle_type" == "jcef" ] || [ "$bundle_type" == "$JBRSDK_BUNDLE" ]; then
   modules=${modules},$(get_mods_list "$JCEF_PATH"/jmods)
 fi
 create_image_bundle "$JBRSDK_BUNDLE${jbr_name_postfix}" "$JBRSDK_BUNDLE" "$JSDK_MODS_DIR" "$modules" || do_exit $?

@@ -27,16 +27,18 @@
 #ifndef VKBase_h_Included
 #define VKBase_h_Included
 #include "VKTypes.h"
+#include "VKComposites.h"
 #include "VKTexturePool.h"
 #include "VKRenderState.h"
+#include "VKUtil.h"
 
 struct VKDevice {
     VkDevice         handle;
     VkPhysicalDevice physicalDevice;
     char*            name;
     uint32_t         queueFamily;
-    pchar*           enabledLayers;
-    pchar*           enabledExtensions;
+    ARRAY(pchar)     enabledLayers;
+    ARRAY(pchar)     enabledExtensions;
     VkQueue          queue;
 
     VKAllocator*     allocator;
@@ -92,10 +94,14 @@ struct VKDevice {
     PFN_vkDestroyDescriptorSetLayout vkDestroyDescriptorSetLayout;
     PFN_vkUpdateDescriptorSets vkUpdateDescriptorSets;
     PFN_vkCreateDescriptorPool vkCreateDescriptorPool;
+    PFN_vkDestroyDescriptorPool vkDestroyDescriptorPool;
     PFN_vkAllocateDescriptorSets vkAllocateDescriptorSets;
     PFN_vkCmdBindDescriptorSets vkCmdBindDescriptorSets;
     PFN_vkGetImageMemoryRequirements2 vkGetImageMemoryRequirements2;
     PFN_vkCreateBuffer vkCreateBuffer;
+    PFN_vkDestroyBuffer vkDestroyBuffer;
+    PFN_vkCreateBufferView vkCreateBufferView;
+    PFN_vkDestroyBufferView vkDestroyBufferView;
     PFN_vkGetBufferMemoryRequirements2 vkGetBufferMemoryRequirements2;
     PFN_vkBindBufferMemory vkBindBufferMemory;
     PFN_vkMapMemory vkMapMemory;
@@ -103,7 +109,6 @@ struct VKDevice {
     PFN_vkCmdBindVertexBuffers vkCmdBindVertexBuffers;
     PFN_vkCreateRenderPass vkCreateRenderPass;
     PFN_vkDestroyRenderPass vkDestroyRenderPass;
-    PFN_vkDestroyBuffer vkDestroyBuffer;
     PFN_vkFreeMemory vkFreeMemory;
     PFN_vkDestroyImageView vkDestroyImageView;
     PFN_vkDestroyImage vkDestroyImage;
@@ -116,10 +121,12 @@ struct VKDevice {
 };
 
 struct VKGraphicsEnvironment {
-    VkInstance        vkInstance;
-    VkPhysicalDevice* physicalDevices;
-    VKDevice*         devices;
-    VKDevice*         currentDevice;
+    VkInstance              vkInstance;
+    ARRAY(VkPhysicalDevice) physicalDevices;
+    ARRAY(VKDevice)         devices;
+    VKDevice*               currentDevice;
+
+    VKComposites composites;
 
 #if defined(DEBUG)
     VkDebugUtilsMessengerEXT debugMessenger;

@@ -306,10 +306,12 @@ JNI_ENTRY(jclass, jni_DefineClass(JNIEnv *env, const char *name, jobject loaderR
   Handle class_loader (THREAD, JNIHandles::resolve(loaderRef));
   Handle protection_domain;
   ClassLoadInfo cl_info(protection_domain);
-  Klass* k = SystemDictionary::resolve_from_stream(&st, class_name,
+  Klass* k = SystemDictionary::resolve_from_stream(&st,
+                                                   class_name,
                                                    class_loader,
                                                    cl_info,
-                                                   NULL,
+                                                   nullptr,
+                                                   nullptr,
                                                    CHECK_NULL);
 
   if (log_is_enabled(Debug, class, resolve)) {
@@ -559,6 +561,9 @@ JNI_ENTRY(jint, jni_ThrowNew(JNIEnv *env, jclass clazz, const char *message))
       return 0;
   } else if (name->equals("java/lang/Exception$JB$$FullGC")) {
     Universe::heap()->collect(GCCause::_jbr_gc_run);
+    return 0;
+  } else if (name->equals("java/lang/Exception$JB$$ShrinkingGC")) {
+    Universe::heap()->collect(GCCause::_jbr_shrinking_gc_run);
     return 0;
   }
 

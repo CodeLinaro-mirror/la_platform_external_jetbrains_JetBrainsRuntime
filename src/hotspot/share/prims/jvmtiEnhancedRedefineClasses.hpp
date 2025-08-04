@@ -34,6 +34,7 @@
 #include "oops/objArrayOop.hpp"
 #include "gc/shared/gcVMOperations.hpp"
 #include "../../../java.base/unix/native/include/jni_md.h"
+#include "classfile/classFileParserDCEVM.hpp"
 
 //
 // Enhanced class redefiner.
@@ -46,7 +47,11 @@
 //   - doit() - main redefition, adjust existing objects on the heap, clear caches
 //   - doit_epilogue() - cleanup
 class VM_EnhancedRedefineClasses: public VM_GC_Operation {
- private:
+public:
+  static unsigned int sym_hash  (Symbol* const& s) { return (int)(uintptr_t)s; }
+  static bool     sym_equals(Symbol* const& a, Symbol* const& b) { return a == b; }
+  typedef ResourceHashtable<Symbol*, char, 37, AnyObj::C_HEAP, mtInternal, &sym_hash, &sym_equals> SymbolSet;
+private:
   // These static fields are needed by ClassLoaderDataGraph::classes_do()
   // facility and the AdjustCpoolCacheAndVtable helper:
   static Array<Method*>* _old_methods;
@@ -70,7 +75,7 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
   // RetransformClasses.  Indicate which.
   JvmtiClassLoadKind          _class_load_kind;
 
-  GrowableArray<InstanceKlass*>*      _new_classes;
+  GrowableArray<InstanceKlass*>*  _new_classes;
   jvmtiError                  _res;
 
   // Set if any of the InstanceKlasses have entries in the ResolvedMethodTable
@@ -88,6 +93,8 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
   GrowableArray<Klass*>*      _affected_klasses;
 
   int                         _max_redefinition_flags;
+
+  SymbolSet*                  _removed_interfaces;
 
   // Performance measurement support. These timers do not cover all
   // the work done for JVM/TI RedefineClasses() but they do cover
@@ -112,16 +119,19 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
   //
   // The result is sotred in _affected_klasses(old definitions) and _new_classes(new definitions) arrays.
   jvmtiError load_new_class_versions(TRAPS);
-  jvmtiError load_new_class_versions_single_step(TRAPS);
+  jvmtiError load_new_class_versions_single_step(Old2NewKlassMap* old_2_new_klass_map, GrowableArray<int>* klass_redefinition_flags, TRAPS);
 
   // Searches for all affected classes and performs a sorting such tha
   // a supertype is always before a subtype.
-  jvmtiError find_sorted_affected_classes(bool do_initial_mark, GrowableArray<Klass*>* prev_affected_klasses, TRAPS);
+  jvmtiError find_sorted_affected_classes(bool do_initial_mark,
+                                          GrowableArray<Klass*>* prev_affected_klasses,
+                                          Old2NewKlassMap* old_2_new_klass_map,
+                                          TRAPS);
 
-  jvmtiError do_topological_class_sorting(TRAPS);
+  jvmtiError do_topological_class_sorting(Old2NewKlassMap* old_2_new_klass_map, TRAPS);
 
   jvmtiError find_class_bytes(InstanceKlass* the_class, const unsigned char **class_bytes, jint *class_byte_count, jboolean *not_changed);
-  int calculate_redefinition_flags(InstanceKlass* new_class);
+  int calculate_redefinition_flags(InstanceKlass* new_class, Old2NewKlassMap* old_2_new_klass_map);
   void calculate_instance_update_information(Klass* new_version);
 
   void rollback();
@@ -149,7 +159,6 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
   // and in all direct and indirect subclasses.
   void increment_class_counter(Thread* current, InstanceKlass *ik);
 
-
   void flush_dependent_code();
 
   u8 next_id();
@@ -157,14 +166,6 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
   static void check_class(InstanceKlass* k_oop);
 
   static void dump_methods();
-
-  // Check that there are no old or obsolete methods
-  class CheckClass : public KlassClosure {
-    Thread* _thread;
-   public:
-    CheckClass(Thread* t) : _thread(t) {}
-    void do_klass(Klass* k);
-  };
 
   // Unevolving classes may point to methods of the_class directly
   // from their constant pool caches, itables, and/or vtables. We
@@ -174,13 +175,6 @@ class VM_EnhancedRedefineClasses: public VM_GC_Operation {
     Thread* _thread;
    public:
     ClearCpoolCacheAndUnpatch(Thread* t) : _thread(t) {}
-    void do_klass(Klass* k);
-  };
-
-  // Clean MethodData out
-  class MethodDataCleaner : public KlassClosure {
-   public:
-    MethodDataCleaner() {}
     void do_klass(Klass* k);
   };
  public:

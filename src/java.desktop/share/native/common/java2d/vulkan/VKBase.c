@@ -83,6 +83,8 @@ static void vulkanLibClose() {
             }
 #endif
 
+            VKComposites_Destroy(geInstance->composites);
+
             if (geInstance->vkDestroyInstance != NULL) {
                 geInstance->vkDestroyInstance(geInstance->vkInstance, NULL);
             }
@@ -205,13 +207,13 @@ static jboolean VK_InitGraphicsEnvironment(PFN_vkGetInstanceProcAddr vkGetInstan
         J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "        %s", (char *) extensions[i].extensionName)
     }
 
-    pchar* enabledLayers = NULL;
-    pchar* enabledExtensions = NULL;
+    ARRAY(pchar) enabledLayers     = NULL;
+    ARRAY(pchar) enabledExtensions = NULL;
     void *pNext = NULL;
 #if defined(VK_USE_PLATFORM_WAYLAND_KHR)
-    ARRAY_PUSH_BACK(enabledExtensions, VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME);
+    ARRAY_PUSH_BACK(enabledExtensions) = VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
 #endif
-    ARRAY_PUSH_BACK(enabledExtensions, VK_KHR_SURFACE_EXTENSION_NAME);
+    ARRAY_PUSH_BACK(enabledExtensions) = VK_KHR_SURFACE_EXTENSION_NAME;
 
     // Check required layers & extensions.
     for (uint32_t i = 0; i < ARRAY_SIZE(enabledExtensions); i++) {
@@ -264,8 +266,8 @@ static jboolean VK_InitGraphicsEnvironment(PFN_vkGetInstanceProcAddr vkGetInstan
     }
 
     if (foundDebugLayer && foundDebugExt) {
-        ARRAY_PUSH_BACK(enabledLayers, VALIDATION_LAYER_NAME);
-        ARRAY_PUSH_BACK(enabledExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+        ARRAY_PUSH_BACK(enabledLayers) = VALIDATION_LAYER_NAME;
+        ARRAY_PUSH_BACK(enabledExtensions) = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
         pNext = &features;
     } else {
         J2dRlsTraceLn2(J2D_TRACE_WARNING, "Vulkan: %s and %s are not supported",
@@ -302,6 +304,8 @@ static jboolean VK_InitGraphicsEnvironment(PFN_vkGetInstanceProcAddr vkGetInstan
     ARRAY_FREE(enabledLayers);
     ARRAY_FREE(enabledExtensions);
 
+    geInstance->composites = VKComposites_Create();
+
 #if defined(VK_USE_PLATFORM_WAYLAND_KHR)
     INSTANCE_PROC(vkGetPhysicalDeviceWaylandPresentationSupportKHR);
     INSTANCE_PROC(vkCreateWaylandSurfaceKHR);
@@ -323,25 +327,26 @@ static jboolean VK_InitGraphicsEnvironment(PFN_vkGetInstanceProcAddr vkGetInstan
 
     // Create debug messenger
 #if defined(DEBUG)
-    INSTANCE_PROC(vkCreateDebugUtilsMessengerEXT);
-    INSTANCE_PROC(vkDestroyDebugUtilsMessengerEXT);
-    if (pNext) {
-        VkDebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCreateInfo = {
-                .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-                .flags =           0,
-                .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
-                                   VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                   VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
-                                   VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT,
-                .messageType =     VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                                   VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                                   VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-                .pfnUserCallback = &debugCallback
-        };
-        VK_IF_ERROR(geInstance->vkCreateDebugUtilsMessengerEXT(geInstance->vkInstance, &debugUtilsMessengerCreateInfo,
-                                                            NULL, &geInstance->debugMessenger)) {}
+    if (foundDebugLayer && foundDebugExt) {
+        INSTANCE_PROC(vkCreateDebugUtilsMessengerEXT);
+        INSTANCE_PROC(vkDestroyDebugUtilsMessengerEXT);
+        if (pNext) {
+            VkDebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCreateInfo = {
+                    .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+                    .flags =           0,
+                    .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
+                                       VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                       VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+                                       VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT,
+                    .messageType =     VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                                       VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                                       VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+                    .pfnUserCallback = &debugCallback
+            };
+            VK_IF_ERROR(geInstance->vkCreateDebugUtilsMessengerEXT(geInstance->vkInstance, &debugUtilsMessengerCreateInfo,
+                                                                NULL, &geInstance->debugMessenger)) {}
+        }
     }
-
 #endif
 
     return JNI_TRUE;
@@ -473,9 +478,9 @@ static jboolean VK_FindDevices() {
             continue;
         }
 
-        pchar* deviceEnabledLayers = NULL;
-        pchar* deviceEnabledExtensions = NULL;
-        ARRAY_PUSH_BACK(deviceEnabledExtensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+        ARRAY(pchar) deviceEnabledLayers     = NULL;
+        ARRAY(pchar) deviceEnabledExtensions = NULL;
+        ARRAY_PUSH_BACK(deviceEnabledExtensions) = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
 
         // Validation layer
 #ifdef DEBUG
@@ -483,7 +488,7 @@ static jboolean VK_FindDevices() {
             for (uint32_t j = 0; j < layerCount; j++) {
                 if (strcmp(VALIDATION_LAYER_NAME, layers[j].layerName) == 0) {
                     validationLayerNotSupported = 0;
-                    ARRAY_PUSH_BACK(deviceEnabledLayers, VALIDATION_LAYER_NAME);
+                    ARRAY_PUSH_BACK(deviceEnabledLayers) = VALIDATION_LAYER_NAME;
                     break;
                 }
             }
@@ -497,15 +502,14 @@ static jboolean VK_FindDevices() {
             return JNI_FALSE;
         }
 
-        ARRAY_PUSH_BACK(geInstance->devices,
-                ((VKDevice) {
-                .name = deviceName,
-                .handle = VK_NULL_HANDLE,
-                .physicalDevice = geInstance->physicalDevices[i],
-                .queueFamily = queueFamily,
-                .enabledLayers = deviceEnabledLayers,
-                .enabledExtensions = deviceEnabledExtensions
-        }));
+        ARRAY_PUSH_BACK(geInstance->devices) = (VKDevice) {
+            .name = deviceName,
+            .handle = VK_NULL_HANDLE,
+            .physicalDevice = geInstance->physicalDevices[i],
+            .queueFamily = queueFamily,
+            .enabledLayers = deviceEnabledLayers,
+            .enabledExtensions = deviceEnabledExtensions
+        };
     }
     if (ARRAY_SIZE(geInstance->devices) == 0) {
         J2dRlsTraceLn(J2D_TRACE_ERROR, "Vulkan: No compatible device found")
@@ -614,10 +618,14 @@ static jboolean VK_InitDevice(VKDevice* device) {
     DEVICE_PROC(vkDestroyDescriptorSetLayout);
     DEVICE_PROC(vkUpdateDescriptorSets);
     DEVICE_PROC(vkCreateDescriptorPool);
+    DEVICE_PROC(vkDestroyDescriptorPool);
     DEVICE_PROC(vkAllocateDescriptorSets);
     DEVICE_PROC(vkCmdBindDescriptorSets);
     DEVICE_PROC(vkGetImageMemoryRequirements2);
     DEVICE_PROC(vkCreateBuffer);
+    DEVICE_PROC(vkDestroyBuffer);
+    DEVICE_PROC(vkCreateBufferView);
+    DEVICE_PROC(vkDestroyBufferView);
     DEVICE_PROC(vkGetBufferMemoryRequirements2);
     DEVICE_PROC(vkBindBufferMemory);
     DEVICE_PROC(vkMapMemory);
@@ -625,7 +633,6 @@ static jboolean VK_InitDevice(VKDevice* device) {
     DEVICE_PROC(vkCmdBindVertexBuffers);
     DEVICE_PROC(vkCreateRenderPass);
     DEVICE_PROC(vkDestroyRenderPass);
-    DEVICE_PROC(vkDestroyBuffer);
     DEVICE_PROC(vkFreeMemory);
     DEVICE_PROC(vkDestroyImageView);
     DEVICE_PROC(vkDestroyImage);

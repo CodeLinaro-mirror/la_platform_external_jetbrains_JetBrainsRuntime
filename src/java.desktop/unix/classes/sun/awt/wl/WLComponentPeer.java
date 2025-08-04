@@ -316,13 +316,50 @@ public class WLComponentPeer implements ComponentPeer {
         return new Point(x, y);
     }
 
+    static void moveToOverlap(Rectangle what, Rectangle where) {
+        if (what.getMaxX() <= where.getMinX()) {
+            what.x += where.getMaxX() - what.getMaxX();
+        }
+        if (what.getMinX() >= where.getMaxX()) {
+            what.x -= what.getMinX() - where.getMaxX();
+        }
+        if (what.getMaxY() <= where.getMinY()) {
+            what.y += where.getMaxY() - what.getMaxY();
+        }
+        if (what.getMinY() >= where.getMaxY()) {
+            what.y -= what.getMinY() - where.getMaxY();
+        }
+        assert what.intersects(where);
+    }
+
     Point nativeLocationForPopup(Window popup, Component popupParent, Window toplevel) {
+        // NB: all the coordinates are in the "surface" space as consumed by Wayland,
+        //     not in pixels and not in the Java units.
+
         // We need to provide popup's "parent" location relative to the surface this parent is painted upon:
         Point parentLocation = javaUnitsToSurfaceUnits(getRelativeLocation(popupParent, toplevel));
 
         // Offset is relative to the top-left corner of the "parent".
         Point offsetFromParent = javaUnitsToSurfaceUnits(popup.getLocation());
-        return new Point(parentLocation.x + offsetFromParent.x, parentLocation.y + offsetFromParent.y);
+        var popupBounds = new Rectangle(
+                parentLocation.x + offsetFromParent.x,
+                parentLocation.y + offsetFromParent.y,
+                wlSize.getSurfaceWidth(),
+                wlSize.getSurfaceHeight());
+        var safeToplevelBounds = toplevel.getSize();
+        safeToplevelBounds.height -= 1;
+        safeToplevelBounds.width -= 1;
+        var safePopupBounds = new Rectangle(
+                0,
+                0,
+                javaUnitsToSurfaceUnits(safeToplevelBounds.width),
+                javaUnitsToSurfaceUnits(safeToplevelBounds.height));
+        if (!safePopupBounds.intersects(popupBounds)) {
+            // Many Wayland compositors will immediately send popup_done to a popup that attempts to
+            // go outside the parent surface's bounds.
+            moveToOverlap(popupBounds, safePopupBounds);
+        }
+        return popupBounds.getLocation();
     }
 
     protected void wlSetVisible(boolean v) {
@@ -410,7 +447,13 @@ public class WLComponentPeer implements ComponentPeer {
         // which may result in visual artifacts.
         int surfaceWidth = wlSize.getSurfaceWidth();
         int surfaceHeight = wlSize.getSurfaceHeight();
-        Dimension surfaceMinSize = javaUnitsToSurfaceSize(constrainSize(getMinimumSize()));
+        Dimension minSize = getMinimumSize();
+        if (target.isMinimumSizeSet()) {
+            Dimension targetMinSize = target.getMinimumSize();
+            minSize.width = Math.max(minSize.width, targetMinSize.width);
+            minSize.height = Math.max(minSize.height, targetMinSize.height);
+        }
+        Dimension surfaceMinSize = javaUnitsToSurfaceSize(constrainSize(minSize));
         Dimension maxSize = target.isMaximumSizeSet() ? target.getMaximumSize() : null;
         Dimension surfaceMaxSize = maxSize != null ? javaUnitsToSurfaceSize(constrainSize(maxSize)) : null;
 
@@ -509,7 +552,7 @@ public class WLComponentPeer implements ComponentPeer {
                 SurfaceData.convertTo(WLSurfaceDataExt.class, surfaceData).commit();
             }
         });
-        Toolkit.getDefaultToolkit().sync();
+        ((WLToolkit) Toolkit.getDefaultToolkit()).flush();
     }
 
     private boolean canPaintRoundedCorners() {
@@ -895,7 +938,7 @@ public class WLComponentPeer implements ComponentPeer {
     }
 
     public Dimension getMinimumSize() {
-        return target.getMinimumSize();
+        return new Dimension(1, 1);
     }
 
     void showWindowMenu(long serial, int x, int y) {
@@ -1145,7 +1188,8 @@ public class WLComponentPeer implements ComponentPeer {
 
     protected native void nativeDisposeFrame(long ptr);
 
-    private native long getWLSurface(long ptr);
+    private static native long getWLSurface(long ptr);
+    private static native WLComponentPeer nativeGetPeerFromWLSurface(long ptr);
     private native void nativeStartDrag(long serial, long ptr);
     private native void nativeStartResize(long serial, long ptr, int edges);
 
@@ -1174,6 +1218,14 @@ public class WLComponentPeer implements ComponentPeer {
     static long getParentNativePtr(Component target) {
         Component parent = target.getParent();
         return parent ==  null ? 0 : getNativePtrFor(parent);
+    }
+
+    static long getWLSurfaceForComponent(Component component) {
+        return getWLSurface(getNativePtrFor(component));
+    }
+
+    static WLComponentPeer getPeerFromWLSurface(long wlSurfaceNativePtr) {
+        return nativeGetPeerFromWLSurface(wlSurfaceNativePtr);
     }
 
     private final Object state_lock = new Object();
@@ -1758,9 +1810,7 @@ public class WLComponentPeer implements ComponentPeer {
 
     void notifyPopupDone() {
         assert(targetIsWlPopup());
-        setVisible(false);
-        // TODO: may need a better way of notifying interested components about popup disappearance
-        WLToolkit.postEvent(new WindowEvent((Window) target, WindowEvent.WINDOW_CLOSING));
+        target.setVisible(false);
     }
 
     private WLGraphicsDevice getGraphicsDevice() {

@@ -33,9 +33,29 @@
 #undef SHADER_ENTRY
 #undef BYTECODE_END
 
-typedef struct VKPipelineSet {
-    VkPipeline pipelines[PIPELINE_COUNT];
-} VKPipelineSet;
+inline void hash(uint32_t* result, int i) { // Good for hashing enums.
+    uint32_t x = (uint32_t) i;
+    x = ((x >> 16U) ^ x) * 0x45d9f3bU;
+    x = ((x >> 16U) ^ x) * 0x45d9f3bU;
+    x =  (x >> 16U) ^ x;
+    *result ^= x + 0x9e3779b9U + (*result << 6U) + (*result >> 2U);
+}
+static size_t pipelineDescriptorHash(const void* ptr) {
+    const VKPipelineDescriptor* d = ptr;
+    uint32_t h = 0U;
+    hash(&h, d->stencilMode);
+    hash(&h, d->composite);
+    hash(&h, d->shader);
+    hash(&h, d->topology);
+    return (size_t) h;
+}
+static bool pipelineDescriptorEquals(const void* ap, const void* bp) {
+    const VKPipelineDescriptor *a = ap, *b = bp;
+    return a->stencilMode == b->stencilMode &&
+             a->composite == b->composite &&
+                a->shader == b->shader &&
+              a->topology == b->topology;
+}
 
 typedef struct VKShaders {
 #   define SHADER_ENTRY(NAME, TYPE) VkPipelineShaderStageCreateInfo NAME ## _ ## TYPE;
@@ -79,218 +99,183 @@ static VKShaders* VKPipelines_CreateShaders(VKDevice* device) {
     return shaders;
 }
 
-#define MAKE_INPUT_STATE(NAME, TYPE, ...)                                                         \
-static const VkVertexInputAttributeDescription INPUT_STATE_ATTRIBUTES_##NAME[] = { __VA_ARGS__ }; \
-static const VkVertexInputBindingDescription INPUT_STATE_BINDING_##NAME = {                       \
-        .binding = 0,                                                                             \
-        .stride = sizeof(TYPE),                                                                   \
-        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX                                                  \
-};                                                                                                \
-static const VkPipelineVertexInputStateCreateInfo INPUT_STATE_##NAME = {                          \
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,                       \
-        .vertexBindingDescriptionCount = 1,                                                       \
-        .pVertexBindingDescriptions = &INPUT_STATE_BINDING_##NAME,                                \
-        .vertexAttributeDescriptionCount = SARRAY_COUNT_OF(INPUT_STATE_ATTRIBUTES_##NAME),        \
-        .pVertexAttributeDescriptions = INPUT_STATE_ATTRIBUTES_##NAME                             \
-}
+#define MAKE_INPUT_STATE(NAME, TYPE, ...)                                                  \
+const VkFormat INPUT_STATE_ATTRIBUTE_FORMATS_##NAME[] = { __VA_ARGS__ };                   \
+VkVertexInputAttributeDescription                                                          \
+    INPUT_STATE_ATTRIBUTES_##NAME[SARRAY_COUNT_OF(INPUT_STATE_ATTRIBUTE_FORMATS_##NAME)];  \
+const VkVertexInputBindingDescription INPUT_STATE_BINDING_##NAME = {                       \
+        .binding = 0,                                                                      \
+        .stride = sizeof(TYPE),                                                            \
+        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX                                           \
+};                                                                                         \
+const VkPipelineVertexInputStateCreateInfo INPUT_STATE_##NAME = {                          \
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,                \
+        .vertexBindingDescriptionCount = 1,                                                \
+        .pVertexBindingDescriptions = &INPUT_STATE_BINDING_##NAME,                         \
+        .vertexAttributeDescriptionCount = SARRAY_COUNT_OF(INPUT_STATE_ATTRIBUTES_##NAME), \
+        .pVertexAttributeDescriptions = INPUT_STATE_ATTRIBUTES_##NAME                      \
+};                                                                                         \
+uint32_t INPUT_STATE_BINDING_SIZE_##NAME = 0;                                              \
+for (uint32_t i = 0; i < SARRAY_COUNT_OF(INPUT_STATE_ATTRIBUTES_##NAME); i++) {            \
+    INPUT_STATE_ATTRIBUTES_##NAME[i] = (VkVertexInputAttributeDescription) {               \
+        i, 0, INPUT_STATE_ATTRIBUTE_FORMATS_##NAME[i], INPUT_STATE_BINDING_SIZE_##NAME};   \
+    INPUT_STATE_BINDING_SIZE_##NAME +=                                                     \
+        VKUtil_GetFormatGroup(INPUT_STATE_ATTRIBUTE_FORMATS_##NAME[i]).bytes;              \
+} if (sizeof(TYPE) != INPUT_STATE_BINDING_SIZE_##NAME) VK_FATAL_ERROR("Vertex size mismatch for input state " #NAME)
 
-typedef struct {
-    VkGraphicsPipelineCreateInfo createInfo;
-    VkPipelineMultisampleStateCreateInfo multisampleState;
-    VkPipelineColorBlendStateCreateInfo colorBlendState;
-    VkPipelineDynamicStateCreateInfo dynamicState;
-    VkDynamicState dynamicStates[2];
-} PipelineCreateState;
+static VkPipeline VKPipelines_CreatePipelines(VKRenderPassContext* renderPassContext, uint32_t count,
+                                              const VKPipelineDescriptor* descriptors) {
+    assert(renderPassContext != NULL && renderPassContext->pipelineContext != NULL);
+    assert(count > 0 && descriptors != NULL);
+    VKPipelineContext* pipelineContext = renderPassContext->pipelineContext;
+    VKDevice* device = pipelineContext->device;
+    VKShaders* shaders = pipelineContext->shaders;
+    VKComposites* composites = &VKGE_graphics_environment()->composites;
 
-typedef struct {
-    VkPipelineShaderStageCreateInfo createInfos[2]; // vert + frag
-} ShaderStages;
-
-/**
- * Init default pipeline state. Some members are left uninitialized:
- * - pStages (but stageCount is set to 2)
- * - pVertexInputState
- * - pInputAssemblyState
- * - colorBlendState.pAttachments (but attachmentCount is set to 1)
- * - createInfo.layout
- * - createInfo.renderPass
- * - renderingCreateInfo.pColorAttachmentFormats (but colorAttachmentCount is set to 1)
- */
-static void VKPipelines_InitPipelineCreateState(PipelineCreateState* state) {
-    static const VkViewport viewport = {};
-    static const VkRect2D scissor = {};
-    static const VkPipelineViewportStateCreateInfo viewportState = {
+    // Setup pipeline creation structs.
+    static const uint32_t MAX_DYNAMIC_STATES = 2;
+    typedef struct {
+        VkPipelineShaderStageCreateInfo createInfos[2]; // vert + frag
+    } ShaderStages;
+    ShaderStages stages[count];
+    VkPipelineInputAssemblyStateCreateInfo inputAssemblyStates[count];
+    VkPipelineDepthStencilStateCreateInfo depthStencilStates[count];
+    VkPipelineDynamicStateCreateInfo dynamicStates[count];
+    VkDynamicState dynamicStateValues[count][MAX_DYNAMIC_STATES];
+    VkGraphicsPipelineCreateInfo createInfos[count];
+    for (uint32_t i = 0; i < count; i++) {
+        // Init default pipeline state. Some members are left uninitialized:
+        // - pStages (but stageCount is set to 2)
+        // - pVertexInputState
+        // - createInfo.layout
+        inputAssemblyStates[i] = (VkPipelineInputAssemblyStateCreateInfo) {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+            .topology = descriptors[i].topology
+        };
+        static const VkViewport viewport = {};
+        static const VkRect2D scissor = {};
+        static const VkPipelineViewportStateCreateInfo viewportState = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
             .viewportCount = 1,
             .pViewports = &viewport,
             .scissorCount = 1,
             .pScissors = &scissor
-    };
-    static const VkPipelineRasterizationStateCreateInfo rasterizationState = {
+        };
+        static const VkPipelineRasterizationStateCreateInfo rasterizationState = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
             .polygonMode = VK_POLYGON_MODE_FILL,
             .cullMode = VK_CULL_MODE_NONE,
             .lineWidth = 1.0f
-    };
-    state->multisampleState = (VkPipelineMultisampleStateCreateInfo) {
+        };
+        static const VkPipelineMultisampleStateCreateInfo multisampleState = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
             .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT
-    };
-    state->colorBlendState = (VkPipelineColorBlendStateCreateInfo) {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-            .logicOpEnable = VK_FALSE,
-            .logicOp = VK_LOGIC_OP_XOR,
-            .attachmentCount = 1,
-            .pAttachments = NULL,
-    };
-    state->dynamicState = (VkPipelineDynamicStateCreateInfo) {
+        };
+        static const VkStencilOpState stencilOpState = {
+            .failOp = VK_STENCIL_OP_KEEP,
+            .passOp = VK_STENCIL_OP_KEEP,
+            .compareOp = VK_COMPARE_OP_NOT_EQUAL,
+            .compareMask = 0xFFFFFFFFU,
+            .writeMask = 0U,
+            .reference = CLIP_STENCIL_EXCLUDE_VALUE
+        };
+        depthStencilStates[i] = (VkPipelineDepthStencilStateCreateInfo) {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+            .stencilTestEnable = descriptors[i].stencilMode == STENCIL_MODE_ON,
+            .front = stencilOpState,
+            .back = stencilOpState
+        };
+        dynamicStates[i] = (VkPipelineDynamicStateCreateInfo) {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
             .dynamicStateCount = 2,
-            .pDynamicStates = state->dynamicStates
-    };
-    state->dynamicStates[0] = VK_DYNAMIC_STATE_VIEWPORT;
-    state->dynamicStates[1] = VK_DYNAMIC_STATE_SCISSOR;
-    state->createInfo = (VkGraphicsPipelineCreateInfo) {
+            .pDynamicStates = dynamicStateValues[i]
+        };
+        dynamicStateValues[i][0] = VK_DYNAMIC_STATE_VIEWPORT;
+        dynamicStateValues[i][1] = VK_DYNAMIC_STATE_SCISSOR;
+        createInfos[i] = (VkGraphicsPipelineCreateInfo) {
             .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
             .stageCount = 2,
+            .pStages = stages[i].createInfos,
+            .pInputAssemblyState = &inputAssemblyStates[i],
             .pViewportState = &viewportState,
             .pRasterizationState = &rasterizationState,
-            .pMultisampleState = &state->multisampleState,
-            .pColorBlendState = &state->colorBlendState,
-            .pDynamicState = &state->dynamicState,
+            .pMultisampleState = &multisampleState,
+            .pDepthStencilState = &depthStencilStates[i],
+            .pColorBlendState = &VKComposites_GetState(composites, descriptors[i].composite)->blendState,
+            .pDynamicState = &dynamicStates[i],
+            .renderPass = renderPassContext->renderPass[descriptors[i].stencilMode != STENCIL_MODE_NONE],
             .subpass = 0,
             .basePipelineHandle = VK_NULL_HANDLE,
             .basePipelineIndex = -1
-    };
-}
-
-static const VkPipelineInputAssemblyStateCreateInfo INPUT_ASSEMBLY_STATE_TRIANGLE_STRIP = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP
-};
-static const VkPipelineInputAssemblyStateCreateInfo INPUT_ASSEMBLY_STATE_TRIANGLE_LIST = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
-};
-static const VkPipelineInputAssemblyStateCreateInfo INPUT_ASSEMBLY_STATE_LINE_LIST = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-        .topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST
-};
-
-// Blend states are hard-coded, but can also be loaded dynamically to implement custom composites.
-#define DEF_BLEND(NAME, SRC_COLOR, DST_COLOR, SRC_ALPHA, DST_ALPHA)       \
-{ .blendEnable = VK_TRUE,                                                 \
-  .srcColorBlendFactor = VK_BLEND_FACTOR_ ## SRC_COLOR,                   \
-  .dstColorBlendFactor = VK_BLEND_FACTOR_ ## DST_COLOR,                   \
-  .colorBlendOp = VK_BLEND_OP_ADD,                                        \
-  .srcAlphaBlendFactor = VK_BLEND_FACTOR_ ## SRC_ALPHA,                   \
-  .dstAlphaBlendFactor = VK_BLEND_FACTOR_ ## DST_ALPHA,                   \
-  .alphaBlendOp = VK_BLEND_OP_ADD,                                        \
-  .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | \
-                    VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT }
-
-
-const VkPipelineColorBlendAttachmentState COMPOSITE_BLEND_STATES[COMPOSITE_COUNT] = {
-        { .blendEnable = VK_FALSE, // LOGIC_XOR
-          .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT },
-//               NAME ||      SRC_COLOR       |       DST_COLOR      |      SRC_ALPHA       |       DST_ALPHA      ||
-DEF_BLEND(|     CLEAR |, ZERO                 , ZERO                 , ZERO                 , ZERO                 ),
-DEF_BLEND(|       SRC |, ONE                  , ZERO                 , ONE                  , ZERO                 ),
-DEF_BLEND(|  SRC_OVER |, ONE                  , ONE_MINUS_SRC_ALPHA  , ONE                  , ONE_MINUS_SRC_ALPHA  ),
-DEF_BLEND(|  DST_OVER |, ONE_MINUS_DST_ALPHA  , ONE                  , ONE_MINUS_DST_ALPHA  , ONE                  ),
-DEF_BLEND(|    SRC_IN |, DST_ALPHA            , ZERO                 , DST_ALPHA            , ZERO                 ),
-DEF_BLEND(|    DST_IN |, ZERO                 , SRC_ALPHA            , ZERO                 , SRC_ALPHA            ),
-DEF_BLEND(|   SRC_OUT |, ONE_MINUS_DST_ALPHA  , ZERO                 , ONE_MINUS_DST_ALPHA  , ZERO                 ),
-DEF_BLEND(|   DST_OUT |, ZERO                 , ONE_MINUS_SRC_ALPHA  , ZERO                 , ONE_MINUS_SRC_ALPHA  ),
-DEF_BLEND(|       DST |, ZERO                 , ONE                  , ZERO                 , ONE                  ),
-DEF_BLEND(|  SRC_ATOP |, DST_ALPHA            , ONE_MINUS_SRC_ALPHA  , ZERO                 , ONE                  ),
-DEF_BLEND(|  DST_ATOP |, ONE_MINUS_DST_ALPHA  , SRC_ALPHA            , ONE                  , ZERO                 ),
-DEF_BLEND(|       XOR |, ONE_MINUS_DST_ALPHA  , ONE_MINUS_SRC_ALPHA  , ONE_MINUS_DST_ALPHA  , ONE_MINUS_SRC_ALPHA  ),
-};
-
-static const VkVertexInputAttributeDescription INPUT_ATTRIBUTE_POSITION = {
-        .location = 0,
-        .binding = 0,
-        .format = VK_FORMAT_R32G32_SFLOAT,
-        .offset = 0
-};
-static const VkVertexInputAttributeDescription INPUT_ATTRIBUTE_COLOR = {
-        .location = 1,
-        .binding = 0,
-        .format = VK_FORMAT_R32G32B32A32_SFLOAT,
-        .offset = sizeof(float) * 2
-};
-static const VkVertexInputAttributeDescription INPUT_ATTRIBUTE_TEXCOORD = {
-        .location = 1,
-        .binding = 0,
-        .format = VK_FORMAT_R32G32_SFLOAT,
-        .offset = sizeof(float) * 2
-};
-
-MAKE_INPUT_STATE(COLOR_VERTEX, VKColorVertex, INPUT_ATTRIBUTE_POSITION, INPUT_ATTRIBUTE_COLOR);
-MAKE_INPUT_STATE(TEXCOORD_VERTEX, VKTxVertex, INPUT_ATTRIBUTE_POSITION, INPUT_ATTRIBUTE_TEXCOORD);
-
-static void VKPipelines_DestroyPipelineSet(VKDevice* device, VKPipelineSet* set) {
-    assert(device != NULL);
-    if (set == NULL) return;
-    for (uint32_t i = 0; i < PIPELINE_COUNT; i++) {
-        device->vkDestroyPipeline(device->handle, set->pipelines[i], NULL);
-    }
-    free(set);
-}
-
-static VKPipelineSet* VKPipelines_CreatePipelineSet(VKRenderPassContext* renderPassContext, VKCompositeMode composite) {
-    assert(renderPassContext != NULL && renderPassContext->pipelineContext != NULL);
-    assert(composite < COMPOSITE_COUNT);
-    VKPipelineContext* pipelineContext = renderPassContext->pipelineContext;
-
-    VKPipelineSet* set = calloc(1, sizeof(VKPipelineSet));
-    VK_RUNTIME_ASSERT(set);
-    VKDevice* device = pipelineContext->device;
-    VKShaders* shaders = pipelineContext->shaders;
-
-    // Setup default pipeline parameters.
-    PipelineCreateState base;
-    VKPipelines_InitPipelineCreateState(&base);
-    base.createInfo.layout = pipelineContext->pipelineLayout;
-    base.createInfo.renderPass = renderPassContext->renderPass;
-    base.colorBlendState.pAttachments = &COMPOSITE_BLEND_STATES[composite];
-    if (COMPOSITE_GROUP(composite) == LOGIC_COMPOSITE_GROUP) base.colorBlendState.logicOpEnable = VK_TRUE;
-    assert(base.dynamicState.dynamicStateCount <= SARRAY_COUNT_OF(base.dynamicStates));
-
-    ShaderStages stages[PIPELINE_COUNT];
-    VkGraphicsPipelineCreateInfo createInfos[PIPELINE_COUNT];
-    for (uint32_t i = 0; i < PIPELINE_COUNT; i++) {
-        createInfos[i] = base.createInfo;
-        createInfos[i].pStages = stages[i].createInfos;
+        };
     }
 
-    { // Setup plain color pipelines.
-        createInfos[PIPELINE_DRAW_COLOR].pVertexInputState = createInfos[PIPELINE_FILL_COLOR].pVertexInputState = &INPUT_STATE_COLOR_VERTEX;
-        createInfos[PIPELINE_FILL_COLOR].pInputAssemblyState = &INPUT_ASSEMBLY_STATE_TRIANGLE_LIST;
-        createInfos[PIPELINE_DRAW_COLOR].pInputAssemblyState = &INPUT_ASSEMBLY_STATE_LINE_LIST;
-        stages[PIPELINE_DRAW_COLOR] = stages[PIPELINE_FILL_COLOR] = (ShaderStages) {{ shaders->color_vert, shaders->color_frag }};
-    }
+    // Setup input states.
+    MAKE_INPUT_STATE(COLOR, VKColorVertex, VK_FORMAT_R32G32_SFLOAT, VK_FORMAT_R32G32B32A32_SFLOAT);
+    MAKE_INPUT_STATE(MASK_FILL_COLOR, VKMaskFillColorVertex, VK_FORMAT_R32G32B32A32_SINT, VK_FORMAT_R32G32B32A32_SFLOAT);
+    MAKE_INPUT_STATE(BLIT, VKTxVertex, VK_FORMAT_R32G32_SFLOAT, VK_FORMAT_R32G32_SFLOAT);
+    MAKE_INPUT_STATE(CLIP, VKIntVertex, VK_FORMAT_R32G32_SINT);
 
-    { // Setup texture pipeline.
-        createInfos[PIPELINE_BLIT].pVertexInputState = &INPUT_STATE_TEXCOORD_VERTEX;
-        createInfos[PIPELINE_BLIT].pInputAssemblyState = &INPUT_ASSEMBLY_STATE_TRIANGLE_STRIP;
-        createInfos[PIPELINE_BLIT].layout = pipelineContext->texturePipelineLayout;
-        stages[PIPELINE_BLIT] = (ShaderStages) {{ shaders->blit_vert, shaders->blit_frag }};
+    for (uint32_t i = 0; i < count; i++) {
+        // Setup shader-specific pipeline parameters.
+        switch (descriptors[i].shader) {
+        case SHADER_COLOR:
+            createInfos[i].pVertexInputState = &INPUT_STATE_COLOR;
+            createInfos[i].layout = pipelineContext->colorPipelineLayout;
+            stages[i] = (ShaderStages) {{ shaders->color_vert, shaders->color_frag }};
+            break;
+        case SHADER_MASK_FILL_COLOR:
+            createInfos[i].pVertexInputState = &INPUT_STATE_MASK_FILL_COLOR;
+            createInfos[i].layout = pipelineContext->maskFillPipelineLayout;
+            stages[i] = (ShaderStages) {{ shaders->mask_fill_color_vert, shaders->mask_fill_color_frag }};
+            break;
+        case SHADER_BLIT:
+            createInfos[i].pVertexInputState = &INPUT_STATE_BLIT;
+            createInfos[i].layout = pipelineContext->texturePipelineLayout;
+            stages[i] = (ShaderStages) {{ shaders->blit_vert, shaders->blit_frag }};
+            break;
+        case SHADER_CLIP:
+            createInfos[i].pVertexInputState = &INPUT_STATE_CLIP;
+            static const VkStencilOpState CLIP_STENCIL_OP = {
+                .failOp = VK_STENCIL_OP_REPLACE,
+                .passOp = VK_STENCIL_OP_REPLACE,
+                .compareOp = VK_COMPARE_OP_NEVER,
+                .compareMask = 0U,
+                .writeMask = 0xFFFFFFFFU,
+                .reference = CLIP_STENCIL_INCLUDE_VALUE
+            };
+            static const VkPipelineDepthStencilStateCreateInfo CLIP_STENCIL_STATE = {
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+                .stencilTestEnable = VK_TRUE,
+                .front = CLIP_STENCIL_OP,
+                .back = CLIP_STENCIL_OP
+            };
+            createInfos[i].pDepthStencilState = &CLIP_STENCIL_STATE;
+            createInfos[i].layout = pipelineContext->texturePipelineLayout;
+            createInfos[i].stageCount = 1;
+            stages[i] = (ShaderStages) {{ shaders->clip_vert }};
+            break;
+        default:
+            VK_FATAL_ERROR("Cannot create pipeline, unknown shader requested!");
+        }
+        assert(createInfos[i].pDynamicState->dynamicStateCount <= MAX_DYNAMIC_STATES);
+        J2dRlsTraceLn4(J2D_TRACE_INFO, "VKPipelines_CreatePipelines: stencilMode=%d, composite=%d, shader=%d, topology=%d",
+                descriptors[i].stencilMode, descriptors[i].composite, descriptors[i].shader, descriptors[i].topology);
     }
 
     // Create pipelines.
     // TODO pipeline cache
-    VK_IF_ERROR(device->vkCreateGraphicsPipelines(device->handle, VK_NULL_HANDLE, PIPELINE_COUNT,
-                                                  createInfos, NULL, set->pipelines)) VK_UNHANDLED_ERROR();
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "VKPipelines_CreatePipelineSet: composite=%d", composite);
-    return set;
+    VkPipeline pipelines[count];
+    VK_IF_ERROR(device->vkCreateGraphicsPipelines(device->handle, VK_NULL_HANDLE, count,
+                                                  createInfos, NULL, pipelines)) VK_UNHANDLED_ERROR();
+    J2dRlsTraceLn1(J2D_TRACE_INFO, "VKPipelines_CreatePipelines: created %d pipelines", count);
+    for (uint32_t i = 0; i < count; ++i) MAP_AT(renderPassContext->pipelines, descriptors[i]) = pipelines[i];
+    return pipelines[0];
 }
 
-static VkResult VKPipelines_InitRenderPass(VKDevice* device, VKRenderPassContext* renderPassContext) {
+static VkResult VKPipelines_InitRenderPasses(VKDevice* device, VKRenderPassContext* renderPassContext) {
     assert(device != NULL && renderPassContext != NULL);
-    VkAttachmentDescription colorAttachment = {
+    VkAttachmentDescription attachments[] = {{
             .format = renderPassContext->format,
             .samples = VK_SAMPLE_COUNT_1_BIT,
             .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
@@ -299,47 +284,61 @@ static VkResult VKPipelines_InitRenderPass(VKDevice* device, VKRenderPassContext
             .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
             .initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
             .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-    };
+    }, {
+            .format = VK_FORMAT_S8_UINT,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+    }};
     VkAttachmentReference colorReference = {
             .attachment = 0,
             .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    };
+    VkAttachmentReference stencilReference = {
+            .attachment = 1,
+            .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
     };
     VkSubpassDescription subpassDescription = {
             .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
             .colorAttachmentCount = 1,
             .pColorAttachments = &colorReference
     };
-    // TODO this is probably not needed?
-//    // Subpass dependencies for layout transitions
-//    VkSubpassDependency dependency = {
-//            .srcSubpass = VK_SUBPASS_EXTERNAL,
-//            .dstSubpass = 0,
-//            .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-//            .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-//            .srcAccessMask = 0,
-//            .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
-//    };
     VkRenderPassCreateInfo createInfo = {
             .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
             .attachmentCount = 1,
-            .pAttachments = &colorAttachment,
+            .pAttachments = attachments,
             .subpassCount = 1,
             .pSubpasses = &subpassDescription,
             .dependencyCount = 0,
             .pDependencies = NULL
     };
-    return device->vkCreateRenderPass(device->handle, &createInfo, NULL, &renderPassContext->renderPass);
+    for (uint32_t i = 0; i < 2; i++) {
+        if (i == 1) {
+            createInfo.attachmentCount = 2;
+            subpassDescription.pDepthStencilAttachment = &stencilReference;
+        }
+        VkResult result = device->vkCreateRenderPass(device->handle, &createInfo, NULL, &renderPassContext->renderPass[i]);
+        VK_IF_ERROR(result) return result;
+    }
+    return VK_SUCCESS;
 }
 
 static void VKPipelines_DestroyRenderPassContext(VKRenderPassContext* renderPassContext) {
     if (renderPassContext == NULL) return;
     VKDevice* device = renderPassContext->pipelineContext->device;
     assert(device != NULL);
-    for (uint32_t i = 0; i < ARRAY_SIZE(renderPassContext->pipelineSets); i++) {
-        VKPipelines_DestroyPipelineSet(device, renderPassContext->pipelineSets[i]);
+    for (const VKPipelineDescriptor* k = NULL; (k = MAP_NEXT_KEY(renderPassContext->pipelines, k)) != NULL;) {
+        VkPipeline pipeline = *MAP_FIND(renderPassContext->pipelines, *k);
+        device->vkDestroyPipeline(device->handle, pipeline, NULL);
     }
-    ARRAY_FREE(renderPassContext->pipelineSets);
-    device->vkDestroyRenderPass(device->handle, renderPassContext->renderPass, NULL);
+    MAP_FREE(renderPassContext->pipelines);
+    for (uint32_t i = 0; i < 2; i++) {
+        device->vkDestroyRenderPass(device->handle, renderPassContext->renderPass[i], NULL);
+    }
     J2dRlsTraceLn2(J2D_TRACE_INFO, "VKPipelines_DestroyRenderPassContext(%p): format=%d",
                    renderPassContext, renderPassContext->format);
     free(renderPassContext);
@@ -349,13 +348,17 @@ static VKRenderPassContext* VKPipelines_CreateRenderPassContext(VKPipelineContex
     assert(pipelineContext != NULL && pipelineContext->device != NULL);
     VKRenderPassContext* renderPassContext = calloc(1, sizeof(VKRenderPassContext));
     VK_RUNTIME_ASSERT(renderPassContext);
+    HASH_MAP_REHASH(renderPassContext->pipelines, linear_probing,
+                    &pipelineDescriptorEquals, &pipelineDescriptorHash, 0, 10, 0.75);
     renderPassContext->pipelineContext = pipelineContext;
     renderPassContext->format = format;
 
-    VK_IF_ERROR(VKPipelines_InitRenderPass(pipelineContext->device, renderPassContext)) {
+    VK_IF_ERROR(VKPipelines_InitRenderPasses(pipelineContext->device, renderPassContext)) {
         VKPipelines_DestroyRenderPassContext(renderPassContext);
         return NULL;
     }
+
+    // TODO create few common pipelines in advance? Like default shaders for SRC_OVER composite.
 
     J2dRlsTraceLn2(J2D_TRACE_INFO, "VKPipelines_CreateRenderPassContext(%p): format=%d", renderPassContext, format);
     return renderPassContext;
@@ -377,7 +380,7 @@ static VkResult VKPipelines_InitPipelineLayouts(VKDevice* device, VKPipelineCont
             .pushConstantRangeCount = 1,
             .pPushConstantRanges = &pushConstantRange
     };
-    result = device->vkCreatePipelineLayout(device->handle, &createInfo, NULL, &pipelines->pipelineLayout);
+    result = device->vkCreatePipelineLayout(device->handle, &createInfo, NULL, &pipelines->colorPipelineLayout);
     VK_IF_ERROR(result) return result;
 
     VkDescriptorSetLayoutBinding textureLayoutBinding = {
@@ -398,6 +401,26 @@ static VkResult VKPipelines_InitPipelineLayouts(VKDevice* device, VKPipelineCont
     createInfo.setLayoutCount = 1;
     createInfo.pSetLayouts = &pipelines->textureDescriptorSetLayout;
     result = device->vkCreatePipelineLayout(device->handle, &createInfo, NULL, &pipelines->texturePipelineLayout);
+    VK_IF_ERROR(result) return result;
+
+    VkDescriptorSetLayoutBinding maskBufferLayoutBinding = {
+            .binding = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = NULL
+    };
+    VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .bindingCount = 1,
+            .pBindings = &maskBufferLayoutBinding
+    };
+    result = device->vkCreateDescriptorSetLayout(device->handle, &descriptorSetLayoutCreateInfo, NULL, &pipelines->maskFillDescriptorSetLayout);
+    VK_IF_ERROR(result) return result;
+
+    createInfo.setLayoutCount = 1;
+    createInfo.pSetLayouts = &pipelines->maskFillDescriptorSetLayout;
+    result = device->vkCreatePipelineLayout(device->handle, &createInfo, NULL, &pipelines->maskFillPipelineLayout);
     VK_IF_ERROR(result) return result;
 
     return VK_SUCCESS;
@@ -451,9 +474,11 @@ void VKPipelines_DestroyContext(VKPipelineContext* pipelineContext) {
     VKPipelines_DestroyShaders(device, pipelineContext->shaders);
     device->vkDestroySampler(device->handle, pipelineContext->linearRepeatSampler, NULL);
 
-    device->vkDestroyPipelineLayout(device->handle, pipelineContext->pipelineLayout, NULL);
+    device->vkDestroyPipelineLayout(device->handle, pipelineContext->colorPipelineLayout, NULL);
     device->vkDestroyPipelineLayout(device->handle, pipelineContext->texturePipelineLayout, NULL);
     device->vkDestroyDescriptorSetLayout(device->handle, pipelineContext->textureDescriptorSetLayout, NULL);
+    device->vkDestroyPipelineLayout(device->handle, pipelineContext->maskFillPipelineLayout, NULL);
+    device->vkDestroyDescriptorSetLayout(device->handle, pipelineContext->maskFillDescriptorSetLayout, NULL);
 
     J2dRlsTraceLn1(J2D_TRACE_INFO, "VKPipelines_DestroyContext(%p)", pipelineContext);
     free(pipelineContext);
@@ -468,20 +493,15 @@ VKRenderPassContext* VKPipelines_GetRenderPassContext(VKPipelineContext* pipelin
     }
     // Not found, create.
     VKRenderPassContext* renderPassContext = VKPipelines_CreateRenderPassContext(pipelineContext, format);
-    ARRAY_PUSH_BACK(pipelineContext->renderPassContexts, renderPassContext);
+    ARRAY_PUSH_BACK(pipelineContext->renderPassContexts) = renderPassContext;
     return renderPassContext;
 }
 
-VkPipeline VKPipelines_GetPipeline(VKRenderPassContext* renderPassContext, VKCompositeMode composite, VKPipeline pipeline) {
+VkPipeline VKPipelines_GetPipeline(VKRenderPassContext* renderPassContext, VKPipelineDescriptor descriptor) {
     assert(renderPassContext != NULL);
-    assert(composite < COMPOSITE_COUNT); // We could append custom composites after that index.
-    assert(pipeline < PIPELINE_COUNT); // We could append custom pipelines after that index.
-    // Currently, our pipelines map to composite modes 1-to-1, but this may change in future when we'll add more states.
-    uint32_t setIndex = (uint32_t) composite;
-
-    while (ARRAY_SIZE(renderPassContext->pipelineSets) <= setIndex) ARRAY_PUSH_BACK(renderPassContext->pipelineSets, NULL);
-    if (renderPassContext->pipelineSets[setIndex] == NULL) {
-        renderPassContext->pipelineSets[setIndex] = VKPipelines_CreatePipelineSet(renderPassContext, composite);
+    VkPipeline pipeline = MAP_AT(renderPassContext->pipelines, descriptor);
+    if (pipeline == VK_NULL_HANDLE) {
+        pipeline = VKPipelines_CreatePipelines(renderPassContext, 1, &descriptor);
     }
-    return renderPassContext->pipelineSets[setIndex]->pipelines[pipeline];
+    return pipeline;
 }
