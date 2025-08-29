@@ -22,7 +22,7 @@
 // questions.
 
 #include "VKUtil.h"
-#include "VKBase.h"
+#include "VKEnv.h"
 #include "VKPipelines.h"
 
 #define INCLUDE_BYTECODE
@@ -44,6 +44,8 @@ static size_t pipelineDescriptorHash(const void* ptr) {
     const VKPipelineDescriptor* d = ptr;
     uint32_t h = 0U;
     hash(&h, d->stencilMode);
+    hash(&h, d->dstOpaque);
+    hash(&h, d->inAlphaType);
     hash(&h, d->composite);
     hash(&h, d->shader);
     hash(&h, d->topology);
@@ -52,6 +54,8 @@ static size_t pipelineDescriptorHash(const void* ptr) {
 static bool pipelineDescriptorEquals(const void* ap, const void* bp) {
     const VKPipelineDescriptor *a = ap, *b = bp;
     return a->stencilMode == b->stencilMode &&
+             a->dstOpaque == b->dstOpaque &&
+           a->inAlphaType == b->inAlphaType &&
              a->composite == b->composite &&
                 a->shader == b->shader &&
               a->topology == b->topology;
@@ -123,31 +127,49 @@ for (uint32_t i = 0; i < SARRAY_COUNT_OF(INPUT_STATE_ATTRIBUTES_##NAME); i++) { 
         VKUtil_GetFormatGroup(INPUT_STATE_ATTRIBUTE_FORMATS_##NAME[i]).bytes;              \
 } if (sizeof(TYPE) != INPUT_STATE_BINDING_SIZE_##NAME) VK_FATAL_ERROR("Vertex size mismatch for input state " #NAME)
 
-static VkPipeline VKPipelines_CreatePipelines(VKRenderPassContext* renderPassContext, uint32_t count,
-                                              const VKPipelineDescriptor* descriptors) {
+static VKPipelineInfo VKPipelines_CreatePipelines(VKRenderPassContext* renderPassContext, uint32_t count,
+                                                  const VKPipelineDescriptor* descriptors) {
     assert(renderPassContext != NULL && renderPassContext->pipelineContext != NULL);
     assert(count > 0 && descriptors != NULL);
     VKPipelineContext* pipelineContext = renderPassContext->pipelineContext;
     VKDevice* device = pipelineContext->device;
     VKShaders* shaders = pipelineContext->shaders;
-    VKComposites* composites = &VKGE_graphics_environment()->composites;
+    VKComposites* composites = &VKEnv_GetInstance()->composites;
 
+    VKPipelineInfo pipelineInfos[count];
     // Setup pipeline creation structs.
     static const uint32_t MAX_DYNAMIC_STATES = 2;
     typedef struct {
         VkPipelineShaderStageCreateInfo createInfos[2]; // vert + frag
     } ShaderStages;
     ShaderStages stages[count];
+    typedef struct {
+        VkSpecializationInfo info;
+        VkSpecializationMapEntry entries[2];
+        uint64_t data[1];
+    } Specialization;
+    Specialization specializations[count][2];
     VkPipelineInputAssemblyStateCreateInfo inputAssemblyStates[count];
     VkPipelineDepthStencilStateCreateInfo depthStencilStates[count];
     VkPipelineDynamicStateCreateInfo dynamicStates[count];
     VkDynamicState dynamicStateValues[count][MAX_DYNAMIC_STATES];
     VkGraphicsPipelineCreateInfo createInfos[count];
     for (uint32_t i = 0; i < count; i++) {
+        const VKCompositeState* compositeState =
+            VKComposites_GetState(composites, descriptors[i].composite, descriptors[i].dstOpaque);
+        pipelineInfos[i].outAlphaType = compositeState->outAlphaType;
         // Init default pipeline state. Some members are left uninitialized:
         // - pStages (but stageCount is set to 2)
         // - pVertexInputState
         // - createInfo.layout
+        for (uint32_t j = 0; j < SARRAY_COUNT_OF(specializations[i]); j++) {
+            specializations[i][j].info = (VkSpecializationInfo) {
+                .mapEntryCount = 0,
+                .pMapEntries = specializations[i][j].entries,
+                .dataSize = 0,
+                .pData = specializations[i][j].data
+            };
+        }
         inputAssemblyStates[i] = (VkPipelineInputAssemblyStateCreateInfo) {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
             .topology = descriptors[i].topology
@@ -201,7 +223,7 @@ static VkPipeline VKPipelines_CreatePipelines(VKRenderPassContext* renderPassCon
             .pRasterizationState = &rasterizationState,
             .pMultisampleState = &multisampleState,
             .pDepthStencilState = &depthStencilStates[i],
-            .pColorBlendState = &VKComposites_GetState(composites, descriptors[i].composite)->blendState,
+            .pColorBlendState = &compositeState->blendState,
             .pDynamicState = &dynamicStates[i],
             .renderPass = renderPassContext->renderPass[descriptors[i].stencilMode != STENCIL_MODE_NONE],
             .subpass = 0,
@@ -233,6 +255,15 @@ static VkPipeline VKPipelines_CreatePipelines(VKRenderPassContext* renderPassCon
             createInfos[i].pVertexInputState = &INPUT_STATE_BLIT;
             createInfos[i].layout = pipelineContext->texturePipelineLayout;
             stages[i] = (ShaderStages) {{ shaders->blit_vert, shaders->blit_frag }};
+            // Alpha conversion specialization.
+            uint32_t* spec = (uint32_t*) specializations[i][1].data;
+            spec[0] = descriptors[i].inAlphaType;
+            spec[1] = pipelineInfos[i].outAlphaType;
+            specializations[i][1].info.dataSize = 8;
+            specializations[i][1].entries[0] = (VkSpecializationMapEntry) { 0, 0, 4 };
+            specializations[i][1].entries[1] = (VkSpecializationMapEntry) { 1, 4, 4 };
+            specializations[i][1].info.mapEntryCount = 2;
+            stages[i].createInfos[1].pSpecializationInfo = &specializations[i][1].info;
             break;
         case SHADER_CLIP:
             createInfos[i].pVertexInputState = &INPUT_STATE_CLIP;
@@ -259,8 +290,8 @@ static VkPipeline VKPipelines_CreatePipelines(VKRenderPassContext* renderPassCon
             VK_FATAL_ERROR("Cannot create pipeline, unknown shader requested!");
         }
         assert(createInfos[i].pDynamicState->dynamicStateCount <= MAX_DYNAMIC_STATES);
-        J2dRlsTraceLn4(J2D_TRACE_INFO, "VKPipelines_CreatePipelines: stencilMode=%d, composite=%d, shader=%d, topology=%d",
-                descriptors[i].stencilMode, descriptors[i].composite, descriptors[i].shader, descriptors[i].topology);
+        J2dRlsTraceLn5(J2D_TRACE_INFO, "VKPipelines_CreatePipelines: stencilMode=%d, dstOpaque=%d, composite=%d, shader=%d, topology=%d",
+                descriptors[i].stencilMode, descriptors[i].dstOpaque, descriptors[i].composite, descriptors[i].shader, descriptors[i].topology);
     }
 
     // Create pipelines.
@@ -269,8 +300,11 @@ static VkPipeline VKPipelines_CreatePipelines(VKRenderPassContext* renderPassCon
     VK_IF_ERROR(device->vkCreateGraphicsPipelines(device->handle, VK_NULL_HANDLE, count,
                                                   createInfos, NULL, pipelines)) VK_UNHANDLED_ERROR();
     J2dRlsTraceLn1(J2D_TRACE_INFO, "VKPipelines_CreatePipelines: created %d pipelines", count);
-    for (uint32_t i = 0; i < count; ++i) MAP_AT(renderPassContext->pipelines, descriptors[i]) = pipelines[i];
-    return pipelines[0];
+    for (uint32_t i = 0; i < count; i++) {
+        pipelineInfos[i].pipeline = pipelines[i];
+        MAP_AT(renderPassContext->pipelines, descriptors[i]) = pipelineInfos[i];
+    }
+    return pipelineInfos[0];
 }
 
 static VkResult VKPipelines_InitRenderPasses(VKDevice* device, VKRenderPassContext* renderPassContext) {
@@ -332,8 +366,8 @@ static void VKPipelines_DestroyRenderPassContext(VKRenderPassContext* renderPass
     VKDevice* device = renderPassContext->pipelineContext->device;
     assert(device != NULL);
     for (const VKPipelineDescriptor* k = NULL; (k = MAP_NEXT_KEY(renderPassContext->pipelines, k)) != NULL;) {
-        VkPipeline pipeline = *MAP_FIND(renderPassContext->pipelines, *k);
-        device->vkDestroyPipeline(device->handle, pipeline, NULL);
+        const VKPipelineInfo* info = MAP_FIND(renderPassContext->pipelines, *k);
+        device->vkDestroyPipeline(device->handle, info->pipeline, NULL);
     }
     MAP_FREE(renderPassContext->pipelines);
     for (uint32_t i = 0; i < 2; i++) {
@@ -372,7 +406,7 @@ static VkResult VKPipelines_InitPipelineLayouts(VKDevice* device, VKPipelineCont
     VkPushConstantRange pushConstantRange = {
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
             .offset = 0,
-            .size = sizeof(float) * 2
+            .size = sizeof(VKTransform)
     };
     VkPipelineLayoutCreateInfo createInfo = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
@@ -385,7 +419,7 @@ static VkResult VKPipelines_InitPipelineLayouts(VKDevice* device, VKPipelineCont
 
     VkDescriptorSetLayoutBinding textureLayoutBinding = {
             .binding = 0,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             .descriptorCount = 1,
             .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
             .pImmutableSamplers = NULL
@@ -398,8 +432,12 @@ static VkResult VKPipelines_InitPipelineLayouts(VKDevice* device, VKPipelineCont
     result = device->vkCreateDescriptorSetLayout(device->handle, &textureDescriptorSetLayoutCreateInfo, NULL, &pipelines->textureDescriptorSetLayout);
     VK_IF_ERROR(result) return result;
 
-    createInfo.setLayoutCount = 1;
-    createInfo.pSetLayouts = &pipelines->textureDescriptorSetLayout;
+    VkDescriptorSetLayout textureDescriptorSetLayouts[] = {
+        pipelines->textureDescriptorSetLayout,
+        pipelines->samplers.descriptorSetLayout
+    };
+    createInfo.setLayoutCount = 2;
+    createInfo.pSetLayouts = textureDescriptorSetLayouts;
     result = device->vkCreatePipelineLayout(device->handle, &createInfo, NULL, &pipelines->texturePipelineLayout);
     VK_IF_ERROR(result) return result;
 
@@ -432,6 +470,12 @@ VKPipelineContext* VKPipelines_CreateContext(VKDevice* device) {
     VK_RUNTIME_ASSERT(pipelineContext);
     pipelineContext->device = device;
 
+    pipelineContext->samplers = VKSamplers_Create(device);
+    if (pipelineContext->samplers.descriptorPool == VK_NULL_HANDLE) {
+        VKPipelines_DestroyContext(pipelineContext);
+        return NULL;
+    }
+
     pipelineContext->shaders = VKPipelines_CreateShaders(device);
     if (pipelineContext->shaders == NULL) {
         VKPipelines_DestroyContext(pipelineContext);
@@ -439,20 +483,6 @@ VKPipelineContext* VKPipelines_CreateContext(VKDevice* device) {
     }
 
     VK_IF_ERROR(VKPipelines_InitPipelineLayouts(device, pipelineContext)) {
-        VKPipelines_DestroyContext(pipelineContext);
-        return NULL;
-    }
-
-    // Create sampler.
-    VkSamplerCreateInfo samplerCreateInfo = {
-            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-            .magFilter = VK_FILTER_LINEAR,
-            .minFilter = VK_FILTER_LINEAR,
-            .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT
-    };
-    VK_IF_ERROR(device->vkCreateSampler(device->handle, &samplerCreateInfo, NULL, &pipelineContext->linearRepeatSampler)) {
         VKPipelines_DestroyContext(pipelineContext);
         return NULL;
     }
@@ -472,13 +502,14 @@ void VKPipelines_DestroyContext(VKPipelineContext* pipelineContext) {
     ARRAY_FREE(pipelineContext->renderPassContexts);
 
     VKPipelines_DestroyShaders(device, pipelineContext->shaders);
-    device->vkDestroySampler(device->handle, pipelineContext->linearRepeatSampler, NULL);
 
     device->vkDestroyPipelineLayout(device->handle, pipelineContext->colorPipelineLayout, NULL);
     device->vkDestroyPipelineLayout(device->handle, pipelineContext->texturePipelineLayout, NULL);
     device->vkDestroyDescriptorSetLayout(device->handle, pipelineContext->textureDescriptorSetLayout, NULL);
     device->vkDestroyPipelineLayout(device->handle, pipelineContext->maskFillPipelineLayout, NULL);
     device->vkDestroyDescriptorSetLayout(device->handle, pipelineContext->maskFillDescriptorSetLayout, NULL);
+
+    VKSamplers_Destroy(device, pipelineContext->samplers);
 
     J2dRlsTraceLn1(J2D_TRACE_INFO, "VKPipelines_DestroyContext(%p)", pipelineContext);
     free(pipelineContext);
@@ -497,11 +528,13 @@ VKRenderPassContext* VKPipelines_GetRenderPassContext(VKPipelineContext* pipelin
     return renderPassContext;
 }
 
-VkPipeline VKPipelines_GetPipeline(VKRenderPassContext* renderPassContext, VKPipelineDescriptor descriptor) {
+// static VKPipelineInfo VKPipelines_
+
+VKPipelineInfo VKPipelines_GetPipelineInfo(VKRenderPassContext* renderPassContext, VKPipelineDescriptor descriptor) {
     assert(renderPassContext != NULL);
-    VkPipeline pipeline = MAP_AT(renderPassContext->pipelines, descriptor);
-    if (pipeline == VK_NULL_HANDLE) {
-        pipeline = VKPipelines_CreatePipelines(renderPassContext, 1, &descriptor);
+    VKPipelineInfo info = MAP_AT(renderPassContext->pipelines, descriptor);
+    if (info.pipeline == VK_NULL_HANDLE) {
+        info = VKPipelines_CreatePipelines(renderPassContext, 1, &descriptor);
     }
-    return pipeline;
+    return info;
 }

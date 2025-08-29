@@ -25,36 +25,33 @@
 
 package sun.java2d.vulkan;
 
-import java.awt.GraphicsConfiguration;
 import java.awt.Image;
 import java.awt.Rectangle;
-import java.awt.image.ColorModel;
+import java.awt.image.VolatileImage;
+
 import sun.java2d.SurfaceData;
-import sun.java2d.pipe.BufferedContext;
 
 /**
  * SurfaceData object representing an off-screen buffer
  */
 public class VKOffScreenSurfaceData extends VKSurfaceData {
-    private final Image offscreenImage;
-    private native void initOps(int width, int height);
 
-    public VKOffScreenSurfaceData(VKGraphicsConfig gc, Image image, ColorModel cm,
-                                  int type, int width, int height)
-    {
-        super(gc, cm, type, width, height);
+    private final Image offscreenImage;
+    private final int userWidth, userHeight; // In logical units.
+
+    private native void initOps(int format);
+
+    public VKOffScreenSurfaceData(Image image, VKFormat format, int transparency, int type, int width, int height) {
+        super(format, transparency, type);
+        this.userWidth = width;
+        this.userHeight = height;
         offscreenImage = image;
-        initOps(width, height);
+        initOps(format.getValue(transparency));
     }
 
     @Override
     public SurfaceData getReplacement() {
         return restoreContents(offscreenImage);
-    }
-
-    @Override
-    public GraphicsConfiguration getDeviceConfiguration() {
-        return null;
     }
 
     @Override
@@ -76,13 +73,13 @@ public class VKOffScreenSurfaceData extends VKSurfaceData {
     }
 
     @Override
-    public BufferedContext getContext() {
-        return getGraphicsConfig().getContext();
-    }
-
-
-    @Override
-    public boolean isOnScreen() {
-        return false;
+    protected int revalidate(VKGraphicsConfig gc) {
+        int result = super.revalidate(gc);
+        if (result != VolatileImage.IMAGE_INCOMPATIBLE) {
+            scale = gc.getScale();
+            width = (int) Math.ceil(scale * userWidth);
+            height = (int) Math.ceil(scale * userHeight);
+        }
+        return result;
     }
 }

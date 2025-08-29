@@ -24,12 +24,11 @@
  * questions.
  */
 
-#ifndef HEADLESS
-
 #include "VKUtil.h"
-#include "VKBase.h"
+#include "VKRenderer.h"
 #include "VKSurfaceData.h"
 #include "VKImage.h"
+#include "VKEnv.h"
 
 /**
  * Release VKSDOps resources & reset to initial state.
@@ -37,8 +36,11 @@
 static void VKSD_ResetImageSurface(VKSDOps* vksdo) {
     if (vksdo == NULL) return;
 
+    J2dRlsTraceLn1(J2D_TRACE_INFO, "VKSD_ResetImageSurface(%p)", vksdo);
+
     // DestroyRenderPass also waits while the surface resources are being used by device.
     VKRenderer_DestroyRenderPass(vksdo);
+    vksdo->lastTimestamp = 0;
 
     if (vksdo->device != NULL) {
         VKImage_Destroy(vksdo->device, vksdo->stencil);
@@ -59,8 +61,8 @@ void VKSD_ResetSurface(VKSDOps* vksdo) {
             vkwinsdo->vksdOps.device->vkDestroySwapchainKHR(vkwinsdo->vksdOps.device->handle, vkwinsdo->swapchain, NULL);
         }
         if (vkwinsdo->surface != VK_NULL_HANDLE) {
-            VKGraphicsEnvironment* ge = VKGE_graphics_environment();
-            if (ge != NULL) ge->vkDestroySurfaceKHR(ge->vkInstance, vkwinsdo->surface, NULL);
+            VKEnv* vk = VKEnv_GetInstance();
+            vk->vkDestroySurfaceKHR(vk->instance, vkwinsdo->surface, NULL);
         }
         vkwinsdo->swapchain = VK_NULL_HANDLE;
         vkwinsdo->surface = VK_NULL_HANDLE;
@@ -73,8 +75,9 @@ static void VKSD_FindImageSurfaceMemoryType(VKMemoryRequirements* requirements) 
 }
 
 VkBool32 VKSD_ConfigureImageSurface(VKSDOps* vksdo) {
-    // Initialize the device. currentDevice can be changed on the fly, and we must reconfigure surfaces accordingly.
-    VKDevice* device = VKGE_graphics_environment()->currentDevice;
+    // Initialize the device. current device can be changed on the fly, and we must reconfigure surfaces accordingly.
+    VKDevice* device = vksdo->requestedDevice;
+    if (device == NULL) return VK_FALSE;
     if (device != vksdo->device) {
         VKSD_ResetImageSurface(vksdo);
         vksdo->device = device;
@@ -84,10 +87,9 @@ VkBool32 VKSD_ConfigureImageSurface(VKSDOps* vksdo) {
     if (vksdo->requestedExtent.width > 0 && vksdo->requestedExtent.height > 0 && (vksdo->image == NULL ||
             vksdo->requestedExtent.width != vksdo->image->extent.width ||
             vksdo->requestedExtent.height != vksdo->image->extent.height)) {
-        // VK_FORMAT_B8G8R8A8_UNORM is the most widely-supported format for our use.
         // Currently, we only support *_SRGB and *_UNORM formats,
         // as other types may not be trivial to alias for logicOp rendering.
-        VkFormat format = VK_FORMAT_B8G8R8A8_UNORM;
+        VkFormat format = (VkFormat) (vksdo->drawableFormat & ~VKSD_FORMAT_OPAQUE_BIT);
 
         VKImage* image = VKImage_Create(device, vksdo->requestedExtent.width, vksdo->requestedExtent.height,
                                         0, format, VK_IMAGE_TILING_OPTIMAL,
@@ -137,12 +139,12 @@ VkBool32 VKSD_ConfigureWindowSurface(VKWinSDOps* vkwinsdo) {
         return VK_FALSE;
     }
 
-    VKGraphicsEnvironment* ge = VKGE_graphics_environment();
+    VKEnv* vk = VKEnv_GetInstance();
     VKDevice* device = vkwinsdo->vksdOps.device;
     VkPhysicalDevice physicalDevice = device->physicalDevice;
 
     VkSurfaceCapabilitiesKHR capabilities;
-    VK_IF_ERROR(ge->vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, vkwinsdo->surface, &capabilities)) {
+    VK_IF_ERROR(vk->vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, vkwinsdo->surface, &capabilities)) {
         return VK_FALSE;
     }
 
@@ -188,11 +190,11 @@ VkBool32 VKSD_ConfigureWindowSurface(VKWinSDOps* vkwinsdo) {
     } else compositeAlpha = (VkCompositeAlphaFlagBitsKHR) capabilities.supportedCompositeAlpha;
 
     uint32_t formatCount;
-    VK_IF_ERROR(ge->vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, vkwinsdo->surface, &formatCount, NULL)) {
+    VK_IF_ERROR(vk->vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, vkwinsdo->surface, &formatCount, NULL)) {
         return VK_FALSE;
     }
     VkSurfaceFormatKHR formats[formatCount];
-    VK_IF_ERROR(ge->vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, vkwinsdo->surface, &formatCount, formats)) {
+    VK_IF_ERROR(vk->vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, vkwinsdo->surface, &formatCount, formats)) {
         return VK_FALSE;
     }
 
@@ -203,13 +205,8 @@ VkBool32 VKSD_ConfigureWindowSurface(VKWinSDOps* vkwinsdo) {
         // We draw with sRGB colors (see VKUtil_DecodeJavaColor()), so we don't want Vulkan to do color space
         // conversions when drawing to surface. We use *_UNORM formats, so that colors are written "as is".
         // With VK_COLOR_SPACE_SRGB_NONLINEAR_KHR these colors will be interpreted by presentation engine as sRGB.
-        if (formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR && (
-                formats[i].format == VK_FORMAT_A8B8G8R8_UNORM_PACK32 ||
-                formats[i].format == VK_FORMAT_B8G8R8A8_UNORM ||
-                formats[i].format == VK_FORMAT_R8G8B8A8_UNORM ||
-                formats[i].format == VK_FORMAT_B8G8R8_UNORM ||
-                formats[i].format == VK_FORMAT_R8G8B8_UNORM
-            )) {
+        if (formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR &&
+            formats[i].format == vkwinsdo->vksdOps.image->format) {
             format = &formats[i];
         }
     }
@@ -219,11 +216,11 @@ VkBool32 VKSD_ConfigureWindowSurface(VKWinSDOps* vkwinsdo) {
     }
 
     uint32_t presentModeCount;
-    VK_IF_ERROR(ge->vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, vkwinsdo->surface, &presentModeCount, NULL)) {
+    VK_IF_ERROR(vk->vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, vkwinsdo->surface, &presentModeCount, NULL)) {
         return VK_FALSE;
     }
     VkPresentModeKHR presentModes[presentModeCount];
-    VK_IF_ERROR(ge->vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, vkwinsdo->surface, &presentModeCount, presentModes)) {
+    VK_IF_ERROR(vk->vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, vkwinsdo->surface, &presentModeCount, presentModes)) {
         return VK_FALSE;
     }
     // FIFO mode is guaranteed to be supported.
@@ -262,7 +259,7 @@ VkBool32 VKSD_ConfigureWindowSurface(VKWinSDOps* vkwinsdo) {
             .compositeAlpha = compositeAlpha,
             .presentMode = presentMode,
             .clipped = VK_TRUE,
-            .oldSwapchain = vkwinsdo->swapchain
+            .oldSwapchain = vkwinsdo->swapchainDevice == device ? vkwinsdo->swapchain : NULL
     };
 
     VK_IF_ERROR(device->vkCreateSwapchainKHR(device->handle, &createInfoKhr, NULL, &swapchain)) {
@@ -275,7 +272,7 @@ VkBool32 VKSD_ConfigureWindowSurface(VKWinSDOps* vkwinsdo) {
     if (vkwinsdo->swapchain != VK_NULL_HANDLE) {
         // Destroy old swapchain.
         // TODO is it possible that old swapchain is still being presented, can we destroy it right now?
-        device->vkDestroySwapchainKHR(device->handle, vkwinsdo->swapchain, NULL);
+        device->vkDestroySwapchainKHR(vkwinsdo->swapchainDevice->handle, vkwinsdo->swapchain, NULL);
         J2dRlsTraceLn1(J2D_TRACE_INFO, "VKSD_ConfigureWindowSurface(%p): old swapchain destroyed", vkwinsdo);
     }
     vkwinsdo->swapchain = swapchain;
@@ -294,23 +291,61 @@ VkBool32 VKSD_ConfigureWindowSurface(VKWinSDOps* vkwinsdo) {
     return VK_TRUE;
 }
 
+static void VKSD_OnDispose(JNIEnv* env, SurfaceDataOps* ops) {
+    VKSD_ResetSurface((VKSDOps*) ops);
+}
+
+JNIEXPORT VKSDOps* VKSD_CreateSurface(JNIEnv* env, jobject vksd, jint type, jint format, jint backgroundRGB,
+                                      VKWinSD_SurfaceResizeCallback resizeCallback) {
+    VKSDOps* sd = (VKSDOps*)SurfaceData_InitOps(env, vksd,
+        type == VKSD_WINDOW ? sizeof(VKWinSDOps) : sizeof(VKSDOps));
+    J2dTraceLn3(J2D_TRACE_INFO,
+                "VKSD_CreateSurface(%p): type=%d, format=%d", sd, type, format & ~VKSD_FORMAT_OPAQUE_BIT);
+    if (sd == NULL) {
+        JNU_ThrowOutOfMemoryError(env, "Initialization of VKSDOps failed");
+        return NULL;
+    }
+    sd->sdOps.Dispose = VKSD_OnDispose;
+    sd->drawableType = type;
+    sd->drawableFormat = format;
+    sd->background = VKUtil_DecodeJavaColor(backgroundRGB, ALPHA_TYPE_STRAIGHT);
+    sd->lastTimestamp = 0;
+    if (type == VKSD_WINDOW) {
+        VKWinSDOps* winSD = (VKWinSDOps*) sd;
+        winSD->resizeCallback = resizeCallback;
+    }
+    VKSD_ResetSurface(sd);
+    return sd;
+}
+
+JNIEXPORT void VKSD_InitWindowSurface(JNIEnv* env, jobject vksd, VKWinSD_SurfaceInitCallback initCallback, void* data) {
+    VKWinSDOps* sd = (VKWinSDOps*)SurfaceData_GetOps(env, vksd);
+    J2dRlsTraceLn1(J2D_TRACE_INFO, "VKSD_InitWindowSurface(%p)", sd);
+
+    if (sd == NULL) {
+        J2dRlsTraceLn1(J2D_TRACE_ERROR, "VKSD_InitWindowSurface(%p): VKWinSDOps is NULL", vksd);
+        VK_UNHANDLED_ERROR();
+    }
+
+    if (sd->surface != VK_NULL_HANDLE) {
+        VKSD_ResetSurface(&sd->vksdOps);
+        J2dRlsTraceLn1(J2D_TRACE_INFO, "VKSD_InitWindowSurface(%p): surface reset", vksd);
+    }
+
+    initCallback(sd, data);
+
+    if (sd->surface != VK_NULL_HANDLE) {
+        J2dRlsTraceLn1(J2D_TRACE_INFO, "VKSD_InitWindowSurface(%p): surface created", vksd);
+    }
+    // Swapchain will be created later after CONFIGURE_SURFACE.
+}
+
 /*
  * Class:     sun_java2d_vulkan_VKOffScreenSurfaceData
  * Method:    initOps
- * Signature: (II)V
+ * Signature: ()V
  */
-JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKOffScreenSurfaceData_initOps
-        (JNIEnv *env, jobject vksd, jint width, jint height) {
-    VKSDOps * sd = (VKSDOps*)SurfaceData_InitOps(env, vksd, sizeof(VKSDOps));
-    J2dTraceLn1(J2D_TRACE_VERBOSE, "VKOffScreenSurfaceData_initOps(%p)", sd);
-    if (sd == NULL) {
-        JNU_ThrowOutOfMemoryError(env, "Initialization of SurfaceData failed.");
-        return;
-    }
-    sd->drawableType = VKSD_RT_TEXTURE;
-    sd->background = VKUtil_DecodeJavaColor(0);
-    VKSD_ResetSurface(sd);
-    VKRenderer_ConfigureSurface(sd, (VkExtent2D){width, height});
+JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKOffScreenSurfaceData_initOps(JNIEnv* env, jobject vksd, jint format) {
+    VKSD_CreateSurface(env, vksd, VKSD_RT_TEXTURE, format, 0, NULL);
 }
 
-#endif /* !HEADLESS */

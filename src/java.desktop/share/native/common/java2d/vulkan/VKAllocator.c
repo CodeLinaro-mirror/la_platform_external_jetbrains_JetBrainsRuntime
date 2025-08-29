@@ -26,8 +26,8 @@
 
 #include <assert.h>
 #include "VKUtil.h"
-#include "VKBase.h"
 #include "VKAllocator.h"
+#include "VKEnv.h"
 
 /**
  * Block size is a minimum allocation size.
@@ -165,9 +165,11 @@ VKMemoryRequirements VKAllocator_ImageRequirements(VKAllocator* allocator, VkIma
     return r;
 }
 
-void VKAllocator_PadToAlignment(VKMemoryRequirements* requirements) {
+void VKAllocator_PadToAlignment(VKAllocator* allocator, VKMemoryRequirements* requirements) {
+    assert(allocator != NULL);
     assert(requirements != NULL);
     VkMemoryRequirements* t = &requirements->requirements.memoryRequirements;
+    if (t->alignment < allocator->device->nonCoherentAtomSize) t->alignment = allocator->device->nonCoherentAtomSize;
     t->size = ((t->size + t->alignment - 1) / t->alignment) * t->alignment;
     requirements->dedicatedRequirements.requiresDedicatedAllocation = VK_FALSE;
     requirements->dedicatedRequirements.prefersDedicatedAllocation = VK_FALSE;
@@ -562,8 +564,7 @@ void VKAllocator_Invalidate(VKAllocator* allocator, VKMemory memory, VkDeviceSiz
 }
 
 VKAllocator* VKAllocator_Create(VKDevice* device) {
-    VKGraphicsEnvironment* ge = VKGE_graphics_environment();
-    VKAllocator* allocator = (VKAllocator*) calloc(1, sizeof(VKAllocator));
+    VKAllocator* allocator = calloc(1, sizeof(VKAllocator));
     allocator->device = device;
     allocator->freePageIndex = NO_PAGE_INDEX;
     for (uint32_t i = 0; i < VK_MAX_MEMORY_TYPES; i++) {
@@ -572,7 +573,7 @@ VKAllocator* VKAllocator_Create(VKDevice* device) {
                 .allocationLevelTracker = MIN_SHARED_PAGE_LEVEL * 2
         };
     }
-    ge->vkGetPhysicalDeviceMemoryProperties(device->physicalDevice, &allocator->memoryProperties);
+    VKEnv_GetInstance()->vkGetPhysicalDeviceMemoryProperties(device->physicalDevice, &allocator->memoryProperties);
 
     J2dRlsTraceLn1(J2D_TRACE_INFO, "VKAllocator_Create: allocator=%p", allocator);
     return allocator;

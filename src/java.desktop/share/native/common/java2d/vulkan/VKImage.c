@@ -27,35 +27,38 @@
 #include <assert.h>
 #include "VKUtil.h"
 #include "VKAllocator.h"
-#include "VKBase.h"
 #include "VKBuffer.h"
+#include "VKDevice.h"
 #include "VKImage.h"
 #include "VKRenderer.h"
-#include "VKSurfaceData.h"
 
+static size_t viewKeyHash(const void* ptr) {
+    const VKImageViewKey* k = ptr;
+    return (size_t) k->format | ((size_t) k->swizzle << 32);
+}
+static bool viewKeyEquals(const void* ap, const void* bp) {
+    const VKImageViewKey *a = ap, *b = bp;
+    return a->format == b->format && a->swizzle == b->swizzle;
+}
 
-static VkBool32 VKImage_CreateView(VKDevice* device, VKImage* image) {
+static VkImageView VKImage_CreateView(VKDevice* device, VkImage image, VkFormat format, VkComponentMapping swizzle) {
     VkImageViewCreateInfo viewInfo = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .image = image->handle,
+            .image = image,
             .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = image->format,
-            .subresourceRange.aspectMask = VKImage_GetAspect(image),
+            .format = format,
+            .components = swizzle,
+            .subresourceRange.aspectMask = VKUtil_GetFormatGroup(format).aspect,
             .subresourceRange.baseMipLevel = 0,
             .subresourceRange.levelCount = 1,
             .subresourceRange.baseArrayLayer = 0,
             .subresourceRange.layerCount = 1,
     };
-
-    VK_IF_ERROR(device->vkCreateImageView(device->handle, &viewInfo, NULL, &image->view)) {
-        return VK_FALSE;
+    VkImageView view;
+    VK_IF_ERROR(device->vkCreateImageView(device->handle, &viewInfo, NULL, &view)) {
+        return VK_NULL_HANDLE;
     }
-    return VK_TRUE;
-}
-
-VkImageAspectFlagBits VKImage_GetAspect(VKImage* image) {
-    return VKUtil_GetFormatGroup(image->format).bytes == 0 ? // Unknown format group means stencil.
-           VK_IMAGE_ASPECT_STENCIL_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+    return view;
 }
 
 VKImage* VKImage_Create(VKDevice* device, uint32_t width, uint32_t height,
@@ -106,10 +109,7 @@ VKImage* VKImage_Create(VKDevice* device, uint32_t width, uint32_t height,
         return NULL;
     }
 
-    if (!VKImage_CreateView(device, image)) {
-        VKImage_Destroy(device, image);
-        return NULL;
-    }
+    HASH_MAP_REHASH(image->viewMap, linear_probing, &viewKeyEquals, &viewKeyHash, 1, 10, 0.75);
 
     return image;
 }
@@ -142,8 +142,78 @@ void VKImage_LoadBuffer(VKDevice* device, VKImage* image, VKBuffer* buffer,
 void VKImage_Destroy(VKDevice* device, VKImage* image) {
     assert(device != NULL && device->allocator != NULL);
     if (image == NULL) return;
-    device->vkDestroyImageView(device->handle, image->view, NULL);
+    if (image->viewMap != NULL) {
+        for (const VKImageViewKey* k = NULL; (k = MAP_NEXT_KEY(image->viewMap, k)) != NULL;) {
+            const VKImageViewInfo* viewInfo = MAP_FIND(image->viewMap, *k);
+            if (viewInfo->descriptorSet != VK_NULL_HANDLE) {
+                device->vkFreeDescriptorSets(device->handle, viewInfo->descriptorPool, 1, &viewInfo->descriptorSet);
+            }
+            device->vkDestroyImageView(device->handle, viewInfo->view, NULL);
+        }
+        MAP_FREE(image->viewMap);
+    }
     device->vkDestroyImage(device->handle, image->handle, NULL);
     VKAllocator_Free(device->allocator, image->memory);
     free(image);
+}
+
+static VKImageViewInfo* VKImage_GetViewInfo(VKDevice* device, VKImage* image, VkFormat format, VKPackedSwizzle swizzle) {
+    VKImageViewKey key = { format, swizzle };
+    VKImageViewInfo* viewInfo = MAP_FIND(image->viewMap, key);
+    if (viewInfo == NULL || viewInfo->view == VK_NULL_HANDLE) {
+        if (viewInfo == NULL) viewInfo = &MAP_AT(image->viewMap, key);
+        viewInfo->view = VKImage_CreateView(device, image->handle, format, VK_UNPACK_SWIZZLE(swizzle));
+    }
+    return viewInfo;
+}
+
+VkImageView VKImage_GetView(VKDevice* device, VKImage* image, VkFormat format, VKPackedSwizzle swizzle) {
+    return VKImage_GetViewInfo(device, image, format, swizzle)->view;
+}
+
+VkDescriptorSet VKImage_GetDescriptorSet(VKDevice* device, VKImage* image, VkFormat format, VKPackedSwizzle swizzle) {
+    VKImageViewInfo* info = VKImage_GetViewInfo(device, image, format, swizzle);
+    if (info->descriptorSet == VK_NULL_HANDLE) {
+        VKRenderer_CreateImageDescriptorSet(device->renderer, &info->descriptorPool, &info->descriptorSet);
+        VkDescriptorImageInfo imageInfo = {
+            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .imageView = info->view
+        };
+        VkWriteDescriptorSet descriptorWrites = {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = info->descriptorSet,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+            .descriptorCount = 1,
+            .pImageInfo = &imageInfo
+        };
+        device->vkUpdateDescriptorSets(device->handle, 1, &descriptorWrites, 0, NULL);
+    }
+    return info->descriptorSet;
+}
+
+void VKImage_AddBarrier(VkImageMemoryBarrier* barriers, VKBarrierBatch* batch,
+                        VKImage* image, VkPipelineStageFlags stage, VkAccessFlags access, VkImageLayout layout) {
+    assert(barriers != NULL && batch != NULL && image != NULL);
+    // TODO Even if stage, access and layout didn't change, we may still need a barrier against WaW hazard.
+    if (stage != image->lastStage || access != image->lastAccess || layout != image->layout) {
+        barriers[batch->barrierCount] = (VkImageMemoryBarrier) {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .srcAccessMask = image->lastAccess,
+                .dstAccessMask = access,
+                .oldLayout = image->layout,
+                .newLayout = layout,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = image->handle,
+                .subresourceRange = { VKUtil_GetFormatGroup(image->format).aspect, 0, 1, 0, 1 }
+        };
+        batch->barrierCount++;
+        batch->srcStages |= image->lastStage;
+        batch->dstStages |= stage;
+        image->lastStage = stage;
+        image->lastAccess = access;
+        image->layout = layout;
+    }
 }

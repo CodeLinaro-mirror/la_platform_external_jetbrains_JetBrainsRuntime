@@ -25,38 +25,55 @@
 
 package sun.java2d.vulkan;
 
-import java.awt.AlphaComposite;
+import java.awt.Component;
 import java.awt.GraphicsConfiguration;
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
-import sun.awt.image.BufImgSurfaceData;
+import java.util.Objects;
+
 import sun.awt.wl.WLComponentPeer;
 import sun.java2d.SurfaceData;
-import sun.java2d.loops.Blit;
-import sun.java2d.loops.CompositeType;
-import sun.java2d.pipe.BufferedContext;
 import static sun.java2d.pipe.BufferedOpCodes.FLUSH_BUFFER;
 import sun.java2d.pipe.RenderBuffer;
 import sun.java2d.wl.WLPixelGrabberExt;
 import sun.java2d.wl.WLSurfaceDataExt;
+import sun.java2d.wl.WLSurfaceSizeListener;
 
 public class WLVKWindowSurfaceData extends VKSurfaceData
-        implements WLPixelGrabberExt, WLSurfaceDataExt
-{
-    protected WLComponentPeer peer;
+        implements WLPixelGrabberExt, WLSurfaceDataExt {
+    private final Component target; // optional
+    private final WLSurfaceSizeListener sizeListener;
 
-    private native void initOps(int backgroundRGB);
+    private native void initOps(int format, int backgroundRGB);
 
     private native void assignWlSurface(long surfacePtr);
 
-    public WLVKWindowSurfaceData(WLComponentPeer peer)
-    {
-        super((VKGraphicsConfig) peer.getGraphicsConfiguration(), peer.getColorModel(), WINDOW, 0, 0);
-        this.peer = peer;
+    public WLVKWindowSurfaceData(WLComponentPeer peer) {
+        super(((VKGraphicsConfig) peer.getGraphicsConfiguration()).getFormat(), peer.getColorModel().getTransparency(), WINDOW);
+        this.target = peer.getTarget();
+        this.sizeListener = peer;
+        this.gc = (WLVKGraphicsConfig) peer.getGraphicsConfiguration();
+        this.width = peer.getBufferWidth();
+        this.height = peer.getBufferHeight();
+
         final int backgroundRGB = peer.getBackground() != null
                 ? peer.getBackground().getRGB()
                 : 0;
-        initOps(backgroundRGB);
+        initOps(getFormat().getValue(getTransparency()), backgroundRGB);
+    }
+
+    public WLVKWindowSurfaceData(WLSurfaceSizeListener sizeListener, int width, int height, WLVKGraphicsConfig gc) {
+        super(gc.getFormat(), gc.getColorModel().getTransparency(), WINDOW);
+        this.target = null;
+        this.sizeListener = sizeListener;
+        this.gc = gc;
+        this.width = width;
+        this.height = height;
+
+        Objects.requireNonNull(sizeListener);
+        Objects.requireNonNull(gc);
+
+        initOps(getFormat().getValue(getTransparency()), 0);
     }
 
     public SurfaceData getReplacement() {
@@ -69,36 +86,15 @@ public class WLVKWindowSurfaceData extends VKSurfaceData
     }
 
     public Rectangle getBounds() {
-        Rectangle r = peer.getBufferBounds();
-        r.x = r.y = 0;
-        return r;
+        return new Rectangle(width, height);
     }
 
     /**
      * Returns destination Component associated with this SurfaceData.
      */
     public Object getDestination() {
-        return peer.getTarget();
-    }
-
-    @Override
-    public double getDefaultScaleX() {
-        return scale;
-    }
-
-    @Override
-    public double getDefaultScaleY() {
-        return scale;
-    }
-
-    @Override
-    public BufferedContext getContext() {
-        return ((WLVKGraphicsConfig) getDeviceConfiguration()).getContext();
-    }
-
-    @Override
-    public boolean isOnScreen() {
-        return true;
+        // NB: optional; could be null
+        return target;
     }
 
     @Override
@@ -108,10 +104,11 @@ public class WLVKWindowSurfaceData extends VKSurfaceData
     }
 
     @Override
-    public void revalidate(int width, int height, int scale) {
+    public void revalidate(GraphicsConfiguration gc, int width, int height, int scale) {
         this.width = width;
         this.height = height;
         this.scale = scale;
+        revalidate((VKGraphicsConfig) gc);
         configure();
     }
 
@@ -130,35 +127,24 @@ public class WLVKWindowSurfaceData extends VKSurfaceData
             rq.unlock();
         }
     }
-    @Override
-    public GraphicsConfiguration getDeviceConfiguration() {
-        return peer.getGraphicsConfiguration();
-    }
 
     private void bufferAttached() {
         // Called from the native code when a buffer has just been attached to this surface
         // but the surface has not been committed yet.
-        peer.updateSurfaceSize();
+        sizeListener.updateSurfaceSize();
     }
     public int getRGBPixelAt(int x, int y) {
-        Rectangle r = peer.getBufferBounds();
+        Rectangle r = getBounds();
         if (x < r.x || x >= r.x + r.width || y < r.y || y >= r.y + r.height) {
             throw new ArrayIndexOutOfBoundsException("x,y outside of buffer bounds");
         }
 
-        BufferedImage resImg = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
-        SurfaceData resData = BufImgSurfaceData.createData(resImg);
-
-        Blit blit = Blit.getFromCache(getSurfaceType(), CompositeType.SrcNoEa,
-                resData.getSurfaceType());
-        blit.Blit(this, resData, AlphaComposite.Src, null,
-                x, y, 0, 0, 1, 1);
-
-        return resImg.getRGB(0, 0);
+        BufferedImage image = getSnapshot(x, y, 1, 1);
+        return image.getRGB(0, 0);
     }
 
     public int [] getRGBPixelsAt(Rectangle bounds) {
-        Rectangle r = peer.getBufferBounds();
+        Rectangle r = getBounds();
 
         if ((long)bounds.width * (long)bounds.height > Integer.MAX_VALUE) {
             throw new IndexOutOfBoundsException("Dimensions (width=" + bounds.width +
@@ -171,16 +157,9 @@ public class WLVKWindowSurfaceData extends VKSurfaceData
             throw new IndexOutOfBoundsException("Requested bounds are outside of surface bounds");
         }
 
-        BufferedImage resImg = new BufferedImage(b.width, b.height, BufferedImage.TYPE_INT_ARGB);
-        SurfaceData resData = BufImgSurfaceData.createData(resImg);
-
-        Blit blit = Blit.getFromCache(getSurfaceType(), CompositeType.SrcNoEa,
-                resData.getSurfaceType());
-        blit.Blit(this, resData, AlphaComposite.Src, null,
-                b.x, b.y, 0, 0, b.width, b.height);
-
+        BufferedImage image = getSnapshot(b.x, b.y, b.width, b.height);
         int [] pixels = new int[b.width * b.height];
-        resImg.getRGB(0, 0, b.width, b.height, pixels, 0, b.width);
+        image.getRGB(0, 0, b.width, b.height, pixels, 0, b.width);
         return pixels;
     }
 }

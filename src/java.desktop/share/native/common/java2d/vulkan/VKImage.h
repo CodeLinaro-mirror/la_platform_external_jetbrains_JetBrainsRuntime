@@ -27,22 +27,32 @@
 #ifndef VKImage_h_Included
 #define VKImage_h_Included
 
-#include "VKTypes.h"
 #include "VKAllocator.h"
+#include "VKUtil.h"
+
+typedef struct {
+    VkFormat format;
+    VKPackedSwizzle swizzle;
+} VKImageViewKey;
+
+typedef struct {
+    VkImageView      view;
+    VkDescriptorSet  descriptorSet;
+    VkDescriptorPool descriptorPool; // Non-owning.
+} VKImageViewInfo;
 
 struct VKImage {
-    VkImage                 handle;
-    VKMemory                memory;
-    VkImageView             view;
-    VkFormat                format;
-    VkExtent2D              extent;
+    VkImage    handle;
+    VKMemory   memory;
+    VkFormat   format;
+    VkExtent2D extent;
+    MAP(VKImageViewKey, VKImageViewInfo) viewMap;
+
 
     VkImageLayout           layout;
     VkPipelineStageFlagBits lastStage;
     VkAccessFlagBits        lastAccess;
 };
-
-VkImageAspectFlagBits VKImage_GetAspect(VKImage* image);
 
 VKImage* VKImage_Create(VKDevice* device, uint32_t width, uint32_t height,
                         VkImageCreateFlags flags, VkFormat format,
@@ -53,4 +63,12 @@ void VKImage_LoadBuffer(VKDevice* device, VKImage* image, VKBuffer* buffer,
                         uint32_t x0, uint32_t y0, uint32_t width, uint32_t height);
 
 void VKImage_Destroy(VKDevice* device, VKImage* image);
+
+VkImageView VKImage_GetView(VKDevice* device, VKImage* image, VkFormat format, VKPackedSwizzle swizzle);
+
+VkDescriptorSet VKImage_GetDescriptorSet(VKDevice* device, VKImage* image, VkFormat format, VKPackedSwizzle swizzle);
+
+void VKImage_AddBarrier(VkImageMemoryBarrier* barriers, VKBarrierBatch* batch,
+                        VKImage* image, VkPipelineStageFlags stage, VkAccessFlags access, VkImageLayout layout);
+
 #endif // VKImage_h_Included

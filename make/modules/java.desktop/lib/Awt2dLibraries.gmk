@@ -164,10 +164,23 @@ ifeq ($(call isTargetOs, windows), true)
   LIBAWT_CFLAGS += $(A11Y_JAWS_ANNOUNCING_CFLAGS)
 endif
 
+# Setup Vulkan
+ifeq ($(VULKAN_ENABLED), true)
+  LIBAWT_EXTRA_SRC += common/font common/java2d/vulkan
+  LIBAWT_EXTRA_HEADER_DIRS += common/font common/java2d/vulkan common/java2d
+  LIBAWT_CFLAGS += $(VULKAN_FLAGS)
+  LIBAWT_EXTRA_FILES += $(TOPDIR)/src/$(MODULE)/share/native/common/java2d/AccelTexturePool.c
+  LIBAWT_EXFILES += $(TOPDIR)/src/$(MODULE)/share/native/common/java2d/vulkan/VKStubs.c
+  VULKAN_EXCLUDES := vulkan
+else
+  LIBAWT_EXTRA_FILES += $(TOPDIR)/src/$(MODULE)/share/native/common/java2d/vulkan/VKStubs.c
+  VULKAN_EXCLUDES := vulkan java2d/vulkan
+endif
+
 $(eval $(call SetupJdkLibrary, BUILD_LIBAWT, \
     NAME := awt, \
     EXTRA_SRC := $(LIBAWT_EXTRA_SRC), \
-    EXCLUDES := $(LIBAWT_EXCLUDES), \
+    EXTRA_FILES := $(LIBAWT_EXTRA_FILES), \
     EXCLUDE_FILES := $(LIBAWT_EXFILES), \
     OPTIMIZATION := HIGHEST, \
     CFLAGS := $(CFLAGS_JDKLIB) $(LIBAWT_CFLAGS) $(DBUS_CFLAGS), \
@@ -237,7 +250,7 @@ spirv-name = $(strip $1).h
 ifeq ($(VULKAN_ENABLED), true)
   $(eval $(call SetupCopyFiles, COMPILE_VULKAN_SHADERS, \
       SRC := $(TOPDIR)/src/$(MODULE)/share/glsl/vulkan, \
-      FILES := $(call FindFiles, $(TOPDIR)/src/$(MODULE)/share/glsl/vulkan), \
+      FILES := $(filter-out %.glsl, $(call FindFiles, $(TOPDIR)/src/$(MODULE)/share/glsl/vulkan)), \
       DEST := $(SUPPORT_OUTPUTDIR)/headers/java.desktop/vulkan/spirv, \
       MACRO := compile-spirv, \
       NAME_MACRO := spirv-name, \
@@ -245,14 +258,14 @@ ifeq ($(VULKAN_ENABLED), true)
   VULKAN_SHADER_LIST = $(SUPPORT_OUTPUTDIR)/headers/java.desktop/vulkan/shader_list.h
   $(VULKAN_SHADER_LIST): $(COMPILE_VULKAN_SHADERS)
 	> $(VULKAN_SHADER_LIST) $(NEWLINE) \
-	$(foreach f, $(patsubst $(TOPDIR)/src/$(MODULE)/share/glsl/vulkan/%,%,$(call FindFiles, $(TOPDIR)/src/$(MODULE)/share/glsl/vulkan)), \
+	  $(foreach f, $(patsubst $(TOPDIR)/src/$(MODULE)/share/glsl/vulkan/%,%,$(filter-out %.glsl, $(call FindFiles, $(TOPDIR)/src/$(MODULE)/share/glsl/vulkan))), \
 	  $(ECHO) SHADER_ENTRY\($(subst .,$(COMMA),$(subst /,_,$f))\) >> $(VULKAN_SHADER_LIST) $(NEWLINE) \
 	  $(ECHO) '#ifdef INCLUDE_BYTECODE' >> $(VULKAN_SHADER_LIST) $(NEWLINE) \
 	  $(ECHO) '#include "spirv/$f.h"' >> $(VULKAN_SHADER_LIST) $(NEWLINE) \
 	  $(ECHO) BYTECODE_END >> $(VULKAN_SHADER_LIST) $(NEWLINE) \
 	  $(ECHO) '#endif' >> $(VULKAN_SHADER_LIST) $(NEWLINE) \
 	)
-  $(BUILD_LIBAWT): $(VULKAN_SHADER_LIST)
+  $(BUILD_LIBAWT_TARGET_DEPS): $(VULKAN_SHADER_LIST)
 endif
 
 TARGETS += $(BUILD_LIBAWT)
@@ -382,18 +395,13 @@ ifeq ($(call isTargetOs, windows macosx), false)
         common/wayland \
         #
 
-    LIBAWT_WLAWT_EXCLUDES := medialib debug opengl x11
+    LIBAWT_WLAWT_EXCLUDES := medialib debug opengl x11 $(VULKAN_EXCLUDES)
     LIBAWT_WLAWT_EXCLUDE_FILES := common/awt/X11Color.c common/awt/awt_Font.c
-
-    # Substitute Vulkan with stubs if disabled.
-    ifeq ($(VULKAN_ENABLED), false)
-      LIBAWT_WLAWT_EXCLUDES += vulkan
-      LIBAWT_WLAWT_EXTRA_FILES += $(TOPDIR)/src/$(MODULE)/share/native/common/java2d/vulkan/VKStubs.c
-    endif
 
     LIBAWT_WLAWT_EXTRA_HEADER_DIRS := \
         $(LIBAWT_DEFAULT_HEADER_DIRS) \
         libawt_wlawt/awt \
+        $(SUPPORT_OUTPUTDIR)/gensrc/java.desktop/wayland \
         include \
         common/awt/debug \
         common/awt/systemscale \
@@ -501,7 +509,7 @@ $(eval $(call SetupJdkLibrary, BUILD_LIBLCMS, \
         common/awt/debug \
         libawt/java2d, \
     HEADERS_FROM_SRC := $(LIBLCMS_HEADERS_FROM_SRC), \
-    DISABLED_WARNINGS_gcc := format-nonliteral type-limits stringop-truncation, \
+    DISABLED_WARNINGS_gcc := format-nonliteral stringop-truncation, \
     DISABLED_WARNINGS_clang := format-nonliteral, \
     DISABLED_WARNINGS_clang_cmstypes.c := unused-but-set-parameter, \
     LDFLAGS := $(LDFLAGS_JDKLIB) \
@@ -678,7 +686,7 @@ else
    # range-loop-analysis  -> clang on Xcode12
 
    HARFBUZZ_DISABLED_WARNINGS_gcc := missing-field-initializers strict-aliasing \
-       unused-result array-bounds parentheses
+       unused-result array-bounds parentheses dangling-pointer
    # noexcept-type required for GCC 7 builds. Not required for GCC 8+.
    # expansion-to-defined required for GCC 9 builds. Not required for GCC 10+.
    # maybe-uninitialized required for GCC 8 builds. Not required for GCC 9+.
@@ -1037,6 +1045,7 @@ ifeq ($(ENABLE_HEADLESS_ONLY), false)
       EXCLUDE_SRC_PATTERNS := $(LIBSPLASHSCREEN_EXCLUDE_SRC_PATTERNS), \
       DISABLED_WARNINGS_gcc := $(LIBSPLASHSCREEN_DISABLED_WARNINGS_gcc), \
       DISABLED_WARNINGS_clang := $(LIBSPLASHSCREEN_DISABLED_WARNINGS_clang), \
+      DISABLED_WARNINGS_clang_png.c := $(LIBSPLASHSCREEN_DISABLED_WARNINGS_clang) unused-function, \
       DISABLED_WARNINGS_microsoft := $(LIBSPLASHSCREEN_DISABLED_WARNINGS_microsoft), \
       EXCLUDE_FILES := $(LIBSPLASHSCREEN_EXCLUDE_FILES), \
       EXCLUDES := $(LIBSPLASHSCREEN_EXCLUDES), \
@@ -1103,8 +1112,7 @@ ifeq ($(call isTargetOs, macosx), true)
   LIBAWT_LWAWT_CFLAGS := $(X_CFLAGS) $(X_LIBS)
 
   LIBAWT_LWAWT_EXFILES := fontpath.c awt_Font.c X11Color.c
-  LIBAWT_LWAWT_EXCLUDES := \
-      $(TOPDIR)/src/$(MODULE)/share/native/common/java2d/vulkan \
+  LIBAWT_LWAWT_EXCLUDES := $(VULKAN_EXCLUDES) \
       $(TOPDIR)/src/$(MODULE)/unix/native/common/awt/medialib \
       #
 

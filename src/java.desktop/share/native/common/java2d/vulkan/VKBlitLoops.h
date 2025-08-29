@@ -29,29 +29,28 @@
 
 #include "jni.h"
 #include "sun_java2d_vulkan_VKBlitLoops.h"
-#include "VKBase.h"
+#include "VKTypes.h"
+#include "SurfaceData.h"
 
-void VKBlitLoops_IsoBlit(JNIEnv *env,
-                          VKRenderingContext* context, jlong pSrcOps,
-                          jboolean xform, jint hint,
-                          jboolean texture,
+
+void VKBlitLoops_IsoBlit(VKSDOps* srcOps,
+                          jint filter,
                           jint sx1, jint sy1,
                           jint sx2, jint sy2,
                           jdouble dx1, jdouble dy1,
                           jdouble dx2, jdouble dy2);
 
 void VKBlitLoops_Blit(JNIEnv *env,
-                       VKRenderingContext* context, jlong pSrcOps,
-                       jboolean xform, jint hint,
-                       jint srctype, jboolean texture,
-                       jint sx1, jint sy1,
-                       jint sx2, jint sy2,
-                       jdouble dx1, jdouble dy1,
-                       jdouble dx2, jdouble dy2);
+                      SurfaceDataOps* src,
+                      jshort srctype, jint hint,
+                      jint sx1, jint sy1,
+                      jint sx2, jint sy2,
+                      jdouble dx1, jdouble dy1,
+                      jdouble dx2, jdouble dy2);
 
 void
-VKBlitLoops_SurfaceToSwBlit(JNIEnv *env, VKRenderingContext* context,
-                            jlong pSrcOps, jlong pDstOps, jint dsttype,
+VKBlitLoops_SurfaceToSwBlit(JNIEnv *env,
+                            VKSDOps* src, SurfaceDataOps* dst, jint dsttype,
                             jint srcx, jint srcy, jint dstx, jint dsty,
                             jint width, jint height);
 

@@ -29,6 +29,7 @@
 
 #include "AccelTexturePool.h"
 #include "jni.h"
+#include "VKTypes.h"
 
 
 /* VKTexturePoolHandle API */
@@ -36,7 +37,7 @@ typedef ATexturePoolHandle VKTexturePoolHandle;
 
 void VKTexturePoolHandle_ReleaseTexture(VKTexturePoolHandle *handle);
 
-ATexturePrivPtr* VKTexturePoolHandle_GetTexture(VKTexturePoolHandle *handle);
+VKImage* VKTexturePoolHandle_GetTexture(VKTexturePoolHandle *handle);
 
 jint VKTexturePoolHandle_GetRequestedWidth(VKTexturePoolHandle *handle);
 jint VKTexturePoolHandle_GetRequestedHeight(VKTexturePoolHandle *handle);

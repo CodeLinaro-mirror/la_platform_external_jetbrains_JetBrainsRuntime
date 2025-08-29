@@ -23,17 +23,36 @@
 
 #ifndef VKTypes_h_Included
 #define VKTypes_h_Included
+#define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
 
+typedef enum {
+    ALPHA_TYPE_PRE_MULTIPLIED = 0,
+    ALPHA_TYPE_STRAIGHT = 1,
+    ALPHA_TYPE_UNKNOWN = ALPHA_TYPE_PRE_MULTIPLIED // Fallback to pre-multiplied.
+} AlphaType;
+
 /**
- * Floating-point RGBA color with sRGB encoding and pre-multiplied alpha.
+ * Floating-point RGBA color in unspecified color space and alpha type.
  */
 typedef union {
     struct {
         float r, g, b, a;
     };
     VkClearValue vkClearValue;
+} RGBA;
+
+/**
+ * Floating-point encoding-agnostic color.
+ */
+typedef struct {
+    RGBA values[ALPHA_TYPE_STRAIGHT+1];
 } Color;
+
+/**
+ * VkComponentMapping packed into 12 bits.
+ */
+typedef uint16_t VKPackedSwizzle;
 
 /**
  * Transform matrix
@@ -42,13 +61,13 @@ typedef union {
  * [ 1 ]   [   0    0    1   ] [ 1 ]   [         1         ]
  */
 typedef struct {
-    double m00, m01, m02;
-    double m10, m11, m12;
+    float m00, m01, m02;
+    float m10 __attribute__((aligned(16))), m11, m12;
 } VKTransform;
 
 VK_DEFINE_NON_DISPATCHABLE_HANDLE(VKMemory);
 
-typedef struct VKGraphicsEnvironment VKGraphicsEnvironment;
+typedef struct VKEnv VKEnv;
 typedef struct VKDevice VKDevice;
 typedef struct VKAllocator VKAllocator;
 typedef struct VKRenderer VKRenderer;
@@ -62,6 +81,6 @@ typedef struct VKImage VKImage;
 typedef struct VKSDOps VKSDOps;
 typedef struct VKWinSDOps VKWinSDOps;
 
-typedef char* pchar;
+typedef const char* pchar;
 
 #endif //VKTypes_h_Included

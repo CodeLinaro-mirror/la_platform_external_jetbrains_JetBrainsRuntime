@@ -30,13 +30,25 @@
 #include "jni.h"
 
 /*
- * Class:     sun_java2d_vulkan_VKInstance
- * Method:    init
- * Signature: (JZI)Z
+ * Class:     sun_java2d_vulkan_VKEnv
+ * Method:    initPlatform
+ * Signature: (J)Z
  */
 JNIEXPORT jboolean JNICALL
-Java_sun_java2d_vulkan_VKInstance_initNative(JNIEnv *env, jclass wlge, jlong nativePtr, jboolean verb, jint requestedDevice) {
+Java_sun_java2d_vulkan_VKEnv_initPlatform(JNIEnv *env, jclass wlge, jlong nativePtr) {
     return JNI_FALSE;
 }
+
+/*
+ * Class:     sun_java2d_vulkan_VKEnv
+ * Method:    initNative
+ * Signature: (J)[Lsun/java2d/vulkan/VKGPU;
+ */
+JNIEXPORT jobjectArray JNICALL Java_sun_java2d_vulkan_VKEnv_initNative
+        (JNIEnv *env, jclass cls, jlong platformData)
+{
+    return NULL;
+}
+
 
 #endif
