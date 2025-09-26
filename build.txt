@@ -1,1 +1,1 @@
-jbr-release-21.0.8b1038.68
+jbr-release-21.0.8b1038.72
