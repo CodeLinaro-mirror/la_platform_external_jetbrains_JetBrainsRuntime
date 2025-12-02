@@ -428,14 +428,8 @@ jdk_editpad = \
 
 jbr_all = \
      jb \
-     -jb/java/awt/wayland/VulkanBlitTest.java \
-     -jb/java/awt/wayland/RobotGetPixelsTest.java \
-     -jb/java/awt/wayland/ImageTransformTest.java \
-     -jb/java/awt/wayland/VulkanGCCompatibilityTest.java \
-     -jb/java/awt/wayland/RobotGetPixelTest.java \
-     -jb/java/awt/wayland/RobotGetOOBPixelsTest.java \
-     -jb/java/awt/wayland/VulkanCompositeTest.java \
-     -jb/java/awt/wayland/VulkanMaskFillTest.java
+     -jb/java/awt/vulkan \
+     -jb/java/awt/wayland/vulkan \
 
 jdk_desktop = \
     :jdk_desktop_part1 \
@@ -801,6 +795,7 @@ jdk_core_no_security = \
 jdk_awt_wayland = \
     :jdk_awt \
     jb/java/awt/wayland \
+    -jb/java/awt/wayland/vulkan \
     jb/java/awt/Focus/ActivateAfterHide.java \
     -com/apple/eawt \
     -com/apple/laf \
@@ -934,7 +929,6 @@ jdk_awt_wayland = \
     -java/awt/Focus/ClearGlobalFocusOwnerTest \
     -java/awt/Focus/ClearLwQueueBreakTest \
     -java/awt/Focus/ClearMostRecentFocusOwnerTest.java \
-    -java/awt/Focus/CloseDialogActivateOwnerTest \
     -java/awt/Focus/ComponentLostFocusTest.java \
     -java/awt/Focus/ConsumedTabKeyTest.java \
     -java/awt/Focus/ConsumeNextKeyTypedOnModalShowTest \
@@ -1067,6 +1061,7 @@ jdk_awt_wayland = \
     -java/awt/Multiscreen/MouseEventTest/MouseEventTest.java \
     -java/awt/Multiscreen/MultiScreenInsetsTest/MultiScreenInsetsTest.java \
     -java/awt/Multiscreen/MultiScreenLocationTest/MultiScreenLocationTest.java \
+    -java/awt/Multiscreen/UpdateGCTest/UpdateGCTest.java \
     -java/awt/Paint/bug8024864.java \
     -java/awt/Paint/ButtonRepaint.java \
     -java/awt/Paint/CheckboxRepaint.java \
@@ -1104,12 +1099,7 @@ jdk_awt_wayland = \
 
 jdk_swing_wayland= \
     :jdk_swing \
-    jb/javax/swing/Popup/WLPopupAsParent.java \
-    jb/javax/swing/Popup/WLPopupMinSize.java \
-    jb/javax/swing/Popup/WLPopupResize.java \
-    jb/javax/swing/Popup/WLPopupLocation.java \
-    jb/javax/swing/Popup/WLPopupMoves.java \
-    jb/javax/swing/Popup/WLPopupVisibility.java \
+    jb/javax/swing/wayland \
     -com/sun/java/swing/plaf/gtk/TestBackSpaceAction.java \
     -com/sun/java/swing/plaf/gtk/TestFileChooserCtrlASelection.java \
     -com/sun/java/swing/plaf/gtk/TestFileChooserSingleDirectorySelection.java \
@@ -1126,6 +1116,7 @@ jdk_swing_wayland= \
     -javax/swing/DefaultButtonModel/DefaultButtonModelCrashTest.java \
     -javax/swing/dnd/7171812/bug7171812.java \
     -javax/swing/event/FocusEventCauseTest.java \
+    -javax/swing/GraphicsConfigNotifier/TestMultiScreenGConfigNotify.java \
     -javax/swing/JButton/4368790/bug4368790.java \
     -javax/swing/JButton/8151303/PressedIconTest.java \
     -javax/swing/JColorChooser/Test6541987.java \
@@ -1179,6 +1170,7 @@ jdk_swing_wayland= \
     -javax/swing/JFileChooser/8041694/bug8041694.java \
     -javax/swing/JFileChooser/ShellFolderQueries/ShellFolderQueriesSecurityManagerTest.java \
     -javax/swing/JFileChooser/JFileChooserFontReset.java \
+    -javax/swing/JFileChooser/JFileChooserSetLocationTest.java \
     -javax/swing/JFileChooser/TABTestONFCExit.java \
     -javax/swing/JFormattedTextField/bug4863121.java \
     -javax/swing/JFrame/4962534/bug4962534.java \
@@ -1381,17 +1373,10 @@ jdk_desktop_wayland = \
     :jdk_awt_wayland \
     :jdk_swing_wayland
 
-# Wayland+Vulkan tests to be executed with -Dsun.java2d.vulkan=True
+# Wayland+Vulkan tests to be executed with -Dawt.toolkit.name=WLToolkit -Dsun.java2d.vulkan=True
 jdk_awt_wayland_vulkan = \
     :jdk_awt_wayland \
-    jb/java/awt/wayland/VulkanBlitTest.java \
-    jb/java/awt/wayland/RobotGetPixelsTest.java \
-    jb/java/awt/wayland/ImageTransformTest.java \
-    jb/java/awt/wayland/VulkanGCCompatibilityTest.java \
-    jb/java/awt/wayland/RobotGetPixelTest.java \
-    jb/java/awt/wayland/RobotGetOOBPixelsTest.java \
-    jb/java/awt/wayland/VulkanCompositeTest.java \
-    jb/java/awt/wayland/VulkanMaskFillTest.java \
+    jb/java/awt/wayland/vulkan
 
 jdk_swing_wayland_vulkan = \
     :jdk_swing_wayland
@@ -1399,3 +1384,7 @@ jdk_swing_wayland_vulkan = \
 jdk_desktop_wayland_vulkan = \
     :jdk_awt_wayland_vulkan \
     :jdk_swing_wayland_vulkan
+
+# Vulkan tests to be executed with -Dsun.java2d.vulkan=True
+jdk_awt_vulkan = \
+    jb/java/awt/vulkan

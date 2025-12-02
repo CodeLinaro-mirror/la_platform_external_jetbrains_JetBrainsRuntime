@@ -25,27 +25,39 @@
 package sun.awt.wl;
 
 import sun.awt.AWTAccessor;
+import sun.awt.SurfacePixelGrabber;
+import sun.awt.UngrabEvent;
 import sun.java2d.SunGraphics2D;
+import sun.java2d.vulkan.VKSurfaceData;
+import sun.java2d.wl.WLSMSurfaceData;
 
 import javax.swing.JRootPane;
 import javax.swing.RootPaneContainer;
+import java.awt.AWTEvent;
 import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dialog;
 import java.awt.Font;
 import java.awt.Insets;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.SystemColor;
 import java.awt.Window;
 import java.awt.event.WindowEvent;
 import java.awt.geom.Path2D;
+import java.awt.image.BufferedImage;
 import java.awt.peer.ComponentPeer;
 import java.awt.peer.WindowPeer;
+import java.lang.ref.WeakReference;
 
-public class WLWindowPeer extends WLComponentPeer implements WindowPeer {
+public class WLWindowPeer extends WLComponentPeer implements WindowPeer, SurfacePixelGrabber {
     private static Font defaultFont;
     private Dialog blocker;
+    private static WLWindowPeer grabbingWindow; // fake, kept for UngrabEvent only
+
+    // If this window gets focus from Wayland, we need to transfer focus synthFocusOwner, if any
+    private WeakReference<Component> synthFocusOwner = new WeakReference<>(null);
 
     public static final String WINDOW_CORNER_RADIUS = "apple.awt.windowCornerRadius";
 
@@ -89,6 +101,8 @@ public class WLWindowPeer extends WLComponentPeer implements WindowPeer {
 
     @Override
     protected void wlSetVisible(boolean v) {
+        if (!v) ungrab(true);
+
         if (v && targetIsWlPopup() && shouldBeFocusedOnShowing()) {
             requestWindowFocus();
         }
@@ -191,6 +205,7 @@ public class WLWindowPeer extends WLComponentPeer implements WindowPeer {
 
     @Override
     public void dispose() {
+        ungrab(true);
         resetCornerMasks();
         super.dispose();
     }
@@ -220,6 +235,99 @@ public class WLWindowPeer extends WLComponentPeer implements WindowPeer {
                 WLKeyboardFocusManagerPeer.getInstance().getCurrentFocusedWindow() == nativeFocusTarget) {
             WLToolkit.postPriorityEvent(new WindowEvent(window, WindowEvent.WINDOW_GAINED_FOCUS));
         }
+    }
+
+    public Component getSyntheticFocusOwner() {
+        return synthFocusOwner.get();
+    }
+
+    public void setSyntheticFocusOwner(Component c) {
+        synthFocusOwner = new WeakReference<>(c);
+    }
+
+    public void grab() {
+        if (grabbingWindow != null && !isGrabbing()) {
+            grabbingWindow.ungrab(false);
+        }
+        grabbingWindow = this;
+    }
+
+    public void ungrab(boolean externalUngrab) {
+        if (isGrabbing()) {
+            grabbingWindow = null;
+            if (externalUngrab) {
+                WLToolkit.postEvent(new UngrabEvent(getTarget()));
+            }
+        }
+    }
+
+    private boolean isGrabbing() {
+        return this == grabbingWindow;
+    }
+
+    @Override
+    void handleJavaWindowFocusEvent(AWTEvent e) {
+        if (e.getID() == WindowEvent.WINDOW_LOST_FOCUS) {
+            ungrab(true);
+        }
+    }
+
+    @Override
+    public BufferedImage getClientAreaSnapshot(int x, int y, int width, int height) {
+        // Move the coordinate system to the client area
+        Insets insets = getInsets();
+        x += insets.left;
+        y += insets.top;
+
+        if (width <= 0 || height <= 0) {
+            return null;
+        }
+        if (x < 0 || y < 0) {
+            // Shouldn't happen, but better avoid accessing surface data outside the range
+            throw new IllegalArgumentException("Negative coordinates are not allowed");
+        }
+        if (x >= getWidth()) {
+            throw new IllegalArgumentException(String.format("x coordinate (%d) is out of bounds (%d)", x, getWidth()));
+        }
+        if (y >= getHeight()) {
+            throw new IllegalArgumentException(String.format("y coordinate (%d) is out of bounds (%d)", y, getHeight()));
+        }
+        if ((long) x + width > getWidth()) {
+            width = getWidth() - x;
+        }
+        if ((long) y + height > getHeight()) {
+            height = getHeight() - y;
+        }
+
+        // At this point the coordinates and size are in Java units;
+        // need to convert them into pixels.
+        Rectangle bounds = new Rectangle(
+                javaUnitsToBufferUnits(x),
+                javaUnitsToBufferUnits(y),
+                javaSizeToBufferSize(width),
+                javaSizeToBufferSize(height)
+        );
+        Rectangle bufferBounds = getBufferBounds();
+        if (bounds.x >= bufferBounds.width) {
+            bounds.x = bufferBounds.width - 1;
+        }
+        if (bounds.y >= bufferBounds.height) {
+            bounds.y = bufferBounds.height - 1;
+        }
+        if (bounds.x + bounds.width > bufferBounds.width) {
+            bounds.width = bufferBounds.width - bounds.x;
+        }
+        if (bounds.y + bounds.height > bufferBounds.height) {
+            bounds.height = bufferBounds.height - bounds.y;
+        }
+
+        if (surfaceData instanceof VKSurfaceData vksd) {
+            return vksd.getSnapshot(bounds.x, bounds.y, bounds.width, bounds.height);
+        } else if (surfaceData instanceof WLSMSurfaceData smsd) {
+            return smsd.getSnapshot(bounds.x, bounds.y, bounds.width, bounds.height);
+        }
+
+        return null;
     }
 
     private boolean canPaintRoundedCorners() {

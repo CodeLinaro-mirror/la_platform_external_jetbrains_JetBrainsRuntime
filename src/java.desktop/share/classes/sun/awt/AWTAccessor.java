@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,6 +37,7 @@ import java.awt.event.InputEvent;
 import java.awt.event.InvocationEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
+import java.awt.event.WindowListener;
 import java.awt.geom.Point2D;
 import java.awt.image.BufferStrategy;
 import java.awt.peer.ComponentPeer;
@@ -348,10 +349,17 @@ public final class AWTAccessor {
          */
         Window[] getOwnedWindows(Window w);
 
+        /* JBR Window counters API */
         boolean countersEnabled(Window w);
-        void bumpCounter(Window w, String counterName);
+        void incrementCounter(Window w, String counterName);
+        void addStat(Window w, String statName, double value);
+
         long getCounter(Window w, String counterName);
-        long getCounterPerSecond(Window w, String counterName);
+        double getCounterPerSecond(Window w, String counterName);
+
+        void dumpStats(Window w, boolean reset, StringBuilder sb);
+
+        void addWindowListener(Window w, WindowListener listener);
     }
 
     /**

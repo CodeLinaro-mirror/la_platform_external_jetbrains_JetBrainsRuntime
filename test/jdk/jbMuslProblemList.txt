@@ -1,9 +1,11 @@
 com/sun/java/swing/plaf/gtk/TestFileChooserSingleDirectorySelection.java initial_runs generic-all
 java/awt/BasicStroke/DashScaleMinWidth.java initial_runs generic-all
 java/awt/BasicStroke/DashZeroWidth.java initial_runs generic-all
-java/awt/Choice/ChoiceStaysOpenedOnTAB.java JBR-8799 linux-aarch64
+java/awt/Choice/ChoiceStaysOpenedOnTAB.java JBR-8799 linux-all
 java/awt/Choice/NonFocusablePopupMenuTest.java JBR-7785 linux-all
 java/awt/Choice/PopdownGeneratesMouseEvents/PopdownGeneratesMouseEvents.java initial_runs generic-all
+java/awt/ColorClass/AlphaColorTest.java JBR-9108 linux-all
+java/awt/Component/RepaintTest.java JBR-9109 linux-all
 java/awt/datatransfer/Independence/IndependenceAWTTest.java initial_runs generic-all
 java/awt/datatransfer/Independence/IndependenceSwingTest.java initial_runs generic-all
 java/awt/event/ComponentEvent/ListItemEventsTest.java initial_runs generic-all
@@ -24,11 +26,24 @@ java/awt/Graphics/NativeWin32Clear.java JBR-8689 linux-x64
 java/awt/Graphics/XORPaint.java#id2 JBR-7373 linux-x64
 java/awt/GridLayout/ChangeGridSize/ChangeGridSize.java initial_runs generic-all
 java/awt/image/DrawImage/IncorrectManagedImageSourceOffset.java JBR-8240 linux-aarch64
-java/awt/image/DrawImage/IncorrectUnmanagedImageSourceOffset.java JBR-7945 linux-all
-java/awt/image/DrawImage/SimpleManagedImage.java initial_runs generic-all
+java/awt/image/DrawImage/IncorrectUnmanagedImageSourceOffset.java JBR-7945 linux-x64
+java/awt/image/DrawImage/SimpleManagedImage.java JBR-8769 linux-all
 java/awt/image/DrawImage/SimpleUnmanagedImage.java initial_runs generic-all
+java/awt/image/multiresolution/MenuMultiresolutionIconTest.java JBR-9135 linux-x64
+java/awt/image/multiresolution/MultiResolutionJOptionPaneIconTest.java JBR-9136 linux-x64
+java/awt/Menu/OpensWithNoGrab/OpensWithNoGrab.java JBR-9137 linux-x64
+java/awt/Mixing/AWT_Mixing/JButtonInGlassPaneOverlapping.java JBR-9138 linux-x64
+java/awt/Mixing/AWT_Mixing/JButtonOverlapping.java JBR-9138 linux-x64
+java/awt/Mixing/AWT_Mixing/JComboBoxOverlapping.java JBR-9138 linux-x64
+java/awt/Mixing/AWT_Mixing/JEditorPaneInGlassPaneOverlapping.java JBR-9138 linux-x64
+java/awt/Mixing/AWT_Mixing/JEditorPaneOverlapping.java JBR-9138 linux-x64
+java/awt/Mixing/AWT_Mixing/JGlassPaneMoveOverlapping.java JBR-9139 linux-x64
+java/awt/Mixing/AWT_Mixing/JLabelInGlassPaneOverlapping.java JBR-9138 linux-x64
+java/awt/Mixing/AWT_Mixing/JLabelOverlapping.java JBR-9138 linux-x64
 java/awt/Mixing/AWT_Mixing/JListInGlassPaneOverlapping.java initial_runs generic-all
 java/awt/Mixing/AWT_Mixing/JListOverlapping.java initial_runs generic-all
+java/awt/Mixing/AWT_Mixing/JPanelInGlassPaneOverlapping.java JBR-9138 linux-x64
+java/awt/Mixing/AWT_Mixing/JPanelOverlapping.java JBR-9138 linux-x64
 java/awt/Mixing/AWT_Mixing/JPopupMenuOverlapping.java initial_runs generic-all
 java/awt/Mixing/HWDisappear.java JBR-6818 linux-all
 java/awt/Mouse/MouseWheelAbsXY/MouseWheelAbsXY.java JBR-7076 linux-all
@@ -38,9 +53,6 @@ java/awt/TextArea/AutoScrollOnSelectAndAppend/AutoScrollOnSelectAndAppend.java i
 java/awt/TextComponent/MiddleMouseClickPasteTest.java initial_runs generic-all
 java/awt/Window/FindOwner/FindOwnerTest.html JBR-7500 linux-all
 java/awt/Window/ShapedAndTranslucentWindows/TranslucentChoice.java initial_runs generic-all
-
-jb/java/io/IoOverNio/ErrorMessageTest.java JBR-8865 linux-all
-jb/java/io/IoOverNio/FileTest.java JBR-8866 linux-all
 
 javax/imageio/plugins/shared/ImageWriterCompressionTest.java JBR-8804 linux-all
 
@@ -98,5 +110,11 @@ sun/awt/font/TestArabicHebrew.java JBR-8826 linux-all
 
 jb/java/awt/Focus/ComplexFocusSequence.java JBR-6728 linux-aarch64
 jb/java/awt/Focus/PopupIncomingFocusTest.java initial_runs generic-all
+jb/java/awt/wayland/VulkanBlitTest.java JBR-8394 linux-all
+jb/java/awt/wayland/VulkanCompositeTest.java JBR-8394 linux-all
 jb/java/awt/Window/ZOrderOnModalDialogActivation.java initial_runs generic-all
+
+jb/java/io/IoOverNio/ErrorMessageTest.java JBR-8865 linux-all
+jb/java/io/IoOverNio/FileTest.java JBR-8866 linux-all
+
 jb/javax/swing/JLabel/JLabel/JLabel269.java initial_runs generic-all

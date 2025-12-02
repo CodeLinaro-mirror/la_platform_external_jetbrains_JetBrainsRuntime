@@ -27,60 +27,43 @@
 #ifndef VKRenderer_h_Included
 #define VKRenderer_h_Included
 
-#include "SurfaceData.h"
 #include "VKTypes.h"
 #include "VKPipelines.h"
+#include "VKTexturePool.h"
 
 #define NO_CLIP ((VkRect2D) {{0, 0}, {0x7FFFFFFFU, 0x7FFFFFFFU}})
 
 struct VKRenderingContext {
     VKSDOps*        surface;
 
-    VKTransform     transform;
+    VKCompositeMode composite;
+    AlphaType       inAlphaType;
+    VKShader        shader;
+    VKShaderVariant shaderVariant;
+    unsigned int    vertexData;
+    VKPushConstants constants;
+    uint64_t        constantsModCount;
     uint64_t        transformModCount;
 
-    // We keep this color separately from renderColor,
-    // because we need consistent state when switching between XOR and alpha
-    // composite modes. This variable holds last value set by SET_COLOR, while
-    // renderColor holds color, currently used for drawing, which may have
-    // also been provided by SET_XOR_COMPOSITE.
-    Color           color;
-    Color           renderColor;
-    VKCompositeMode composite;
-
-    // Extra alpha is not used when painting with plain color,
-    // in this case color.a already includes it.
-    float extraAlpha;
     uint64_t           clipModCount; // Used to track changes to the clip.
     VkRect2D           clipRect;
     ARRAY(VKIntVertex) clipSpanVertices;
 };
 
-typedef void (*VKCleanupHandler)(VKDevice *renderer, void* data);
+typedef void (*VKCleanupHandler)(VKDevice* device, void* data);
 
 VKRenderer* VKRenderer_Create(VKDevice* device);
 
 /**
- * Setup pipeline for drawing. Returns FALSE if surface is not yet ready for drawing.
+ * Setup pipeline for drawing. Returns FALSE if the surface is not yet ready for drawing.
  */
-VkBool32 VKRenderer_Validate(VKShader shader, VkPrimitiveTopology topology, AlphaType inAlphaType);
+VkBool32 VKRenderer_Validate(VKShader shader, VKShaderVariant shaderVariant, VkPrimitiveTopology topology, AlphaType inAlphaType);
 
 /**
- * Record draw command, if there are any pending vertices in the vertex buffer
- */
-void VKRenderer_FlushDraw(VKSDOps* surface);
-
-/**
- * Record commands into primary command buffer (outside of a render pass).
+ * Record commands into the primary command buffer (outside of a render pass).
  * Recorded commands will be sent for execution via VKRenderer_Flush.
  */
 VkCommandBuffer VKRenderer_Record(VKRenderer* renderer);
-
-/**
- * Prepare image barrier info to be executed in batch, if needed.
- */
-void VKRenderer_AddImageBarrier(VkImageMemoryBarrier* barriers, VKBarrierBatch* batch,
-                                VKImage* image, VkPipelineStageFlags stage, VkAccessFlags access, VkImageLayout layout);
 
 /**
  * Record barrier batches into the primary command buffer.
@@ -94,7 +77,9 @@ void VKRenderer_CreateImageDescriptorSet(VKRenderer* renderer, VkDescriptorPool*
 void VKRenderer_Destroy(VKRenderer* renderer);
 
 /**
- * Wait for all rendering commands to complete.
+ * Wait for the latest checkpoint to be reached by GPU.
+ * This only affects commands tracked by the timeline semaphore,
+ * unlike vkDeviceWaitIdle / vkQueueWaitIdle.
  */
 void VKRenderer_Sync(VKRenderer* renderer);
 
@@ -115,14 +100,14 @@ void VKRenderer_DestroyRenderPass(VKSDOps* surface);
 VkBool32 VKRenderer_FlushRenderPass(VKSDOps* surface);
 
 /**
- * Register a handler to be called at the cleanup phase of the renderer.
+ * Register a handler to be called after the render pass is completed.
  */
-void VKRenderer_ExecOnCleanup(VKRenderPass* renderPass, VKCleanupHandler hnd, void* data);
+void VKRenderer_ExecOnCleanup(VKSDOps* surface, VKCleanupHandler handler, void* data);
 
 /**
- * Register a memory range that will be flushed on render pass reset drawing.
+ * Register a memory range that will be flushed before executing the render pass.
  */
-void VKRenderer_FlushMemoryOnReset(VKRenderPass* renderPass, VkMappedMemoryRange range);
+void VKRenderer_FlushMemory(VKSDOps* surface, VkMappedMemoryRange range);
 
 /**
  * Flush pending render pass and queue surface for presentation (if applicable).
@@ -136,11 +121,6 @@ void VKRenderer_FlushSurface(VKSDOps* surface);
 void VKRenderer_ConfigureSurface(VKSDOps* surface, VkExtent2D extent, VKDevice* device);
 
 void VKRenderer_AddSurfaceDependency(VKSDOps* src, VKSDOps* dst);
-
-// Blit operations.
-
-void VKRenderer_TextureRender(VkDescriptorSet srcDescriptorSet, VkBuffer vertexBuffer, uint32_t vertexNum,
-                              jint filter, VKSamplerWrap wrap);
 
 // Drawing operations.
 
@@ -162,5 +142,6 @@ void VKRenderer_DrawImage(VKImage* image, VkFormat format,
                                  float dx1, float dy1, float dx2, float dy2);
 
 VKRenderingContext* VKRenderer_GetContext();
+VKTexturePool* VKRenderer_GetTexturePool(VKRenderer* );
 
 #endif //VKRenderer_h_Included

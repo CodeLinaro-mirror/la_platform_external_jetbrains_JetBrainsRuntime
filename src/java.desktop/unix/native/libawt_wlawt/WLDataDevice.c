@@ -34,7 +34,6 @@
 #include "sun_awt_wl_WLDataOffer.h"
 #include "wayland-client-protocol.h"
 
-
 // Types
 
 enum DataTransferProtocol
@@ -72,6 +71,9 @@ struct DataSource
         struct wl_data_source *wlDataSource;
         struct zwp_primary_selection_source_v1 *zwpPrimarySelectionSource;
     };
+
+    struct wl_surface* dragIcon;
+    struct wl_buffer* dragIconBuffer;
 };
 
 // native part of WLDataOffer, remains alive until WLDataOffer.destroy() is called
@@ -269,9 +271,6 @@ static struct DataOffer *
 DataOffer_create(struct DataDevice *dataDevice, enum DataTransferProtocol protocol, void *waylandObject);
 
 static void
-DataOffer_destroy(struct DataOffer *offer);
-
-static void
 DataOffer_receive(struct DataOffer *offer, const char *mime, int fd);
 
 static void
@@ -331,7 +330,7 @@ DataOffer_create(struct DataDevice *dataDevice, enum DataTransferProtocol protoc
         return NULL;
     }
 
-    // Cleared in DataOffer_destroy
+    // Cleared in DataOffer.destroy()
     jobject globalRef = (*env)->NewGlobalRef(env, obj);
 
     EXCEPTION_CLEAR(env);
@@ -342,48 +341,21 @@ DataOffer_create(struct DataDevice *dataDevice, enum DataTransferProtocol protoc
     }
 
     offer->javaObject = globalRef;
+    offer->protocol = protocol;
 
     if (protocol == DATA_TRANSFER_PROTOCOL_WAYLAND) {
         struct wl_data_offer *wlDataOffer = waylandObject;
-
-        wl_data_offer_add_listener(wlDataOffer, &wlDataOfferListener, offer);
-
         offer->wlDataOffer = wlDataOffer;
-        offer->protocol = DATA_TRANSFER_PROTOCOL_WAYLAND;
+        wl_data_offer_add_listener(wlDataOffer, &wlDataOfferListener, offer);
     }
 
     if (protocol == DATA_TRANSFER_PROTOCOL_PRIMARY_SELECTION) {
         struct zwp_primary_selection_offer_v1 *zwpPrimarySelectionOffer = waylandObject;
-
-        zwp_primary_selection_offer_v1_add_listener(zwpPrimarySelectionOffer, &zwpPrimarySelectionOfferListener, offer);
         offer->zwpPrimarySelectionOffer = zwpPrimarySelectionOffer;
-        offer->protocol = DATA_TRANSFER_PROTOCOL_PRIMARY_SELECTION;
+        zwp_primary_selection_offer_v1_add_listener(zwpPrimarySelectionOffer, &zwpPrimarySelectionOfferListener, offer);
     }
 
     return offer;
-}
-
-static void
-DataOffer_destroy(struct DataOffer *offer)
-{
-    if (offer == NULL) {
-        return;
-    }
-
-    if (offer->javaObject != NULL) {
-        JNIEnv *env = getEnv();
-        assert(env != NULL);
-        (*env)->DeleteGlobalRef(env, offer->javaObject);
-        offer->javaObject = NULL;
-    }
-
-    if (offer->protocol == DATA_TRANSFER_PROTOCOL_WAYLAND) {
-        wl_data_offer_destroy(offer->wlDataOffer);
-    } else if (offer->protocol == DATA_TRANSFER_PROTOCOL_PRIMARY_SELECTION) {
-        zwp_primary_selection_offer_v1_destroy(offer->zwpPrimarySelectionOffer);
-    }
-
-    free(offer);
 }
 
 static void
@@ -937,7 +909,7 @@ Java_sun_awt_wl_WLDataDevice_setSelectionImpl(JNIEnv *env,
 JNIEXPORT void JNICALL
 Java_sun_awt_wl_WLDataDevice_startDragImpl(JNIEnv *env, jclass clazz, jlong dataDeviceNativePtr,
                                            jlong dataSourceNativePtr, jlong wlSurfacePtr,
-                                           jlong iconPtr, jlong serial)
+                                           jlong serial)
 {
     struct DataDevice *dataDevice = jlong_to_ptr(dataDeviceNativePtr);
     assert(dataDevice != NULL);
@@ -946,7 +918,10 @@ Java_sun_awt_wl_WLDataDevice_startDragImpl(JNIEnv *env, jclass clazz, jlong data
     assert(source != NULL);
 
     wl_data_device_start_drag(dataDevice->wlDataDevice, source->wlDataSource, jlong_to_ptr(wlSurfacePtr),
-                              jlong_to_ptr(iconPtr), serial);
+                              source->dragIcon, serial);
+    if (source->dragIcon != NULL) {
+        wl_surface_commit(source->dragIcon);
+    }
 }
 
 JNIEXPORT jlong JNICALL
@@ -978,36 +953,53 @@ Java_sun_awt_wl_WLDataSource_initNative(JNIEnv *env, jobject javaObject, jlong d
         protocol = DATA_TRANSFER_PROTOCOL_WAYLAND;
     }
 
+    dataSource->protocol = protocol;
+
     if (protocol == DATA_TRANSFER_PROTOCOL_WAYLAND) {
-        struct wl_data_source *wlDataSource = wl_data_device_manager_create_data_source(wl_ddm);
+        // To avoid race conditions when setting the dispatch queue,
+        // it's necessary to do this dance with wl_proxy_create_wrapper.
+        // See the docs for wl_proxy_create_wrapper for more details
+
+        struct wl_data_device_manager* dmWrapper = wl_proxy_create_wrapper(wl_ddm);
+        struct wl_data_source *wlDataSource = NULL;
+
+        if (dmWrapper != NULL) {
+            wl_proxy_set_queue((struct wl_proxy *) dmWrapper, dataDevice->dataSourceQueue);
+            wlDataSource = wl_data_device_manager_create_data_source(dmWrapper);
+            wl_proxy_wrapper_destroy(dmWrapper);
+        }
+
         if (wlDataSource == NULL) {
             free(dataSource);
             JNU_ThrowByName(env, "java/awt/AWTError", "Wayland error creating wl_data_source proxy");
             return 0;
         }
 
-        wl_proxy_set_queue((struct wl_proxy *) wlDataSource, dataDevice->dataSourceQueue);
-        wl_data_source_add_listener(wlDataSource, &wl_data_source_listener, dataSource);
-
-        dataSource->protocol = DATA_TRANSFER_PROTOCOL_WAYLAND;
         dataSource->wlDataSource = wlDataSource;
+
+        wl_data_source_add_listener(wlDataSource, &wl_data_source_listener, dataSource);
     }
 
     if (protocol == DATA_TRANSFER_PROTOCOL_PRIMARY_SELECTION) {
-        struct zwp_primary_selection_source_v1 *zwpPrimarySelectionSource =
-                zwp_primary_selection_device_manager_v1_create_source(zwp_selection_dm);
+        struct zwp_primary_selection_device_manager_v1 *dmWrapper = wl_proxy_create_wrapper(zwp_selection_dm);
+        struct zwp_primary_selection_source_v1 *zwpPrimarySelectionSource = NULL;
+
+        if (dmWrapper != NULL) {
+            wl_proxy_set_queue((struct wl_proxy *) dmWrapper, dataDevice->dataSourceQueue);
+            zwpPrimarySelectionSource = zwp_primary_selection_device_manager_v1_create_source(dmWrapper);
+            wl_proxy_wrapper_destroy(dmWrapper);
+        }
+
         if (zwpPrimarySelectionSource == NULL) {
             free(dataSource);
             JNU_ThrowByName(env, "java/awt/AWTError", "Wayland error creating zwp_primary_selection_source_v1 proxy");
             return 0;
         }
 
-        wl_proxy_set_queue((struct wl_proxy *) zwpPrimarySelectionSource, dataDevice->dataSourceQueue);
+        dataSource->zwpPrimarySelectionSource = zwpPrimarySelectionSource;
+
         zwp_primary_selection_source_v1_add_listener(zwpPrimarySelectionSource,
                                                      &zwp_primary_selection_source_v1_listener, dataSource);
-
-        dataSource->protocol = DATA_TRANSFER_PROTOCOL_PRIMARY_SELECTION;
-        dataSource->zwpPrimarySelectionSource = zwpPrimarySelectionSource;
     }
 
     return ptr_to_jlong(dataSource);
@@ -1034,15 +1026,23 @@ Java_sun_awt_wl_WLDataSource_destroyImpl(JNIEnv *env, jclass clazz, jlong native
         return;
     }
 
-    if (source->javaObject != NULL) {
-        (*env)->DeleteGlobalRef(env, source->javaObject);
-        source->javaObject = NULL;
-    }
-
     if (source->protocol == DATA_TRANSFER_PROTOCOL_WAYLAND) {
         wl_data_source_destroy(source->wlDataSource);
     } else if (source->protocol == DATA_TRANSFER_PROTOCOL_PRIMARY_SELECTION) {
         zwp_primary_selection_source_v1_destroy(source->zwpPrimarySelectionSource);
+    }
+
+    if (source->dragIconBuffer) {
+        wl_buffer_destroy(source->dragIconBuffer);
+    }
+
+    if (source->dragIcon) {
+        wl_surface_destroy(source->dragIcon);
+    }
+
+    if (source->javaObject != NULL) {
+        (*env)->DeleteGlobalRef(env, source->javaObject);
+        source->javaObject = NULL;
     }
 
     free(source);
@@ -1058,11 +1058,92 @@ Java_sun_awt_wl_WLDataSource_setDnDActionsImpl(JNIEnv *env,
     DataSource_setDnDActions(source, actions);
 }
 
+JNIEXPORT void JNICALL Java_sun_awt_wl_WLDataSource_setDnDIconImpl
+  (JNIEnv * env, jclass clazz, jlong nativePtr, jint scale,
+   jint width, jint height, jint offsetX, jint offsetY, jintArray pixels)
+{
+    struct DataSource *source = jlong_to_ptr(nativePtr);
+
+    size_t pixelCount = (size_t)((*env)->GetArrayLength(env, pixels));
+    size_t byteSize = pixelCount * 4U;
+    if (byteSize >= INT32_MAX) {
+        return;
+    }
+
+    jint *shmPixels = NULL;
+    struct wl_shm_pool *pool = CreateShmPool(byteSize, "WLDataSource_DragIcon", (void**)&shmPixels, NULL);
+    if (!pool) {
+        return;
+    }
+
+    (*env)->GetIntArrayRegion(env, pixels, 0, pixelCount, shmPixels);
+#if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // Wayland requires little-endian data
+    for (size_t i = 0; i < pixelCount; i++) {
+        uint32_t value = (uint32_t)shmPixels[i];
+        shmPixels[i] = (jint)((value & 0xFFU) << 24 |
+                              (value & 0xFF00U) << 8 |
+                              (value & 0xFF0000U) >> 8 |
+                              (value & 0xFF000000U) >> 24 & 0xFFU);
+    }
+#endif
+
+    source->dragIconBuffer = wl_shm_pool_create_buffer(pool, 0, width, height, width * 4, WL_SHM_FORMAT_ARGB8888);
+    wl_shm_pool_destroy(pool);
+    if (!source->dragIconBuffer) {
+        return;
+    }
+
+    source->dragIcon = wl_compositor_create_surface(wl_compositor);
+    if (!source->dragIcon) {
+        wl_buffer_destroy(source->dragIconBuffer);
+        source->dragIconBuffer = NULL;
+        return;
+    }
+
+#if WL_SURFACE_OFFSET_SINCE_VERSION >= 5
+    int wl_compositor_version = wl_compositor_get_version(wl_compositor);
+    if (wl_compositor_version >= 5) {
+        wl_surface_attach(source->dragIcon, source->dragIconBuffer, 0, 0);
+        wl_surface_offset(source->dragIcon, offsetX, offsetY);
+    } else {
+        wl_surface_attach(source->dragIcon, source->dragIconBuffer, offsetX, offsetY);
+    }
+#else
+    wl_surface_attach(source->dragIcon, source->dragIconBuffer, offsetX, offsetY);
+#endif
+
+    if (scale >= 1) {
+        wl_surface_set_buffer_scale(source->dragIcon, scale);
+    }
+
+    wl_surface_damage_buffer(source->dragIcon, 0, 0, width, height);
+
+    // NOTE: we still need to commit the surface, this is done immediately after start_drag
+}
+
 JNIEXPORT void JNICALL
 Java_sun_awt_wl_WLDataOffer_destroyImpl(JNIEnv *env, jclass clazz, jlong nativePtr)
 {
+    assert(env != NULL);
     struct DataOffer *offer = jlong_to_ptr(nativePtr);
-    DataOffer_destroy(offer);
+
+    if (offer == NULL) {
+        return;
+    }
+
+    if (offer->protocol == DATA_TRANSFER_PROTOCOL_WAYLAND) {
+        wl_data_offer_destroy(offer->wlDataOffer);
+    } else if (offer->protocol == DATA_TRANSFER_PROTOCOL_PRIMARY_SELECTION) {
+        zwp_primary_selection_offer_v1_destroy(offer->zwpPrimarySelectionOffer);
+    }
+
+    if (offer->javaObject != NULL) {
+        (*env)->DeleteGlobalRef(env, offer->javaObject);
+        offer->javaObject = NULL;
+    }
+
+    free(offer);
 }
 
 JNIEXPORT void JNICALL

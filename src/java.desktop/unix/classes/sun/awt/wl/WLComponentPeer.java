@@ -88,8 +88,8 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
     private static final PlatformLogger focusLog = PlatformLogger.getLogger("sun.awt.wl.focus.WLComponentPeer");
     private static final PlatformLogger popupLog = PlatformLogger.getLogger("sun.awt.wl.popup.WLComponentPeer");
 
-    private static final int MINIMUM_WIDTH = 1;
-    private static final int MINIMUM_HEIGHT = 1;
+    protected static final int MINIMUM_WIDTH = 1;
+    protected static final int MINIMUM_HEIGHT = 1;
 
     private final Object stateLock = new Object();
 
@@ -135,7 +135,12 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
             log.fine("WLComponentPeer: target=" + target + " with size=" + wlSize);
         }
 
-        shadow = new Shadow(targetIsWlPopup() ? ShadowImage.POPUP_SHADOW_SIZE : ShadowImage.WINDOW_SHADOW_SIZE);
+        boolean shadowEnabled = Boolean.parseBoolean(System.getProperty("sun.awt.wl.Shadow", "true"));
+        if (shadowEnabled) {
+            shadow = new ShadowImpl(targetIsWlPopup() ? ShadowImage.POPUP_SHADOW_SIZE : ShadowImage.WINDOW_SHADOW_SIZE);
+        } else {
+            shadow = new NilShadow();
+        }
         // TODO
         // setup parent window for target
     }
@@ -263,7 +268,7 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
         return false;
     }
 
-    private static Window getToplevelFor(Component component) {
+    public static Window getToplevelFor(Component component) {
         Container container = component instanceof Container c ? c : component.getParent();
         for (Container p = container; p != null; p = p.getParent()) {
             if (p instanceof Window window && !isWlPopup(window)) {
@@ -280,7 +285,7 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
                 : c.getParent();
     }
 
-    static Point getRelativeLocation(Component c, Window toplevel) {
+    public static Point getRelativeLocation(Component c, Window toplevel) {
         Objects.requireNonNull(c);
 
         if (toplevel == null) {
@@ -344,6 +349,7 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
     }
 
     protected void wlSetVisible(boolean v) {
+        // TODO: this whole method should be moved to WLWindowPeer
         synchronized (getStateLock()) {
             if (this.visible == v) return;
 
@@ -364,7 +370,7 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
 
             performLocked(() -> {
                 assert wlSurface == null;
-                wlSurface = new WLMainSurface(this);
+                wlSurface = new WLMainSurface((WLWindowPeer) this);
                 long wlSurfacePtr = wlSurface.getWlSurfacePtr();
                 if (isWlPopup) {
                     Window popup = (Window) target;
@@ -397,11 +403,13 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
             // from notifyConfigured()
         } else {
             performLocked(() -> {
-                nativeHideFrame(nativePtr);
+                if (wlSurface != null) { // may get a "hide" request even though we were never shown
+                    nativeHideFrame(nativePtr);
 
-                shadow.hide();
-                wlSurface.dispose();
-                wlSurface = null;
+                    shadow.hide();
+                    wlSurface.dispose();
+                    wlSurface = null;
+                }
             });
         }
     }
@@ -849,8 +857,10 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
     }
 
     public Dimension getMinimumSize() {
-        int shadowSize = (int) Math.ceil(shadow.getSize() * 4);
-        return new Dimension(shadowSize, shadowSize);
+        int shadowSize = shadow != null ? (int) Math.ceil(shadow.getSize() * 4) : 0;
+        return shadowSize == 0
+                ? new Dimension(MINIMUM_WIDTH, MINIMUM_HEIGHT)
+                : new Dimension(shadowSize, shadowSize);
     }
 
     void showWindowMenu(long serial, int x, int y) {
@@ -1074,7 +1084,7 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
                 long surface = WLToolkit.getInputState().surfaceForKeyboardInput();
                 // The surface pointer may be out of date, which will cause a protocol error.
                 // So make sure it is valid and do that under AWT lock.
-                if (wlSurface != null && surface != 0 && WLToolkit.componentPeerFromSurface(surface) != null) {
+                if (wlSurface != null && surface != 0 && WLToolkit.peerFromSurface(surface) != null) {
                     wlSurface.activateByAnotherSurface(serial, surface);
                 }
             });
@@ -1580,7 +1590,7 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
      * Converts a value in the Java coordinate system into the Wayland
      * surface-local coordinate system.
      */
-    int javaUnitsToSurfaceUnits(int value) {
+    public final int javaUnitsToSurfaceUnits(int value) {
         if (!WLGraphicsEnvironment.isDebugScaleEnabled()) {
             return value;
         } else {
@@ -1590,7 +1600,7 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
         }
     }
 
-    int javaUnitsToSurfaceSize(int value) {
+    public final int javaUnitsToSurfaceSize(int value) {
         if (!WLGraphicsEnvironment.isDebugScaleEnabled()) {
             return value;
         } else {
@@ -1606,6 +1616,14 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
 
     Dimension javaUnitsToSurfaceSize(Dimension d) {
         return new Dimension(javaUnitsToSurfaceSize(d.width), javaUnitsToSurfaceSize(d.height));
+    }
+
+    int javaUnitsToBufferUnits(int value) {
+        return (int) Math.floor(value * effectiveScale);
+    }
+
+    int javaSizeToBufferSize(int value) {
+        return (int) Math.ceil(value * effectiveScale);
     }
 
     /**
@@ -1738,9 +1756,12 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
 
     private Dimension constrainSize(int width, int height) {
         Dimension maxBounds = getMaxBufferBounds();
+        Dimension minSize = getMinimumSize();
+        minSize.width = Math.max(MINIMUM_WIDTH, minSize.width);
+        minSize.height = Math.max(MINIMUM_HEIGHT, minSize.height);
         return new Dimension(
-                Math.max(Math.min(width, maxBounds.width), MINIMUM_WIDTH),
-                Math.max(Math.min(height, maxBounds.height), MINIMUM_HEIGHT));
+                Math.max(Math.min(width, maxBounds.width), minSize.width),
+                Math.max(Math.min(height, maxBounds.height), minSize.height));
     }
 
     private Dimension constrainSize(Dimension bounds) {
@@ -1807,6 +1828,20 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
             result = result.getOwner();
         }
         return result;
+    }
+
+    private interface Shadow {
+        int getSize();
+        void updateSurfaceSize();
+        void resizeToParentWindow();
+        void createSurface();
+        void commitSurface();
+        void dispose();
+        void hide();
+        void updateSurfaceData();
+        void paint();
+        void commitSurfaceData();
+        void notifyConfigured(boolean active, boolean maximized, boolean fullscreen);
     }
 
     private static class ShadowImage {
@@ -1913,7 +1948,7 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
         }
     }
 
-    private class Shadow implements WLSurfaceSizeListener {
+    private class ShadowImpl implements WLSurfaceSizeListener, Shadow {
         private WLSubSurface shadowSurface; // protected by AWT lock
         private SurfaceData shadowSurfaceData;  // protected by AWT lock
         private boolean needsRepaint = true;  // protected by AWT lock
@@ -1921,7 +1956,7 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
         private final WLSize shadowWlSize = new WLSize(); // protected by stateLock
         private boolean isActive;  // protected by AWT lock
 
-        public Shadow(int shadowSize) {
+        public ShadowImpl(int shadowSize) {
             this.shadowSize = shadowSize;
             shadowWlSize.deriveFromJavaSize(wlSize.getJavaWidth() + shadowSize * 2, wlSize.getJavaHeight() + shadowSize * 2);
             shadowSurfaceData = ((WLGraphicsConfig) getGraphicsConfiguration()).createSurfaceData(this, shadowWlSize.getPixelWidth(), shadowWlSize.getPixelHeight());
@@ -2034,6 +2069,20 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
             }
             shadowSurface.commit();
         }
+    }
+
+    private static class NilShadow implements Shadow {
+        @Override public int getSize() { return 0; }
+        @Override public void updateSurfaceSize() { }
+        @Override public void resizeToParentWindow() { }
+        @Override public void createSurface() { }
+        @Override public void commitSurface() { }
+        @Override public void dispose() { }
+        @Override public void hide() { }
+        @Override public void updateSurfaceData() { }
+        @Override public void paint() { }
+        @Override public void commitSurfaceData() { }
+        @Override public void notifyConfigured(boolean active, boolean maximized, boolean fullscreen) { }
     }
 
     private class WLSize {

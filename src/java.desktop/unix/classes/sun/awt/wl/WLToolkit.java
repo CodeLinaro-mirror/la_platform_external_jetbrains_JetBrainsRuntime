@@ -36,6 +36,7 @@ import sun.awt.PeerEvent;
 import sun.awt.SunToolkit;
 import sun.awt.UNIXToolkit;
 import sun.awt.datatransfer.DataTransferer;
+import sun.awt.wl.im.WLInputMethodMetaDescriptor;
 import sun.java2d.vulkan.VKEnv;
 import sun.java2d.vulkan.VKRenderQueue;
 import sun.util.logging.PlatformLogger;
@@ -87,6 +88,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.concurrent.Semaphore;
 
@@ -139,6 +141,8 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
 
     private static Boolean sunAwtDisableGtkFileDialogs = null;
 
+    private static final boolean isKDE;
+
     private static native void initIDs(long displayPtr);
 
     static {
@@ -148,6 +152,11 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
             VKEnv.init(display);
             initIDs(display);
         }
+
+        @SuppressWarnings("removal")
+        String desktop = AccessController.doPrivileged((PrivilegedAction<String>) ()
+                -> System.getenv("XDG_CURRENT_DESKTOP"));
+        isKDE = desktop != null && desktop.toLowerCase().contains("kde");
         initialized = true;
     }
 
@@ -291,6 +300,10 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
     private static WLInputState inputState = WLInputState.initialState();
     private static WLKeyboard keyboard;
 
+    private static void dispatchRelativePointerEvent(double dx, double dy) {
+        WLMouseInfoPeer.getInstance().accumulatePointerDelta(dx, dy);
+    }
+
     private static void dispatchPointerEvent(WLPointerEvent e) {
         // Invoked from the native code
         assert EventQueue.isDispatchThread();
@@ -335,7 +348,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
         }
 
         final long surfacePtr = inputState.surfaceForKeyboardInput();
-        final WLComponentPeer peer = componentPeerFromSurface(surfacePtr);
+        final WLComponentPeer peer = peerFromSurface(surfacePtr);
         if (peer != null) {
             if (extendedKeyCode >= 0x1000000) {
                 int ch = extendedKeyCode - 0x1000000;
@@ -402,10 +415,20 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
         }
 
         final WLInputState newInputState = inputState.updatedFromKeyboardEnterEvent(serial, surfacePtr);
-        final WLComponentPeer peer = componentPeerFromSurface(surfacePtr);
-        if (peer != null && peer.getTarget() instanceof Window window) {
+        final WLWindowPeer peer = peerFromSurface(surfacePtr);
+        if (peer != null) {
+            Window window = (Window) peer.getTarget();
+            Window winToFocus = window;
+
+            Component s = peer.getSyntheticFocusOwner();
+            if (s instanceof Window synthWindow) {
+                if (synthWindow.isVisible() && synthWindow.isFocusableWindow()) {
+                    winToFocus = synthWindow;
+                }
+            }
+
             WLKeyboardFocusManagerPeer.getInstance().setCurrentFocusedWindow(window);
-            final WindowEvent windowEnterEvent = new WindowEvent(window, WindowEvent.WINDOW_GAINED_FOCUS);
+            WindowEvent windowEnterEvent = new WindowEvent(winToFocus, WindowEvent.WINDOW_GAINED_FOCUS);
             postPriorityEvent(windowEnterEvent);
         }
         inputState = newInputState;
@@ -423,7 +446,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
         keyboard.onLostFocus();
 
         final WLInputState newInputState = inputState.updatedFromKeyboardLeaveEvent(serial, surfacePtr);
-        final WLComponentPeer peer = componentPeerFromSurface(surfacePtr);
+        final WLWindowPeer peer = peerFromSurface(surfacePtr);
         if (peer != null && peer.getTarget() instanceof Window window) {
             final WindowEvent winLostFocusEvent = new WindowEvent(window, WindowEvent.WINDOW_LOST_FOCUS);
             WLKeyboardFocusManagerPeer.getInstance().setCurrentFocusedWindow(null);
@@ -436,28 +459,28 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
     /**
      * Maps 'struct wl_surface*' to WLComponentPeer that owns the Wayland surface.
      */
-    private static final Map<Long, WLComponentPeer> wlSurfaceToComponentMap = new HashMap<>();
+    private static final Map<Long, WLWindowPeer> wlSurfaceToPeerMap = new HashMap<>();
 
-    static void registerWLSurface(long wlSurfacePtr, WLComponentPeer componentPeer) {
+    static void registerWLSurface(long wlSurfacePtr, WLWindowPeer peer) {
         if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("registerWLSurface: 0x" + Long.toHexString(wlSurfacePtr) + "->" + componentPeer);
+            log.fine("registerWLSurface: 0x" + Long.toHexString(wlSurfacePtr) + "->" + peer);
         }
-        synchronized (wlSurfaceToComponentMap) {
-            wlSurfaceToComponentMap.put(wlSurfacePtr, componentPeer);
+        synchronized (wlSurfaceToPeerMap) {
+            wlSurfaceToPeerMap.put(wlSurfacePtr, peer);
         }
     }
 
     static void unregisterWLSurface(long wlSurfacePtr) {
-        synchronized (wlSurfaceToComponentMap) {
-            wlSurfaceToComponentMap.remove(wlSurfacePtr);
+        synchronized (wlSurfaceToPeerMap) {
+            wlSurfaceToPeerMap.remove(wlSurfacePtr);
         }
 
         inputState = inputState.updatedFromUnregisteredSurface(wlSurfacePtr);
     }
 
-    static WLComponentPeer componentPeerFromSurface(long wlSurfacePtr) {
-        synchronized (wlSurfaceToComponentMap) {
-            return wlSurfaceToComponentMap.get(wlSurfacePtr);
+    static WLWindowPeer peerFromSurface(long wlSurfacePtr) {
+        synchronized (wlSurfaceToPeerMap) {
+            return wlSurfaceToPeerMap.get(wlSurfacePtr);
         }
     }
 
@@ -466,15 +489,15 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
      * associated with that surface.
      * Otherwise, throw UOE.
      */
-    static WLComponentPeer getSingularWindowPeer() {
-        synchronized (wlSurfaceToComponentMap) {
-            if (wlSurfaceToComponentMap.size() > 1) {
+    static WLWindowPeer getSingularWindowPeer() {
+        synchronized (wlSurfaceToPeerMap) {
+            if (wlSurfaceToPeerMap.size() > 1) {
                 throw new UnsupportedOperationException("More than one native window");
-            } else if (wlSurfaceToComponentMap.isEmpty()) {
+            } else if (wlSurfaceToPeerMap.isEmpty()) {
                 throw new UnsupportedOperationException("No native windows");
             }
 
-            return wlSurfaceToComponentMap.values().iterator().next();
+            return wlSurfaceToPeerMap.values().iterator().next();
         }
     }
 
@@ -759,13 +782,27 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
         return 16777216; // 24 bits per pixel, 8 bits per channel
     }
 
+    /**
+     * {@link java.awt.event.InputMethodEvent#getText()} can contain attributes which provide AWT/Swing with additional useful information
+     *   (e.g. a language of the text).
+     *
+     * One kind of the possible attributes is {@link InputMethodHighlight}. It informs AWT/Swing that some parts of
+     *   the text are in different states of the text composing process, hence they should look differently from the others.
+     *   However, it doesn't tell how exactly they should look; this choice is left to Toolkit's implementations,
+     *   or more precisely implementations of this method.
+     *
+     * @param highlight a state of a part of InputMethodEvent's text
+     *
+     * @return a collection of {@link TextAttribute}s (with their corresponding values as documented) informing how exactly
+     *         such text should look or {@code null} if a mapping can't be provided.
+     *
+     * @see Toolkit#mapInputMethodHighlight(InputMethodHighlight)
+     */
     @Override
-    public Map<TextAttribute, ?> mapInputMethodHighlight( InputMethodHighlight highlight) {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.mapInputMethodHighlight()");
-        }
-        return null;
+    public Map<TextAttribute, ?> mapInputMethodHighlight(InputMethodHighlight highlight) {
+        return WLInputMethodMetaDescriptor.mapInputMethodHighlight(highlight);
     }
+
     @Override
     public boolean getLockingKeyState(int key) {
         return switch (key) {
@@ -836,10 +873,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
      */
     @Override
     public InputMethodDescriptor getInputMethodAdapterDescriptor() {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.getInputMethodAdapterDescriptor()");
-        }
-        return null;
+        return WLInputMethodMetaDescriptor.getInstanceIfAvailableOnPlatform();
     }
 
     /**
@@ -848,9 +882,6 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
      */
     @Override
     public boolean enableInputMethodsForTextComponent() {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.enableInputMethodsForTextComponent()");
-        }
         return true;
     }
 
@@ -947,17 +978,28 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
 
     @Override
     public void grab(Window w) {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.grab()");
+        // There is no input grab in Wayland for client applications, only
+        // the compositor can control grabs. But we need UngrabEvent
+        // for popup/tooltip management, so we do input grab accounting here
+        // and in ungrab() below.
+        Objects.requireNonNull(w);
+
+        var peer = AWTAccessor.getComponentAccessor().getPeer(w);
+        if (peer instanceof WLWindowPeer windowPeer) {
+            windowPeer.grab();
         }
     }
 
     @Override
     public void ungrab(Window w) {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.ungrab()");
+        Objects.requireNonNull(w);
+
+        var peer = AWTAccessor.getComponentAccessor().getPeer(w);
+        if (peer instanceof WLWindowPeer windowPeer) {
+            windowPeer.ungrab(false);
         }
     }
+
     /**
      * Returns if the java.awt.Desktop class is supported on the current
      * desktop.
@@ -1078,4 +1120,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
         return WLCursorManager.getInstance();
     }
 
+    public static boolean isKDE() {
+        return isKDE;
+    }
 }

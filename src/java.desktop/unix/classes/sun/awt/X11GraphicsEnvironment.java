@@ -42,8 +42,6 @@ import java.util.Map;
 
 import sun.awt.X11.XToolkit;
 import sun.java2d.SunGraphicsEnvironment;
-import sun.java2d.SurfaceManagerFactory;
-import sun.java2d.UnixSurfaceManagerFactory;
 import sun.java2d.xr.XRSurfaceData;
 
 /**
@@ -54,7 +52,7 @@ import sun.java2d.xr.XRSurfaceData;
  * @see GraphicsDevice
  * @see java.awt.GraphicsConfiguration
  */
-public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
+public final class X11GraphicsEnvironment extends SunGraphicsEnvironment implements HiDPIInfoProvider {
 
     static {
         initStatic();
@@ -136,10 +134,6 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
                 return null;
             }
          });
-
-        // Install the correct surface manager factory.
-        SurfaceManagerFactory.setInstance(new UnixSurfaceManagerFactory());
-
     }
 
     private static boolean isVMWare() {
@@ -436,5 +430,15 @@ public final class X11GraphicsEnvironment extends SunGraphicsEnvironment {
      */
     @Override
     public void paletteChanged() {
+    }
+
+    public String[][] getHiDPIInfo() {
+        X11GraphicsDevice device = null;
+        synchronized (this) {
+            if (devices.containsKey(0)) {
+                device = devices.get(0);
+            }
+        }
+        return device != null ? device.getDpiInfo() : null;
     }
 }

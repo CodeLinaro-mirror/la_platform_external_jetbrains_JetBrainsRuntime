@@ -10,12 +10,10 @@ java/awt/EventDispatchThread/PreserveDispathThread/PreserveDispatchThread.java J
 java/awt/FileDialog/ExceptionAfterSetDirectory.java JBR-9100 linux-all
 java/awt/font/Rotate/RotateTest3.java JBR-9100 linux-all
 java/awt/FullScreen/SetFSWindow/FSFrame.java JBR-9100 linux-all
+java/awt/Graphics2D/TextPerf.java JBR-9190 linux-all
 java/awt/Graphics2D/ScaledTransform/ScaledTransform.java JBR-9100 linux-all
-java/awt/GraphicsDevice/CloneConfigsTest.java JBR-9024 linux-all
-java/awt/image/DrawImage/EABlitTest.java JBR-9027 linux-all
 java/awt/image/DrawImage/IncorrectClipXorModeSW2Surface.java JBR-9216 linux-all
 java/awt/Insets/DialogInsets.java JBR-9100 linux-all
-java/awt/MenuShortcut/FunctionKeyShortcut.java JBR-9031 linux-all
 java/awt/Multiscreen/LocationRelativeToTest/LocationRelativeToTest.java JBR-9100 linux-all
 java/awt/Multiscreen/UpdateGCTest/UpdateGCTest.java JBR-9097 linux-x64
 java/awt/Toolkit/SunDisplayChangerLeakTest/SunDisplayChangerLeakTest.java JBR-9100 linux-all
@@ -24,7 +22,7 @@ java/awt/Toolkit/ToolkitPropertyTest/ToolkitPropertyTest_Disable.java JBR-9100 l
 javax/swing/AbstractButton/bug4147740.java JBR-9100 linux-all
 javax/swing/AbstractButton/bug4246045.java JBR-9100 linux-all
 javax/swing/border/Test6981576.java JBR-9100 linux-all
-javax/swing/GraphicsConfigNotifier/StalePreferredSize.java JBR-7269 linux-all
+javax/swing/GraphicsConfigNotifier/StalePreferredSize.java JBR-9031 linux-all
 javax/swing/GraphicsConfigNotifier/TestMultiScreenGConfigNotify.java JBR-8266 linux-x64
 javax/swing/GroupLayout/8079640/bug8079640.java JBR-9100 linux-all
 javax/swing/JButton/JButtonPaintNPE/JButtonPaintNPE.java JBR-9100 linux-all
@@ -34,6 +32,7 @@ javax/swing/JComboBox/bug4276920.java JBR-9100 linux-all
 javax/swing/JComboBox/ShowPopupAfterHidePopupTest/ShowPopupAfterHidePopupTest.java JBR-9100 linux-all
 javax/swing/JComboBox/TestComboBoxHeight.java JBR-9100 linux-all
 javax/swing/JComponent/4337267/bug4337267.java JBR-9100 linux-all
+javax/swing/JComponent/6989617/bug6989617.java JBR-8796 linux-all
 javax/swing/JComponent/bug4962718.java JBR-9100 linux-all
 javax/swing/JComponent/bug4979794.java JBR-9100 linux-all
 javax/swing/JEditorPane/4492274/bug4492274.java JBR-9100 linux-all
@@ -42,6 +41,7 @@ javax/swing/JFileChooser/6489130/bug6489130.java JBR-9100 linux-all
 javax/swing/JFileChooser/DeserializedJFileChooser/DeserializedJFileChooserTest.java JBR-9100 linux-all
 javax/swing/JFileChooser/FileSizeCheck.java JBR-9100 linux-all
 javax/swing/JFileChooser/FileViewNPETest.java JBR-9100 linux-all
+javax/swing/JFormattedTextField/bug4741926.java JBR-9321 linux-6.14.9-arch1-1
 javax/swing/JFormattedTextField/TestSelectedTextBackgroundColor.java JBR-9100 linux-all
 javax/swing/JFrame/AlwaysOnTop/AlwaysOnTopImeTest.java JBR-9100 linux-all
 javax/swing/JFrame/HangNonVolatileBuffer/HangNonVolatileBuffer.java JBR-9100 linux-all
@@ -51,7 +51,7 @@ javax/swing/JLayer/6824395/bug6824395.java JBR-9100 linux-all
 javax/swing/JLayer/8041982/bug8041982.java JBR-9100 linux-all
 javax/swing/JMenu/8178430/LabelDotTest.java JBR-9100 linux-all
 javax/swing/JPanel/bug4907772.java JBR-9100 linux-all
-javax/swing/JPasswordField/TestSelectedTextBackgroundColor.java JBR-9100 linux-all
+javax/swing/JPasswordField/TestSelectedTextBackgroundColor.java JBR-9100,JBR-9277 linux-all,linux-6.14.9-arch1-1
 javax/swing/JProgressBar/8161664/ProgressBarMemoryLeakTest.java JBR-9100 linux-all
 javax/swing/JProgressBar/TestJProgressBarHighlightColor.java JBR-9100 linux-all
 javax/swing/JScrollPane/bug8044371.java JBR-9100 linux-all
@@ -60,7 +60,7 @@ javax/swing/JSlider/TestJSliderRendering.java JBR-9100 linux-all
 javax/swing/JSpinner/8008657/bug8008657.java JBR-9100 linux-all
 javax/swing/JSpinner/bug4656590.java JBR-9100 linux-all
 javax/swing/JSpinner/bug4680204.java JBR-9100 linux-all
-javax/swing/JSpinner/TestSelectedTextBackgroundColor.java JBR-9100 linux-all
+javax/swing/JSpinner/TestSelectedTextBackgroundColor.java JBR-9100,JBR-9277 linux-all,linux-6.14.9-arch1-1
 javax/swing/JSplitPane/4816114/bug4816114.java JBR-9100 linux-all
 javax/swing/JSplitPane/JSplitPaneTestNegDivSize.java JBR-9100 linux-all
 javax/swing/JTabbedPane/7170310/bug7170310.java JBR-9100 linux-all
@@ -81,12 +81,13 @@ javax/swing/JTextPane/JTextPaneDocumentWrapping.java JBR-9100 linux-all
 javax/swing/JTextPane/TestJTextPaneBackgroundColor.java JBR-9100 linux-all
 javax/swing/JTree/8041705/DefaultTreeCellRendererBorderTest.java JBR-9100 linux-all
 javax/swing/JViewport/7107099/bug7107099.java JBR-9100 linux-all
+javax/swing/InputVerifier/VerifyTarget/VerifyTargetTest.java JBR-7520,JBR-9320 linux-aarch64,linux-6.14.9-arch1-1
 javax/swing/LookAndFeel/8145547/DemandGTK.java JBR-9100 linux-all
 javax/swing/LookAndFeel/8145547/DemandGTK3.sh JBR-9100 linux-all
 javax/swing/plaf/basic/6866751/bug6866751.java JBR-9100 linux-all
 javax/swing/plaf/nimbus/Test6919629.java JBR-9100 linux-all
 javax/swing/reliability/TaskZoomJFrameRepaint.java JBR-9100 linux-all
-javax/swing/RepaintManager/DisplayListenerLeak/DisplayListenerLeak.java JBR-9100,JBR-9216 linux-all
+javax/swing/RepaintManager/DisplayListenerLeak/DisplayListenerLeak.java JBR-9100 linux-all
 javax/swing/Security/6657138/ComponentTest.java JBR-9100 linux-all
 javax/swing/SpringLayout/bug4756178.java JBR-9100 linux-all
 javax/swing/SpringLayout/bug4803649.java JBR-9100 linux-all
@@ -108,6 +109,3 @@ javax/swing/text/rtf/RTFWriteParagraphAlignTest.java JBR-9100 linux-all
 javax/swing/text/View/8048110/bug8048110.java JBR-9100 linux-all
 javax/swing/tree/DefaultTreeCellEditor/bug4480602.java JBR-9100 linux-all
 javax/swing/tree/FixedHeightLayoutCache/bug4745001.java JBR-9100 linux-all
-
-jb/java/awt/wayland/VulkanBlitTest.java JBR-9096 linux-all
-jb/java/awt/wayland/VulkanCompositeTest.java JBR-9096 linux-all

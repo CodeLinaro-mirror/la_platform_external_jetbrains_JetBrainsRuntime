@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2023, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2023, JetBrains s.r.o.. All rights reserved.
+ * Copyright 2025 JetBrains s.r.o.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,31 +23,18 @@
  * questions.
  */
 
-// These are stubs in case we were built with Vulkan disabled.
-#ifndef VULKAN_ENABLED
-#include "jlong_md.h"
-#include "jni.h"
+package sun.awt.wl.im.text_input_unstable_v3;
 
-/*
- * Class:     sun_java2d_vulkan_VKEnv
- * Method:    initPlatform
- * Signature: (J)Z
- */
-JNIEXPORT jboolean JNICALL
-Java_sun_java2d_vulkan_VKEnv_initPlatform(JNIEnv *env, jclass wlge, jlong nativePtr) {
-    return JNI_FALSE;
+
+/** Reason for the change of surrounding text or cursor position */
+enum ChangeCause {
+    /** input method caused the change */
+    INPUT_METHOD(0),
+    /** something else than the input method caused the change */
+    OTHER       (1);
+
+    public final int intValue;
+    ChangeCause(int intValue) {
+        this.intValue = intValue;
+    }
 }
-
-/*
- * Class:     sun_java2d_vulkan_VKEnv
- * Method:    initNative
- * Signature: (J)[Lsun/java2d/vulkan/VKGPU;
- */
-JNIEXPORT jobjectArray JNICALL Java_sun_java2d_vulkan_VKEnv_initNative
-        (JNIEnv *env, jclass cls, jlong platformData)
-{
-    return NULL;
-}
-
-
-#endif

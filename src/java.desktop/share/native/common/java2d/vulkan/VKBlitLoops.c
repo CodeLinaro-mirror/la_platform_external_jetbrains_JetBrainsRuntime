@@ -24,22 +24,15 @@
  * questions.
  */
 
+#include <assert.h>
 #include <string.h>
-#include "jlong.h"
-#include "VKUtil.h"
-#include "VKBlitLoops.h"
-#include "VKSurfaceData.h"
-#include "VKRenderer.h"
 #include "GraphicsPrimitiveMgr.h"
-
-
-#include "Trace.h"
-#include "VKImage.h"
 #include "VKBuffer.h"
+#include "VKImage.h"
 #include "VKDevice.h"
-#include "VKTexturePool.h"
-#include "VKUtil.h"
 #include "VKRenderer.h"
+#include "VKSurfaceData.h"
+#include "VKUtil.h"
 
 #define SRCTYPE_BITS sun_java2d_vulkan_VKSwToSurfaceBlit_SRCTYPE_BITS
 
@@ -100,8 +93,7 @@ void VKBlitLoops_IsoBlit(VKSDOps* srcOps, jint filter,
                         jdouble dx1, jdouble dy1, jdouble dx2, jdouble dy2)
 {
     if (srcOps == NULL) {
-        J2dRlsTraceLn(J2D_TRACE_ERROR,
-                      "VKBlitLoops_IsoBlit: srcOps is null")
+        J2dRlsTraceLn(J2D_TRACE_ERROR, "VKBlitLoops_IsoBlit: srcOps is null");
         return;
     }
 
@@ -122,7 +114,7 @@ void VKBlitLoops_IsoBlit(VKSDOps* srcOps, jint filter,
                                                                   VK_COMPONENT_SWIZZLE_ONE);
     VKPackedSwizzle swizzle = srcOpaque ? OPAQUE_SWIZZLE : 0;
 
-    if (!VKRenderer_Validate(SHADER_BLIT, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP, alphaType)) return;
+    if (!VKRenderer_Validate(SHADER_BLIT, NO_SHADER_VARIANT, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP, alphaType)) return;
     VKRenderer_DrawImage(srcOps->image, srcOps->image->format, swizzle, filter, SAMPLER_WRAP_BORDER,
                          (float)sx1, (float)sy1, (float)sx2, (float)sy2, (float)dx1, (float)dy1, (float)dx2, (float)dy2);
     VKRenderer_AddSurfaceDependency(srcOps, context->surface);
@@ -147,7 +139,7 @@ static void VKBlitLoops_FindStageBufferMemoryType(VKMemoryRequirements* requirem
 
 void VKBlitLoops_Blit(JNIEnv *env,
                       SurfaceDataOps* src,
-                      jshort srctype, jint hint,
+                      jshort srctype, jint filter,
                       jint sx1, jint sy1,
                       jint sx2, jint sy2,
                       jdouble dx1, jdouble dy1,
@@ -167,7 +159,7 @@ void VKBlitLoops_Blit(JNIEnv *env,
     }
     if (srcInfo.bounds.x2 > srcInfo.bounds.x1 && srcInfo.bounds.y2 > srcInfo.bounds.y1) {
         src->GetRasInfo(env, src, &srcInfo);
-        if (srcInfo.rasBase) {
+        while (srcInfo.rasBase) {
             if (srcInfo.bounds.x1 != sx1) dx1 += (srcInfo.bounds.x1 - sx1) * (dx2 - dx1) / (sx2 - sx1);
             if (srcInfo.bounds.y1 != sy1) dy1 += (srcInfo.bounds.y1 - sy1) * (dy2 - dy1) / (sy2 - sy1);
             if (srcInfo.bounds.x2 != sx2) dx2 += (srcInfo.bounds.x2 - sx2) * (dx2 - dx1) / (sx2 - sx1);
@@ -178,12 +170,17 @@ void VKBlitLoops_Blit(JNIEnv *env,
 
             // Need to validate render pass early, as image may not yet be configured.
             AlphaType alphaType = getSrcAlphaType(srctype);
-            if (!VKRenderer_Validate(SHADER_BLIT, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP, alphaType)) return;
+            if (!VKRenderer_Validate(SHADER_BLIT, NO_SHADER_VARIANT, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP, alphaType)) break;
 
             VKDevice* device = context->surface->device;
             BlitSrcType type = decodeSrcType(device, srctype);
-            VKTexturePoolHandle* imageHandle = VKTexturePool_GetTexture(device->texturePool, sw, sh, type.format);
+            VKTexturePoolHandle* imageHandle =
+                    VKTexturePool_GetTexture(VKRenderer_GetTexturePool(device->renderer), sw, sh, type.format);
             VKImage* image = VKTexturePoolHandle_GetTexture(imageHandle);
+            if (!image) {
+                J2dRlsTraceLn(J2D_TRACE_ERROR, "VKBlitLoops_Blit: could not get texture from the pool");
+                break;
+            }
 
             VkDeviceSize dataSize = sh * sw * srcInfo.pixelStride;
             VKBuffer buffer;
@@ -237,14 +234,16 @@ void VKBlitLoops_Blit(JNIEnv *env,
                 VKRenderer_RecordBarriers(device->renderer, NULL, NULL, &barrier, &barrierBatch);
             }
 
-            VKRenderer_DrawImage(image, type.format, type.swizzle, hint, SAMPLER_WRAP_BORDER,
+            VKRenderer_DrawImage(image, type.format, type.swizzle, filter, SAMPLER_WRAP_BORDER,
                                  0, 0, (float)sw, (float)sh, (float)dx1, (float)dy1, (float)dx2, (float)dy2);
 
-            VKRenderer_FlushMemoryOnReset(context->surface->renderPass, buffer.range);
-            VKRenderer_ExecOnCleanup(context->surface->renderPass, VKBlitLoops_DisposeTexture, imageHandle);
-            VKRenderer_ExecOnCleanup(context->surface->renderPass, VKBlitLoops_DisposeBuffer, buffer.handle);
-            VKRenderer_ExecOnCleanup(context->surface->renderPass, VKBlitLoops_DisposeMemory, page);
-        } else {
+            VKRenderer_FlushMemory(context->surface, buffer.range);
+            VKRenderer_ExecOnCleanup(context->surface, VKBlitLoops_DisposeTexture, imageHandle);
+            VKRenderer_ExecOnCleanup(context->surface, VKBlitLoops_DisposeBuffer, buffer.handle);
+            VKRenderer_ExecOnCleanup(context->surface, VKBlitLoops_DisposeMemory, page);
+            break;
+        }
+        if (!srcInfo.rasBase) {
             J2dRlsTraceLn(J2D_TRACE_ERROR, "VKBlitLoops_Blit: could not get raster info");
         }
         SurfaceData_InvokeRelease(env, src, &srcInfo);
@@ -258,7 +257,7 @@ void VKBlitLoops_Blit(JNIEnv *env,
  */
 void
 VKBlitLoops_SurfaceToSwBlit(JNIEnv *env,
-                            VKSDOps* src, SurfaceDataOps* dst, jint dsttype,
+                            VKSDOps* src, SurfaceDataOps* dst,
                             jint srcx, jint srcy, jint dstx, jint dsty,
                             jint width, jint height)
 {

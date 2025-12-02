@@ -117,7 +117,7 @@ gc/g1/humongousObjects/TestHeapCounters.java 8178918 generic-all
 gc/stress/gclocker/TestExcessGCLockerCollections.java 8229120 generic-all
 gc/stress/gclocker/TestGCLockerWithParallel.java 8180622 generic-all
 gc/stress/gclocker/TestGCLockerWithG1.java 8180622 generic-all
-gc/stress/gclocker/TestGCLockerWithShenandoah.java#aggressive JBR-8797 linux-all
+gc/stress/gclocker/TestGCLockerWithShenandoah.java#aggressive JBR-8797 linux-all,window-10.0
 gc/stress/TestJNIBlockFullGC/TestJNIBlockFullGC.java 8192647 generic-all
 gc/stress/TestStressRSetCoarsening.java#id2 JBR-6706 windows-x64
 
@@ -135,10 +135,12 @@ gc/TestAllocHumongousFragment.java#iu-aggressive 8298781 generic-all
 runtime/cds/appcds/complexURI/ComplexURITest.java JBR-6616 windows-aarch64
 runtime/cds/appcds/TestDumpClassListSource.java JBR-6099 generic-all
 runtime/cds/appcds/dynamicArchive/CDSStreamTestDriver.java initial_run generic-all
+runtime/cds/appcds/lambdaForm/DefaultClassListLFInvokers.java JBR-8923 windows-aarch64
 runtime/cds/appcds/methodHandles/MethodHandlesInvokersTest.java initial_run generic-all
 runtime/cds/appcds/methodHandles/MethodHandlesCastFailureTest.java initial_run generic-all
 runtime/cds/appcds/methodHandles/MethodHandlesGeneralTest.java initial_run generic-all
 runtime/cds/CheckDefaultArchiveFile.java JBR-4227 generic-all
+runtime/cds/DeterministicDump.java JBR-9215 macosx-26.0
 runtime/cds/TestCDSVMCrash.java JBR-7316 windows-aarch64
 runtime/jni/daemonDestroy/TestDaemonDestroy.java NOBUG windows-all # Expected to get exit value of [0], exit value is: [-1073741515]
 runtime/jni/terminatedThread/TestTerminatedThread.java 8317789 aix-ppc64
@@ -172,8 +174,15 @@ runtime/cds/appcds/methodHandles/MethodHandlesAsCollectorTest.java initial_run g
 runtime/cds/SharedBaseAddress.java initial_run generic-all
 runtime/cds/appcds/methodHandles/MethodHandlesSpreadArgumentsTest.java initial_run generic-all
 
+containers/docker/TestCPUAwareness.java JBR-9163 linux-6.14.0-1010-aws,linux-6.14.0-1011-aws,linux-6.14.0-1012-aws,linux-6.14.0-1013-aws,linux-6.14.0-1014-aws
+containers/docker/TestCPUSets.java JBR-9164 linux-6.14.0-1010-aws,linux-6.14.0-1011-aws,linux-6.14.0-1012-aws,linux-6.14.0-1013-aws,linux-6.14.0-1014-aws
 containers/docker/TestJcmd.java 8278102 linux-all
+containers/docker/TestJcmdWithSideCar.java JBR-9074 linux-6.14.0-1010-aws,linux-6.14.0-1011-aws,linux-6.14.0-1012-aws,linux-6.14.0-1013-aws,linux-6.14.0-1014-aws
+containers/docker/TestJFREvents.java JBR-9165 linux-6.14.0-1010-aws,linux-6.14.0-1011-aws,linux-6.14.0-1012-aws,linux-6.14.0-1013-aws,linux-6.14.0-1014-aws
+containers/docker/TestLimitsUpdating.java JBR-9166 linux-6.14.0-1010-aws,linux-6.14.0-1011-aws,linux-6.14.0-1012-aws,linux-6.14.0-1013-aws,linux-6.14.0-1014-aws
 containers/docker/TestMemoryAwareness.java 8303470 linux-all
+containers/docker/TestMisc.java JBR-9167 linux-6.14.0-1010-aws,linux-6.14.0-1011-aws,linux-6.14.0-1012-aws,linux-6.14.0-1013-aws,linux-6.14.0-1014-aws
+containers/docker/TestPids.java 8356277 linux-all
 
 #############################################################################
 
@@ -240,6 +249,8 @@ vmTestbase/nsk/monitoring/MemoryPoolMBean/isUsageThresholdExceeded/isexceeded005
 
 vmTestbase/nsk/jdb/options/listconnectors/listconnectors001/listconnectors001.java initial_run windows-all
 
+vmTestbase/nsk/jdi/Event/_itself_/event001/TestDescription.java JBR-8550 windows-all
+vmTestbase/nsk/jdi/Event/_itself_/event002/TestDescription.java JBR-8550 windows-all
 vmTestbase/nsk/jdi/LaunchingConnector/launch/launch001/TestDescription.java initial_run windows-all
 vmTestbase/nsk/jdi/LaunchingConnector/launch/launch003/TestDescription.java initial_run windows-all
 vmTestbase/nsk/jdi/LaunchingConnector/launchnosuspend/launchnosuspend001/TestDescription.java initial_run windows-all
@@ -296,7 +307,7 @@ vmTestbase/nsk/jdwp/ThreadReference/ForceEarlyReturn/forceEarlyReturn001/forceEa
 
 vmTestbase/nsk/monitoring/ThreadMXBean/ThreadInfo/Multi/Multi001/Multi001.java JBR-8545,JBR-8546 windows-all
 vmTestbase/nsk/monitoring/ThreadMXBean/ThreadInfo/Multi/Multi002/TestDescription.java JBR-8545 windows-all
-vmTestbase/nsk/monitoring/ThreadMXBean/ThreadInfo/Multi/Multi003/TestDescription.java 8076494 windows-x64
+vmTestbase/nsk/monitoring/ThreadMXBean/ThreadInfo/Multi/Multi003/TestDescription.java 8076494,JBR-8743 windows-x64,windows-all
 vmTestbase/nsk/monitoring/ThreadMXBean/ThreadInfo/Multi/Multi004/TestDescription.java JBR-8744 windows-all
 vmTestbase/nsk/monitoring/ThreadMXBean/ThreadInfo/Multi/Multi005/TestDescription.java 8076494,JBR-8927 windows-x64,windows-aarch64
 

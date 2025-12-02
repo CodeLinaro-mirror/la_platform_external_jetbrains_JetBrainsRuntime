@@ -93,6 +93,21 @@
 #define OFFSET_XFORM   sun_java2d_vulkan_VKBlitLoops_OFFSET_XFORM
 #define OFFSET_ISOBLIT sun_java2d_vulkan_VKBlitLoops_OFFSET_ISOBLIT
 
+static void applyXor() {
+    if (VKRenderer_GetContext()->shader == SHADER_COLOR) {
+        VKRenderer_GetContext()->vertexData ^= VKRenderer_GetContext()->constants.composite.xorColor;
+    }
+}
+
+static void setComposite(VKCompositeMode comp, unsigned int xorColor, float extraAlpha) {
+    VKRenderer_GetContext()->composite = comp;
+    if (VKRenderer_GetContext()->constants.composite.xorColor != xorColor ||
+        VKRenderer_GetContext()->constants.composite.extraAlpha != extraAlpha) {
+        VKRenderer_GetContext()->constants.composite = (VKCompositeConstants) { xorColor, extraAlpha };
+        VKRenderer_GetContext()->constantsModCount++;
+    }
+}
+
 JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
     (JNIEnv *env, jobject oglrq, jlong buf, jint limit)
 {
@@ -378,7 +393,7 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 J2dRlsTraceLn8(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: SURFACE_TO_SW_BLIT (%p) (%d %d %d %d) -> (%p) (%d %d)",
                     src, sx, sy, w, h, dst, dx, dy);
-                VKBlitLoops_SurfaceToSwBlit(env, src, dst, dsttype, sx, sy, dx, dy, w, h);
+                VKBlitLoops_SurfaceToSwBlit(env, src, dst, sx, sy, dx, dy, w, h);
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_MASK_FILL:
@@ -481,30 +496,26 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 jint   flags      = NEXT_INT(b);
                 J2dRlsTraceLn3(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: SET_ALPHA_COMPOSITE(%d, %f, %d)", rule, extraAlpha, flags);
-                VKRenderer_GetContext()->renderColor      = VKRenderer_GetContext()->color;
-                VKRenderer_GetContext()->composite  = (VKCompositeMode) rule;
-                VKRenderer_GetContext()->extraAlpha = extraAlpha;
+                applyXor();
+                setComposite((VKCompositeMode) rule, 0, extraAlpha);
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_SET_XOR_COMPOSITE:
             {
                 jint xorPixel = NEXT_INT(b);
-                J2dRlsTraceLn(J2D_TRACE_VERBOSE,
-                    "VKRenderQueue_flushBuffer: SET_XOR_COMPOSITE");
-                VKRenderer_GetContext()->renderColor = VKUtil_DecodeJavaColor(xorPixel, ALPHA_TYPE_STRAIGHT);
-                // TODO Fix XOR mode!
-                // VKRenderer_GetContext()->renderColor.a = 0.0f; // Alpha is left unchanged in XOR mode.
-                VKRenderer_GetContext()->composite  = LOGIC_COMPOSITE_XOR;
-                VKRenderer_GetContext()->extraAlpha = 1.0f;
+                J2dRlsTraceLn1(J2D_TRACE_VERBOSE,
+                    "VKRenderQueue_flushBuffer: SET_XOR_COMPOSITE(0x%08x)", xorPixel);
+                applyXor();
+                setComposite(LOGIC_COMPOSITE_XOR, xorPixel, -1.0f);
+                applyXor();
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_RESET_COMPOSITE:
             {
                 J2dRlsTraceLn(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: RESET_COMPOSITE");
-                VKRenderer_GetContext()->renderColor = VKRenderer_GetContext()->color;
-                VKRenderer_GetContext()->composite  = ALPHA_COMPOSITE_SRC;
-                VKRenderer_GetContext()->extraAlpha = 1.0f;
+                applyXor();
+                setComposite(ALPHA_COMPOSITE_SRC, 0, 1.0f);
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_SET_TRANSFORM:
@@ -527,8 +538,8 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 };
 
                 VKRenderingContext* context = VKRenderer_GetContext();
-                if (VK_IS_NEQ_TRANSFORM(&context->transform, &transform)) {
-                    context->transform = transform;
+                if (VK_IS_NEQ_TRANSFORM(&context->constants.transform, &transform)) {
+                    context->constants.transform = transform;
                     context->transformModCount++;
                 }
             }
@@ -538,8 +549,8 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                 J2dRlsTraceLn(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: RESET_TRANSFORM");
                 VKRenderingContext* context = VKRenderer_GetContext();
-                if (VK_IS_NEQ_TRANSFORM(&context->transform, &VK_ID_TRANSFORM)) {
-                    context->transform = VK_ID_TRANSFORM;
+                if (VK_IS_NEQ_TRANSFORM(&context->constants.transform, &VK_ID_TRANSFORM)) {
+                    context->constants.transform = VK_ID_TRANSFORM;
                     context->transformModCount++;
                 }
             }
@@ -573,9 +584,10 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
             break;
         case sun_java2d_pipe_BufferedOpCodes_DISPOSE_SURFACE:
             {
-                jlong pData = NEXT_LONG(b);
+                VKSDOps* surface = NEXT_VK_SURFACE(b);
                 J2dRlsTraceLn(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: DISPOSE_SURFACE");
+                VKSD_ResetSurface(surface);
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_DISPOSE_CONFIG:
@@ -648,31 +660,34 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
             break;
         case sun_java2d_pipe_BufferedOpCodes_SET_COLOR:
             {
-                jint javaColor = NEXT_INT(b);
-                VKRenderer_GetContext()->color = VKUtil_DecodeJavaColor(javaColor, ALPHA_TYPE_STRAIGHT);
-                if (COMPOSITE_GROUP(VKRenderer_GetContext()->composite) == ALPHA_COMPOSITE_GROUP) {
-                    VKRenderer_GetContext()->renderColor = VKRenderer_GetContext()->color;
-                }
-                J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKRenderQueue_flushBuffer: SET_COLOR(0x%08x)", javaColor);
-                J2dTraceLn4(J2D_TRACE_VERBOSE, // Print color values with straight alpha for convenience.
-                    "    srgb={%.3f, %.3f, %.3f, %.3f}",
-                    VKUtil_GetRGBA(VKRenderer_GetContext()->color, ALPHA_TYPE_STRAIGHT).r,
-                    VKUtil_GetRGBA(VKRenderer_GetContext()->color, ALPHA_TYPE_STRAIGHT).g,
-                    VKUtil_GetRGBA(VKRenderer_GetContext()->color, ALPHA_TYPE_STRAIGHT).b,
-                    VKUtil_GetRGBA(VKRenderer_GetContext()->color, ALPHA_TYPE_STRAIGHT).a);
+                VKRenderer_GetContext()->inAlphaType = ALPHA_TYPE_STRAIGHT;
+                VKRenderer_GetContext()->shader = SHADER_COLOR;
+                VKRenderer_GetContext()->shaderVariant = NO_SHADER_VARIANT;
+                VKRenderer_GetContext()->vertexData = NEXT_INT(b);
+                applyXor();
+                J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKRenderQueue_flushBuffer: SET_COLOR(0x%08x)", VKRenderer_GetContext()->vertexData);
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_SET_GRADIENT_PAINT:
             {
-                jboolean useMask= NEXT_BOOLEAN(b);
-                jboolean cyclic = NEXT_BOOLEAN(b);
-                jdouble p0      = NEXT_DOUBLE(b);
-                jdouble p1      = NEXT_DOUBLE(b);
-                jdouble p3      = NEXT_DOUBLE(b);
-                jint pixel1     = NEXT_INT(b);
-                jint pixel2     = NEXT_INT(b);
+                jboolean useMask = NEXT_BOOLEAN(b); // Unused.
+                jboolean cyclic  = NEXT_BOOLEAN(b);
+                jdouble p0       = NEXT_DOUBLE(b);
+                jdouble p1       = NEXT_DOUBLE(b);
+                jdouble p3       = NEXT_DOUBLE(b);
+                jint pixel1      = NEXT_INT(b);
+                jint pixel2      = NEXT_INT(b);
                 J2dRlsTraceLn(J2D_TRACE_VERBOSE,
                     "VKRenderQueue_flushBuffer: SET_GRADIENT_PAINT");
+                VKRenderer_GetContext()->inAlphaType = ALPHA_TYPE_PRE_MULTIPLIED;
+                VKRenderer_GetContext()->shader = SHADER_GRADIENT;
+                VKRenderer_GetContext()->shaderVariant = cyclic ? SHADER_VARIANT_GRADIENT_CYCLE : SHADER_VARIANT_GRADIENT_CLAMP;
+                VKRenderer_GetContext()->constants.shader.gradientPaint = (VKGradientPaintConstants) {
+                    VKUtil_GetRGBA(VKUtil_DecodeJavaColor(pixel1, ALPHA_TYPE_PRE_MULTIPLIED), ALPHA_TYPE_PRE_MULTIPLIED),
+                    VKUtil_GetRGBA(VKUtil_DecodeJavaColor(pixel2, ALPHA_TYPE_PRE_MULTIPLIED), ALPHA_TYPE_PRE_MULTIPLIED),
+                    p0*2.0, p1*2.0, p3*2.0-0.5
+                };
+                VKRenderer_GetContext()->constantsModCount++;
             }
             break;
         case sun_java2d_pipe_BufferedOpCodes_SET_LINEAR_GRADIENT_PAINT:

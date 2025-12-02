@@ -10,6 +10,7 @@ java/awt/dnd/DragSourceGCrashTest.java JBR-6442 linux-all
 java/awt/dnd/DropActionChangeTest.java JBR-6489,JBR-5799 generic-all
 java/awt/dnd/DroppingVMHangTest.java JBR-9156 linux-all
 java/awt/dnd/InterJVMGetDropSuccessTest/InterJVMGetDropSuccessTest.java JBR-6442 linux-all
+java/awt/dnd/InterJVMLinkTest.java JBR-9255 linux-6.15.8-100.fc41.x86_64,linux-6.16.7-100.fc41.x86_64,linux-6.16.7-200.fc42.x86_64
 java/awt/dnd/MozillaDnDTest.java JBR-6442 linux-all
 java/awt/event/KeyEvent/ExtendedModifiersTest/ExtendedModifiersTest.java JBR-6292 windows-all
 java/awt/event/KeyEvent/KeyMaskTest/KeyMaskTest.java JBR-6292 windows-all
@@ -26,6 +27,7 @@ java/awt/Focus/ModalExcludedWindowClickTest/ModalExcludedWindowClickTest.java JB
 java/awt/Focus/MouseClickRequestFocusRaceTest/MouseClickRequestFocusRaceTest.java 8194753,JBR-6090 linux-all,macosx-all,windows-x64
 java/awt/Focus/NonFocusableBlockedOwnerTest/NonFocusableBlockedOwnerTest.java 7124275,JBR-5799 macosx-all,windows-all
 java/awt/Focus/NonFocusableWindowTest/NonfocusableOwnerTest.java JBR-7299,JBR-8728 linux-all,windows-all
+java/awt/Focus/RequestFocusAndHideTest/RequestFocusAndHideTest.java JBR-8431 linux-aarch64
 java/awt/Focus/SimpleWindowActivationTest/SimpleWindowActivationTest.java JBR-6089 windows-all
 java/awt/Focus/WindowUpdateFocusabilityTest/WindowUpdateFocusabilityTest.java JBR-6090 windows-all
 java/awt/Frame/DisabledParentOfToplevel.java JBR-8818 windows-x64
@@ -37,25 +39,26 @@ java/awt/Frame/RestoreToOppositeScreen/RestoreToOppositeScreen.java 8286840 linu
 java/awt/Frame/SetMaximizedBounds/SetMaximizedBounds.java JBR-6090 windows-all
 java/awt/Frame/UnfocusableMaximizedFrameResizablity/UnfocusableMaximizedFrameResizablity.java JBR-8415 windows-10.0
 java/awt/Frame/WindowDragTest/WindowDragTest.java JBR-6090 windows-x64
-java/awt/Graphics/NativeWin32Clear.java JBR-8689,JBR-8730 linux-5.18.2-arch1-1,linux-aarch64,windows-all
+java/awt/Graphics/NativeWin32Clear.java JBR-8730 windows-all
 java/awt/GridLayout/ChangeGridSize/ChangeGridSize.java 8238720,8324782,JBR-4199 windows-all,macosx-all,linux-all
 java/awt/GridLayout/ComponentPreferredSize/ComponentPreferredSize.java 8238720,8324782,JBR-6090,JBR-4199,JBR-8574 windows-all,macosx-all,linux-all
 
 java/awt/Graphics/LineClipTest.java                                                 JBR-5071 linux-all
-java/awt/Graphics/LineClipTest.java                                                 JBR-5071 linux-all
 java/awt/image/VolatileImage/DrawHugeImageTest.java JBR-5071,JBR-5359 linux-all,windows-aarch64
 java/awt/LightweightComponent/LightweightEventTest/LightweightEventTest.java 8159252,JBR-5050,JBR-5071 windows-all,macosx-all,linux-all
+java/awt/LightweightComponent/MultipleAddNotifyTest/MultipleAddNotifyTest.java JBR-8092,JBR-8873 linux-all,windows-all
 java/awt/List/ItemEventTest/ItemEventTest.java JBR-5711,JBR-6234 linux-all,windows-all,macosx-all
 java/awt/List/TriggerActionEventTest.java JBR-6234 windows-all
-java/awt/Mixing/AWT_Mixing/JComboBoxOverlapping.java 8049405,JBR-5359,JBR-5510,JBR-6090 macosx-all,windows-aarch64,linux-5.18.2-arch1-1,windows-all
-java/awt/Mixing/AWT_Mixing/JGlassPaneMoveOverlapping.java JBR-5359,JBR-5510,JBR-6090 windows-aarch64,linux-5.18.2-arch1-1,windows-all
+java/awt/Mixing/AWT_Mixing/JComboBoxOverlapping.java 8049405,JBR-5359,JBR-6090 macosx-all,windows-aarch64,windows-all
+java/awt/Mixing/AWT_Mixing/JGlassPaneMoveOverlapping.java JBR-5359,JBR-6090 windows-aarch64,windows-all
 java/awt/Mixing/LWPopupMenu.java JBR-824,JBR-6134 generic-all,windows-x64
 java/awt/Mixing/MixingOnDialog.java JBR-6134,JBR-6090 windows-x64,windows-all
 java/awt/Mixing/MixingOnShrinkingHWButton.java JBR-6134 windows-x64
 java/awt/Mixing/OpaqueTest.java JBR-5707,JBR-6090 linux-all,windows-all
 java/awt/Mixing/OverlappingButtons.java JBR-5707,JBR-6090 linux-all,windows-all
 java/awt/Mixing/Validating.java JBR-5908,JBR-6090 linux-all,windows-all
-java/awt/MenuShortcut/FunctionKeyShortcut.java JBR-8732 windows-all
+java/awt/MenuShortcut/ActionCommandTest.java JBR-8822 windows-all
+java/awt/MenuShortcut/FunctionKeyShortcut.java JBR-8732,JBR-9207 windows-all,linux-6.15.8-100.fc41.x86_64,linux-6.16.7-100.fc41.x86_64,linux-6.16.7-200.fc42.x86_64
 java/awt/Modal/BlockedMouseInputTest2.java JBR-6090 windows-all
 java/awt/Modal/BlockedMouseInputTest3.java JBR-6134 windows-x64
 java/awt/Mouse/MouseEnterExitTest.java JBR-8096 linux-all,windows-all
@@ -74,8 +77,9 @@ javax/swing/JMenu/bug4342646.java JBR-8727 linux-all,windows-all
 javax/swing/JPopupMenu/6580930/bug6580930.java                                      JBR-5071 linux-all
 javax/swing/JSlider/6848475/bug6848475.java JBR-7329,JBR-7472 windows-all
 javax/swing/JSplitPane/4885629/bug4885629.java JBR-7270 macosx-all
-javax/swing/plaf/basic/BasicGraphicsUtils/8132119/bug8132119.java JBR-5342 linux-all
+javax/swing/plaf/basic/BasicGraphicsUtils/8132119/bug8132119.java JBR-8357 linux-all
 javax/swing/JTextArea/bug4265784.java JBR-7472 linux-all
+javax/swing/SwingUtilities/7146377/bug7146377.java JBR-4679,JBR-9254 windows-all,linux-6.15.8-100.fc41.x86_64,linux-6.16.7-100.fc41.x86_64,linux-6.16.7-200.fc42.x86_64
 javax/swing/text/DefaultCaret/HidingSelection/HidingSelectionTest.java JBR-8450 linux-all
 javax/swing/text/ParagraphView/6364882/bug6364882.java JBR-8324 linux-all
 javax/swing/text/StyledEditorKit/4506788/bug4506788.java JBR-8212 linux-all
@@ -98,6 +102,7 @@ java/awt/BasicStroke/DashScaleMinWidth.java nobug generic-all
 java/awt/BasicStroke/DashZeroWidth.java nobug generic-all
 java/awt/Component/SetComponentsBounds/SetComponentsBounds.java nobug generic-all
 java/awt/Dialog/SiblingChildOrder/SiblingChildOrderTest.java nobug generic-all
+java/awt/Frame/FrameSetMinimumSizeTest.java JBR-8729 windows-all
 java/awt/Frame/MaximizedToOppositeScreen/MaximizedToOppositeScreenBig.java nobug generic-all
 java/awt/Frame/SetIconImagesCrashTest/SetIconImagesCrashTest.java nobug generic-all
 java/awt/Frame/ShapeNotSetSometimes/ShapeNotSetSometimes.java nobug generic-all
@@ -117,6 +122,7 @@ java/awt/Robot/HiDPIScreenCapture/ScreenCaptureResolutionTest.java nobug generic
 java/awt/Robot/HiDPIScreenCapture/ScreenCaptureTest.java nobug generic-all
 java/awt/Robot/ScreenCaptureRobotTest.java#id1 nobug generic-all
 java/awt/Toolkit/ScreenInsetsDPIVariation/ScreenInsetsDPIVariation.java nobug generic-all
+java/awt/TrayIcon/RightClickWhenBalloonDisplayed/RightClickWhenBalloonDisplayed.java 8238720,JBR-6931 windows-all,linux-aarch64,linux-6.16.7-100.fc41.x86_64,linux-6.16.7-200.fc42.x86_64
 java/awt/Window/8159168/SetShapeTest.java nobug generic-all
 java/awt/Window/BackgroundIsNotUpdated/BackgroundIsNotUpdated.java nobug generic-all
 java/awt/Window/GetScreenLocation/GetScreenLocationTest.java nobug generic-all
@@ -155,10 +161,12 @@ javax/swing/GraphicsConfigNotifier/StalePreferredSize.java nobug generic-all
 javax/swing/GraphicsConfigNotifier/TestSingleScreenGConfigNotify.java nobug generic-all
 javax/swing/JButton/8151303/PressedIconTest.java nobug generic-all
 javax/swing/JButton/TestGlyphBreak.java nobug generic-all
+javax/swing/JComboBox/6559152/bug6559152.java JBR-8964 windows-all
 javax/swing/JComboBox/DisabledComboBoxFontTestAuto.java nobug generic-all
 javax/swing/JFrame/8175301/ScaledFrameBackgroundTest.java nobug generic-all
 javax/swing/JInternalFrame/8069348/bug8069348.java nobug generic-all
 javax/swing/JInternalFrame/8160248/JInternalFrameDraggingTest.java nobug generic-all
+javax/swing/JInternalFrame/Ctrli.java JBR-9362 windows-all
 javax/swing/JLabel/GetSpanHiDpiBug.java nobug generic-all
 javax/swing/JTabbedPane/TestBackgroundScrollPolicy.java nobug generic-all
 javax/swing/JTextArea/8149849/DNDTextToScaledArea.java nobug generic-all
@@ -219,12 +227,13 @@ sun/java2d/pipe/InterpolationQualityTest.java nobug generic-all
 java/awt/event/ComponentEvent/TextComponentTextEventTest.java JBR-6287 windows-all
 
 jb/java/awt/Focus/ComplexFocusSequence.java JBR-6728 linux-all,windows-x64
-jb/java/awt/Focus/FileDialogClosing.java JBR-8309,JBR-5799 macosx-x64,windows-all
+jb/java/awt/Focus/FileDialogClosing.java JBR-8309,JBR-5799 macosx-all,windows-all
 jb/java/awt/Focus/ModalDialogFromMenuTest.java JBR-5799 windows-all
 jb/java/awt/Focus/ModalDialogOverSiblingTest.java                                   JBR-5716 windows-all
 jb/java/awt/Focus/PopupFromMenuTest.java JBR-5799 windows-all
 jb/java/awt/Focus/PopupIncomingFocusTest.java                                       JBR-2651 generic-all
 jb/java/awt/Focus/RequestFocusInParent.java                                         JBR-5715 windows-all
 jb/java/awt/Focus/SecondLevelPopupTest.java                                         JBR-6090 windows-all
+jb/java/awt/Font/TextLayout/DrawTest.java JBR-6558 windows-all
 jb/java/awt/Window/UndecoratedDialogInTransientsChain.java                          JBR-6090 windows-all
 jdk/editpad/EditPadTest.java                                                        JBR-5712 windows-all
