@@ -52,6 +52,7 @@ import sun.awt.X11.XToolkit;
 import sun.java2d.opengl.GLXGraphicsConfig;
 import sun.java2d.pipe.Region;
 import sun.java2d.xr.XRGraphicsConfig;
+import sun.security.action.GetPropertyAction;
 
 /**
  * This is an implementation of a GraphicsDevice object for a single
@@ -387,7 +388,7 @@ public final class X11GraphicsDevice extends GraphicsDevice
 
     private static native void enterFullScreenExclusive(long window);
     private static native void exitFullScreenExclusive(long window);
-    private static native boolean initXrandrExtension();
+    private static native boolean initXrandrExtension(boolean useOldConfigDisplayMode);
     private static native DisplayMode getCurrentDisplayMode(int screen);
     private static native void enumDisplayModes(int screen,
                                                 ArrayList<DisplayMode> modes);
@@ -404,12 +405,14 @@ public final class X11GraphicsDevice extends GraphicsDevice
      *   - the Xrandr extension is present
      *   - the necessary Xrandr functions were loaded successfully
      */
+    @SuppressWarnings("removal")
     private static synchronized boolean isXrandrExtensionSupported() {
         if (xrandrExtSupported == null) {
-            xrandrExtSupported =
-                Boolean.valueOf(initXrandrExtension());
+            boolean useOldConfigDisplayMode =
+                    GetPropertyAction.privilegedGetBooleanProp("awt.x11useOldConfigDisplayMode", false, null);
+            xrandrExtSupported = initXrandrExtension(useOldConfigDisplayMode);
         }
-        return xrandrExtSupported.booleanValue();
+        return xrandrExtSupported;
     }
 
     @Override

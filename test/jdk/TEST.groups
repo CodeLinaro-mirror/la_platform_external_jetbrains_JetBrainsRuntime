@@ -1,4 +1,4 @@
-#  Copyright (c) 2013, 2023, Oracle and/or its affiliates. All rights reserved.
+#  Copyright (c) 2013, 2025, Oracle and/or its affiliates. All rights reserved.
 #  DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 #  This code is free software; you can redistribute it and/or modify it
@@ -83,14 +83,25 @@ tier2_part2 = \
 tier2_part3 = \
     :jdk_net
 
+# These sub groups of tier3 allow for running certain tests separately from the
+# rest. When adding tests to tier3, in most cases they should be added to
+# tier3_part1.
 tier3 = \
+    :tier3_part1 \
+    :tier3_jpackage
+
+tier3_part1 = \
     :build \
     :jdk_vector \
+    -:jdk_vector_sanity \
     :jdk_rmi \
     :jdk_svc \
-   -:jdk_svc_sanity \
-   -:jdk_vector_sanity \
-   -:svc_tools
+    -:jdk_svc_sanity \
+    -:svc_tools
+
+# The jpackage tests on Windows require permissions that aren't always present
+tier3_jpackage = \
+    :jdk_jpackage
 
 # Everything not in other tiers
 tier4 = \
@@ -301,10 +312,11 @@ jdk_loom = \
     jdk/jfr/threading
 
 #
-# Tool (and tool API) tests are split into core and svc groups
+# Tool (and tool API) tests are mostly split into core and svc groups
 #
 core_tools = \
     tools \
+    -tools/jpackage \
     jdk/internal/jrtfs \
     sun/tools/jrunscript
 
@@ -316,10 +328,14 @@ svc_tools = \
 
 jdk_tools = \
     :core_tools \
-    :svc_tools
+    :svc_tools \
+    :jdk_jpackage
 
 jdk_jfr = \
     jdk/jfr
+
+jdk_jpackage = \
+    tools/jpackage
 
 #
 # Catch-all for other areas with a small number of tests
@@ -832,7 +848,6 @@ jdk_awt_wayland = \
     -java/awt/Component/SetEnabledPerformance \
     -java/awt/ComponentOrientation \
     -java/awt/Container \
-    -java/awt/Cursor/CursorOverlappedPanelsTest/CursorOverlappedPanelsTest.java \
     -java/awt/Cursor/MultiResolutionCursorTest/MultiResolutionCursorTest.java \
     -java/awt/datatransfer/Clipboard/GetContentsInterruptedTest.java \
     -java/awt/datatransfer/ClipboardInterVMTest/ClipboardInterVMTest.java \
@@ -851,6 +866,7 @@ jdk_awt_wayland = \
     -java/awt/Debug \
     -java/awt/Dialog \
     -java/awt/dnd \
+    -java/awt/event/ClickEventsTest.java \
     -java/awt/event/ComponentEvent/ComponentItemEventTest.java \
     -java/awt/event/ComponentEvent/ListItemEventsTest.java \
     -java/awt/event/ComponentEvent/MovedResizedTardyEventTest/MovedResizedTardyEventTest.java \
@@ -880,10 +896,11 @@ jdk_awt_wayland = \
     -java/awt/event/KeyEvent/RobotCrash/RobotCrash.java \
     -java/awt/event/KeyEvent/ShiftF10Test.java \
     -java/awt/event/KeyEvent/SwallowKeyEvents/SwallowKeyEvents.java \
-    -java/awt/event/MouseEvent/AWTPanelSmoothWheel/AWTPanelSmoothWheel.html \
     -java/awt/event/MouseEvent/AltGraphModifierTest/AltGraphModifierTest.java \
     -java/awt/event/MouseEvent/ClickDuringKeypress/ClickDuringKeypress.java \
     -java/awt/event/MouseEvent/DisabledComponents/DisabledComponentsTest.java \
+    -java/awt/event/MouseEvent/DragMouseEventTest.java \
+    -java/awt/event/MouseEvent/DragToLightweightTest.java \
     -java/awt/event/MouseEvent/EnterAsGrabbedEvent/EnterAsGrabbedEvent.java \
     -java/awt/event/MouseEvent/EventTimeInFuture/EventTimeInFuture.java \
     -java/awt/event/MouseEvent/FrameMouseEventAbsoluteCoordsTest/FrameMouseEventAbsoluteCoordsTest.java \
@@ -891,6 +908,10 @@ jdk_awt_wayland = \
     -java/awt/event/MouseEvent/MouseButtonsTest/MouseButtonsTest.java \
     -java/awt/event/MouseEvent/MouseClickTest/MouseClickTest.java \
     -java/awt/event/MouseEvent/MouseEnterExitTest.java \
+    -java/awt/event/MouseEvent/MouseEventsDuringDrag.java \
+    -java/awt/event/MouseEvent/MouseEnterTest.java \
+    -java/awt/event/MouseEvent/MouseModifierTest.java \
+    -java/awt/event/MouseEvent/MouseRButTest.java \
     -java/awt/event/MouseEvent/MultipleMouseButtonsTest/MultipleMouseButtonsTest.java \
     -java/awt/event/MouseEvent/RobotLWTest/RobotLWTest.java \
     -java/awt/event/MouseEvent/SmoothWheel/SmoothWheel.java \
@@ -903,6 +924,7 @@ jdk_awt_wayland = \
     -java/awt/event/SequencedEvent/MultipleContextsFunctionalTest.java \
     -java/awt/event/StressTest/MouseAndKeyEventStressTest.java \
     -java/awt/event/TextEvent \
+    -java/awt/event/WindowActivatedEventTest.java \
     -java/awt/EventDispatchThread/HandleExceptionOnEDT/HandleExceptionOnEDT.java \
     -java/awt/EventDispatchThread/LoopRobustness/LoopRobustness.java \
     -java/awt/EventDispatchThread/PropertyPermissionOnEDT/PropertyPermissionOnEDT.java \
@@ -1156,6 +1178,7 @@ jdk_swing_wayland= \
     -javax/swing/JEditorPane/4666101/JEditorPaneNavigationTest.java \
     -javax/swing/JEditorPane/6917744/bug6917744.java \
     -javax/swing/JEditorPane/8195095/ImageViewTest.java \
+    -javax/swing/JEditorPane/bug4325606.java \
     -javax/swing/JEditorPane/bug4694598.java \
     -javax/swing/JEditorPane/TestBrowserBGColor.java \
     -javax/swing/JFileChooser/4150029/bug4150029.java \
@@ -1283,6 +1306,8 @@ jdk_swing_wayland= \
     -javax/swing/JTable/6777378/bug6777378.java \
     -javax/swing/JTable/7055065/bug7055065.java \
     -javax/swing/JTable/8236907/LastVisibleRow.java \
+    -javax/swing/JTable/bug4222153.java \
+    -javax/swing/JTable/Tab.java \
     -javax/swing/JTable/TestJTableGridReset.java \
     -javax/swing/JTableHeader/4473075/bug4473075.java \
     -javax/swing/JTableHeader/6884066/bug6884066.java \
@@ -1310,6 +1335,7 @@ jdk_swing_wayland= \
     -javax/swing/JTree/6505523/bug6505523.java \
     -javax/swing/JTree/6578666/bug6578666.java \
     -javax/swing/JTree/8003400/Test8003400.java \
+    -javax/swing/JTree/bug4618767.java \
     -javax/swing/JTree/TestTreeBackgroundColor.java \
     -javax/swing/JWindow/ShapedAndTranslucentWindows/PerPixelTranslucent.java \
     -javax/swing/JWindow/ShapedAndTranslucentWindows/PerPixelTranslucentCanvas.java \

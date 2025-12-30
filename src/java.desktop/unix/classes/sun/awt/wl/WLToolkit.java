@@ -84,6 +84,7 @@ import java.awt.peer.TrayIconPeer;
 import java.awt.peer.WindowPeer;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -177,9 +178,34 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
             toolkitSystemThread.start();
 
             dataDevice = new WLDataDevice(0); // TODO: for multiseat support pass wl_seat pointer here
+
+            registerShutdownHook();
         } else {
             dataDevice = null;
         }
+    }
+
+    @SuppressWarnings("removal")
+    private void registerShutdownHook() {
+        PrivilegedAction<Void> a = () -> {
+            Runnable r = () -> {
+                ArrayList<WLWindowPeer> livePeers;
+                synchronized (wlSurfaceToPeerMap) {
+                    livePeers = new ArrayList<>(wlSurfaceToPeerMap.values());
+                }
+                livePeers.forEach(p -> {
+                    Component target = p.getTarget();
+                    if (target.isDisplayable()) {
+                        target.removeNotify();
+                    }
+                });
+            };
+            Thread shutdownThread = InnocuousThread.newSystemThread("WLToolkit-Shutdown-Thread", r);
+            shutdownThread.setDaemon(true);
+            Runtime.getRuntime().addShutdownHook(shutdownThread);
+            return null;
+        };
+        AccessController.doPrivileged(a);
     }
 
     public static synchronized boolean getSunAwtDisableGtkFileDialogs() {
@@ -196,12 +222,17 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
         System.setProperty(extraButtons, String.valueOf(areExtraMouseButtonsEnabled));
     }
 
+    @SuppressWarnings("removal")
     static String getApplicationID() {
         // Do not cache the properties as the application might want to change
         // them at run time. Might also consider using JComponent's client property
         // for per-window app ID
-        String appID = System.getProperty("awt.app.id");
-        return appID != null ? appID : System.getProperty("sun.java.command");
+        String appID = java.security.AccessController.doPrivileged(
+                new sun.security.action.GetPropertyAction("awt.app.id"));
+        return appID != null
+                ? appID
+                : java.security.AccessController.doPrivileged(
+                        new sun.security.action.GetPropertyAction("sun.java.command"));
     }
 
     public static boolean isToolkitThread() {
@@ -259,6 +290,9 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
                     WLToolkit.awtLock();
                     try {
                         dispatchEventsOnEDT();
+                        if (dataDevice != null) {
+                            dataDevice.performDeletionsOnEDT();
+                        }
                     } finally {
                         eventsQueued.release();
                         WLToolkit.awtUnlock();
