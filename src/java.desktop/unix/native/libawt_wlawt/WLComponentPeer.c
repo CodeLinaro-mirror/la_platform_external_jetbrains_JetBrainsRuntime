@@ -36,6 +36,9 @@
 #include "WLRobotPeer.h"
 #include "WLGraphicsEnvironment.h"
 
+#include "xdg-decoration-protocol.h"
+#include <stdbool.h>
+
 #ifdef WAKEFIELD_ROBOT
 #include "wakefield-client-protocol.h"
 #endif
@@ -63,6 +66,9 @@ struct WLFrame {
     jboolean configuredActive;
     jboolean configuredMaximized;
     jboolean configuredFullscreen;
+
+    struct wl_buffer* iconBuffer;
+    struct wl_shm_pool* iconPool;
 };
 
 static void
@@ -535,3 +541,80 @@ JNIEXPORT void JNICALL Java_sun_awt_wl_WLComponentPeer_nativeShowWindowMenu
     }
 }
 
+JNIEXPORT jlong JNICALL Java_sun_awt_wl_ServerSideFrameDecoration_createToplevelDecorationImpl
+        (JNIEnv *env, jobject obj, jlong ptr)
+{
+    struct WLFrame *frame = jlong_to_ptr(ptr);
+    if (frame->toplevel) {
+        struct zxdg_toplevel_decoration_v1 * decor = zxdg_decoration_manager_v1_get_toplevel_decoration(
+            xdg_decoration_manager, frame->xdg_toplevel);
+        zxdg_toplevel_decoration_v1_set_mode(decor, ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+        return ptr_to_jlong(decor);
+    }
+
+    return 0;
+}
+
+JNIEXPORT void JNICALL Java_sun_awt_wl_ServerSideFrameDecoration_disposeImpl
+        (JNIEnv *env, jobject obj, jlong ptr)
+{
+    struct zxdg_toplevel_decoration_v1 * decor = jlong_to_ptr(ptr);
+    if (decor) {
+        zxdg_toplevel_decoration_v1_destroy(decor);
+    }
+}
+
+JNIEXPORT void JNICALL Java_sun_awt_wl_WLComponentPeer_nativeSetIcon
+        (JNIEnv *env, jobject obj, jlong ptr, jint size, jobject pixelArray)
+{
+    struct WLFrame *frame = jlong_to_ptr(ptr);
+    if (frame == NULL || !frame->toplevel || xdg_toplevel_icon_manager == NULL) {
+        return;
+    }
+
+    bool hasIcon = frame->iconBuffer != NULL;
+    bool willHaveIcon = size > 0 && pixelArray != NULL;
+    size_t iconByteSize = size * size * 4;
+
+    if (!willHaveIcon) {
+        xdg_toplevel_icon_manager_v1_set_icon(xdg_toplevel_icon_manager, frame->xdg_toplevel, NULL);
+    }
+
+    if (hasIcon) {
+        if (frame->iconBuffer != NULL) {
+            wl_buffer_destroy(frame->iconBuffer);
+            frame->iconBuffer = NULL;
+        }
+        if (frame->iconPool != NULL) {
+            wl_shm_pool_destroy(frame->iconPool);
+            frame->iconPool = NULL;
+        }
+    }
+
+    if (willHaveIcon) {
+        void* poolData = NULL;
+        struct wl_shm_pool* pool = CreateShmPool(iconByteSize, "toplevel_icon", &poolData, NULL);
+        if (pool == NULL) {
+            return;
+        }
+        (*env)->GetIntArrayRegion(env, pixelArray, 0, size * size, poolData);
+        struct wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, size, size, size * 4, WL_SHM_FORMAT_ARGB8888);
+        if (buffer == NULL) {
+            wl_shm_pool_destroy(pool);
+            return;
+        }
+
+        struct xdg_toplevel_icon_v1* icon = xdg_toplevel_icon_manager_v1_create_icon(xdg_toplevel_icon_manager);
+        if (icon == NULL) {
+            wl_buffer_destroy(buffer);
+            wl_shm_pool_destroy(pool);
+            return;
+        }
+        xdg_toplevel_icon_v1_add_buffer(icon, buffer, 1);
+        xdg_toplevel_icon_manager_v1_set_icon(xdg_toplevel_icon_manager, frame->xdg_toplevel, icon);
+        xdg_toplevel_icon_v1_destroy(icon);
+
+        frame->iconPool = pool;
+        frame->iconBuffer = buffer;
+    }
+}

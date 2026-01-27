@@ -113,6 +113,11 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
     private boolean repositionPopup = false; // protected by stateLock
     private boolean resizePending = false; // protected by stateLock
 
+    @SuppressWarnings("removal")
+    private static final boolean shadowEnabled = Boolean.parseBoolean(
+                java.security.AccessController.doPrivileged(
+                        new sun.security.action.GetPropertyAction("sun.awt.wl.Shadow", "true")));
+
     static {
         initIDs();
     }
@@ -121,6 +126,10 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
      * Standard peer constructor, with corresponding Component
      */
     WLComponentPeer(Component target) {
+        this(target, true);
+    }
+
+    protected WLComponentPeer(Component target, boolean dropShadow) {
         this.target = target;
         this.background = target.getBackground();
         Dimension size = constrainSize(target.getBounds().getSize());
@@ -135,17 +144,11 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
             log.fine("WLComponentPeer: target=" + target + " with size=" + wlSize);
         }
 
-        @SuppressWarnings("removal")
-        boolean shadowEnabled = Boolean.parseBoolean(
-                java.security.AccessController.doPrivileged(
-                        new sun.security.action.GetPropertyAction("sun.awt.wl.Shadow", "true")));
-        if (shadowEnabled) {
+        if (dropShadow && shadowEnabled) {
             shadow = new ShadowImpl(targetIsWlPopup() ? ShadowImage.POPUP_SHADOW_SIZE : ShadowImage.WINDOW_SHADOW_SIZE);
         } else {
             shadow = new NilShadow();
         }
-        // TODO
-        // setup parent window for target
     }
 
     int getDisplayScale() {
@@ -390,6 +393,8 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
                     WLRobotPeer.setLocationOfWLSurface(wlSurface, xNative, yNative);
                 }
 
+                notifyNativeWindowCreated(nativePtr);
+
                 shadow.createSurface();
 
                 // From xdg-shell.xml: "After creating a role-specific object and
@@ -397,6 +402,7 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
                 // without any buffer attached"
                 shadow.commitSurface();
                 wlSurface.commit();
+                if (!isWlPopup && target.getParent() != null) activate();
 
                 ((WLToolkit) Toolkit.getDefaultToolkit()).flush();
             });
@@ -407,6 +413,8 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
         } else {
             performLocked(() -> {
                 if (wlSurface != null) { // may get a "hide" request even though we were never shown
+                    notifyNativeWindowToBeHidden(nativePtr);
+
                     nativeHideFrame(nativePtr);
 
                     shadow.hide();
@@ -415,6 +423,12 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
                 }
             });
         }
+    }
+
+    protected void notifyNativeWindowCreated(long nativePtr) {
+    }
+
+    protected void notifyNativeWindowToBeHidden(long nativePtr) {
     }
 
     /**
@@ -437,10 +451,16 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
     }
 
     void updateSurfaceData() {
-        SurfaceData.convertTo(WLSurfaceDataExt.class, surfaceData).revalidate(
-                getGraphicsConfiguration(), getBufferWidth(), getBufferHeight(), getDisplayScale());
+        performLocked(() -> {
+            SurfaceData.convertTo(WLSurfaceDataExt.class, surfaceData).revalidate(
+                    getGraphicsConfiguration(), getBufferWidth(), getBufferHeight(), getDisplayScale());
 
-        shadow.updateSurfaceData();
+            shadow.updateSurfaceData();
+        });
+    }
+
+    public boolean isResizable() {
+        return true;
     }
 
     @Override
@@ -463,9 +483,15 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
 
         wlSurface.updateSurfaceSize(surfaceWidth, surfaceHeight);
         nativeSetWindowGeometry(nativePtr, 0, 0, surfaceWidth, surfaceHeight);
-        nativeSetMinimumSize(nativePtr, surfaceMinSize.width, surfaceMinSize.height);
-        if (surfaceMaxSize != null) {
-            nativeSetMaximumSize(nativePtr, surfaceMaxSize.width, surfaceMaxSize.height);
+        if (isResizable()) {
+            nativeSetMinimumSize(nativePtr, surfaceMinSize.width, surfaceMinSize.height);
+            if (surfaceMaxSize != null) {
+                nativeSetMaximumSize(nativePtr, surfaceMaxSize.width, surfaceMaxSize.height);
+            }
+        } else {
+            // Prevent SSD from resizing windows that are not meant to be resizeable
+            nativeSetMinimumSize(nativePtr, surfaceWidth, surfaceHeight);
+            nativeSetMaximumSize(nativePtr, surfaceWidth, surfaceHeight);
         }
 
         if (popupNeedsReposition()) {
@@ -878,6 +904,10 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
         performLocked(() -> nativeShowWindowMenu(serial, nativePtr, xNative, yNative));
     }
 
+    void setIcon(int size, int[] pixels) {
+        performLocked(() -> nativeSetIcon(nativePtr, size, pixels));
+    }
+
     @Override
     public ColorModel getColorModel() {
         GraphicsConfiguration graphicsConfig = target.getGraphicsConfiguration();
@@ -1040,9 +1070,10 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
                     log.fine(String.format("%s is updating buffer to %dx%d pixels", this, getBufferWidth(), getBufferHeight()));
                 }
             }
-            updateSurfaceData();
-            postPaintEvent();
         }
+
+        updateSurfaceData();
+        postPaintEvent();
 
         // Not sure what would need to have changed in Wayland's graphics configuration
         // to warrant destroying the peer and creating a new one from scratch.
@@ -1081,7 +1112,7 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
 
     final void activate() {
         // "The serial can come from an input or focus event."
-        long serial = getSerialForActivaction();
+        long serial = getSerialForActivation();
         if (serial != 0) {
             performLocked(() -> {
                 long surface = WLToolkit.getInputState().surfaceForKeyboardInput();
@@ -1094,16 +1125,21 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
         }
     }
 
-    private static long getSerialForActivaction() {
-        long serial = WLToolkit.getInputState().keyboardEnterSerial(); // a focus event
-        if (serial == 0) { // may have just left one surface and not yet entered another
-            serial = WLToolkit.getInputState().keySerial(); // an input event
-        }
-        if (serial == 0) {
-            // The pointer button serial seems to not work with Mutter, but may work
-            // with other implementations, so let's keep it as an input event serial
-            // of the last resort.
-            serial = WLToolkit.getInputState().pointerButtonSerial();
+    private static long getSerialForActivation() {
+        long serial;
+        if (WLToolkit.isKDE()) {
+            serial = WLToolkit.getInputState().latestInputSerial();
+        } else {
+            serial = WLToolkit.getInputState().keyboardEnterSerial(); // a focus event
+            if (serial == 0) { // may have just left one surface and not yet entered another
+                serial = WLToolkit.getInputState().keySerial(); // an input event
+            }
+            if (serial == 0) {
+                // The pointer button serial seems to not work with Mutter but may work
+                // with other implementations, so let's keep it as an input event serial
+                // of the last resort.
+                serial = WLToolkit.getInputState().pointerButtonSerial();
+            }
         }
         return serial;
     }
@@ -1141,6 +1177,7 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
     private native void nativeSetMinimumSize(long ptr, int width, int height);
     private native void nativeSetMaximumSize(long ptr, int width, int height);
     private native void nativeShowWindowMenu(long serial, long ptr, int x, int y);
+    private native void nativeSetIcon(long ptr, int size, int[] pixels);
 
     static long getNativePtrFor(Component component) {
         final ComponentAccessor acc = AWTAccessor.getComponentAccessor();

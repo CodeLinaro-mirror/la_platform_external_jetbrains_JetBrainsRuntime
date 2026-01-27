@@ -76,6 +76,7 @@ struct wl_seat     *wl_seat = NULL;
 struct wl_keyboard *wl_keyboard; // optional, check for NULL before use
 struct wl_pointer  *wl_pointer; // optional, check for NULL before use
 struct zwp_relative_pointer_manager_v1* relative_pointer_manager; // optional, check for NULL before use
+struct zxdg_decoration_manager_v1* xdg_decoration_manager; // optional, check for NULL before use
 
 #define MAX_CURSOR_SCALE 100
 struct wl_cursor_theme *cursor_themes[MAX_CURSOR_SCALE] = {NULL};
@@ -85,8 +86,10 @@ struct zwp_primary_selection_device_manager_v1 *zwp_selection_dm = NULL; // opti
 struct zxdg_output_manager_v1 *zxdg_output_manager_v1 = NULL; // optional, check for NULL before use
 
 struct zwp_text_input_manager_v3 *zwp_text_input_manager = NULL; // optional, check for NULL before use
+struct xdg_toplevel_icon_manager_v1 *xdg_toplevel_icon_manager; // optional, check for NULL before use
 
 static uint32_t num_of_outstanding_sync = 0;
+static bool waiting_for_xdg_toplevel_icon_manager_done = false;
 
 // This group of definitions corresponds to declarations from awt.h
 jclass    tkClass = NULL;
@@ -127,6 +130,7 @@ static jmethodID dispatchKeyboardModifiersEventMID;
 static jmethodID dispatchKeyboardEnterEventMID;
 static jmethodID dispatchKeyboardLeaveEventMID;
 static jmethodID dispatchRelativePointerEventMID;
+static jmethodID handleToplevelIconSizeMID;
 
 JNIEnv *getEnv() {
     JNIEnv *env;
@@ -563,6 +567,36 @@ static const struct wl_seat_listener wl_seat_listener = {
 };
 
 static void
+xdg_toplevel_icon_manager_icon_size(void *data,
+                                    struct xdg_toplevel_icon_manager_v1 *xdg_toplevel_icon_manager_v1,
+                                    int32_t size)
+{
+    (void)data;
+    (void)xdg_toplevel_icon_manager_v1;
+    JNIEnv* env = getEnv();
+    if (env == NULL) {
+        return;
+    }
+
+    (*env)->CallStaticVoidMethod(env, tkClass, handleToplevelIconSizeMID, size);
+    JNU_CHECK_EXCEPTION(env);
+}
+
+static void
+xdg_toplevel_icon_manager_icon_size_done(void *data,
+                                         struct xdg_toplevel_icon_manager_v1 *xdg_toplevel_icon_manager_v1)
+{
+    (void)data;
+    (void)xdg_toplevel_icon_manager_v1;
+    waiting_for_xdg_toplevel_icon_manager_done = false;
+}
+
+static const struct xdg_toplevel_icon_manager_v1_listener xdg_toplevel_icon_manager_v1_listener = {
+    .icon_size = xdg_toplevel_icon_manager_icon_size,
+    .done = xdg_toplevel_icon_manager_icon_size_done,
+};
+
+static void
 registry_global(void *data, struct wl_registry *wl_registry,
                 uint32_t name, const char *interface, uint32_t version)
 {
@@ -620,6 +654,14 @@ registry_global(void *data, struct wl_registry *wl_registry,
         const uint32_t versionToBind = 1;
         if (versionToBind <= version) {
             zwp_text_input_manager = wl_registry_bind(wl_registry, name, &zwp_text_input_manager_v3_interface, versionToBind);
+        }
+    } else if (strcmp(interface, zxdg_decoration_manager_v1_interface.name) == 0) {
+        xdg_decoration_manager = wl_registry_bind(wl_registry, name, &zxdg_decoration_manager_v1_interface, 1);
+    } else if (strcmp(interface, xdg_toplevel_icon_manager_v1_interface.name) == 0) {
+        xdg_toplevel_icon_manager = wl_registry_bind(wl_registry, name, &xdg_toplevel_icon_manager_v1_interface, 1);
+        if (xdg_toplevel_icon_manager != NULL) {
+            waiting_for_xdg_toplevel_icon_manager_done = true;
+            xdg_toplevel_icon_manager_v1_add_listener(xdg_toplevel_icon_manager, &xdg_toplevel_icon_manager_v1_listener, NULL);
         }
     }
 
@@ -693,6 +735,11 @@ initJavaRefs(JNIEnv *env, jclass clazz)
     CHECK_NULL_RETURN(dispatchPointerEventMID = (*env)->GetStaticMethodID(env, tkClass,
                                                                           "dispatchPointerEvent",
                                                                           "(Lsun/awt/wl/WLPointerEvent;)V"),
+                      JNI_FALSE);
+
+    CHECK_NULL_RETURN(handleToplevelIconSizeMID = (*env)->GetStaticMethodID(env, tkClass,
+                                                                            "handleToplevelIconSize",
+                                                                            "(I)V"),
                       JNI_FALSE);
 
     CHECK_NULL_RETURN(pointerEventClass = (*env)->FindClass(env,
@@ -829,7 +876,7 @@ getCursorTheme(int scale) {
 static void
 finalizeInit(JNIEnv *env) {
     // NB: we are NOT on EDT here so shouldn't dispatch EDT-sensitive stuff
-    while (num_of_outstanding_sync > 0) {
+    while (num_of_outstanding_sync > 0 || waiting_for_xdg_toplevel_icon_manager_done) {
         // There are outstanding events that carry information essential for the toolkit
         // to be fully operational, such as, for example, the number of outputs.
         // Those events were subscribed to when handling globals in registry_global().
@@ -891,6 +938,13 @@ Java_sun_awt_wl_WLToolkit_initIDs(JNIEnv *env, jclass clazz, jlong displayPtr)
     finalizeInit(env);
 
     checkInterfacesPresent(env);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_sun_awt_wl_WLToolkit_isSSDAvailableImpl
+  (JNIEnv *env, jobject cls)
+{
+    return xdg_decoration_manager != NULL;
 }
 
 JNIEXPORT void JNICALL

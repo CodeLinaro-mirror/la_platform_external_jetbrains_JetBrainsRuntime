@@ -144,6 +144,11 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
 
     private static final boolean isKDE;
 
+    // NOTE: xdg_toplevel_icon_v1 is pretty much only supported on KDE, and KWin always sends 96px as the icon size,
+    // regardless of the display resolution, scale, or anything else.
+    // TODO: this is currently unused
+    private static final java.util.List<Integer> preferredIconSizes = new ArrayList<>();
+
     private static native void initIDs(long displayPtr);
 
     static {
@@ -1119,6 +1124,15 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
         }
     }
 
+    /**
+     * @return true if xdg-decoration-unstable-v1 is supported and false otherwise.
+     */
+    public static boolean isSSDAvailable() {
+        return isSSDAvailableImpl();
+    }
+
+    private static native boolean isSSDAvailableImpl();
+
     private native int readEvents();
     private native void dispatchEventsOnEDT();
     private native void flushImpl();
@@ -1156,5 +1170,10 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
 
     public static boolean isKDE() {
         return isKDE;
+    }
+
+    // called from native
+    private static void handleToplevelIconSize(int size) {
+        preferredIconSizes.add(size);
     }
 }
