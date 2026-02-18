@@ -882,6 +882,7 @@ void CodeCache::do_unloading(bool unloading_occurred) {
 
 void CodeCache::verify_clean_inline_caches() {
 #ifdef ASSERT
+  if (!VerifyInlineCaches) return;
   NMethodIterator iter(NMethodIterator::not_unloading);
   while(iter.next()) {
     nmethod* nm = iter.method();
@@ -1307,9 +1308,16 @@ void CodeCache::mark_dependents_for_evol_deoptimization(DeoptimizationScope* deo
     // Walk all alive nmethods to check for old Methods.
     // This includes methods whose inline caches point to old methods, so
     // inline cache clearing is unnecessary.
-    if (nm->has_evol_metadata()) {
-      deopt_scope->mark(nm);
-      add_to_old_table(nm);
+    if (AllowEnhancedClassRedefinition) {
+      if (nm->has_evol_metadata_dcevm()) {
+        deopt_scope->mark(nm);
+        add_to_old_table(nm);
+      }
+    } else {
+      if (nm->has_evol_metadata()) {
+        deopt_scope->mark(nm);
+        add_to_old_table(nm);
+      }
     }
   }
 }
@@ -1361,7 +1369,7 @@ void CodeCache::make_marked_nmethods_deoptimized() {
   while(iter.next()) {
     nmethod* nm = iter.method();
     if (nm->is_marked_for_deoptimization() && !nm->has_been_deoptimized() && nm->can_be_deoptimized()) {
-      nm->make_not_entrant("marked for deoptimization");
+      nm->make_not_entrant(nmethod::ChangeReason::marked_for_deoptimization);
       nm->make_deoptimized();
     }
   }

@@ -34,6 +34,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.UUID;
 
 public final class WLClipboard extends SunClipboard {
     private static final PlatformLogger log = PlatformLogger.getLogger("sun.awt.wl.WLClipboard");
@@ -61,6 +62,10 @@ public final class WLClipboard extends SunClipboard {
     // Guarded by dataLock.
     private WLDataSource ourDataSource;
 
+    // Set when announcing a clipboard data source to a random value
+    // Guarded by dataLock.
+    private String ourDataSourceCookie = null;
+
     static {
         flavorTable = DataTransferer.adaptFlavorMap(getDefaultFlavorTable());
     }
@@ -75,6 +80,10 @@ public final class WLClipboard extends SunClipboard {
         if (log.isLoggable(PlatformLogger.Level.FINE)) {
             log.fine("Clipboard: Created " + this);
         }
+    }
+
+    private static String generateRandomMimeTypeCookie() {
+        return "JAVA_DATATRANSFER_COOKIE_" + UUID.randomUUID();
     }
 
     private int getProtocol() {
@@ -146,14 +155,26 @@ public final class WLClipboard extends SunClipboard {
                     log.fine("Clipboard: Offering new contents (" + contents + ")");
                 }
 
-                WLDataSource newOffer = null;
-                newOffer = new WLDataSource(dataDevice, getProtocol(), contents);
+                WLDataSource newOffer = new WLDataSource(dataDevice, getProtocol(), contents) {
+                    @Override
+                    protected void handleCancelled() {
+                        synchronized (dataLock) {
+                            if (ourDataSource == this) {
+                                ourDataSource = null;
+                                ourDataSourceCookie = null;
+                            }
+                            destroy();
+                        }
+                    }
+                };
 
                 synchronized (dataLock) {
                     if (ourDataSource != null) {
                         ourDataSource.destroy();
                     }
                     ourDataSource = newOffer;
+                    ourDataSourceCookie = generateRandomMimeTypeCookie();
+                    ourDataSource.offerExtraMime(ourDataSourceCookie);
                     dataDevice.setSelection(getProtocol(), newOffer, eventSerial);
                 }
             }
@@ -203,19 +224,29 @@ public final class WLClipboard extends SunClipboard {
     protected byte[] getClipboardData(long format) throws IOException {
         final WLDataTransferer wlDataTransferer = (WLDataTransferer) DataTransferer.getInstance();
         final long utf8StringFormat = wlDataTransferer.getFormatForNativeAsLong(utf8String);
-        synchronized (dataLock) {
+        WLDataOffer offer = null;
+
+        try {
+            synchronized (dataLock) {
+                offer = clipboardDataOfferedToUs.ref();
+            }
+
             // Iterate over all mime types, since the mapping between mime types and java formats might not be 1:1
             // Also treat text/plain;charset=utf-8 as UTF8_STRING
-            for (var mime : clipboardDataOfferedToUs.getMimes()) {
+            for (var mime : offer.getMimes()) {
                 long curFormat = wlDataTransferer.getFormatForNativeAsLong(mime);
-                if (curFormat == format) {
-                    return clipboardDataOfferedToUs.receiveData(mime);
-                } else if (mime.equalsIgnoreCase(plainTextUtf8) && utf8StringFormat == format) {
-                    return clipboardDataOfferedToUs.receiveData(mime);
+                boolean isUtf8String = mime.equalsIgnoreCase(plainTextUtf8) && utf8StringFormat == format;
+                if (curFormat == format || isUtf8String) {
+                    return offer.receiveData(mime);
                 }
             }
+
+            throw new IOException("No appropriate mime type found for WLClipboard.getClipboardData with format = " + format);
+        } finally {
+            if (offer != null) {
+                offer.unref();
+            }
         }
-        throw new IOException("No appropriate mime type found for WLClipboard.getClipboardData with format = " + format);
     }
 
     @Override
@@ -240,11 +271,13 @@ public final class WLClipboard extends SunClipboard {
     }
 
     void handleClipboardOffer(WLDataOffer offer /* nullable */) {
-        lostOwnershipNow(null);
-
         synchronized (dataLock) {
+            if (offer == null || ourDataSourceCookie == null || !offer.getMimes().contains(ourDataSourceCookie)) {
+                lostOwnershipNow(null);
+            }
+
             if (clipboardDataOfferedToUs != null) {
-                clipboardDataOfferedToUs.destroy();
+                clipboardDataOfferedToUs.unref();
             }
             clipboardDataOfferedToUs = offer;
         }

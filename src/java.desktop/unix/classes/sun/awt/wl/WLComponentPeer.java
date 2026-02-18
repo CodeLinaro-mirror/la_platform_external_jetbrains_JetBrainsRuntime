@@ -116,6 +116,8 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
     private boolean resizePending = false; // protected by stateLock
 
     private static final boolean shadowEnabled = Boolean.parseBoolean(System.getProperty("sun.awt.wl.Shadow", "true"));
+    private static final boolean nativeModalityEnabled = Boolean.parseBoolean(
+            System.getProperty("sun.awt.wl.NativeModality", "false"));
 
     static {
         initIDs();
@@ -457,9 +459,12 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
     }
 
     private boolean targetIsModal() {
-        return target instanceof Dialog dialog
-                && (dialog.getModalityType() == Dialog.ModalityType.APPLICATION_MODAL
-                || dialog.getModalityType() == Dialog.ModalityType.TOOLKIT_MODAL);
+        if (nativeModalityEnabled) {
+            return target instanceof Dialog dialog
+                    && (dialog.getModalityType() == Dialog.ModalityType.APPLICATION_MODAL
+                    || dialog.getModalityType() == Dialog.ModalityType.TOOLKIT_MODAL);
+        }
+        return false;
     }
 
     void updateSurfaceData() {
@@ -1138,6 +1143,14 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
         }
     }
 
+    final void reactivate(long serial, long surface) {
+        performLocked(() -> {
+            if (serial != 0 &&wlSurface != null && surface != 0) {
+                wlSurface.activateByAnotherSurface(serial, surface);
+            }
+        });
+    }
+
     private static long getSerialForActivation() {
         long serial;
         if (WLToolkit.isKDE()) {
@@ -1227,13 +1240,13 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
      * the freshly updated WLInputState, and the previous WLInputState.
      */
     void dispatchPointerEventInContext(WLPointerEvent e, WLInputState oldInputState, WLInputState newInputState) {
+        final long timestamp = System.currentTimeMillis();
+
         final int x = newInputState.getPointerX();
         final int y = newInputState.getPointerY();
         final Point abs = relativePointToAbsolute(new Point(x, y));
         int xAbsolute = abs.x;
         int yAbsolute = abs.y;
-
-        final long timestamp = newInputState.getTimestamp();
 
         if (e.hasEnterEvent()) {
             updateCursorImmediately();
@@ -1270,7 +1283,7 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
                 postMouseEvent(mouseEvent);
 
                 final boolean isButtonReleased = !e.getIsButtonPressed();
-                final boolean wasSameButtonPressed = oldInputState.hasThisPointerButtonPressed(e.getButtonCode());
+                final boolean wasSameButtonPressed = oldInputState.hasThisPointerButtonPressedAt(e.getButtonCode(), x, y);
                 final boolean isButtonClicked = isButtonReleased && wasSameButtonPressed;
                 if (isButtonClicked) {
                     final MouseEvent mouseClickEvent = new MouseEvent(getTarget(),

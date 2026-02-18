@@ -48,7 +48,7 @@ VERSION_PATCH=$(getVersionProp "DEFAULT_VERSION_PATCH")
 [[ $VERSION_PATCH = 0 ]] || JBSDK_VERSION="${VERSION_FEATURE}.${VERSION_INTERIM}.${VERSION_UPDATE}.${VERSION_PATCH}"
 echo "##teamcity[setParameter name='env.JBSDK_VERSION' value='${JBSDK_VERSION}']"
 tag_prefix="jbr-"
-OPENJDK_TAG=$(git log --simplify-by-decoration --decorate=short --pretty=short | grep "${tag_prefix}${JBSDK_VERSION}" | cut -d "(" -f2 | cut -d ")" -f1 | awk '{print $2}' | sort -t "-" -k 2 -V -f | tail -n 1 | tr -d ",")
+OPENJDK_TAG=$(git tag -l "${tag_prefix}${JBSDK_VERSION}*")
 JDK_BUILD_NUMBER=$(echo $OPENJDK_TAG | awk -F "-|[+]" '{print $3}')
 [ -z $JDK_BUILD_NUMBER ] && JDK_BUILD_NUMBER=1
 re='^[0-9]+$'
@@ -109,6 +109,12 @@ else
   WITH_BUNDLED_FREETYPE=""
 fi
 
+if [ "$bundle_type" == "lb" ]; then
+  WITH_VULKAN=""
+else
+  WITH_VULKAN="--with-vulkan"
+fi
+
 REPRODUCIBLE_BUILD_OPTS="--with-source-date=$SOURCE_DATE_EPOCH
   --with-hotspot-build-time=$BUILD_TIME
   --with-copyright-year=$COPYRIGHT_YEAR
@@ -130,6 +136,20 @@ function zip_native_debug_symbols() {
 
   (cd dizfiles && find $jbr_diz_name -print0 | COPYFILE_DISABLE=1 \
     tar --no-recursion --null -T - -czf ../"$jbr_diz_name".tar.gz) || do_exit $?
+}
+
+function zip_native_debug_symbols_win() {
+  image_bundle_path=$(echo $1 | cut -d"/" -f-4)
+  jdk_name=$(echo $1 | cut -d"/" -f5)
+  jbr_pdb_name=$2
+
+  [ -d "$jbr_pdb_name" ] && rm -rf $jbr_pdb_name
+  mkdir $jbr_pdb_name
+
+  rsync_target="../../../../"$jbr_pdb_name
+  (cd $image_bundle_path && find . -name '*' -exec rsync -R {} $rsync_target \;)
+
+  (/usr/bin/zip -r $jbr_pdb_name.zip $jbr_pdb_name) || do_exit $?
 }
 
 function do_exit() {

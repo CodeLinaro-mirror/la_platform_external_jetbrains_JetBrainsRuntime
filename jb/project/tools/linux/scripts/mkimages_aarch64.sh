@@ -54,7 +54,7 @@ function do_configure {
     --with-boot-jdk="$BOOT_JDK" \
     --enable-cds=yes \
     --with-gtk-shell1-protocol=$GTK_SHELL_PATH \
-    --with-vulkan \
+    $WITH_VULKAN \
     $DISABLE_WARNINGS_AS_ERRORS \
     $STATIC_CONF_ARGS \
     $REPRODUCIBLE_BUILD_OPTS \
@@ -102,7 +102,7 @@ function create_image_bundle {
     mv release "$IMAGES_DIR"/"$__root_dir"/release
     cp $IMAGES_DIR/jdk/lib/src.zip "$IMAGES_DIR"/"$__root_dir"/lib
     copy_jmods "$__modules" "$__modules_path" "$IMAGES_DIR"/"$__root_dir"/jmods
-    zip_native_debug_symbols $IMAGES_DIR/jdk "${JBR}_diz"
+    zip_native_debug_symbols $IMAGES_DIR/symbols "${JBR}_diz"
   fi
 
   # jmod does not preserve file permissions (JDK-8173610)
@@ -129,6 +129,11 @@ jbr_name_postfix=""
 
 case "$bundle_type" in
   "jcef")
+    do_reset_changes=1
+    jbr_name_postfix="_${bundle_type}"
+    do_maketest=1
+    ;;
+  "lb")
     do_reset_changes=1
     jbr_name_postfix="_${bundle_type}"
     do_maketest=1

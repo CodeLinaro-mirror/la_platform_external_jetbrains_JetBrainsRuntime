@@ -151,6 +151,9 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
     private static native void initIDs(long displayPtr);
 
     static {
+        // This field must be initialized BEFORE initIDs is called because it'll be read there
+        ENABLE_NATIVE_IM_SUPPORT = obtainWhetherToEnableNativeIMSupport();
+
         if (!GraphicsEnvironment.isHeadless()) {
             keyboard = new WLKeyboard();
             long display = WLDisplay.getInstance().getDisplayPtr();
@@ -256,6 +259,39 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
         return peer;
     }
 
+
+    // This method is directly used by native code at the class loading stage, be careful with changing it in any way.
+    public static boolean isNativeInputMethodSupportEnabled() {
+        return ENABLE_NATIVE_IM_SUPPORT;
+    }
+
+    /**
+     * This flag allows disabling ALL integrations with native IMs. The idea is to allow users to disable
+     *   unnecessary for them functionality if they face any problems because of it.
+     * Therefore, if it's {@code false}, the Toolkit code shouldn't use (directly or indirectly)
+     *   any of Wayland's input methods-related APIs (e.g. the "text-input" protocol).
+     */
+    private final static boolean ENABLE_NATIVE_IM_SUPPORT;
+
+    private static boolean obtainWhetherToEnableNativeIMSupport() {
+        // NB: make sure this default value is synchronized with the one used in the native function
+        //     isNativeInputMethodSupportEnabled() in WLToolkit.c
+        boolean result = true;
+        try {
+            result = Boolean.parseBoolean(System.getProperty("sun.awt.wl.im.enabled", "true"));
+        } catch (Exception err) {
+            log.severe(
+                String.format(
+                    "Failed to read the value of the system property \"sun.awt.wl.im.enabled\". Assuming the default value(=%b).",
+                    result
+                ),
+                err
+            );
+        }
+        return result;
+    }
+
+
     /**
      * Wayland events coming to queues other that the default are handled here.
      * The code is executed on a separate thread and must not call any user code.
@@ -353,7 +389,6 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
     }
 
     private static void dispatchKeyboardKeyEvent(long serial,
-                                                 long timestamp,
                                                  int id,
                                                  int keyCode,
                                                  int keyLocation,
@@ -364,13 +399,9 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
         // Invoked from the native code
         assert EventQueue.isDispatchThread() : "Method must only be invoked on EDT";
 
-        inputState = inputState.updatedFromKeyEvent(serial);
+        final long timestamp = System.currentTimeMillis();
 
-        if (timestamp == 0) {
-            // Happens when a surface was focused with keys already pressed.
-            // Fake the timestamp by peeking at the last known event.
-            timestamp = inputState.getTimestamp();
-        }
+        inputState = inputState.updatedFromKeyEvent(serial);
 
         final long surfacePtr = inputState.surfaceForKeyboardInput();
         final WLComponentPeer peer = peerFromSurface(surfacePtr);
@@ -439,22 +470,32 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
                     + Long.toHexString(surfacePtr));
         }
 
-        final WLInputState newInputState = inputState.updatedFromKeyboardEnterEvent(serial, surfacePtr);
         final WLWindowPeer peer = peerFromSurface(surfacePtr);
+        final WLInputState newInputState = inputState.updatedFromKeyboardEnterEvent(serial, surfacePtr);
         if (peer != null) {
-            Window window = (Window) peer.getTarget();
-            Window winToFocus = window;
-
-            Component s = peer.getSyntheticFocusOwner();
-            if (s instanceof Window synthWindow) {
-                if (synthWindow.isVisible() && synthWindow.isFocusableWindow()) {
-                    winToFocus = synthWindow;
+            Dialog blocker = peer.getBlocker();
+            if (blocker != null) { // Modality support
+                long activationSerial = serial;
+                if (WLToolkit.isKDE()) {
+                    activationSerial = inputState.latestInputSerial();
                 }
-            }
+                WLWindowPeer blockerPeer = AWTAccessor.getComponentAccessor().getPeer(blocker);
+                blockerPeer.reactivate(activationSerial, surfacePtr);
+            } else {
+                Window window = (Window) peer.getTarget();
+                Window winToFocus = window;
 
-            WLKeyboardFocusManagerPeer.getInstance().setCurrentFocusedWindow(window);
-            WindowEvent windowEnterEvent = new WindowEvent(winToFocus, WindowEvent.WINDOW_GAINED_FOCUS);
-            postPriorityEvent(windowEnterEvent);
+                Component s = peer.getSyntheticFocusOwner();
+                if (s instanceof Window synthWindow) {
+                    if (synthWindow.isVisible() && synthWindow.isFocusableWindow()) {
+                        winToFocus = synthWindow;
+                    }
+                }
+
+                WLKeyboardFocusManagerPeer.getInstance().setCurrentFocusedWindow(window);
+                WindowEvent windowEnterEvent = new WindowEvent(winToFocus, WindowEvent.WINDOW_GAINED_FOCUS);
+                postPriorityEvent(windowEnterEvent);
+            }
         }
         inputState = newInputState;
     }
@@ -470,12 +511,13 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
 
         keyboard.onLostFocus();
 
+        WLKeyboardFocusManagerPeer.getInstance().setCurrentFocusedWindow(null);
+        WLKeyboardFocusManagerPeer.getInstance().setCurrentFocusOwner(null);
+
         final WLInputState newInputState = inputState.updatedFromKeyboardLeaveEvent(serial, surfacePtr);
         final WLWindowPeer peer = peerFromSurface(surfacePtr);
         if (peer != null && peer.getTarget() instanceof Window window) {
             final WindowEvent winLostFocusEvent = new WindowEvent(window, WindowEvent.WINDOW_LOST_FOCUS);
-            WLKeyboardFocusManagerPeer.getInstance().setCurrentFocusedWindow(null);
-            WLKeyboardFocusManagerPeer.getInstance().setCurrentFocusOwner(null);
             postPriorityEvent(winLostFocusEvent);
         }
         inputState = newInputState;
@@ -887,7 +929,15 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
      */
     @Override
     public InputMethodDescriptor getInputMethodAdapterDescriptor() {
-        return WLInputMethodMetaDescriptor.getInstanceIfAvailableOnPlatform();
+        final InputMethodDescriptor result = ENABLE_NATIVE_IM_SUPPORT
+                                             ? WLInputMethodMetaDescriptor.getInstanceIfAvailableOnPlatform()
+                                             : null;
+
+        if (log.isLoggable(PlatformLogger.Level.FINE)) {
+            log.fine("getInputMethodAdapterDescriptor(): ENABLE_NATIVE_IM_SUPPORT={0}, result={1}.", ENABLE_NATIVE_IM_SUPPORT, result);
+        }
+
+        return result;
     }
 
     /**
@@ -1115,6 +1165,17 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
 
     protected static void targetDisposedPeer(Object target, Object peer) {
         SunToolkit.targetDisposedPeer(target, peer);
+        if (target instanceof Window window) {
+            // TODO: focusedWindow and activeWindow of class java.awt.KeyboardFocusManager
+            // may still retain references to 'window' because disposed peer may not
+            // get the keyboard_leave event and therefore will not send the WINDOW_LOST_FOCUS
+            // event that would've cleared those references.
+            var gc = window.getGraphicsConfiguration();
+            if (gc != null && peer instanceof WLWindowPeer windowPeer) {
+                WLGraphicsDevice gd = (WLGraphicsDevice) gc.getDevice();
+                gd.removeWindow(windowPeer);
+            }
+        }
     }
 
     static void postEvent(AWTEvent event) {

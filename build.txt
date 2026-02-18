@@ -1,1 +1,1 @@
-jbr25-dev
+jbr-release-25.0.2b329.66

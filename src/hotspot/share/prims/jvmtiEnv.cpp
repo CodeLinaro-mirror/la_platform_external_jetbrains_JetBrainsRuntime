@@ -461,6 +461,18 @@ JvmtiEnv::RetransformClasses(jint class_count, const jclass* classes) {
 
     InstanceKlass* ik = InstanceKlass::cast(klass);
     if (ik->get_cached_class_file_bytes() == nullptr) {
+      // Link the class to avoid races with the rewriter. This will call the verifier also
+      // on the class. Linking is also done in VM_RedefineClasses below, but we need
+      // to keep that for other VM_RedefineClasses callers.
+      JavaThread* THREAD = current_thread;
+      ik->link_class(THREAD);
+      if (HAS_PENDING_EXCEPTION) {
+        // Retransform/JVMTI swallows error messages. Using this class will rerun the verifier in a context
+        // that propagates the VerifyError, if thrown.
+        CLEAR_PENDING_EXCEPTION;
+        return JVMTI_ERROR_INVALID_CLASS;
+      }
+
       // Not cached, we need to reconstitute the class file from the
       // VM representation. We don't attach the reconstituted class
       // bytes to the InstanceKlass here because they have not been
@@ -512,6 +524,51 @@ JvmtiEnv::RetransformClasses(jint class_count, const jclass* classes) {
   return error;
 } /* end RetransformClasses */
 
+static void JBR_call_hotswap_on_classes_redefined() {
+  JavaThread* thread = JavaThread::current();
+  if (thread == nullptr) {
+    return;
+  }
+
+  JNIEnv* env = thread->jni_environment();
+  if (env == nullptr) {
+    return;
+  }
+
+  static jclass instrumentationImplClass = nullptr;
+  static jmethodID callHotswapOnClassesRedefinedMID = nullptr;
+
+  if (instrumentationImplClass == nullptr) {
+    jclass cls = env->FindClass("sun/instrument/InstrumentationImpl");
+    if (cls == nullptr) {
+      if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+      }
+      return;
+    }
+    instrumentationImplClass = (jclass)env->NewGlobalRef(cls);
+    env->DeleteLocalRef(cls);
+
+    callHotswapOnClassesRedefinedMID = env->GetStaticMethodID(
+            instrumentationImplClass,
+            "callHotswapOnClassesRedefined",
+            "()V"
+    );
+    if (callHotswapOnClassesRedefinedMID == nullptr) {
+      if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+      }
+      return;
+    }
+  }
+
+  env->CallStaticVoidMethod(instrumentationImplClass, callHotswapOnClassesRedefinedMID);
+
+  if (env->ExceptionCheck()) {
+    env->ExceptionClear();
+  }
+}
+
 
 // class_count - pre-checked to be greater than or equal to 0
 // class_definitions - pre-checked for null
@@ -542,6 +599,20 @@ JvmtiEnv::RedefineClasses(jint class_count, const jvmtiClassDefinition* class_de
     event.set_classCount(class_count);
     event.set_redefinitionId(op_id);
     event.commit();
+
+    if (AllowEnhancedClassRedefinition) {
+      JavaThread* thread = JavaThread::current();
+      if (thread != nullptr) {
+        JavaThreadState st = thread->thread_state();
+        if (st == _thread_in_vm) {
+          // JBR-9975: JNI calls in JBR_call_hotswap_on_classes_redefined() require _thread_in_native.
+          ThreadToNativeFromVM ttn(thread);
+          JBR_call_hotswap_on_classes_redefined();
+        } else if (st == _thread_in_native) {
+          JBR_call_hotswap_on_classes_redefined();
+        }
+      }
+    }
   }
   return error;
 } /* end RedefineClasses */
@@ -3474,7 +3545,8 @@ jvmtiError
 JvmtiEnv::GetBytecodes(Method* method, jint* bytecode_count_ptr, unsigned char** bytecodes_ptr) {
   NULL_CHECK(method, JVMTI_ERROR_INVALID_METHODID);
 
-  methodHandle mh(Thread::current(), method);
+  JavaThread* current_thread = JavaThread::current();
+  methodHandle mh(current_thread, method);
   jint size = (jint)mh->code_size();
   jvmtiError err = allocate(size, bytecodes_ptr);
   if (err != JVMTI_ERROR_NONE) {
@@ -3483,6 +3555,13 @@ JvmtiEnv::GetBytecodes(Method* method, jint* bytecode_count_ptr, unsigned char**
 
   (*bytecode_count_ptr) = size;
   // get byte codes
+  // Make sure the class is verified and rewritten first.
+  JavaThread* THREAD = current_thread;
+  mh->method_holder()->link_class(THREAD);
+  if (HAS_PENDING_EXCEPTION) {
+    CLEAR_PENDING_EXCEPTION;
+    return JVMTI_ERROR_INVALID_CLASS;
+  }
   JvmtiClassFileReconstituter::copy_bytecodes(mh, *bytecodes_ptr);
 
   return JVMTI_ERROR_NONE;

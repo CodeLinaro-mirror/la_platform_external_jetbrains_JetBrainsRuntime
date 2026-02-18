@@ -84,6 +84,8 @@
 #if INCLUDE_JVMCI
 #include "jvmci/jvmciRuntime.hpp"
 #endif
+#include "interpreter/bytecodeStream.hpp"
+#include "oops/constantPool.inline.hpp"
 
 #ifdef DTRACE_ENABLED
 
@@ -1013,6 +1015,96 @@ bool nmethod::has_evol_metadata() {
              compile_id());
   }
   return check_evol.has_evol_dependency();
+}
+
+class HasEvolDependencyDcevm : public MetadataClosure {
+  bool _has_evolv_dependency;
+
+  static bool is_evol_klass(Klass* k) {
+    return k != nullptr && k->new_version() != nullptr;
+  }
+
+  static bool is_evol_method(Method* m) {
+    return m->is_old() || is_evol_klass(m->method_holder());
+  }
+
+  static bool method_uses_evol_instance_fields(Method* m) {
+    ConstantPool* cp = m->constants();
+    if (cp->cache() == nullptr) {
+      return false;
+    }
+    bool is_rewritten = m->method_holder()->is_rewritten();
+    if (!is_rewritten) {
+      return false;
+    }
+    methodHandle mh(Thread::current(), m);
+    BytecodeStream bcs(mh);
+    while (bcs.next() != Bytecodes::_illegal) {
+      Bytecodes::Code java_code = bcs.code();
+
+      if (java_code == Bytecodes::_getfield || java_code == Bytecodes::_putfield
+          || java_code == Bytecodes::_getstatic || java_code == Bytecodes::_putstatic) {
+        int index = bcs.get_index_u2();
+        assert(index >= 0 && index < cp->resolved_field_entries_length(), "index out of bounds");
+        ResolvedFieldEntry* fe = cp->resolved_field_entry_at(index);
+        if (fe != nullptr) {
+          InstanceKlass *holder = fe->field_holder();
+          if (holder != nullptr && holder->new_version() != nullptr) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+ public:
+  HasEvolDependencyDcevm() : _has_evolv_dependency(false) {}
+  void do_metadata(Metadata* md) {
+    if (md->is_method()) {
+      Method* method = (Method*)md;
+      if (is_evol_method(method)) {
+        _has_evolv_dependency = true;
+      } else if (method_uses_evol_instance_fields(method)) {
+        _has_evolv_dependency = true;
+      }
+    } else if (md->is_klass()) {
+      Klass* klass = ((Klass*)md);
+      if (klass->new_version() != nullptr) {
+        _has_evolv_dependency = true;
+      }
+    } else if (md->is_constantPool()) {
+      ConstantPool* cp = (ConstantPool*)md;
+      if (cp->pool_holder()->new_version() != nullptr) {
+        _has_evolv_dependency = true;
+      }
+    }
+  }
+  bool has_evolv_dependency() const { return _has_evolv_dependency; }
+};
+
+// (DCEVM)
+bool nmethod::has_evol_metadata_dcevm() {
+  // Check:
+  // - metadata in relocIter
+  // - nmethod that has reference to old methods.
+  // - nmethod with reference to field of redefined class
+  // - metadata is redefined class
+  // - metadata is constant pool of redefined class
+  HasEvolDependencyDcevm check_evol;
+  metadata_do(&check_evol);
+
+  bool has_evol_dependency = check_evol.has_evolv_dependency();
+  if (has_evol_dependency && log_is_enabled(Debug, redefine, class, nmethod)) {
+    ResourceMark rm;
+    log_debug(redefine, class, nmethod)
+    ("DCEVM Found evol dependency of nmethod %s.%s(%s) compile_id=%d compiler=%s on in nmethod metadata",
+            _method->method_holder()->external_name(),
+            _method->name()->as_C_string(),
+            _method->signature()->as_C_string(),
+            compile_id(),
+            is_compiled_by_c1() ? "c1" : (is_compiled_by_c2() ? "c2" : "unknown"));
+  }
+  return has_evol_dependency;
 }
 
 int nmethod::total_size() const {
@@ -1970,14 +2062,12 @@ void nmethod::invalidate_osr_method() {
   }
 }
 
-void nmethod::log_state_change(const char* reason) const {
-  assert(reason != nullptr, "Must provide a reason");
-
+void nmethod::log_state_change(ChangeReason change_reason) const {
   if (LogCompilation) {
     if (xtty != nullptr) {
       ttyLocker ttyl;  // keep the following output all in one block
       xtty->begin_elem("make_not_entrant thread='%zu' reason='%s'",
-                       os::current_thread_id(), reason);
+                       os::current_thread_id(), change_reason_to_string(change_reason));
       log_identity(xtty);
       xtty->stamp();
       xtty->end_elem();
@@ -1986,7 +2076,7 @@ void nmethod::log_state_change(const char* reason) const {
 
   ResourceMark rm;
   stringStream ss(NEW_RESOURCE_ARRAY(char, 256), 256);
-  ss.print("made not entrant: %s", reason);
+  ss.print("made not entrant: %s", change_reason_to_string(change_reason));
 
   CompileTask::print_ul(this, ss.freeze());
   if (PrintCompilation) {
@@ -2001,9 +2091,7 @@ void nmethod::unlink_from_method() {
 }
 
 // Invalidate code
-bool nmethod::make_not_entrant(const char* reason) {
-  assert(reason != nullptr, "Must provide a reason");
-
+bool nmethod::make_not_entrant(ChangeReason change_reason) {
   // This can be called while the system is already at a safepoint which is ok
   NoSafepointVerifier nsv;
 
@@ -2061,7 +2149,7 @@ bool nmethod::make_not_entrant(const char* reason) {
     assert(success, "Transition can't fail");
 
     // Log the transition once
-    log_state_change(reason);
+    log_state_change(change_reason);
 
     // Remove nmethod from method.
     unlink_from_method();
