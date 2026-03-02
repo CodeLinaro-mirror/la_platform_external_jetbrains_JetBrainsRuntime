@@ -1,5 +1,5 @@
 diff --git a/make/hotspot/lib/JvmMapfile.gmk b/make/hotspot/lib/JvmMapfile.gmk
-index e9574eecacd..2808ac2af03 100644
+index e9574eecacdb..2808ac2af037 100644
 --- a/make/hotspot/lib/JvmMapfile.gmk
 +++ b/make/hotspot/lib/JvmMapfile.gmk
 @@ -53,7 +53,7 @@ endif
@@ -12,7 +12,7 @@ index e9574eecacd..2808ac2af03 100644
      FILTER_SYMBOLS_PATTERN := $(FILTER_SYMBOLS_PATTERN)|
    endif
 diff --git a/make/modules/java.desktop/Copy.gmk b/make/modules/java.desktop/Copy.gmk
-index ac9b2f9e2d6..4c4c92a5660 100644
+index ac9b2f9e2d65..4c4c92a56609 100644
 --- a/make/modules/java.desktop/Copy.gmk
 +++ b/make/modules/java.desktop/Copy.gmk
 @@ -92,36 +92,3 @@ $(LIB_DST_DIR)/fonts/%: $(FONTFILE_SRC_DIR)/fonts/%
@@ -4944,7 +4944,7 @@ OQz^8>*HzBQwet@Hw=eJj
 
 diff --git a/src/java.desktop/linux/fonts/GoogleSansCode_LICENSE.txt b/src/java.desktop/linux/fonts/GoogleSansCode_LICENSE.txt
 deleted file mode 100644
-index 5d6f71ca43b..00000000000
+index 5d6f71ca43bb..000000000000
 --- a/src/java.desktop/linux/fonts/GoogleSansCode_LICENSE.txt
 +++ /dev/null
 @@ -1,91 +0,0 @@
@@ -5040,7 +5040,7 @@ index 5d6f71ca43b..00000000000
 -FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 -OTHER DEALINGS IN THE FONT SOFTWARE.
 diff --git a/src/java.desktop/macosx/classes/sun/java2d/metal/MTLSurfaceData.java b/src/java.desktop/macosx/classes/sun/java2d/metal/MTLSurfaceData.java
-index f9a91fa2c57..24f8cd7f76d 100644
+index f9a91fa2c57f..24f8cd7f76df 100644
 --- a/src/java.desktop/macosx/classes/sun/java2d/metal/MTLSurfaceData.java
 +++ b/src/java.desktop/macosx/classes/sun/java2d/metal/MTLSurfaceData.java
 @@ -262,10 +262,7 @@ public abstract class MTLSurfaceData extends SurfaceData
@@ -6990,7 +6990,7 @@ c(JS(_=%X71Fg?12F2%2PXv>_gqg7(@KlHmnIsgCw
 
 diff --git a/src/java.desktop/macosx/fonts/GoogleSansCode_LICENSE.txt b/src/java.desktop/macosx/fonts/GoogleSansCode_LICENSE.txt
 deleted file mode 100644
-index 5d6f71ca43b..00000000000
+index 5d6f71ca43bb..000000000000
 --- a/src/java.desktop/macosx/fonts/GoogleSansCode_LICENSE.txt
 +++ /dev/null
 @@ -1,91 +0,0 @@
@@ -11976,7 +11976,7 @@ OQz^8>*HzBQwet@Hw=eJj
 
 diff --git a/src/java.desktop/windows/fonts/GoogleSansCode_LICENSE.txt b/src/java.desktop/windows/fonts/GoogleSansCode_LICENSE.txt
 deleted file mode 100644
-index 5d6f71ca43b..00000000000
+index 5d6f71ca43bb..000000000000
 --- a/src/java.desktop/windows/fonts/GoogleSansCode_LICENSE.txt
 +++ /dev/null
 @@ -1,91 +0,0 @@
