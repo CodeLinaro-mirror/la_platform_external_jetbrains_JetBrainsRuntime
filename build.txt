@@ -1,1 +1,1 @@
-jbr-release-25.0.2b329.66
+jbr-release-25.0.2b329.72
