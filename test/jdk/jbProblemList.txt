@@ -214,7 +214,7 @@ java/awt/Frame/ShapeNotSetSometimes/ShapeNotSetSometimes.java JBR-5210,JBR-6126 
 java/awt/grab/EmbeddedFrameTest1/EmbeddedFrameTest1.java 7080150,JBR-4880,8253184 macosx-all,windows-all
 java/awt/grab/GrabOnUnfocusableToplevel/GrabOnUnfocusableToplevel.java JBR-4880 windows-all
 java/awt/event/InputEvent/EventWhenTest/EventWhenTest.java 8168646 generic-all
-java/awt/MenuBar/8007006/bug8007006.java JBR-9213 macosx-26.0,macosx-26.1,macosx-26.2,macosx-26.3
+java/awt/MenuBar/8007006/bug8007006.java JBR-9213 macosx-aarch64
 java/awt/MenuShortcut/FunctionKeyShortcut.java JBR-9207 fedora-42-plasma,fedora-42-kde,fedora-43-plasma,fedora-43-kde
 java/awt/Mixing/AWT_Mixing/HierarchyBoundsListenerMixingTest.java 8049405,8253184 generic-all
 java/awt/Mixing/AWT_Mixing/MixingFrameResizing.java 8049405,8253184 generic-all
@@ -1415,7 +1415,6 @@ java/awt/TextComponent/SelectionAndCaretColor.java 7017622 linux-all
 java/awt/TextField/CaretPositionTest/CaretPositionTest.java JBR-7887 linux-all
 java/awt/TextField/OverScrollTest/OverScrollTest.java 8253184 windows-all
 java/awt/event/MouseEvent/SpuriousExitEnter/SpuriousExitEnter.java 8254841 macosx-all
-java/awt/Focus/AppletInitialFocusTest/AppletInitialFocusTest1.java 8256289 windows-all
 java/awt/Focus/RemoveAfterRequest/RemoveAfterRequest.java JBR-6052 macosx-all,linux-all
 java/awt/Focus/RequestFocusAndHideTest/RequestFocusAndHideTest.java JBR-8431 linux-aarch64
 java/awt/Focus/RequestFocusByCause/RequestFocusByCauseTest.java JBR-6335 linux-all
