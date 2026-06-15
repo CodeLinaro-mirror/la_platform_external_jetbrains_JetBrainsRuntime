@@ -74,6 +74,10 @@ AC_DEFUN_ONCE([LIB_SETUP_NVDACONTROLLERCLIENT], [
         AC_MSG_ERROR([The nvdacontrollerclient library exists only for x86_32, x86_64, AArch64 architectures])
       fi
 
+      # Android Studio b/519729585 - recent nvdaControllerClient releases don't have architecture suffix
+      # https://github.com/nvaccess/nvda/pull/15718
+      NVDACONTROLLERCLIENT_BIN_BASENAME="nvdaControllerClient"
+
       if test "x${with_nvdacontrollerclient}" != "x" ; then
         # NVDACONTROLLERCLIENT_ARCHDIR is used only here
         NVDACONTROLLERCLIENT_INC_PATH="${with_nvdacontrollerclient}/${NVDACONTROLLERCLIENT_ARCHDIR}"
