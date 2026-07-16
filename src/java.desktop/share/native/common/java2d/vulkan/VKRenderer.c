@@ -25,14 +25,17 @@
  */
 
 #include <assert.h>
+#include <math.h>
 #include <string.h>
 #include "sun_java2d_vulkan_VKGPU.h"
+#include "fontscalerdefs.h"
 #include "VKUtil.h"
 #include "VKAllocator.h"
 #include "VKBuffer.h"
 #include "VKDevice.h"
 #include "VKImage.h"
 #include "VKRenderer.h"
+#include "VKRenderQueue.h"
 #include "VKSurfaceData.h"
 
 /**
@@ -76,7 +79,7 @@ RING_BUFFER(struct PoolEntry_ ## NAME { \
  *  }
  */
 #define POOL_DRAIN_FOR(RENDERER, NAME, ENTRY) for (struct PoolEntry_ ## NAME *(ENTRY); VKRenderer_CheckPoolDrain( \
-    (RENDERER)->NAME, (ENTRY) = RING_BUFFER_FRONT((RENDERER)->NAME)); RING_BUFFER_POP_FRONT((RENDERER)->NAME))
+    &(RENDERER)->NAME, (ENTRY) = RING_BUFFER_FRONT((RENDERER)->NAME)); RING_BUFFER_POP_FRONT((RENDERER)->NAME))
 
 /**
  * Free pool memory. It doesn't destroy remaining items.
@@ -190,7 +193,7 @@ static VKRenderingContext context = {
         },
         .clipModCount = 1,
         .clipRect = NO_CLIP,
-        .clipSpanVertices = NULL
+        .clipSpanVertices = { .as_untyped = {0} }
 };
 
 /**
@@ -206,7 +209,7 @@ VKTexturePool *VKRenderer_GetTexturePool(VKRenderer* renderer) {
 /**
  * Helper function for POOL_TAKE macro.
  */
-inline VkBool32 VKRenderer_CheckPoolEntryAvailable(VKRenderer* renderer, void* entry) {
+static VkBool32 VKRenderer_CheckPoolEntryAvailable(VKRenderer* renderer, void* entry) {
     if (entry == NULL) return VK_FALSE;
     uint64_t timestamp = *((uint64_t*) entry);
     return renderer->readTimestamp >= timestamp ||
@@ -221,8 +224,9 @@ inline VkBool32 VKRenderer_CheckPoolEntryAvailable(VKRenderer* renderer, void* e
 static VkBool32 VKRenderer_CheckPoolDrain(void* pool, void* entry) {
     if (entry != NULL) return VK_TRUE;
     if (pool != NULL) {
-        RING_BUFFER(char) ring_buffer = pool;
-        RING_BUFFER_FREE(ring_buffer);
+        // A small hack that should be fine, since we won't be using the element size in the deallocation
+        RING_BUFFER(char) ring_buffer_as_char = { .as_untyped = *(untyped_ring_buffer_t*)pool };
+        RING_BUFFER_FREE(ring_buffer_as_char);
     }
     return VK_FALSE;
 }
@@ -296,10 +300,10 @@ static VkDescriptorSet VKRenderer_AllocateImageDescriptorSet(VKRenderer* rendere
 }
 void VKRenderer_CreateImageDescriptorSet(VKRenderer* renderer, VkDescriptorPool* descriptorPool, VkDescriptorSet* set) {
     VKDevice* device = renderer->device;
-    for (int i = ARRAY_SIZE(renderer->imageDescriptorPools) - 1; i >= 0; i--) {
-        *set = VKRenderer_AllocateImageDescriptorSet(renderer, renderer->imageDescriptorPools[i]);
+    for (int i = renderer->imageDescriptorPools.size - 1; i >= 0; i--) {
+        *set = VKRenderer_AllocateImageDescriptorSet(renderer, renderer->imageDescriptorPools.data[i]);
         if (*set != VK_NULL_HANDLE) {
-            *descriptorPool = renderer->imageDescriptorPools[i];
+            *descriptorPool = renderer->imageDescriptorPools.data[i];
             return;
         }
     }
@@ -446,19 +450,19 @@ void VKRenderer_Destroy(VKRenderer* renderer) {
         device->vkDestroyBufferView(device->handle, entry->value.view, NULL);
         device->vkDestroyBuffer(device->handle, entry->value.buffer.handle, NULL);
     }
-    for (uint32_t i = 0; i < ARRAY_SIZE(renderer->bufferMemoryPages); i++) {
-        VKAllocator_Free(device->allocator, renderer->bufferMemoryPages[i]);
+    for (uint32_t i = 0; i < renderer->bufferMemoryPages.size; i++) {
+        VKAllocator_Free(device->allocator, renderer->bufferMemoryPages.data[i]);
     }
     ARRAY_FREE(renderer->bufferMemoryPages);
-    for (uint32_t i = 0; i < ARRAY_SIZE(renderer->descriptorPools); i++) {
-        device->vkDestroyDescriptorPool(device->handle, renderer->descriptorPools[i], NULL);
+    for (uint32_t i = 0; i < renderer->descriptorPools.size; i++) {
+        device->vkDestroyDescriptorPool(device->handle, renderer->descriptorPools.data[i], NULL);
     }
     ARRAY_FREE(renderer->descriptorPools);
 
     VKTexturePool_Dispose(renderer->texturePool);
 
-    for (uint32_t i = 0; i < ARRAY_SIZE(renderer->imageDescriptorPools); i++) {
-        device->vkDestroyDescriptorPool(device->handle, renderer->imageDescriptorPools[i], NULL);
+    for (uint32_t i = 0; i < renderer->imageDescriptorPools.size; i++) {
+        device->vkDestroyDescriptorPool(device->handle, renderer->imageDescriptorPools.data[i], NULL);
     }
     ARRAY_FREE(renderer->imageDescriptorPools);
 
@@ -512,7 +516,7 @@ void VKRenderer_Flush(VKRenderer* renderer) {
     if (renderer == NULL) return;
     VKRenderer_CleanupPendingResources(renderer);
     VKDevice* device = renderer->device;
-    size_t pendingPresentations = ARRAY_SIZE(renderer->pendingPresentation.swapchains);
+    size_t pendingPresentations = renderer->pendingPresentation.swapchains.size;
 
     // Submit pending command buffer and semaphores.
     // Even if there are no commands to be sent, we can submit pending semaphores for presentation synchronization.
@@ -539,9 +543,9 @@ void VKRenderer_Flush(VKRenderer* renderer) {
     VkSubmitInfo submitInfo = {
             .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
             .pNext = &timelineSemaphoreSubmitInfo,
-            .waitSemaphoreCount = ARRAY_SIZE(renderer->wait.semaphores),
-            .pWaitSemaphores = renderer->wait.semaphores,
-            .pWaitDstStageMask = renderer->wait.stages,
+            .waitSemaphoreCount = renderer->wait.semaphores.size,
+            .pWaitSemaphores = renderer->wait.semaphores.data,
+            .pWaitDstStageMask = renderer->wait.stages.data,
             .commandBufferCount = renderer->commandBuffer != VK_NULL_HANDLE ? 1 : 0,
             .pCommandBuffers = &renderer->commandBuffer,
             .signalSemaphoreCount = pendingPresentations > 0 ? 2 : 1,
@@ -560,9 +564,9 @@ void VKRenderer_Flush(VKRenderer* renderer) {
                 .waitSemaphoreCount = 1,
                 .pWaitSemaphores = &semaphores[1],
                 .swapchainCount = pendingPresentations,
-                .pSwapchains = renderer->pendingPresentation.swapchains,
-                .pImageIndices = renderer->pendingPresentation.indices,
-                .pResults = renderer->pendingPresentation.results
+                .pSwapchains = renderer->pendingPresentation.swapchains.data,
+                .pImageIndices = renderer->pendingPresentation.indices.data,
+                .pResults = renderer->pendingPresentation.results.data
         };
         VkResult presentResult = device->vkQueuePresentKHR(device->queue, &presentInfo);
         if (presentResult != VK_SUCCESS) {
@@ -580,14 +584,14 @@ void VKRenderer_Flush(VKRenderer* renderer) {
 /**
  * Get Color RGBA components in a format suitable for the current render pass.
  */
-inline RGBA VKRenderer_GetRGBA(VKSDOps* surface, Color color) {
+static RGBA VKRenderer_GetRGBA(VKSDOps* surface, Color color) {
     return VKUtil_GetRGBA(color, surface->renderPass->outAlphaType);
 }
 
 /**
  * Record draw command, if there are any pending vertices in the vertex buffer
  */
-inline void VKRenderer_FlushDraw(VKSDOps* surface) {
+static void VKRenderer_FlushDraw(VKSDOps* surface) {
     assert(surface != NULL && surface->renderPass != NULL);
     if (surface->renderPass->vertexCount > 0) {
         assert(surface->renderPass->pendingCommands);
@@ -612,34 +616,34 @@ static void VKRenderer_ResetDrawing(VKSDOps* surface) {
     renderPass->vertexCount = 0;
     renderPass->vertexBufferWriting = (BufferWritingState) { NULL, 0, VK_FALSE };
     renderPass->maskFillBufferWriting = (BufferWritingState) { NULL, 0, VK_FALSE };
-    if (ARRAY_SIZE(renderPass->flushRanges) > 0) {
+    if (renderPass->flushRanges.size > 0) {
         VK_IF_ERROR(surface->device->vkFlushMappedMemoryRanges(surface->device->handle,
-            ARRAY_SIZE(renderPass->flushRanges), renderPass->flushRanges)) {}
+            renderPass->flushRanges.size, renderPass->flushRanges.data)) {}
         ARRAY_RESIZE(renderPass->flushRanges, 0);
     }
-    size_t vertexBufferCount = ARRAY_SIZE(renderPass->vertexBuffers);
-    size_t maskFillBufferCount = ARRAY_SIZE(renderPass->maskFillBuffers);
-    size_t cleanupQueueCount = ARRAY_SIZE(renderPass->cleanupQueue);
+    size_t vertexBufferCount = renderPass->vertexBuffers.size;
+    size_t maskFillBufferCount = renderPass->maskFillBuffers.size;
+    size_t cleanupQueueCount = renderPass->cleanupQueue.size;
     for (uint32_t i = 0; i < vertexBufferCount; i++) {
-        POOL_RETURN(renderer, vertexBufferPool, renderPass->vertexBuffers[i]);
+        POOL_RETURN(renderer, vertexBufferPool, renderPass->vertexBuffers.data[i]);
     }
     for (uint32_t i = 0; i < maskFillBufferCount; i++) {
-        POOL_RETURN(renderer, maskFillBufferPool, renderPass->maskFillBuffers[i]);
+        POOL_RETURN(renderer, maskFillBufferPool, renderPass->maskFillBuffers.data[i]);
     }
     for (uint32_t i = 0; i < cleanupQueueCount; i++) {
-        POOL_RETURN(renderer, cleanupQueue, renderPass->cleanupQueue[i]);
+        POOL_RETURN(renderer, cleanupQueue, renderPass->cleanupQueue.data[i]);
     }
     ARRAY_RESIZE(renderPass->vertexBuffers, 0);
     ARRAY_RESIZE(renderPass->maskFillBuffers, 0);
     ARRAY_RESIZE(renderPass->cleanupQueue, 0);
 
     // Update dependencies on used surfaces.
-    for (uint32_t i = 0, surfaces = (uint32_t) ARRAY_SIZE(renderPass->usedSurfaces); i < surfaces; i++) {
-        VKSDOps* usedSurface = renderPass->usedSurfaces[i];
-        uint32_t newSize = 0, oldSize = (uint32_t) ARRAY_SIZE(usedSurface->dependentSurfaces);
+    for (uint32_t i = 0, surfaces = (uint32_t) renderPass->usedSurfaces.size; i < surfaces; i++) {
+        VKSDOps* usedSurface = renderPass->usedSurfaces.data[i];
+        uint32_t newSize = 0, oldSize = (uint32_t) usedSurface->dependentSurfaces.size;
         for (uint32_t j = 0; j < oldSize; j++) {
-            VKSDOps* s = usedSurface->dependentSurfaces[j];
-            if (s != surface) usedSurface->dependentSurfaces[newSize++] = s;
+            VKSDOps* s = usedSurface->dependentSurfaces.data[j];
+            if (s != surface) usedSurface->dependentSurfaces.data[newSize++] = s;
         }
         if (newSize != oldSize) ARRAY_RESIZE(usedSurface->dependentSurfaces, newSize);
     }
@@ -654,15 +658,15 @@ static void VKRenderer_ResetDrawing(VKSDOps* surface) {
 static void VKRenderer_FlushDependentRenderPasses(VKSDOps* surface) {
     // We're going to clear dependentSurfaces in the end anyway,
     // so temporarily reset it to NULL to save on removing flushed render passes one-by-one.
-    ARRAY(VKSDOps*) deps = surface->dependentSurfaces;
-    surface->dependentSurfaces = NULL;
-    uint32_t size = (uint32_t) ARRAY_SIZE(deps);
+    ARRAY(VKSDOps*) deps = { .as_untyped = surface->dependentSurfaces.as_untyped };
+    surface->dependentSurfaces.as_untyped = (untyped_array_t){0};
+    uint32_t size = (uint32_t) deps.size;
     if (size > 0) J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderer_FlushDependentRenderPasses(%p): %d", surface, size);
     for (uint32_t i = 0; i < size; i++) {
-        VKRenderer_FlushRenderPass(deps[i]);
+        VKRenderer_FlushRenderPass(deps.data[i]);
     }
     ARRAY_RESIZE(deps, 0);
-    surface->dependentSurfaces = deps;
+    surface->dependentSurfaces.as_untyped = deps.as_untyped;
 }
 
 /**
@@ -736,7 +740,7 @@ static VkBool32 VKRenderer_InitRenderPass(VKSDOps* surface) {
             .clipModCount = 0,
             .pendingFlush = VK_FALSE,
             .pendingCommands = VK_FALSE,
-            .pendingClear = VK_TRUE, // Clear the surface by default
+            .pendingClear = VK_FALSE,
     };
 
     // Initialize pipelines. They are cached until surface format changes.
@@ -842,10 +846,11 @@ static void VKRenderer_BeginRenderPass(VKSDOps* surface) {
     }
 
     if (surface->renderPass->pendingClear) {
+        Color bgColor = VKUtil_DecodeJavaColor(0xFFFFFF, ALPHA_TYPE_STRAIGHT);
         VkClearAttachment clearAttachment = {
                 .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
                 .colorAttachment = 0,
-                .clearValue = VKRenderer_GetRGBA(surface, surface->background).vkClearValue
+                .clearValue = VKRenderer_GetRGBA(surface, bgColor).vkClearValue
         };
         if (VKSD_IsOpaque(surface)) clearAttachment.clearValue.color.float32[3] = 1.0f;
         VkClearRect clearRect = {
@@ -900,8 +905,8 @@ VkBool32 VKRenderer_FlushRenderPass(VKSDOps* surface) {
 
     // Update timestamps on used surfaces.
     surface->lastTimestamp = renderer->writeTimestamp;
-    for (uint32_t i = 0, surfaces = (uint32_t) ARRAY_SIZE(surface->renderPass->usedSurfaces); i < surfaces; i++) {
-        surface->renderPass->usedSurfaces[i]->lastTimestamp = renderer->writeTimestamp;
+    for (uint32_t i = 0, surfaces = (uint32_t) surface->renderPass->usedSurfaces.size; i < surfaces; i++) {
+        surface->renderPass->usedSurfaces.data[i]->lastTimestamp = renderer->writeTimestamp;
     }
 
     // Insert barriers to prepare surface for rendering.
@@ -994,7 +999,7 @@ void VKRenderer_FlushSurface(VKSDOps* surface) {
                     .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                     .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                     .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                    .image = win->swapchainImages[imageIndex],
+                    .image = win->swapchainImages.data[imageIndex],
                     .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
             }};
             VKBarrierBatch barrierBatch = {1, surface->image->lastStage | VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT};
@@ -1014,7 +1019,7 @@ void VKRenderer_FlushSurface(VKSDOps* surface) {
         };
         device->vkCmdBlitImage(cb,
                                surface->image->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                               win->swapchainImages[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               win->swapchainImages.data[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                1, &blit, VK_FILTER_NEAREST);
 
         // Insert barrier to prepare swapchain image for presentation.
@@ -1027,7 +1032,7 @@ void VKRenderer_FlushSurface(VKSDOps* surface) {
                     .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                     .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                     .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                    .image = win->swapchainImages[imageIndex],
+                    .image = win->swapchainImages.data[imageIndex],
                     .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
             };
             device->vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
@@ -1111,7 +1116,7 @@ static uint32_t VKRenderer_AllocateVertices(uint32_t primitives, uint32_t vertic
             ARRAY_PUSH_BACK(surface->renderPass->flushRanges) = buffer.range;
             surface->renderPass->vertexBufferWriting.data = writing.state.data = buffer.data;
         }
-        assert(ARRAY_SIZE(surface->renderPass->vertexBuffers) > 0);
+        assert(surface->renderPass->vertexBuffers.size > 0);
         surface->renderPass->firstVertex = surface->renderPass->vertexCount = 0;
         surface->device->vkCmdBindVertexBuffers(surface->renderPass->commandBuffer, 0, 1,
                                                 &(ARRAY_LAST(surface->renderPass->vertexBuffers).handle), &writing.state.offset);
@@ -1150,7 +1155,7 @@ static BufferWritingState VKRenderer_AllocateMaskFillBytes(uint32_t size) {
             ARRAY_PUSH_BACK(surface->renderPass->flushRanges) = buffer.buffer.range;
             surface->renderPass->maskFillBufferWriting.data = state.data = buffer.buffer.data;
         }
-        assert(ARRAY_SIZE(surface->renderPass->maskFillBuffers) > 0);
+        assert(surface->renderPass->maskFillBuffers.size > 0);
         surface->device->vkCmdBindDescriptorSets(surface->renderPass->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                                  surface->device->renderer->pipelineContext->maskFillPipelineLayout,
                                                  0, 1, &ARRAY_LAST(surface->renderPass->maskFillBuffers).descriptorSet, 0, NULL);
@@ -1221,7 +1226,7 @@ static void VKRenderer_SetupStencil() {
     // Clear stencil attachment.
     VkClearAttachment clearAttachment = {
             .aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT,
-            .clearValue.depthStencil.stencil = ARRAY_SIZE(context->clipSpanVertices) > 0 ?
+            .clearValue.depthStencil.stencil = context->clipSpanVertices.size > 0 ?
                                                CLIP_STENCIL_EXCLUDE_VALUE : CLIP_STENCIL_INCLUDE_VALUE
     };
     VkClearRect clearRect = {
@@ -1246,11 +1251,11 @@ static void VKRenderer_SetupStencil() {
     renderPass->vertexBufferWriting.bound = VK_FALSE;
 
     // Rasterize clip spans.
-    uint32_t primitiveCount = ARRAY_SIZE(context->clipSpanVertices) / 3;
+    uint32_t primitiveCount = context->clipSpanVertices.size / 3;
     VKIntVertex* vs;
     for (uint32_t primitivesDrawn = 0; primitivesDrawn < primitiveCount;) {
         uint32_t currentDraw = VK_DRAW(vs, primitiveCount - primitivesDrawn, 3);
-        memcpy(vs, context->clipSpanVertices + primitivesDrawn * 3, currentDraw * 3 * sizeof(VKIntVertex));
+        memcpy(vs, context->clipSpanVertices.data + primitivesDrawn * 3, currentDraw * 3 * sizeof(VKIntVertex));
         primitivesDrawn += currentDraw;
     }
     VKRenderer_FlushDraw(surface);
@@ -1310,7 +1315,7 @@ VkBool32 VKRenderer_Validate(VKShader shader, VKShaderVariant shaderVariant, VkP
         VKCompositeMode oldComposite = renderPass->state.composite;
         VkBool32 clipChanged = renderPass->clipModCount != context.clipModCount;
         // Init stencil attachment, if needed.
-        if (clipChanged && ARRAY_SIZE(context.clipSpanVertices) > 0 && surface->stencil == NULL) {
+        if (clipChanged && context.clipSpanVertices.size > 0 && surface->stencil == NULL) {
             if (surface->renderPass->pendingCommands) VKRenderer_FlushRenderPass(surface);
             if (!VKSD_ConfigureImageSurfaceStencil(surface)) return VK_FALSE;
         }
@@ -1327,7 +1332,7 @@ VkBool32 VKRenderer_Validate(VKShader shader, VKShaderVariant shaderVariant, VkP
             surface->device->vkCmdSetScissor(renderPass->commandBuffer, 0, 1, &context.clipRect);
             if (clipChanged) {
                 VKStencilMode stencilMode = STENCIL_MODE_NONE;
-                if (ARRAY_SIZE(context.clipSpanVertices) > 0) {
+                if (context.clipSpanVertices.size > 0) {
                     VKRenderer_SetupStencil();
                     stencilMode = STENCIL_MODE_ON;
                 } else if (surface->stencil != NULL) {
@@ -1531,16 +1536,150 @@ void VKRenderer_DrawImage(VKImage* image, VkFormat format,
     vs[3] = (VKTxVertex) {dx2, dy2, sx2, sy2};
 }
 
+void VKRenderer_SetLinearGradientPaint(jboolean linear, jint cycleMethod,
+                                       jint numStops, float p0,
+                                       float p1, float p3, void* fractions, void* pixels)
+{
+    assert(numStops <= MULTI_MAX_FRACTIONS_VK_LINEAR);
+
+
+    context.inAlphaType = ALPHA_TYPE_PRE_MULTIPLIED;
+    context.shaderVariant = cycleMethod | (linear << 2);
+    context.shader = SHADER_GRADIENT_LINEAR_PUSH;
+    VKLinearGradientPaintConstants* constants = &context.constants.shader.linearGradientPaint;
+    *constants = (VKLinearGradientPaintConstants) {
+        .p0 = p0, .p1 = p1, .p3 = p3
+    };
+    memcpy(constants->fractions, fractions, numStops * sizeof(float));
+    memcpy(constants->sRGBPackedColors, pixels, numStops * sizeof(uint32_t));
+    context.constantsModCount++;
+}
+
+void VKRenderer_SetRadialGradientPaint(jboolean linear, jint cycleMethod, jint numStops, float m00,
+    float m01, float m02, float m10, float m11, float m12, float focusX, void* fractions, void* pixels)
+{
+    assert(numStops <= MULTI_MAX_FRACTIONS_VK_RADIAL);
+
+    context.inAlphaType = ALPHA_TYPE_PRE_MULTIPLIED;
+    context.shaderVariant = cycleMethod | (linear << 2);
+    context.shader = SHADER_GRADIENT_RADIAL_PUSH;
+    VKRadialGradientPaintConstants* constants = &context.constants.shader.radialGradientPaint;
+    *constants = (VKRadialGradientPaintConstants) {
+        .m00 = m00, .m01 = m01, .m02 = m02,
+        .m10 = m10, .m11 = m11, .m12 = m12,
+        .precalc_x = focusX,
+        .precalc_y = 1.0f - focusX * focusX
+    };
+    constants->precalc_z = 1.0f / constants->precalc_y;
+    memcpy(constants->fractions, fractions, numStops * sizeof(float));
+    memcpy(constants->sRGBPackedColors, pixels, numStops * sizeof(uint32_t));
+    context.constantsModCount++;
+}
+
 void VKRenderer_AddSurfaceDependency(VKSDOps* src, VKSDOps* dst) {
     assert(src != NULL);
     assert(dst != NULL);
     assert(dst->renderPass != NULL);
     // We don't care much about duplicates in our dependency arrays,
     // so just make a lazy deduplication attempt by checking the last element.
-    if (ARRAY_SIZE(src->dependentSurfaces) == 0 || ARRAY_LAST(src->dependentSurfaces) != dst) {
+    if (src->dependentSurfaces.size == 0 || ARRAY_LAST(src->dependentSurfaces) != dst) {
         ARRAY_PUSH_BACK(src->dependentSurfaces) = dst;
     }
-    if (ARRAY_SIZE(dst->renderPass->usedSurfaces) == 0 || ARRAY_LAST(dst->renderPass->usedSurfaces) != src) {
+    if (dst->renderPass->usedSurfaces.size == 0 || ARRAY_LAST(dst->renderPass->usedSurfaces) != src) {
         ARRAY_PUSH_BACK(dst->renderPass->usedSurfaces) = src;
+    }
+}
+
+void VKRenderer_DrawGlyphList(jint numGlyphs,
+    jfloat glyphListOrigX, jfloat glyphListOrigY,
+    jboolean usePositions, unsigned char* images, unsigned char* positions) {
+
+    J2dRlsTraceLn(J2D_TRACE_VERBOSE,
+                  "VKRenderQueue_flushBuffer: DRAW_GLYPH_LIST");
+    // TODO this is a quick and dirty implementation of greyscale-AA text rendering over MASK_FILL. Need to do better.
+    jfloat glyphx, glyphy;
+    for (int i = 0; i < numGlyphs; i++) {
+        GlyphInfo* ginfo = jlong_to_ptr(NEXT_LONG(images));
+        if (usePositions) {
+            jfloat posx = NEXT_FLOAT(positions);
+            jfloat posy = NEXT_FLOAT(positions);
+            glyphx = glyphListOrigX + posx + ginfo->topLeftX;
+            glyphy = glyphListOrigY + posy + ginfo->topLeftY;
+        } else {
+            glyphx = glyphListOrigX + ginfo->topLeftX;
+            glyphy = glyphListOrigY + ginfo->topLeftY;
+            glyphListOrigX += ginfo->advanceX;
+            glyphListOrigY += ginfo->advanceY;
+        }
+
+        if (ginfo->format != sun_font_StrikeCache_PIXEL_FORMAT_GREYSCALE)
+            continue;
+
+        if (ginfo->height * ginfo->rowBytes == 0) continue;
+
+        // Calculate subpixel offset.
+        int rx = ginfo->subpixelResolutionX, ry = ginfo->subpixelResolutionY;
+        int x = floor(glyphx), y = floor(glyphy);
+        int xOffset, yOffset;
+        if ((rx == 1 && ry == 1) || rx <= 0 || ry <= 0) {
+            xOffset = yOffset = 0;
+        } else {
+            xOffset = (int)((glyphx - (float)x) * (float)rx);
+            yOffset = (int)((glyphy - (float)y) * (float)ry);
+        }
+
+        VKRenderer_MaskFill(x, y,
+                            ginfo->width, ginfo->height,
+                            0, ginfo->rowBytes,
+                            ginfo->height * ginfo->rowBytes,
+                            ginfo->image + (ginfo->rowBytes * ginfo->height) * (
+                                xOffset + yOffset * rx));
+    }
+}
+
+/*
+ * Class:     sun_java2d_vulkan_VKTextRenderer
+ * Method:    drawGlyphList
+ * Signature: (IZZZIFF[J[F)V
+ */
+JNIEXPORT void JNICALL
+Java_sun_java2d_vulkan_VKTextRenderer_drawGlyphList
+    (JNIEnv *env, jobject self,
+     jint totalGlyphs,
+     jboolean usePositions,
+     jboolean subPixPos,
+     jboolean rgbOrder,
+     jint lcdContrast,
+     jfloat glyphListOrigX,
+     jfloat glyphListOrigY,
+     jlongArray glyphImages,
+     jfloatArray glyphPositions)
+{
+    unsigned char *images = NULL;
+    
+    J2dTraceLn(J2D_TRACE_INFO, "VKTextRenderer_drawGlyphList");
+
+    images = (unsigned char *)(*env)->GetPrimitiveArrayCritical(env, glyphImages, NULL);
+    if (images != NULL) {
+        if (usePositions) {
+            unsigned char *positions =
+                (*env)->GetPrimitiveArrayCritical(env, glyphPositions, NULL);
+            if (positions != NULL) {
+                VKRenderer_DrawGlyphList(totalGlyphs,
+                                         glyphListOrigX,
+                                         glyphListOrigY,
+                                         usePositions,
+                                         images,
+                                         positions);
+                (*env)->ReleasePrimitiveArrayCritical(env, glyphPositions, positions, JNI_ABORT);
+            }
+        } else {
+            VKRenderer_DrawGlyphList(totalGlyphs,
+                                         glyphListOrigX,
+                                         glyphListOrigY,
+                                         usePositions,
+                                         images, NULL);
+        }
+        (*env)->ReleasePrimitiveArrayCritical(env, glyphImages, images, JNI_ABORT);
     }
 }

@@ -1,7 +1,5 @@
-make/autoconf/lib-speechd.m4
-make/autoconf/spec.gmk.template
+make/autoconf/lib-nvdacontrollerclient.m4
 make/modules/java.desktop/Copy.gmk
-make/modules/java.desktop/lib/AwtLibraries.gmk
 src/java.desktop/linux/fonts/GoogleSansCode-Bold.ttf
 src/java.desktop/linux/fonts/GoogleSansCode-BoldItalic.ttf
 src/java.desktop/linux/fonts/GoogleSansCode-ExtraBold.ttf
@@ -15,7 +13,6 @@ src/java.desktop/linux/fonts/GoogleSansCode-Regular.ttf
 src/java.desktop/linux/fonts/GoogleSansCode-SemiBold.ttf
 src/java.desktop/linux/fonts/GoogleSansCode-SemiBoldItalic.ttf
 src/java.desktop/linux/fonts/GoogleSansCode_LICENSE.txt
-src/java.desktop/linux/native/libawt_xawt/AccessibleAnnouncer/libspeechd_dyn.c
 src/java.desktop/macosx/fonts/GoogleSansCode-Italic.ttf
 src/java.desktop/macosx/fonts/GoogleSansCode.ttf
 src/java.desktop/macosx/fonts/GoogleSansCode_LICENSE.txt

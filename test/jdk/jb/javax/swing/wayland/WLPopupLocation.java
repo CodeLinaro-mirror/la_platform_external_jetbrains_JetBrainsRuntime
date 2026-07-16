@@ -21,8 +21,15 @@
  * questions.
  */
 
-import javax.swing.*;
-import java.awt.*;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.JWindow;
+import javax.swing.SwingUtilities;
+import java.awt.Point;
+import java.awt.Robot;
+import java.awt.Toolkit;
+import java.awt.Window;
 
 import static javax.swing.WindowConstants.EXIT_ON_CLOSE;
 
@@ -31,7 +38,6 @@ import static javax.swing.WindowConstants.EXIT_ON_CLOSE;
  * @summary Verifies that the popup-style window can change it's size and location
  * @requires os.family == "linux"
  * @key headful
- * @modules java.desktop/sun.awt
  * @run main/othervm WLPopupLocation
  * @run main/othervm -Dsun.java2d.uiScale.enabled=true -Dsun.java2d.uiScale=1.0 WLPopupLocation
  * @run main/othervm -Dsun.java2d.uiScale.enabled=true -Dsun.java2d.uiScale=1.25 WLPopupLocation
@@ -55,7 +61,6 @@ public class WLPopupLocation {
         popupContents.add(new JLabel("test popup"));
         popup = new JWindow(frame);
         popup.setType(Window.Type.POPUP);
-        sun.awt.AWTAccessor.getWindowAccessor().setPopupParent(popup, frame);
         popup.add(popupContents);
     }
 
@@ -75,8 +80,9 @@ public class WLPopupLocation {
         pause(robot);
 
         try {
+            Point p = frame.getLocationOnScreen();
             int w1 = 150, h1 = 200;
-            int x1 = 100, y1 = 100;
+            int x1 = p.x + 100, y1 = p.y + 100;
             System.out.printf("Action: locate to (%d, %d), set size (%d, %d)\n", x1, y1, w1, h1);
             SwingUtilities.invokeAndWait(() -> {
                 popup.setVisible(true);
@@ -104,7 +110,7 @@ public class WLPopupLocation {
                 throw new RuntimeException(String.format("Wrong location (via getBounds()) after robot's wait for idle: (%d, %d). Expected: (%d, %d)", popup.getBounds().x, popup.getBounds().y, x1, y1));
             }
 
-            int x2 = 200, y2 = 200;
+            int x2 = p.x + 200, y2 = p.y + 200;
             System.out.printf("Action: set popup location to (%d, %d)\n", x2, y2);
             SwingUtilities.invokeAndWait(() -> {
                 popup.setLocation(x2, y2);

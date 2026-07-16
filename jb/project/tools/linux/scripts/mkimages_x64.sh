@@ -23,6 +23,7 @@ set -x
 source jb/project/tools/common/scripts/common.sh
 
 JCEF_PATH=${JCEF_PATH:=./jcef_linux_x64}
+NO_SPEECHD=${NO_SPEECHD:=""}
 
 function do_configure {
   if is_musl; then
@@ -33,7 +34,6 @@ function do_configure {
       --openjdk-target=x86_64-unknown-linux-gnu"
   fi
 
-  GTK_SHELL_PATH=/gtk-shell.xml
   WAYLAND_PROTOCOLS_PATH=/opt/wayland-protocols
   WITH_WAYLAND_PROTOCOLS=
 
@@ -41,14 +41,9 @@ function do_configure {
     WITH_WAYLAND_PROTOCOLS="--with-wayland-protocols=$WAYLAND_PROTOCOLS_PATH"
   fi
 
-  if [ ! -e $GTK_SHELL_PATH ]; then
-    echo $GTK_SHELL_PATH" does not exist"
-    GTK_SHELL_PATH=`pwd`/gtk-shell.xml
-    if [ ! -e $GTK_SHELL_PATH ]; then
-      echo $GTK_SHELL_PATH" does not exist"
-      curl -O https://raw.githubusercontent.com/GNOME/gtk/refs/heads/main/gdk/wayland/protocol/gtk-shell.xml
-    fi
-  fi
+  WITH_SPEECHD_INCLUDE=
+
+  [[ -n "$NO_SPEECHD" ]] || WITH_SPEECHD_INCLUDE=--with-speechd-include=/usr/include/speech-dispatcher
 
   sh configure \
     $WITH_DEBUG_LEVEL \
@@ -60,7 +55,6 @@ function do_configure {
     --with-version-opt=b"$build_number" \
     --with-boot-jdk="$BOOT_JDK" \
     --enable-cds=yes \
-    --with-gtk-shell1-protocol=$GTK_SHELL_PATH \
     $WITH_VULKAN \
     $LINUX_TARGET \
     $DISABLE_WARNINGS_AS_ERRORS \
@@ -69,6 +63,7 @@ function do_configure {
     $WITH_ZIPPED_NATIVE_DEBUG_SYMBOLS \
     $WITH_BUNDLED_FREETYPE \
     $WITH_WAYLAND_PROTOCOLS \
+    $WITH_SPEECHD_INCLUDE \
     || do_exit $?
 }
 

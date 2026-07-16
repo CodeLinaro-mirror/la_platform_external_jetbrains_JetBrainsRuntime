@@ -56,7 +56,6 @@ void VKSD_ResetSurface(VKSDOps* vksdo) {
     if (vksdo->drawableType == VKSD_WINDOW) {
         VKWinSDOps* vkwinsdo = (VKWinSDOps*) vksdo;
         ARRAY_FREE(vkwinsdo->swapchainImages);
-        vkwinsdo->swapchainImages = NULL;
         if (vkwinsdo->vksdOps.device != NULL && vkwinsdo->swapchain != VK_NULL_HANDLE) {
             vkwinsdo->vksdOps.device->vkDestroySwapchainKHR(vkwinsdo->vksdOps.device->handle, vkwinsdo->swapchain, NULL);
         }
@@ -285,7 +284,7 @@ VkBool32 VKSD_ConfigureWindowSurface(VKWinSDOps* vkwinsdo) {
     }
     ARRAY_RESIZE(vkwinsdo->swapchainImages, swapchainImageCount);
     VK_IF_ERROR(device->vkGetSwapchainImagesKHR(device->handle, vkwinsdo->swapchain,
-                                             &swapchainImageCount, vkwinsdo->swapchainImages)) {
+                                             &swapchainImageCount, vkwinsdo->swapchainImages.data)) {
         return VK_FALSE;
     }
     return VK_TRUE;
@@ -295,7 +294,7 @@ static void VKSD_OnDispose(JNIEnv* env, SurfaceDataOps* ops) {
     JNU_CallStaticMethodByName(env, NULL, "sun/java2d/vulkan/VKSurfaceData", "dispose", "(J)V", ptr_to_jlong(ops));
 }
 
-JNIEXPORT VKSDOps* VKSD_CreateSurface(JNIEnv* env, jobject vksd, jint type, jint format, jint backgroundRGB,
+JNIEXPORT VKSDOps* VKSD_CreateSurface(JNIEnv* env, jobject vksd, jint type, jint format,
                                       VKWinSD_SurfaceResizeCallback resizeCallback) {
     VKSDOps* sd = (VKSDOps*)SurfaceData_InitOps(env, vksd,
         type == VKSD_WINDOW ? sizeof(VKWinSDOps) : sizeof(VKSDOps));
@@ -308,7 +307,6 @@ JNIEXPORT VKSDOps* VKSD_CreateSurface(JNIEnv* env, jobject vksd, jint type, jint
     sd->sdOps.Dispose = VKSD_OnDispose;
     sd->drawableType = type;
     sd->drawableFormat = format;
-    sd->background = VKUtil_DecodeJavaColor(backgroundRGB, ALPHA_TYPE_STRAIGHT);
     sd->lastTimestamp = 0;
     if (type == VKSD_WINDOW) {
         VKWinSDOps* winSD = (VKWinSDOps*) sd;
@@ -346,6 +344,6 @@ JNIEXPORT void VKSD_InitWindowSurface(JNIEnv* env, jobject vksd, VKWinSD_Surface
  * Signature: ()V
  */
 JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKOffScreenSurfaceData_initOps(JNIEnv* env, jobject vksd, jint format) {
-    VKSD_CreateSurface(env, vksd, VKSD_RT_TEXTURE, format, 0, NULL);
+    VKSD_CreateSurface(env, vksd, VKSD_RT_TEXTURE, format, NULL);
 }
 

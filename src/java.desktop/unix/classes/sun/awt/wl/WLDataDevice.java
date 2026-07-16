@@ -57,6 +57,10 @@ public class WLDataDevice {
 
     public static final int DATA_TRANSFER_PROTOCOL_WAYLAND = 1;
     public static final int DATA_TRANSFER_PROTOCOL_PRIMARY_SELECTION = 2;
+    public static final int DATA_TRANSFER_PROTOCOL_DATA_CONTROL = 3;
+
+    public static final int CLIPBOARD_SELECTION_DEFAULT = 1;
+    public static final int CLIPBOARD_SELECTION_PRIMARY = 2;
 
     WLDataDevice(long wlSeatNativePtr) {
         nativePtr = initNative(wlSeatNativePtr);
@@ -71,7 +75,7 @@ public class WLDataDevice {
         queueThread.start();
 
         systemClipboard = new WLClipboard(this, "System", false);
-        if (isProtocolSupported(DATA_TRANSFER_PROTOCOL_PRIMARY_SELECTION)) {
+        if (isProtocolSupported(DATA_TRANSFER_PROTOCOL_PRIMARY_SELECTION) || isProtocolSupported(DATA_TRANSFER_PROTOCOL_DATA_CONTROL)) {
             primarySelectionClipboard = new WLClipboard(this, "Selection", true);
         } else {
             primarySelectionClipboard = null;
@@ -86,20 +90,27 @@ public class WLDataDevice {
     private native long initNative(long wlSeatNativePtr);
     private static native boolean isProtocolSupportedImpl(long nativePtr, int protocol);
     private static native void dispatchDataSourceQueueImpl(long nativePtr);
-    private static native void setSelectionImpl(int protocol, long nativePtr, long dataOfferNativePtr, long serial);
+    private static native void setSelectionImpl(long nativePtr, int protocol, int selectionType, long dataOfferNativePtr, long serial);
     private static native void startDragImpl(long nativePtr, long dataOfferNativePtr,
                                              long originSurfaceNativePtr, long serial);
     private static native void performDeletionsOnEDTImpl(long nativePtr);
+    private static native boolean waitUntilReadableImpl(int fd, int timeoutMs);
 
     public boolean isProtocolSupported(int protocol) {
         return isProtocolSupportedImpl(nativePtr, protocol);
     }
 
-    public void setSelection(int protocol, WLDataSource source, long serial) {
-        setSelectionImpl(protocol, nativePtr, (source == null) ? 0 : source.getNativePtr(), serial);
+    public void setSelection(int protocol, int selectionType, WLDataSource source, long serial) {
+        if (log.isLoggable(PlatformLogger.Level.FINE)) {
+            log.fine("setSelection(), protocol = " + protocol + ", selectionType = " + selectionType + ", source = " + source + ", serial = " + serial);
+        }
+        setSelectionImpl(nativePtr, protocol, selectionType, (source == null) ? 0 : source.getNativePtr(), serial);
     }
 
     public void startDrag(WLDataSource source, long originSurfaceNativePtr, long serial) {
+        if (log.isLoggable(PlatformLogger.Level.FINE)) {
+            log.fine("startDrag(), source = " + source + ", originSurfaceNativePtr = 0x" + Long.toHexString(originSurfaceNativePtr) + ", serial = " + serial);
+        }
         startDragImpl(nativePtr, source.getNativePtr(), originSurfaceNativePtr, serial);
     }
 
@@ -113,6 +124,15 @@ public class WLDataDevice {
 
     long getNativePtr() {
         return nativePtr;
+    }
+
+    void onNewSerialAvailable() {
+        if (systemClipboard != null) {
+            systemClipboard.trySetPendingWaylandContents();
+        }
+        if (primarySelectionClipboard != null) {
+            primarySelectionClipboard.trySetPendingWaylandContents();
+        }
     }
 
     static void transferContentsWithType(Transferable contents, String mime, int fd) {
@@ -165,64 +185,73 @@ public class WLDataDevice {
     /**
      * Reads the given input stream until EOF and returns its contents as an array of bytes.
      */
-    static byte[] readAllBytesFrom(FileInputStream inputStream) throws IOException {
-        int len = Integer.MAX_VALUE;
-        List<byte[]> bufs = null;
-        byte[] result = null;
-        int total = 0;
-        int remaining = len;
-        int n;
-        do {
-            byte[] buf = new byte[Math.min(remaining, DEFAULT_BUFFER_SIZE)];
-            int nread = 0;
+    static byte[] readAllBytesFromFd(int fd, int timeoutMs) throws IOException {
+        FileDescriptor javaFD = new FileDescriptor();
+        jdk.internal.access.SharedSecrets.getJavaIOFileDescriptorAccess().set(javaFD, fd);
+        try (var in = new FileInputStream(javaFD)) {
+            int len = Integer.MAX_VALUE;
+            List<byte[]> bufs = null;
+            byte[] result = null;
+            int total = 0;
+            int remaining = len;
+            int n;
+            do {
+                byte[] buf = new byte[Math.min(remaining, DEFAULT_BUFFER_SIZE)];
+                int nread = 0;
 
-            while ((n = inputStream.read(buf, nread,
-                    Math.min(buf.length - nread, remaining))) > 0) {
-                nread += n;
-                remaining -= n;
-            }
+                boolean readable = waitUntilReadableImpl(fd, timeoutMs);
+                if (!readable) {
+                    throw new IOException("Timeout waiting for Wayland data transfer pipe");
+                }
 
-            if (nread > 0) {
-                if (MAX_BUFFER_SIZE - total < nread) {
-                    throw new OutOfMemoryError("Required array size too large");
+                while ((n = in.read(buf, nread,
+                        Math.min(buf.length - nread, remaining))) > 0) {
+                    nread += n;
+                    remaining -= n;
                 }
-                if (nread < buf.length) {
-                    buf = Arrays.copyOfRange(buf, 0, nread);
-                }
-                total += nread;
-                if (result == null) {
-                    result = buf;
-                } else {
-                    if (bufs == null) {
-                        bufs = new ArrayList<>();
-                        bufs.add(result);
+
+                if (nread > 0) {
+                    if (MAX_BUFFER_SIZE - total < nread) {
+                        throw new OutOfMemoryError("Required array size too large");
                     }
-                    bufs.add(buf);
+                    if (nread < buf.length) {
+                        buf = Arrays.copyOfRange(buf, 0, nread);
+                    }
+                    total += nread;
+                    if (result == null) {
+                        result = buf;
+                    } else {
+                        if (bufs == null) {
+                            bufs = new ArrayList<>();
+                            bufs.add(result);
+                        }
+                        bufs.add(buf);
+                    }
                 }
+                // if the last call to read returned -1 or the number of bytes
+                // requested have been read then break
+            } while (n >= 0 && remaining > 0);
+
+            if (bufs == null) {
+                if (result == null) {
+                    return new byte[0];
+                }
+                return result.length == total ?
+                        result : Arrays.copyOf(result, total);
             }
-            // if the last call to read returned -1 or the number of bytes
-            // requested have been read then break
-        } while (n >= 0 && remaining > 0);
 
-        if (bufs == null) {
-            if (result == null) {
-                return new byte[0];
+            result = new byte[total];
+            int offset = 0;
+            remaining = total;
+            for (byte[] b : bufs) {
+                int count = Math.min(b.length, remaining);
+                System.arraycopy(b, 0, result, offset, count);
+                offset += count;
+                remaining -= count;
             }
-            return result.length == total ?
-                    result : Arrays.copyOf(result, total);
-        }
 
-        result = new byte[total];
-        int offset = 0;
-        remaining = total;
-        for (byte[] b : bufs) {
-            int count = Math.min(b.length, remaining);
-            System.arraycopy(b, 0, result, offset, count);
-            offset += count;
-            remaining -= count;
+            return result;
         }
-
-        return result;
     }
 
     public static int waylandActionsToJava(int waylandActions) {
@@ -268,11 +297,22 @@ public class WLDataDevice {
         WLDropTargetContextPeer.getInstance().handleDrop();
     }
 
-    private void handleSelection(WLDataOffer offer /* nullable */, int protocol) {
-        WLClipboard clipboard = (protocol == DATA_TRANSFER_PROTOCOL_PRIMARY_SELECTION) ? primarySelectionClipboard : systemClipboard;
+    private void handleSelection(WLDataOffer offer /* nullable */, int protocol, int selection) {
+        if (protocol != DATA_TRANSFER_PROTOCOL_DATA_CONTROL) {
+            if (selection == CLIPBOARD_SELECTION_PRIMARY && primarySelectionClipboard != null) {
+                primarySelectionClipboard.handleClipboardOffer(offer);
+                return;
+            }
 
-        if (clipboard != null) {
-            clipboard.handleClipboardOffer(offer);
+            if (selection == CLIPBOARD_SELECTION_DEFAULT && systemClipboard != null) {
+                systemClipboard.handleClipboardOffer(offer);
+                return;
+            }
+        }
+
+        // we ignore this offer, destroy it
+        if (offer != null) {
+            offer.unref();
         }
     }
 }

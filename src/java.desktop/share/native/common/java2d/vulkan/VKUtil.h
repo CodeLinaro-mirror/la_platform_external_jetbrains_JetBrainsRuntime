@@ -24,6 +24,7 @@
 #ifndef VKUtil_h_Included
 #define VKUtil_h_Included
 #include <stdlib.h>
+#include <stdalign.h>
 #include <Trace.h>
 #include "awt.h"
 #include "jni_util.h"
@@ -43,7 +44,7 @@
 
 // Useful logging & result checking macros
 JNIEXPORT void VKUtil_LogResultError(const char* string, VkResult result);
-inline VkBool32 VKUtil_CheckError(VkResult result, const char* errorMessage) {
+static inline VkBool32 VKUtil_CheckError(VkResult result, const char* errorMessage) {
     if (result != VK_SUCCESS) {
         VKUtil_LogResultError(errorMessage, result);
         return VK_TRUE;
@@ -67,6 +68,9 @@ inline VkBool32 VKUtil_CheckError(VkResult result, const char* errorMessage) {
 
 #define C_ARRAY_UTIL_ALLOCATION_FAILED() VK_FATAL_ERROR("CArrayUtil allocation failed")
 #include "CArrayUtil.h"
+
+typedef ARRAY(pchar) pchar_array_t;
+typedef ARRAY(jint) jint_array_t;
 
 #define VK_ID_TRANSFORM ((VKTransform)\
     {1.0f, 0.0f, 0.0f,                \

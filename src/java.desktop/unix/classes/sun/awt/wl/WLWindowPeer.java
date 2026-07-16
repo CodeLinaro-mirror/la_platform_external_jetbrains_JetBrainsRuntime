@@ -28,8 +28,15 @@ import sun.awt.AWTAccessor;
 import sun.awt.SurfacePixelGrabber;
 import sun.awt.UngrabEvent;
 import sun.java2d.SunGraphics2D;
+import sun.java2d.pipe.Region;
 import sun.java2d.vulkan.VKSurfaceData;
 import sun.java2d.wl.WLSMSurfaceData;
+import sun.lwawt.LWChildPeers;
+import sun.lwawt.LWComponentPeerAPI;
+import sun.lwawt.LWContainerPeerAPI;
+import sun.lwawt.LWMouseEventDispatcher;
+import sun.lwawt.LWWindowPeerAPI;
+import sun.lwawt.PlatformWindow;
 
 import javax.swing.JRootPane;
 import javax.swing.RootPaneContainer;
@@ -39,24 +46,29 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dialog;
 import java.awt.Font;
+import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GraphicsConfiguration;
 import java.awt.GraphicsEnvironment;
 import java.awt.Image;
 import java.awt.Insets;
+import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.SystemColor;
 import java.awt.Window;
+import java.awt.dnd.DropTarget;
+import java.awt.event.FocusEvent;
+import java.awt.event.MouseEvent;
 import java.awt.event.WindowEvent;
 import java.awt.geom.Path2D;
 import java.awt.image.BufferedImage;
 import java.awt.peer.ComponentPeer;
-import java.awt.peer.WindowPeer;
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 import java.util.List;
 
-public class WLWindowPeer extends WLComponentPeer implements WindowPeer, SurfacePixelGrabber {
+public class WLWindowPeer extends WLComponentPeer implements SurfacePixelGrabber, LWWindowPeerAPI {
     private static Font defaultFont;
     private Dialog blocker; // guarded by getStateLock()
     private static WLWindowPeer grabbingWindow; // fake, kept for UngrabEvent only
@@ -72,6 +84,8 @@ public class WLWindowPeer extends WLComponentPeer implements WindowPeer, Surface
     private Path2D.Double bottomLeftMask;   // guarded by stateLock
     private Path2D.Double bottomRightMask;  // guarded by stateLock
     private SunGraphics2D graphics;         // guarded by stateLock
+
+    private final LWChildPeers childPeers = new LWChildPeers(new Object());
 
     static {
         if (!GraphicsEnvironment.isHeadless()) {
@@ -122,6 +136,9 @@ public class WLWindowPeer extends WLComponentPeer implements WindowPeer, Surface
             requestWindowFocus();
         }
         super.wlSetVisible(v);
+        if (v) {
+            updateIconImages();
+        }
         final AWTAccessor.ComponentAccessor acc = AWTAccessor.getComponentAccessor();
         for (Component c : getWindow().getComponents()) {
             ComponentPeer cPeer = acc.getPeer(c);
@@ -185,7 +202,7 @@ public class WLWindowPeer extends WLComponentPeer implements WindowPeer, Surface
         }
     }
 
-    public Dialog getBlocker() {
+    public Dialog getBlockerDialog() {
         synchronized (getStateLock()) {
             return blocker;
         }
@@ -199,37 +216,57 @@ public class WLWindowPeer extends WLComponentPeer implements WindowPeer, Surface
     @Override
     public void updateIconImages() {
         List<Image> iconImages = getWindow().getIconImages();
-        if (iconImages == null || iconImages.isEmpty()) {
-            setIcon(0, null);
+        List<Image> suitableIconImages = new ArrayList<Image>();
+
+        if (iconImages != null) {
+            for (Image image : iconImages) {
+                if (image == null) {
+                    continue;
+                }
+                int width = image.getWidth(null);
+                int height = image.getHeight(null);
+                if (width > 0 && height > 0 && width == height) {
+                    suitableIconImages.add(image);
+                }
+            }
+        }
+
+        if (suitableIconImages.isEmpty()) {
+            setIcon(null, null);
             return;
         }
 
-        Image image = iconImages.stream()
-                .filter(x -> x.getWidth(null) > 0 && x.getHeight(null) > 0)
-                .filter(x -> x.getWidth(null) == x.getHeight(null))
-                .max((a, b) -> Integer.compare(a.getWidth(null), b.getWidth(null)))
-                .orElse(null);
-        if (image == null) {
-            return;
+        int imageCount = suitableIconImages.size();
+        int pixelCount = 0;
+        for (Image image : suitableIconImages) {
+            int dim = image.getWidth(null); // width == height
+            pixelCount += dim * dim;
         }
 
-        int width = image.getWidth(null);
-        int height = image.getHeight(null);
-        int size = width;
+        int[] dims = new int[imageCount];
+        int[] pixels = new int[pixelCount];
 
-        BufferedImage bufferedImage;
-        if (image instanceof BufferedImage && ((BufferedImage) image).getType() == BufferedImage.TYPE_INT_ARGB) {
-            bufferedImage = (BufferedImage) image;
-        } else {
-            bufferedImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D g = bufferedImage.createGraphics();
-            g.drawImage(image, 0, 0, null);
-            g.dispose();
+        int offset = 0;
+        for (int i = 0; i < imageCount; ++i) {
+            Image image = suitableIconImages.get(i);
+            int dim = image.getWidth(null); // width == height
+            dims[i] = dim;
+
+            BufferedImage bufferedImage;
+            if (image instanceof BufferedImage && ((BufferedImage) image).getType() == BufferedImage.TYPE_INT_ARGB) {
+                bufferedImage = (BufferedImage) image;
+            } else {
+                bufferedImage = new BufferedImage(dim, dim, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g = bufferedImage.createGraphics();
+                g.drawImage(image, 0, 0, null);
+                g.dispose();
+            }
+
+            bufferedImage.getRGB(0, 0, dim, dim, pixels, offset, dim);
+            offset += dim * dim;
         }
 
-        int[] pixels = new int[width * height];
-        bufferedImage.getRGB(0, 0, width, height, pixels, 0, width);
-        setIcon(size, pixels);
+        setIcon(dims, pixels);
     }
 
     @Override
@@ -283,13 +320,16 @@ public class WLWindowPeer extends WLComponentPeer implements WindowPeer, Surface
     }
 
     // supporting only 'synthetic' focus transfers for now (when natively focused window stays the same)
-    private void requestWindowFocus() {
+    private boolean requestWindowFocus() {
         Window window = getWindow();
         Window nativeFocusTarget = getNativelyFocusableOwnerOrSelf(window);
-        if (nativeFocusTarget != null &&
-                WLKeyboardFocusManagerPeer.getInstance().getCurrentFocusedWindow() == nativeFocusTarget) {
+        boolean isFocusable = nativeFocusTarget != null &&
+                WLKeyboardFocusManagerPeer.getInstance().getCurrentFocusedWindow() == nativeFocusTarget;
+        if (isFocusable) {
             WLToolkit.postPriorityEvent(new WindowEvent(window, WindowEvent.WINDOW_GAINED_FOCUS));
+            return true;
         }
+        return false;
     }
 
     public Component getSyntheticFocusOwner() {
@@ -487,4 +527,197 @@ public class WLWindowPeer extends WLComponentPeer implements WindowPeer, Surface
     }
 
     private static native void initIDs();
+
+    @Override
+    public Window getTarget() {
+        return getWindow();
+    }
+
+    @Override
+    public Graphics getOnscreenGraphics(Color fg, Color bg, Font f) {
+        return getGraphics(surfaceData, fg, bg, f);
+    }
+
+    @Override
+    public boolean requestWindowFocus(FocusEvent.Cause cause) {
+        return requestWindowFocus();
+    }
+
+    @Override
+    public LWWindowPeerAPI getBlocker() {
+        Dialog blocker = getBlockerDialog();
+        return blocker != null ? AWTAccessor.getComponentAccessor().getPeer(blocker) : null;
+    }
+
+    @Override
+    public LWMouseEventDispatcher getMouseEventDispatcher() {
+        if (mouseEventDispatcher == null) {
+            mouseEventDispatcher = new LWMouseEventDispatcher(this);
+        }
+        return mouseEventDispatcher;
+    }
+
+    @Override
+    public void postMouseEvent(MouseEvent e) {
+        super.postMouseEvent(e);
+    }
+
+    @Override
+    public boolean isActive() {
+        return super.isActive();
+    }
+
+    @Override
+    public void addChildPeer(LWComponentPeerAPI child) {
+        childPeers.addChildPeer(child);
+    }
+
+    @Override
+    public void removeChildPeer(LWComponentPeerAPI child) {
+        childPeers.removeChildPeer(child);
+    }
+
+    @Override
+    public void setChildPeerZOrder(LWComponentPeerAPI peer, LWComponentPeerAPI above) {
+        childPeers.setChildPeerZOrder(peer, above);
+    }
+
+    @Override
+    public Region cutChildren(Region r, LWComponentPeerAPI above) {
+        return childPeers.cutChildren(r, above, getContentSize());
+    }
+
+    @Override
+    public Rectangle getContentSize() {
+        Region region = getRegion();
+        return new Rectangle(region.getWidth(), region.getHeight());
+    }
+
+    @Override
+    public void repaintPeer(Rectangle r) {
+        final Rectangle toPaint = getContentSize().intersection(r);
+        if (!isShowing() || toPaint.isEmpty()) {
+            return;
+        }
+        postPaintEvent(toPaint.x, toPaint.y, toPaint.width, toPaint.height);
+        childPeers.repaintChildren(toPaint, getContentSize());
+    }
+
+    @Override
+    public LWComponentPeerAPI findPeerAt(int x, int y) {
+        final Rectangle r = getBounds();
+        int xLocal = x - r.x;
+        int yLocal = y - r.y;
+        if (!(isVisible() && getRegion().contains(xLocal, yLocal))) {
+            return null;
+        }
+        LWComponentPeerAPI childPeerAt = childPeers.findChildPeerAt(xLocal, yLocal);
+        return childPeerAt != null ? childPeerAt : this;
+    }
+
+    @Override
+    public void setEnabled(boolean value) {
+        super.setEnabled(value);
+        childPeers.setChildrenEnabled(value);
+    }
+
+    @Override
+    public void setBackground(final Color c) {
+        childPeers.setChildrenBackground(c);
+        super.setBackground(c);
+    }
+
+    @Override
+    public void setForeground(final Color c) {
+        childPeers.setChildrenForeground(c);
+        super.setForeground(c);
+    }
+
+    @Override
+    public void setFont(final Font f) {
+        childPeers.setChildrenFont(f);
+        super.setFont(f);
+    }
+
+    @Override
+    public void paint(final Graphics g) {
+        super.paint(g);
+        LWChildPeers.paintChildren(getWindow().getComponents(), g);
+    }
+
+    @Override
+    public void print(final Graphics g) {
+        super.print(g);
+        LWChildPeers.printChildren(getWindow().getComponents(), g);
+    }
+
+    @Override
+    public boolean isVisible() {
+        return super.isVisible();
+    }
+
+    @Override
+    public boolean isShowing() {
+        return isVisible();
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return true;
+    }
+
+    @Override
+    public LWWindowPeerAPI getWindowPeerOrSelf() {
+        return this;
+    }
+
+    @Override
+    public LWContainerPeerAPI getContainerPeer() {
+        return null;
+    }
+
+    @Override
+    public PlatformWindow getPlatformWindow() {
+        return WLPlatformWindow.getInstance();
+    }
+
+    @Override
+    public Region getRegion() {
+        return Region.getInstance(new Rectangle(getWidth(), getHeight()));
+    }
+
+    @Override
+    public Rectangle getBounds() {
+        Point loc = getLocationOnScreen();
+        return new Rectangle(loc.x, loc.y, getWidth(), getHeight());
+    }
+
+    @Override
+    public void setBounds(Rectangle r) {
+        setBounds(r.x, r.y, r.width, r.height, SET_BOUNDS);
+    }
+
+    @Override
+    public void setBounds(int x, int y, int w, int h, int op, boolean notify, boolean updateTarget) {
+        setBounds(x, y, w, h, op);
+    }
+
+    @Override
+    public Point windowToLocal(int x, int y, LWWindowPeerAPI wp) {
+        // For WLWindowPeer window coordinates are already local coordinates - no transformation needed.
+        return new Point(x, y);
+    }
+
+    @Override
+    public void addDropTarget(DropTarget dt) {
+    }
+
+    @Override
+    public void removeDropTarget(DropTarget dt) {
+    }
+
+    @Override
+    public boolean needsDragEventCorrection() {
+        return false;
+    }
 }

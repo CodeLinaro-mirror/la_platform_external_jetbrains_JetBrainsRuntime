@@ -85,10 +85,10 @@ public abstract class FrameDecoration {
         boolean isLMBPressed = isLMB && isPressed;
 
         if (isLMBPressed && peer.isInteractivelyResizable()) {
-            Point point = e.getPoint();
+            Point point = getPointInFrame(e);
             int resizeSide = getResizeEdges(point.x, point.y);
             if (resizeSide != 0) {
-                peer.startResize(WLToolkit.getInputState().pointerButtonSerial(), resizeSide);
+                peer.startResize(WLToolkit.getInputState().pointerButtonSerial().serial(), resizeSide);
                 // workaround for https://gitlab.gnome.org/GNOME/mutter/-/issues/2523
                 WLToolkit.resetPointerInputState();
                 return true;
@@ -96,6 +96,15 @@ public abstract class FrameDecoration {
         }
 
         return false;
+    }
+
+    /**
+     * Converts a mouse event's coordinates to frame-relative coordinates.
+     * This works regardless of which child component the event targets.
+     */
+    protected Point getPointInFrame(MouseEvent e) {
+        Point windowLoc = peer.target.getLocationOnScreen();
+        return new Point(e.getXOnScreen() - windowLoc.x, e.getYOnScreen() - windowLoc.y);
     }
 
     private int getResizeEdges(int x, int y) {

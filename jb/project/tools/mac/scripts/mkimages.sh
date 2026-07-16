@@ -44,6 +44,12 @@ else
   fi
 fi
 
+if [ -n "${SYSROOT:-}" ]; then
+  WITH_SYSROOT="--with-sysroot=$SYSROOT"
+else
+  WITH_SYSROOT=""
+fi
+
 function do_configure {
   sh configure \
     $WITH_DEBUG_LEVEL \
@@ -62,6 +68,7 @@ function do_configure {
     $REPRODUCIBLE_BUILD_OPTS \
     $WITH_ZIPPED_NATIVE_DEBUG_SYMBOLS \
     $WITH_XCODE_PATH \
+    $WITH_SYSROOT \
     || do_exit $?
 }
 
@@ -106,7 +113,17 @@ function create_image_bundle {
   cp -R "$JSDK"/../MacOS "$JRE_CONTENTS"
   cp "$JSDK"/../Info.plist "$JRE_CONTENTS"
 
-  [ -n "$bundle_type" ] && (cp -a $JCEF_PATH/Frameworks "$JRE_CONTENTS" || do_exit $?)
+  if [ "$bundle_type" == "jcef" ]; then
+    mkdir -p "$JRE_CONTENTS/Frameworks"
+    cp -a $JCEF_PATH/Frameworks/cef_server.app                          "$JRE_CONTENTS/Frameworks" || do_exit $?
+    cp -a "$JCEF_PATH/Frameworks/Chromium Embedded Framework.framework" "$JRE_CONTENTS/Frameworks/cef_server.app/Contents/Frameworks" || do_exit $?
+    cp -a "$JCEF_PATH/Frameworks/jcef Helper (GPU).app"                 "$JRE_CONTENTS/Frameworks/cef_server.app/Contents/Frameworks" || do_exit $?
+    cp -a "$JCEF_PATH/Frameworks/jcef Helper (Plugin).app"              "$JRE_CONTENTS/Frameworks/cef_server.app/Contents/Frameworks" || do_exit $?
+    cp -a "$JCEF_PATH/Frameworks/jcef Helper (Renderer).app"            "$JRE_CONTENTS/Frameworks/cef_server.app/Contents/Frameworks" || do_exit $?
+    cp -a "$JCEF_PATH/Frameworks/jcef Helper.app"                       "$JRE_CONTENTS/Frameworks/cef_server.app/Contents/Frameworks" || do_exit $?
+  else
+    [ -n "$bundle_type" ] && (cp -a $JCEF_PATH/Frameworks "$JRE_CONTENTS" || do_exit $?)
+  fi
 
   echo Creating "$JBR".tar.gz ...
   # Normalize timestamp

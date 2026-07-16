@@ -75,6 +75,7 @@ import java.awt.peer.DesktopPeer;
 import java.awt.peer.DialogPeer;
 import java.awt.peer.FileDialogPeer;
 import java.awt.peer.FontPeer;
+import java.awt.peer.FramePeer;
 import java.awt.peer.MenuBarPeer;
 import java.awt.peer.MenuItemPeer;
 import java.awt.peer.MenuPeer;
@@ -97,9 +98,11 @@ import sun.awt.*;
 import sun.awt.datatransfer.DataTransferer;
 import sun.awt.dnd.SunDragSourceContextPeer;
 import sun.awt.util.ThreadGroupUtils;
+import sun.java2d.MacOSFlags;
 import sun.java2d.metal.MTLRenderQueue;
 import sun.java2d.opengl.OGLRenderQueue;
-import sun.lwawt.LWComponentPeer;
+import sun.java2d.pipe.RenderQueue;
+import sun.lwawt.LWComponentPeerAPI;
 import sun.lwawt.LWCursorManager;
 import sun.lwawt.LWToolkit;
 import sun.lwawt.LWWindowPeer;
@@ -314,6 +317,29 @@ public final class LWCToolkit extends LWToolkit {
                     || peerType == PeerType.FRAME);
             return new CPlatformWindow();
         }
+    }
+
+    @Override
+    protected LWWindowPeer createDelegatedPeer(Window target,
+                                               PlatformComponent platformComponent,
+                                               PlatformWindow platformWindow,
+                                               PeerType peerType) {
+        LWCWindowPeer peer =
+                new LWCWindowPeer(target, platformComponent, platformWindow, peerType);
+        targetCreatedPeer(target, peer);
+        peer.initialize();
+        return peer;
+    }
+
+    @Override
+    public FramePeer createLightweightFrame(LightweightFrame target) {
+        PlatformComponent platformComponent = createLwPlatformComponent();
+        PlatformWindow platformWindow = createPlatformWindow(PeerType.LW_FRAME);
+        LWCLightweightFramePeer peer =
+                new LWCLightweightFramePeer(target, platformComponent, platformWindow);
+        targetCreatedPeer(target, peer);
+        peer.initialize();
+        return peer;
     }
 
     LWWindowPeer createEmbeddedFrame(CEmbeddedFrame target) {
@@ -956,9 +982,9 @@ public final class LWCToolkit extends LWToolkit {
     }
 
     @Override
-    protected PlatformDropTarget createDropTarget(DropTarget dropTarget,
-                                                  Component component,
-                                                  LWComponentPeer<?, ?> peer) {
+    public PlatformDropTarget createDropTarget(DropTarget dropTarget,
+                                               Component component,
+                                               LWComponentPeerAPI peer) {
         return new CDropTarget(dropTarget, component, peer);
     }
 
@@ -1176,7 +1202,7 @@ public final class LWCToolkit extends LWToolkit {
     }
 
     @Override
-    protected PlatformWindow getPlatformWindowUnderMouse() {
+    public PlatformWindow getPlatformWindowUnderMouse() {
         return CPlatformWindow.nativeGetTopmostPlatformWindowUnderMouse();
     }
 
@@ -1186,6 +1212,23 @@ public final class LWCToolkit extends LWToolkit {
             UIManager.put("MenuBarUI", "com.apple.laf.AquaMenuBarUI");
         } else {
             UIManager.put("MenuBarUI", null);
+        }
+    }
+
+    @Override
+    public boolean needUpdateWindowAfterPaint() {
+        return MacOSFlags.isMetalEnabled() && !MacOSFlags.isMetalDisplaySyncEnabled();
+    }
+
+    @Override
+    public void flushOnscreenGraphics(Component context) {
+        RenderQueue rq = CGraphicsEnvironment.usingMetalPipeline() ?
+                MTLRenderQueue.getInstance() : OGLRenderQueue.getInstance();
+        rq.lock();
+        try {
+            rq.flushNow();
+        } finally {
+            rq.unlock();
         }
     }
 }

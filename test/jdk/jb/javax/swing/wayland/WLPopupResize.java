@@ -26,8 +26,11 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JWindow;
 import javax.swing.SwingUtilities;
-import java.awt.*;
-import java.awt.geom.AffineTransform;
+import java.awt.Point;
+import java.awt.Rectangle;
+import java.awt.Robot;
+import java.awt.Toolkit;
+import java.awt.Window;
 
 import static javax.swing.WindowConstants.EXIT_ON_CLOSE;
 
@@ -37,7 +40,6 @@ import static javax.swing.WindowConstants.EXIT_ON_CLOSE;
  *          under Wayland
  * @requires os.family == "linux"
  * @key headful
- * @modules java.desktop/sun.awt
  * @run main/othervm WLPopupResize
  * @run main/othervm -Dsun.java2d.uiScale.enabled=true -Dsun.java2d.uiScale=1.0 WLPopupResize
  * @run main/othervm -Dsun.java2d.uiScale.enabled=true -Dsun.java2d.uiScale=1.25 WLPopupResize
@@ -60,7 +62,6 @@ public class WLPopupResize {
         popupContents.add(new JLabel("test popup"));
         popup = new JWindow(frame);
         popup.setType(Window.Type.POPUP);
-        sun.awt.AWTAccessor.getWindowAccessor().setPopupParent(popup, frame);
         popup.setSize(100, 50);
         popup.add(popupContents);
         popup.setVisible(true);
@@ -83,8 +84,8 @@ public class WLPopupResize {
 
         try {
             int tolerance = getTolerance();
-
-            int x = 10, y = 20, w = 120, h = 80;
+            Point p = frame.getLocationOnScreen();
+            int x = p.x + 10, y = p.y + 20, w = 120, h = 80;
             System.out.println("Set popup size to (120, 80)");
             SwingUtilities.invokeAndWait(() -> {
                 popup.setBounds(x, y, w, h);

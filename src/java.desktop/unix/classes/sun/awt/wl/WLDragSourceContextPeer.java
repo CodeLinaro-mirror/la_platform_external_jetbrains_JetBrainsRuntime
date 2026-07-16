@@ -27,6 +27,8 @@ package sun.awt.wl;
 
 import sun.awt.AWTAccessor;
 import sun.awt.dnd.SunDragSourceContextPeer;
+import sun.awt.dnd.SunDropTargetContextPeer;
+import sun.util.logging.PlatformLogger;
 
 import java.awt.Cursor;
 import java.awt.datatransfer.DataFlavor;
@@ -35,6 +37,21 @@ import java.awt.dnd.DragGestureEvent;
 import java.util.Map;
 
 public class WLDragSourceContextPeer extends SunDragSourceContextPeer {
+    private static final PlatformLogger log = PlatformLogger.getLogger("sun.awt.wl.WLDragSourceContextPeer");
+
+    WLDragSourceContextPeer(WLDataDevice dataDevice) {
+        super(null);
+        this.dataDevice = dataDevice;
+    }
+
+    public WLDragSourceContextPeer createDragSourceContextPeer(DragGestureEvent dge) {
+        if (log.isLoggable(PlatformLogger.Level.FINE)) {
+            log.fine("createDragSourceContextPeer(), dge = " + dge);
+        }
+        setTrigger(dge);
+        return this;
+    }
+
     private final WLDataDevice dataDevice;
 
     private class WLDragSource extends WLDataSource {
@@ -43,11 +60,12 @@ public class WLDragSourceContextPeer extends SunDragSourceContextPeer {
         private boolean didSendFinishedEvent = false;
         private boolean didSucceed = false;
 
-        WLDragSource(Transferable data) {
+        WLDragSource(Transferable data, int defaultAction) {
             super(dataDevice, WLDataDevice.DATA_TRANSFER_PROTOCOL_WAYLAND, data);
+            action = defaultAction;
         }
 
-        private void sendFinishedEvent() {
+        private synchronized void sendFinishedEvent() {
             if (didSendFinishedEvent) {
                 return;
             }
@@ -61,6 +79,7 @@ public class WLDragSourceContextPeer extends SunDragSourceContextPeer {
 
         @Override
         protected synchronized void handleDnDAction(int action) {
+            super.handleDnDAction(action);
             // This if statement is a workaround for a KWin bug.
             // KWin 6.5.1 may send an additional action(0) after dnd_drop_performed().
             // Spec says that after dnd_drop_performed(), no further action() events will be sent,
@@ -73,30 +92,31 @@ public class WLDragSourceContextPeer extends SunDragSourceContextPeer {
 
         @Override
         protected synchronized void handleDnDDropPerformed() {
+            super.handleDnDDropPerformed();
             didSucceed = action != 0 && mime != null;
         }
 
         @Override
         protected synchronized void handleDnDFinished() {
+            super.handleDnDFinished();
             sendFinishedEvent();
             destroy();
         }
 
         @Override
         protected synchronized void handleTargetAcceptsMime(String mime) {
+            super.handleTargetAcceptsMime(mime);
             this.mime = mime;
         }
 
         @Override
-        protected void handleCancelled() {
+        protected synchronized void handleCancelled() {
+            if (log.isLoggable(PlatformLogger.Level.FINE)) {
+                log.fine("handleCancelled(), this = " + getID());
+            }
             sendFinishedEvent();
-            super.handleCancelled();
+            destroy();
         }
-    }
-
-    public WLDragSourceContextPeer(DragGestureEvent dge, WLDataDevice dataDevice) {
-        super(dge);
-        this.dataDevice = dataDevice;
     }
 
     private WLComponentPeer getPeer() {
@@ -121,16 +141,31 @@ public class WLDragSourceContextPeer extends SunDragSourceContextPeer {
 
     @Override
     protected void startDrag(Transferable trans, long[] formats, Map<Long, DataFlavor> formatMap) {
+        if (log.isLoggable(PlatformLogger.Level.FINE)) {
+            log.fine("startDrag(), trans = " + trans);
+        }
+
         var mainSurface = getSurface();
         if (mainSurface == null) {
+            log.warning("startDrag(): mainSurface is null");
             return;
         }
 
-        // formats and formatMap are unused, because WLDataSource already references the same DataTransferer singleton
-        var source = new WLDragSource(trans);
-
-        var actions = getDragSourceContext().getSourceActions();
+        int actions = 0;
+        var dragSourceContext = getDragSourceContext();
+        if (dragSourceContext != null) {
+            actions = dragSourceContext.getSourceActions();
+        }
         int waylandActions = WLDataDevice.javaActionsToWayland(actions);
+        int defaultAction = 0;
+        if ((waylandActions & WLDataDevice.DND_MOVE) != 0) {
+            defaultAction = WLDataDevice.DND_MOVE;
+        } else if ((waylandActions & WLDataDevice.DND_COPY) != 0) {
+            defaultAction = WLDataDevice.DND_COPY;
+        }
+
+        // formats and formatMap are unused, because WLDataSource already references the same DataTransferer singleton
+        var source = new WLDragSource(trans, defaultAction);
 
         source.setDnDActions(waylandActions);
 
@@ -142,9 +177,10 @@ public class WLDragSourceContextPeer extends SunDragSourceContextPeer {
                     dragImageOffset.x, dragImageOffset.y);
         }
 
-        long eventSerial = WLToolkit.getInputState().pointerButtonSerial();
+        WLInputSerial eventSerial = WLToolkit.getInputState().pointerButtonSerial();
 
-        dataDevice.startDrag(source, mainSurface.getWlSurfacePtr(), eventSerial);
+        dataDevice.startDrag(source, mainSurface.getWlSurfacePtr(), eventSerial.serial());
+        SunDropTargetContextPeer.setCurrentJVMLocalSourceTransferable(trans);
     }
 
     @Override

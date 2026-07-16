@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2025, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011–2026, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,6 +34,7 @@ import java.awt.EventQueue;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Frame;
+import java.awt.GraphicsConfiguration;
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
 import java.awt.Insets;
@@ -73,11 +74,11 @@ import sun.awt.CGraphicsDevice;
 import sun.java2d.SunGraphicsEnvironment;
 import sun.java2d.SurfaceData;
 import sun.lwawt.LWKeyboardFocusManagerPeer;
-import sun.lwawt.LWComponentPeer;
 import sun.lwawt.LWLightweightFramePeer;
 import sun.lwawt.LWToolkit;
 import sun.lwawt.LWWindowPeer;
 import sun.lwawt.LWWindowPeer.PeerType;
+import sun.lwawt.LWWindowPeerAPI;
 import sun.lwawt.PlatformWindow;
 import sun.util.logging.PlatformLogger;
 
@@ -355,8 +356,8 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
      * related resources).
      */
     @Override // PlatformWindow
-    public void initialize(Window _target, LWWindowPeer _peer, PlatformWindow _owner) {
-        initializeBase(_target, _peer, _owner);
+    public void initialize(Window _target, LWWindowPeerAPI _peer, PlatformWindow _owner) {
+        initializeBase(_target, (LWWindowPeer) _peer, _owner);
 
         final int styleBits = getInitialStyleBits();
 
@@ -369,7 +370,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
             // so we need to set a stub location to force an initial move/resize. Real bounds would be set later.
             bounds = new Rectangle(0, 0, 1, 1);
         } else {
-            bounds = _peer.constrainBounds(_target.getBounds());
+            bounds = peer.constrainBounds(_target.getBounds());
         }
         AtomicLong ref = new AtomicLong();
         contentView.execute(viewPtr -> {
@@ -673,6 +674,17 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
         execute(ptr -> nativeSetNSWindowStandardFrame(ptr, x, y, w, h));
     }
 
+    @Override
+    public Rectangle getDefaultMaximizedBounds(GraphicsConfiguration config) {
+        Insets screenInsets = ((CGraphicsDevice) config.getDevice()).getScreenInsets();
+        Rectangle gcBounds = config.getBounds();
+        return new Rectangle(
+                gcBounds.x + screenInsets.left,
+                gcBounds.y + screenInsets.top,
+                gcBounds.width - screenInsets.left - screenInsets.right,
+                gcBounds.height - screenInsets.top - screenInsets.bottom);
+    }
+
     private boolean isMaximized() {
         return undecorated ? this.normalBounds != null
                 : isZoomed;
@@ -716,7 +728,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
         return this.visible;
     }
 
-    private static LWWindowPeer getBlockerFor(Window window) {
+    private static LWWindowPeerAPI getBlockerFor(Window window) {
         if (window != null) {
             ComponentPeer peer = AWTAccessor.getComponentAccessor().getPeer(window);
             if (peer instanceof LWWindowPeer) {
@@ -779,13 +791,13 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
         this.visible = visible;
 
         // Actually show or hide the window
-        LWWindowPeer blocker = (peer == null)? null : peer.getBlocker();
+        LWWindowPeerAPI blocker = (peer == null)? null : peer.getBlocker();
         if (!visible) {
             execute(ptr -> AWTThreading.executeWaitToolkit(wait -> nativeHideWindow(ptr, wait)));
         } else if (delayShowing()) {
             if (blocker == null) {
                 Window focusedWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
-                LWWindowPeer focusedWindowBlocker = getBlockerFor(focusedWindow);
+                LWWindowPeerAPI focusedWindowBlocker = getBlockerFor(focusedWindow);
                 if (focusedWindowBlocker == peer) {
                     // try to switch to target space if we're adding a modal dialog
                     // that would block currently focused window
@@ -1488,7 +1500,7 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
     }
 
     private void checkBlockingAndOrder() {
-        LWWindowPeer blocker = (peer == null)? null : peer.getBlocker();
+        LWWindowPeerAPI blocker = (peer == null)? null : peer.getBlocker();
         if (blocker == null) {
             // If it's not blocked, make sure it's above its siblings
             orderAboveSiblings();
@@ -1723,5 +1735,12 @@ public class CPlatformWindow extends CFRetainedResource implements PlatformWindo
                 execute(ptr -> nativeSetRoundedCorners(ptr, (float) values[0], (int) values[1], color.getRGB()));
             }
         }
+    }
+
+    @Override
+    public long getWindowHandle() {
+        final long[] handle = new long[1];
+        execute(ptr -> handle[0] = ptr);
+        return handle[0];
     }
 }

@@ -27,9 +27,17 @@
 #ifndef VKRenderer_h_Included
 #define VKRenderer_h_Included
 
+#include "sun_java2d_pipe_BufferedTextPipe.h"
 #include "VKTypes.h"
 #include "VKPipelines.h"
 #include "VKTexturePool.h"
+
+#define BYTES_PER_GLYPH_IMAGE \
+sun_java2d_pipe_BufferedTextPipe_BYTES_PER_GLYPH_IMAGE
+#define BYTES_PER_GLYPH_POSITION \
+sun_java2d_pipe_BufferedTextPipe_BYTES_PER_GLYPH_POSITION
+#define BYTES_PER_POSITIONED_GLYPH \
+(BYTES_PER_GLYPH_IMAGE + BYTES_PER_GLYPH_POSITION)
 
 #define NO_CLIP ((VkRect2D) {{0, 0}, {0x7FFFFFFFU, 0x7FFFFFFFU}})
 
@@ -140,6 +148,22 @@ void VKRenderer_DrawImage(VKImage* image, VkFormat format,
                           VKPackedSwizzle swizzle, jint filter, VKSamplerWrap wrap,
                           float sx1, float sy1, float sx2, float sy2,
                           float dx1, float dy1, float dx2, float dy2);
+
+void VKRenderer_SetLinearGradientPaint(jboolean linear, jint cycleMethod, jint numStops,
+                                       float p0, float p1, float p3,
+                                       void* fractions, void* pixels);
+
+void VKRenderer_SetRadialGradientPaint(jboolean linear, jint cycleMethod, jint numStops,
+                                       float m00, float m01, float m02,
+                                       float m10, float m11, float m12,
+                                       float focusX,
+                                       void* fractions, void* pixels);
+
+void VKRenderer_DrawGlyphList(jint numGlyphs,
+                              jfloat glyphListOrigX, jfloat glyphListOrigY,
+                              jboolean usePositions,
+                              unsigned char* images,
+                              unsigned char* positions);
 
 VKRenderingContext* VKRenderer_GetContext();
 VKTexturePool* VKRenderer_GetTexturePool(VKRenderer* );

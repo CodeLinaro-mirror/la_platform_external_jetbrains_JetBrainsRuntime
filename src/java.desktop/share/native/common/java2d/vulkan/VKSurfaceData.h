@@ -48,7 +48,6 @@ struct VKSDOps {
     VKImage*       image;
     VKImage*       stencil;
 
-    Color          background;
     VkExtent2D     requestedExtent;
     VKDevice*      requestedDevice;
 
@@ -78,7 +77,7 @@ struct VKWinSDOps {
  * This is intended to be called via JNI and provided with a valid VKSurfaceData object handle.
  * Use SurfaceData_DisposeOps to destroy the surface.
  */
-JNIEXPORT VKSDOps* VKSD_CreateSurface(JNIEnv* env, jobject vksd, jint drawableType, jint format, jint backgroundRGB,
+JNIEXPORT VKSDOps* VKSD_CreateSurface(JNIEnv* env, jobject vksd, jint drawableType, jint format,
                                       VKWinSD_SurfaceResizeCallback resizeCallback);
 
 /**
@@ -87,7 +86,7 @@ JNIEXPORT VKSDOps* VKSD_CreateSurface(JNIEnv* env, jobject vksd, jint drawableTy
  */
 JNIEXPORT void VKSD_InitWindowSurface(JNIEnv *env, jobject vksd, VKWinSD_SurfaceInitCallback initCallback, void* data);
 
-inline VkBool32 VKSD_IsOpaque(VKSDOps* vksdo) {
+static inline VkBool32 VKSD_IsOpaque(VKSDOps* vksdo) {
     return vksdo->drawableFormat & VKSD_FORMAT_OPAQUE_BIT ? VK_TRUE : VK_FALSE;
 }
 

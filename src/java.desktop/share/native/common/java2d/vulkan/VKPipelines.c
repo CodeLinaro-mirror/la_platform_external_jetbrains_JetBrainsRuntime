@@ -34,7 +34,7 @@
 #undef SHADER_ENTRY
 #undef BYTECODE_END
 
-inline void hash(uint32_t* result, int i) { // Good for hashing enums.
+static void hash(uint32_t* result, int i) { // Good for hashing enums.
     uint32_t x = (uint32_t) i;
     x = ((x >> 16U) ^ x) * 0x45d9f3bU;
     x = ((x >> 16U) ^ x) * 0x45d9f3bU;
@@ -276,6 +276,26 @@ static VKPipelineInfo VKPipelines_CreatePipelines(VKRenderPassContext* renderPas
             createInfos[i].pVertexInputState = &INPUT_STATE_MASK_FILL;
             createInfos[i].layout = pipelineContext->maskFillPipelineLayout;
             stages[i] = (ShaderStages) {{ shaders->mask_fill_vert, shaders->gradient_frag }};
+            break;
+        case SHADER_GRADIENT_LINEAR_PUSH:
+            createInfos[i].pVertexInputState = &INPUT_STATE_PRIMITIVE;
+            createInfos[i].layout = pipelineContext->maskFillPipelineLayout;
+            stages[i] = (ShaderStages) {{ shaders->primitive_vert, shaders->gradient_linear_push_frag }};
+            break;
+        case SHADER_GRADIENT_LINEAR_PUSH | SHADER_MASK:
+            createInfos[i].pVertexInputState = &INPUT_STATE_MASK_FILL;
+            createInfos[i].layout = pipelineContext->maskFillPipelineLayout;
+            stages[i] = (ShaderStages) {{ shaders->mask_fill_vert, shaders->gradient_linear_push_frag }};
+            break;
+        case SHADER_GRADIENT_RADIAL_PUSH:
+            createInfos[i].pVertexInputState = &INPUT_STATE_PRIMITIVE;
+            createInfos[i].layout = pipelineContext->maskFillPipelineLayout;
+            stages[i] = (ShaderStages) {{ shaders->primitive_vert, shaders->gradient_radial_push_frag }};
+            break;
+        case SHADER_GRADIENT_RADIAL_PUSH | SHADER_MASK:
+            createInfos[i].pVertexInputState = &INPUT_STATE_MASK_FILL;
+            createInfos[i].layout = pipelineContext->maskFillPipelineLayout;
+            stages[i] = (ShaderStages) {{ shaders->mask_fill_vert, shaders->gradient_radial_push_frag }};
             break;
         case SHADER_BLIT:
             createInfos[i].pVertexInputState = &INPUT_STATE_BLIT;
@@ -525,8 +545,8 @@ void VKPipelines_DestroyContext(VKPipelineContext* pipelineContext) {
     VKDevice* device = pipelineContext->device;
     assert(device != NULL);
 
-    for (uint32_t i = 0; i < ARRAY_SIZE(pipelineContext->renderPassContexts); i++) {
-        VKPipelines_DestroyRenderPassContext(pipelineContext->renderPassContexts[i]);
+    for (uint32_t i = 0; i < pipelineContext->renderPassContexts.size; i++) {
+        VKPipelines_DestroyRenderPassContext(pipelineContext->renderPassContexts.data[i]);
     }
     ARRAY_FREE(pipelineContext->renderPassContexts);
 
@@ -546,9 +566,9 @@ void VKPipelines_DestroyContext(VKPipelineContext* pipelineContext) {
 
 VKRenderPassContext* VKPipelines_GetRenderPassContext(VKPipelineContext* pipelineContext, VkFormat format) {
     assert(pipelineContext != NULL && pipelineContext->device != NULL);
-    for (uint32_t i = 0; i < ARRAY_SIZE(pipelineContext->renderPassContexts); i++) {
-        if (pipelineContext->renderPassContexts[i]->format == format) {
-            return pipelineContext->renderPassContexts[i];
+    for (uint32_t i = 0; i < pipelineContext->renderPassContexts.size; i++) {
+        if (pipelineContext->renderPassContexts.data[i]->format == format) {
+            return pipelineContext->renderPassContexts.data[i];
         }
     }
     // Not found, create.

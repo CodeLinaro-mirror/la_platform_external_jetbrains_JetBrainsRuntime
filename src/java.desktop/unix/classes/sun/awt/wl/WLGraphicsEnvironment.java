@@ -53,10 +53,10 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment implements HiD
     private static final PlatformLogger log = PlatformLogger.getLogger("sun.awt.wl.WLGraphicsEnvironment");
 
     private static final boolean debugScaleEnabled;
-    private static final boolean correctLogicalSize = Boolean.getBoolean("sun.awt.wl.correctLogicalSize");
     private final Dimension totalDisplayBounds = new Dimension();
 
     private final List<WLGraphicsDevice> devices = new ArrayList<>(5);
+    private WLGraphicsDevice lastDeviceStanding = null; // guarded by devices
 
     @SuppressWarnings("restricted")
     private static void loadAwt() {
@@ -87,6 +87,7 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment implements HiD
     @Override
     protected int getNumScreens() {
         synchronized (devices) {
+            if (devices.isEmpty()) return 1;
             return devices.size();
         }
     }
@@ -94,6 +95,7 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment implements HiD
     @Override
     protected GraphicsDevice makeScreenDevice(int screenNum) {
         synchronized (devices) {
+            if (devices.isEmpty()) return lastDeviceStanding;
             return devices.get(screenNum);
         }
     }
@@ -102,7 +104,7 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment implements HiD
     public GraphicsDevice getDefaultScreenDevice() {
         synchronized (devices) {
             if (devices.isEmpty()) {
-                throw new AWTError("no screen devices");
+                return lastDeviceStanding;
             }
             return devices.getFirst();
         }
@@ -111,7 +113,32 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment implements HiD
     @Override
     public synchronized GraphicsDevice[] getScreenDevices() {
         synchronized (devices) {
+            if (devices.isEmpty()) {
+                return new GraphicsDevice[]{lastDeviceStanding};
+            }
             return devices.toArray(new GraphicsDevice[0]);
+        }
+    }
+
+    /**
+     * Returns the index of the given device in the GraphicsEnvironment.getScreenDevices() array.
+     * If the device is not found, returns the index of a similar device
+     * (see {@link #getSimilarDevice(WLGraphicsDevice)}). Returns 0 if all else fails.
+     */
+    public int deviceNumberOf(GraphicsDevice device) {
+        synchronized (devices) {
+            int i = 0;
+            for (var d: devices) {
+                if (d == device) return i;
+                i++;
+            }
+            i = 0;
+            var similarDevice = getSimilarDevice((WLGraphicsDevice) device);
+            for (var d: devices) {
+                if (d == similarDevice) return i;
+                i++;
+            }
+            return 0;
         }
     }
 
@@ -133,11 +160,15 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment implements HiD
                     wlID, x, y, width, height, widthLogical, heightLogical, scale));
         }
 
+        Dimension transformed = applyTransform(transform, new Dimension(width, height));
+        width = transformed.width;
+        height = transformed.height;
+
         // Logical size comes from an optional protocol, so take the data from the main one, if absent
         if (widthLogical <= 0) widthLogical = width;
         if (heightLogical <= 0) heightLogical = height;
 
-        if (correctLogicalSize && widthLogical == width && heightLogical == height && scale > 1) {
+        if (widthLogical == width && heightLogical == height && scale > 1) {
             // With fractional scale OFF, logical and physical sizes are reported as equal.
             // "Convert" the logical size to logical units to maintain Java promise of
             // always abstracting out the physical size.
@@ -166,6 +197,7 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment implements HiD
                     widthMm, heightMm, scale);
             synchronized (devices) {
                 devices.add(newGD);
+                lastDeviceStanding = null; // no longer needed/relevant
             }
         }
 
@@ -181,6 +213,20 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment implements HiD
         if (WLToolkit.isInitialized()) {
             displayChanged();
         }
+    }
+
+    private static Dimension applyTransform(int transform, Dimension size) {
+        return switch (transform) {
+            case WL_OUTPUT_TRANSFORM_NORMAL,
+                 WL_OUTPUT_TRANSFORM_FLIPPED,
+                 WL_OUTPUT_TRANSFORM_180,
+                 WL_OUTPUT_TRANSFORM_FLIPPED_180 -> size;
+            case WL_OUTPUT_TRANSFORM_90,
+                 WL_OUTPUT_TRANSFORM_FLIPPED_90,
+                 WL_OUTPUT_TRANSFORM_270,
+                 WL_OUTPUT_TRANSFORM_FLIPPED_270 -> new Dimension(size.height, size.width);
+            default -> size;
+        };
     }
 
     private static String deviceNameFrom(String name, String make, String model) {
@@ -221,6 +267,9 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment implements HiD
             }
             synchronized (devices) {
                 devices.remove(gd);
+                if (devices.isEmpty()) {
+                    lastDeviceStanding = gd;
+                }
             }
             final WLGraphicsDevice similarDevice = getSimilarDevice(gd);
             if (similarDevice != null) gd.invalidate(similarDevice);

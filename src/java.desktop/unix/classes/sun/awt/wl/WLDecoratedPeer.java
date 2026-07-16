@@ -58,7 +58,7 @@ public abstract class WLDecoratedPeer extends WLWindowPeer {
     }
 
     public WLDecoratedPeer(Window target, boolean isUndecorated, boolean showMinimize, boolean showMaximize) {
-        super(target, decorationType != DecorationTypePreference.SERVER);
+        super(target, isUndecorated || decorationType != DecorationTypePreference.SERVER);
         this.isUndecorated = isUndecorated;
         this.showMinimize = showMinimize;
         this.showMaximize = showMaximize;
@@ -150,9 +150,8 @@ public abstract class WLDecoratedPeer extends WLWindowPeer {
     }
 
     @Override
-    void postMouseEvent(MouseEvent e) {
-        boolean processed = getDecoration().processMouseEvent(e);
-        if (!processed) {
+    public void postMouseEvent(MouseEvent e) {
+        if (!getDecoration().processMouseEvent(e)) {
             super.postMouseEvent(e);
         }
     }

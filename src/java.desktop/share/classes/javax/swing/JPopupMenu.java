@@ -119,8 +119,7 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
         new StringBuffer("JPopupMenu.defaultLWPopupEnabledKey");
 
     /** Bug#4425878-Property javax.swing.adjustPopupLocationToFit introduced */
-    static boolean popupPositionFixDisabled =
-         System.getProperty("javax.swing.adjustPopupLocationToFit","").equals("false");
+    static boolean popupPositionFixDisabled;
 
     transient  Component invoker;
     transient  Popup popup;
@@ -152,9 +151,12 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
     private static final boolean DEBUG =   false;  // show bad params, misc.
 
     static {
+        popupPositionFixDisabled =
+                System.getProperty("javax.swing.adjustPopupLocationToFit","").equals("false");
         Toolkit toolkit = Toolkit.getDefaultToolkit();
         if (toolkit != null && "sun.awt.wl.WLToolkit".equals(toolkit.getClass().getName())) {
             JPopupMenu.setDefaultLightWeightPopupEnabled(false);
+            popupPositionFixDisabled = true;
         }
     }
 
@@ -346,9 +348,7 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
     Point adjustPopupLocationToFitScreen(int xPosition, int yPosition) {
         Point popupLocation = new Point(xPosition, yPosition);
 
-        if(popupPositionFixDisabled
-                || GraphicsEnvironment.isHeadless()
-                || PopupFactory.isPopupPositionedRelatively()) {
+        if(popupPositionFixDisabled || GraphicsEnvironment.isHeadless()) {
             return popupLocation;
         }
 
@@ -984,7 +984,7 @@ public class JPopupMenu extends JComponent implements Accessible,MenuElement {
             }
         }
         Point invokerOrigin;
-        if (invoker != null && !PopupFactory.isPopupPositionedRelatively()) {
+        if (invoker != null) {
             invokerOrigin = invoker.getLocationOnScreen();
 
             // To avoid integer overflow

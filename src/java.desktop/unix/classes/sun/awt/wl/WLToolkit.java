@@ -38,14 +38,23 @@ import sun.awt.datatransfer.DataTransferer;
 import sun.awt.wl.im.WLInputMethodMetaDescriptor;
 import sun.java2d.vulkan.VKEnv;
 import sun.java2d.vulkan.VKRenderQueue;
+import sun.lwawt.LWComponentPeerAPI;
+import sun.lwawt.LWDummyPlatformComponent;
+import sun.lwawt.LWToolkit;
+import sun.lwawt.LWWindowPeerAPI;
+import sun.lwawt.PlatformDropTarget;
+import sun.lwawt.PlatformWindow;
+import sun.lwawt.ToolkitAPI;
 import sun.util.logging.PlatformLogger;
 
+import javax.swing.SwingUtilities;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.dnd.DragGestureEvent;
 import java.awt.dnd.DragGestureListener;
 import java.awt.dnd.DragGestureRecognizer;
 import java.awt.dnd.DragSource;
+import java.awt.dnd.DropTarget;
 import java.awt.dnd.InvalidDnDOperationException;
 import java.awt.dnd.peer.DragSourceContextPeer;
 import java.awt.event.KeyEvent;
@@ -103,7 +112,7 @@ import java.util.concurrent.Semaphore;
  * "AWT-EventThread" by means of SunToolkit.postEvent(). See the implementation
  * of run() method for more comments.
  */
-public class WLToolkit extends UNIXToolkit implements Runnable {
+public class WLToolkit extends UNIXToolkit implements Runnable, ToolkitAPI {
     private static final PlatformLogger log = PlatformLogger.getLogger("sun.awt.wl.WLToolkit");
     private static final PlatformLogger logKeys = PlatformLogger.getLogger("sun.awt.wl.WLToolkit.keys");
 
@@ -134,10 +143,12 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
 
     private static final int MOUSE_BUTTONS_COUNT = 7;
     private static final int AWT_MULTICLICK_DEFAULT_TIME_MS = 500;
+    private static final int AWT_MULTICLICK_MOUSE_MOVE_THRESHOLD_JAVA_UNITS = 5;
 
     private static boolean initialized = false;
     private static Thread toolkitThread;
-    private final WLDataDevice dataDevice;
+    private static WLDataDevice dataDevice;
+    private static WLDragSourceContextPeer dragSourceContextPeer;
 
     private static Boolean sunAwtDisableGtkFileDialogs = null;
 
@@ -177,15 +188,13 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
             toolkitThread.setDaemon(true);
             toolkitThread.start();
 
-            final Thread toolkitSystemThread = InnocuousThread.newThread("AWT-Wayland-system-dispatcher", this::dispatchNonDefaultQueues);
-            toolkitSystemThread.setDaemon(true);
-            toolkitSystemThread.start();
-
             dataDevice = new WLDataDevice(0); // TODO: for multiseat support pass wl_seat pointer here
+            dragSourceContextPeer = new WLDragSourceContextPeer(dataDevice);
 
             registerShutdownHook();
         } else {
             dataDevice = null;
+            dragSourceContextPeer = null;
         }
     }
 
@@ -205,6 +214,16 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
         Thread shutdownThread = InnocuousThread.newSystemThread("WLToolkit-Shutdown-Thread", r);
         shutdownThread.setDaemon(true);
         Runtime.getRuntime().addShutdownHook(shutdownThread);
+    }
+
+    // called from native
+    private static void handleProtocolError(String interfaceName, int code, long objectId) {
+        throw new AWTError("Wayland protocol error, interface = " + interfaceName + ", error code = " + code + ", object ID = " + objectId);
+    }
+
+    // called from native
+    private static void handleExceptionFromEventHandler(Throwable exc) {
+        log.severe("Unexpected exception in Wayland event handler on thread " + Thread.currentThread().getName() + ": " + exc.getMessage(), exc);
     }
 
     public static synchronized boolean getSunAwtDisableGtkFileDialogs() {
@@ -240,9 +259,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
 
     @Override
     public ButtonPeer createButton(Button target) {
-        ButtonPeer peer = new WLButtonPeer(target);
-        targetCreatedPeer(target, peer);
-        return peer;
+        return LWToolkit.createButton(target, LWDummyPlatformComponent.getInstance());
     }
 
     @Override
@@ -289,15 +306,6 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
             );
         }
         return result;
-    }
-
-
-    /**
-     * Wayland events coming to queues other that the default are handled here.
-     * The code is executed on a separate thread and must not call any user code.
-     */
-    private void dispatchNonDefaultQueues() {
-        dispatchNonDefaultQueuesImpl(); // does not return until error or server disconnect
     }
 
     private final Semaphore eventsQueued = new Semaphore(0);
@@ -348,6 +356,10 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
         });
     }
 
+    static WLDataDevice getDataDevice() {
+        return dataDevice;
+    }
+
     /**
      * If more than this amount milliseconds has passed since the same mouse button click,
      * the next click is considered separate and not part of multi-click event.
@@ -356,6 +368,10 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
     static int getMulticlickTime() {
         /* TODO: get from the system somehow */
         return AWT_MULTICLICK_DEFAULT_TIME_MS;
+    }
+
+    static int getMulticlickMouseMoveThresholdJavaUnits() {
+        return AWT_MULTICLICK_MOUSE_MOVE_THRESHOLD_JAVA_UNITS;
     }
 
     private static WLInputState inputState = WLInputState.initialState();
@@ -373,7 +389,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
 
         final WLInputState oldInputState = inputState;
         final WLInputState newInputState = oldInputState.updatedFromPointerEvent(e);
-        inputState = newInputState;
+        setInputState(newInputState);
         if (e.hasLeaveEvent() || e.hasEnterEvent()) {
             // We've lost the control over the cursor, assume no knowledge about it
             getCursorManager().reset();
@@ -384,7 +400,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
             // the surface has recently disappeared, in which case
             // e.getSurface() is likely 0.
         } else {
-            peer.dispatchPointerEventInContext(e, oldInputState, newInputState);
+            peer.dispatchPointerEventInContext(e, newInputState);
         }
     }
 
@@ -401,7 +417,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
 
         final long timestamp = System.currentTimeMillis();
 
-        inputState = inputState.updatedFromKeyEvent(serial);
+        setInputState(inputState.updatedFromKeyEvent(serial));
 
         final long surfacePtr = inputState.surfaceForKeyboardInput();
         final WLComponentPeer peer = peerFromSurface(surfacePtr);
@@ -457,7 +473,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
 
     private static void dispatchKeyboardModifiersEvent(long serial) {
         assert EventQueue.isDispatchThread() : "Method must only be invoked on EDT";
-        inputState = inputState.updatedFromKeyboardModifiersEvent(serial, keyboard.getModifiers());
+        setInputState(inputState.updatedFromKeyboardModifiersEvent(serial, keyboard.getModifiers()));
         WLDropTargetContextPeer.getInstance().handleModifiersUpdate();
     }
 
@@ -473,16 +489,16 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
         final WLWindowPeer peer = peerFromSurface(surfacePtr);
         final WLInputState newInputState = inputState.updatedFromKeyboardEnterEvent(serial, surfacePtr);
         if (peer != null) {
-            Dialog blocker = peer.getBlocker();
+            Dialog blocker = peer.getBlockerDialog();
             if (blocker != null) { // Modality support
-                long activationSerial = serial;
+                WLInputSerial activationSerial = new WLInputSerial(serial);
                 if (WLToolkit.isKDE()) {
-                    activationSerial = inputState.latestInputSerial();
+                    activationSerial = inputState.latestInputSerial().freshOrElse(activationSerial);
                 }
                 WLWindowPeer blockerPeer = AWTAccessor.getComponentAccessor().getPeer(blocker);
-                blockerPeer.reactivate(activationSerial, surfacePtr);
+                blockerPeer.reactivate(activationSerial.serial(), surfacePtr);
             } else {
-                Window window = (Window) peer.getTarget();
+                Window window = peer.getTarget();
                 Window winToFocus = window;
 
                 Component s = peer.getSyntheticFocusOwner();
@@ -492,12 +508,13 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
                     }
                 }
 
+                Window ow = WLKeyboardFocusManagerPeer.getInstance().getCurrentFocusedWindow();
                 WLKeyboardFocusManagerPeer.getInstance().setCurrentFocusedWindow(window);
-                WindowEvent windowEnterEvent = new WindowEvent(winToFocus, WindowEvent.WINDOW_GAINED_FOCUS);
+                WindowEvent windowEnterEvent = new WindowEvent(winToFocus, WindowEvent.WINDOW_GAINED_FOCUS, ow);
                 postPriorityEvent(windowEnterEvent);
             }
         }
-        inputState = newInputState;
+        setInputState(newInputState);
     }
 
     private static void dispatchKeyboardLeaveEvent(long serial, long surfacePtr) {
@@ -520,7 +537,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
             final WindowEvent winLostFocusEvent = new WindowEvent(window, WindowEvent.WINDOW_LOST_FOCUS);
             postPriorityEvent(winLostFocusEvent);
         }
-        inputState = newInputState;
+        setInputState(newInputState);
     }
 
     /**
@@ -542,7 +559,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
             wlSurfaceToPeerMap.remove(wlSurfacePtr);
         }
 
-        inputState = inputState.updatedFromUnregisteredSurface(wlSurfacePtr);
+        setInputState(inputState.updatedFromUnregisteredSurface(wlSurfacePtr));
     }
 
     static WLWindowPeer peerFromSurface(long wlSurfacePtr) {
@@ -589,6 +606,11 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
     }
 
     @Override
+    public boolean isRunningOnWayland() {
+        return true;
+    }
+
+    @Override
     protected boolean isDynamicLayoutSet() {
         if (log.isLoggable(PlatformLogger.Level.FINE)) {
             log.fine("Not implemented: WLToolkit.isDynamicLayoutSet()");
@@ -618,7 +640,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
 
     @Override
     public DragSourceContextPeer createDragSourceContextPeer(DragGestureEvent dge) throws InvalidDnDOperationException {
-        return new WLDragSourceContextPeer(dge, dataDevice);
+        return dragSourceContextPeer.createDragSourceContextPeer(dge);
     }
 
     @Override
@@ -660,81 +682,52 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
 
     @Override
     public TextFieldPeer createTextField(TextField target) {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.createTextField()");
-        }
-        return null;
+        return LWToolkit.createTextField(target, LWDummyPlatformComponent.getInstance());
     }
 
     @Override
     public LabelPeer createLabel(Label target) {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.createLabel()");
-        }
-        return null;
+        return LWToolkit.createLabel(target, LWDummyPlatformComponent.getInstance());
     }
 
     @Override
     public ListPeer createList(java.awt.List target) {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.createList()");
-        }
-        return null;
+        return LWToolkit.createList(target, LWDummyPlatformComponent.getInstance());
     }
 
     @Override
     public CheckboxPeer createCheckbox(Checkbox target) {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.createCheckbox()");
-        }
-        return null;
+        return LWToolkit.createCheckbox(target, LWDummyPlatformComponent.getInstance());
     }
 
     @Override
     public ScrollbarPeer createScrollbar(Scrollbar target) {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.createScrollbar()");
-        }
-        return null;
+        return LWToolkit.createScrollbar(target, LWDummyPlatformComponent.getInstance());
     }
 
     @Override
     public ScrollPanePeer createScrollPane(ScrollPane target) {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.createScrollPane()");
-        }
-        return null;
+        return LWToolkit.createScrollPane(target, LWDummyPlatformComponent.getInstance());
     }
 
     @Override
     public TextAreaPeer createTextArea(TextArea target) {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.createTextArea()");
-        }
-        return null;
+        return LWToolkit.createTextArea(target, LWDummyPlatformComponent.getInstance());
     }
 
     @Override
     public ChoicePeer createChoice(Choice target) {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.createChoice()");
-        }
-        return null;
+        return LWToolkit.createChoice(target, LWDummyPlatformComponent.getInstance());
     }
 
     @Override
     public CanvasPeer createCanvas(Canvas target) {
-        WLCanvasPeer peer = new WLCanvasPeer(target);
-        targetCreatedPeer(target, peer);
-        return peer;
+        return LWToolkit.createCanvas(target, LWDummyPlatformComponent.getInstance());
     }
 
     @Override
     public PanelPeer createPanel(Panel target) {
-        if (log.isLoggable(PlatformLogger.Level.FINE)) {
-            log.fine("Not implemented: WLToolkit.createPanel()");
-        }
-        return null;
+        return LWToolkit.createPanel(target, LWDummyPlatformComponent.getInstance());
     }
 
     @Override
@@ -1163,7 +1156,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
     private native void flushImpl();
     private native void dispatchNonDefaultQueuesImpl();
 
-    protected static void targetDisposedPeer(Object target, Object peer) {
+    public static void targetDisposedPeer(Object target, Object peer) {
         SunToolkit.targetDisposedPeer(target, peer);
         if (target instanceof Window window) {
             // TODO: focusedWindow and activeWindow of class java.awt.KeyboardFocusManager
@@ -1178,7 +1171,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
         }
     }
 
-    static void postEvent(AWTEvent event) {
+    public static void postEvent(AWTEvent event) {
         SunToolkit.postEvent(AppContext.getAppContext(), event);
     }
 
@@ -1191,9 +1184,19 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
         return inputState;
     }
 
+    private static void setInputState(WLInputState newInputState) {
+        WLInputState oldInputState = inputState;
+        inputState = newInputState;
+
+        boolean hasNewSerial = oldInputState.latestInputSerial() != newInputState.latestInputSerial();
+        if (dataDevice != null && hasNewSerial) {
+            dataDevice.onNewSerialAvailable();
+        }
+    }
+
     // this emulates pointer leave event, which isn't sent sometimes by compositor
     static void resetPointerInputState() {
-        inputState = inputState.resetPointerState();
+        setInputState(inputState.resetPointerState());
     }
 
     static boolean isInitialized() {
@@ -1211,5 +1214,66 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
     // called from native
     private static void handleToplevelIconSize(int size) {
         preferredIconSizes.add(size);
+    }
+
+
+    public static WLToolkit getWLToolkit() {
+        return (WLToolkit)Toolkit.getDefaultToolkit();
+    }
+
+    @Override
+    public Object peerForTarget(Object target) {
+        return SunToolkit.targetToPeer(target);
+    }
+
+    @Override
+    public void peerDisposedForTarget(Object target, Object peer) {
+        targetDisposedPeer(target, peer);
+    }
+
+    @Override
+    public void postAWTEvent(AWTEvent event) {
+        postEvent(event);
+    }
+
+    @Override
+    public void flushOnscreenGraphics(Component context) {
+        if (context == null) {
+            return;
+        }
+        Window window = context instanceof Window w ? w : SwingUtilities.getWindowAncestor(context);
+        if (window == null) {
+            return;
+        }
+        AWTAccessor.getWindowAccessor().updateWindow(window);
+    }
+
+    @Override
+    public void updateCursorImmediately(LWComponentPeerAPI peer) {
+        WLWindowPeer windowPeer = (WLWindowPeer)peer.getWindowPeerOrSelf();
+        WLToolkit.getCursorManager().updateCursorImmediatelyFor(windowPeer);
+    }
+
+    @Override
+    public void updateCursorLater(Window target) {
+        assert EventQueue.isDispatchThread() : "Current implementation assumes this method is invoked on EDT";
+        WLWindowPeer peer = AWTAccessor.getComponentAccessor().getPeer(target);
+        WLToolkit.getCursorManager().updateCursorImmediatelyFor(peer);
+    }
+
+    @Override
+    public PlatformWindow getPlatformWindowUnderMouse() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public LWWindowPeerAPI getWindowPeerUnderMouse() {
+        WLComponentPeer peerUnderMouse = WLMouseInfoPeer.getInstance().getPeerUnderMouse();
+        return peerUnderMouse instanceof WLWindowPeer windowPeer ? windowPeer : null;
+    }
+
+    @Override
+    public PlatformDropTarget createDropTarget(DropTarget dropTarget, Component component, LWComponentPeerAPI peer) {
+        return () -> {};
     }
 }

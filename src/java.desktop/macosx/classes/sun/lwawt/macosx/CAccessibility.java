@@ -31,13 +31,13 @@ import java.awt.Dimension;
 import java.awt.IllegalComponentStateException;
 import java.awt.KeyboardFocusManager;
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.Window;
 import java.awt.event.KeyEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.lang.annotation.Native;
 import java.lang.reflect.InvocationTargetException;
-import java.security.PrivilegedAction;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -45,8 +45,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.Arrays;
-import java.util.function.Function;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.accessibility.Accessible;
 import javax.accessibility.AccessibleAction;
@@ -72,6 +70,7 @@ import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTree;
 import javax.swing.KeyStroke;
+import javax.swing.tree.TreePath;
 
 import sun.awt.AWTAccessor;
 import sun.lwawt.LWWindowPeer;
@@ -768,6 +767,46 @@ class CAccessibility implements PropertyChangeListener {
         return invokeAndWait(new Callable<Object[]>() {
             public Object[] call() throws Exception {
                 ArrayList<Object> allChildren = new ArrayList<Object>();
+                Accessible at;
+                if (a instanceof CAccessible) {
+                    at = CAccessible.getSwingAccessible(a);
+                } else {
+                    at = a;
+                }
+
+                if (at instanceof JTree tree && tree.getAccessibleContext() instanceof AccessibleComponent aComp) {
+                    TreePath[] paths = null;
+                    if (whichChildren == JAVA_AX_ALL_CHILDREN || whichChildren == JAVA_AX_VISIBLE_CHILDREN) {
+                        int count = tree.getRowCount();
+                        paths = new TreePath[count];
+                        for (int i = 0; i < count; i++) {
+                            paths[i] = tree.getPathForRow(i);
+                        }
+                    } else if (whichChildren == JAVA_AX_SELECTED_CHILDREN) {
+                        paths = tree.getSelectionPaths();
+                    }
+                    if (paths != null) {
+                        for (TreePath path : paths) {
+                            Rectangle bounds = tree.getPathBounds(path);
+                            if (bounds == null) continue;
+
+                            Accessible node = aComp.getAccessibleAt(new Point(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
+                            if (node == null) continue;
+
+                            AccessibleContext ac = node.getAccessibleContext();
+                            if (ac == null) continue;
+
+                            if (whichChildren == JAVA_AX_VISIBLE_CHILDREN && !ac.getAccessibleStateSet().contains(AccessibleState.VISIBLE))
+                                continue;
+
+                            allChildren.add(node);
+                            allChildren.add(ac.getAccessibleRole());
+                            allChildren.add(String.valueOf(tree.isRootVisible() ? path.getPathCount() - 1 : path.getPathCount() - 2));
+                        }
+                        return allChildren.toArray();
+                    }
+                }
+
                 ArrayList<Object> currentLevelChildren = new ArrayList<Object>();
                 ArrayList<Accessible> parentStack = new ArrayList<Accessible>();
                 HashMap<Accessible, List<Object>> childrenOfParent = new HashMap<>();
@@ -808,9 +847,9 @@ class CAccessibility implements PropertyChangeListener {
                         continue;
                     }
 
-                    if ((cac.getAccessibleStateSet().contains(AccessibleState.SELECTED) && (whichChildren == JAVA_AX_SELECTED_CHILDREN)) ||
-                            (cac.getAccessibleStateSet().contains(AccessibleState.VISIBLE) && (whichChildren == JAVA_AX_VISIBLE_CHILDREN)) ||
-                            (whichChildren == JAVA_AX_ALL_CHILDREN)) {
+                    if ((whichChildren == JAVA_AX_SELECTED_CHILDREN && cac.getAccessibleStateSet().contains(AccessibleState.SELECTED)) ||
+                            (whichChildren == JAVA_AX_VISIBLE_CHILDREN && cac.getAccessibleStateSet().contains(AccessibleState.VISIBLE)) ||
+                            whichChildren == JAVA_AX_ALL_CHILDREN) {
                         allChildren.add(ca);
                         allChildren.add(role);
                         allChildren.add(String.valueOf(currentLevel));

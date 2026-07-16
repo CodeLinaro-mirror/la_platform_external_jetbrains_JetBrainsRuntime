@@ -66,7 +66,13 @@ ifeq ($(DBUS_FOUND), false)
 endif
 
 ifeq ($(call isTargetOs, linux macosx aix), true)
-  LIBAWT_EXCLUDE_FILES += awt_Font.c CUPSfuncs.c fontpath.c X11Color.c
+  LIBAWT_EXCLUDE_FILES += \
+  	awt_Font.c \
+  	CUPSfuncs.c \
+  	fontpath.c \
+  	X11Color.c \
+    screencast_pipewire.c \
+    screencast_portal.c
 endif
 
 ifeq ($(call isTargetOs, macosx), true)
@@ -142,6 +148,16 @@ ifeq ($(call isTargetOs, windows), true)
   endif
 
   LIBAWT_CFLAGS += $(A11Y_JAWS_ANNOUNCING_CFLAGS)
+endif
+
+# Setup speech-dispatcher a11y announcer for Linux XAWT/WLAWT
+A11Y_SPEECHD_ANNOUNCING_CFLAGS := -DNO_A11Y_SPEECHD_ANNOUNCING
+ifeq ($(call isTargetOs, linux), true)
+  A11Y_SPEECHD_ANNOUNCING_CFLAGS := $(SPEECHD_CFLAGS) -DNO_A11Y_SPEECHD_ANNOUNCING
+
+  ifeq ($(A11Y_SPEECHD_ANNOUNCING_ENABLED), true)
+    A11Y_SPEECHD_ANNOUNCING_CFLAGS := $(SPEECHD_CFLAGS)
+  endif
 endif
 
 # Setup Vulkan
@@ -259,6 +275,11 @@ ifeq ($(call isTargetOs, windows macosx), false)
       $(TOPDIR)/src/$(MODULE)/$(OPENJDK_TARGET_OS_TYPE)/native/common/awt \
       #
 
+  LIBAWT_HEADLESS_EXCLUDE_FILES := \
+      screencast_pipewire.c \
+      screencast_portal.c \
+      #
+
   LIBAWT_HEADLESS_EXTRA_HEADER_DIRS := \
       $(LIBAWT_DEFAULT_HEADER_DIRS) \
       common/awt/debug \
@@ -284,6 +305,7 @@ ifeq ($(call isTargetOs, windows macosx), false)
       NAME := awt_headless, \
       EXTRA_SRC := $(LIBAWT_HEADLESS_EXTRA_SRC), \
       EXCLUDES := medialib wl $(VULKAN_EXCLUDES), \
+      EXCLUDE_FILES := $(LIBAWT_HEADLESS_EXCLUDE_FILES), \
       ONLY_EXPORTED := $(LIBAWT_HEADLESS_ONLY_EXPORTED), \
       OPTIMIZATION := LOW, \
       CFLAGS := -DHEADLESS=true $(CUPS_CFLAGS) $(FONTCONFIG_CFLAGS) \
@@ -313,27 +335,17 @@ ifeq ($(call isTargetOs, windows macosx)+$(ENABLE_HEADLESS_ONLY), false+false)
       common/awt \
       common/java2d \
       common/font \
+      common/accessibility/AccessibleAnnouncer \
       #
 
-  ifeq ($(A11Y_SPEECHD_ANNOUNCING_ENABLED), true)
-      A11Y_SPEECHD_ANNOUNCING_CFLAGS :=
-  else
-      A11Y_SPEECHD_ANNOUNCING_CFLAGS := -DNO_A11Y_SPEECHD_ANNOUNCING
-  endif
-
-  ifeq ($(call isTargetOs, linux), true)
-      LIBAWT_XAWT_EXTRA_SRC += \
-          $(TOPDIR)/src/$(MODULE)/linux/native/libawt_xawt \
-          #
-  endif
-
-  LIBAWT_XAWT_CFLAGS += $(SPEECHD_CFLAGS) $(A11Y_SPEECHD_ANNOUNCING_CFLAGS)
+  LIBAWT_XAWT_CFLAGS += $(A11Y_SPEECHD_ANNOUNCING_CFLAGS)
 
   LIBAWT_XAWT_EXTRA_HEADER_DIRS := \
       $(LIBAWT_DEFAULT_HEADER_DIRS) \
       libawt_xawt/awt \
       include \
       common/awt/debug \
+      common/awt/screencast \
       common/awt/systemscale \
       common/font \
       common/java2d/opengl \
@@ -425,6 +437,7 @@ ifeq ($(call isTargetOs, windows macosx), false)
         common/font \
         common/wayland \
         $(SUPPORT_OUTPUTDIR)/gensrc/java.desktop/wayland \
+        common/accessibility/AccessibleAnnouncer \
         #
 
     LIBAWT_WLAWT_EXCLUDES := medialib debug opengl x11 $(VULKAN_EXCLUDES)
@@ -432,10 +445,11 @@ ifeq ($(call isTargetOs, windows macosx), false)
 
     LIBAWT_WLAWT_EXTRA_HEADER_DIRS := \
         $(LIBAWT_DEFAULT_HEADER_DIRS) \
-        libawt_wlawt/awt \
+        libawt_wlawt \
         $(SUPPORT_OUTPUTDIR)/gensrc/java.desktop/wayland \
         include \
         common/awt/debug \
+        common/awt/screencast \
         common/awt/systemscale \
         common/font \
         common/java2d \
@@ -447,15 +461,18 @@ ifeq ($(call isTargetOs, windows macosx), false)
         libvmahpp \
         #
 
-    # Enable 'wakefield' extension for java.awt.Robot support
-    WAKEFIELD_ROBOT_CFLAGS=-DWAKEFIELD_ROBOT
+    # exclude pipewire from the AIX build, no Wayland support
+    ifeq ($(call isTargetOs, aix), false)
+      LIBAWT_WLAWT_EXTRA_HEADER_DIRS += libpipewire/include
+    endif
 
     LIBAWT_WLAWT_CFLAGS += -DWLAWT \
-        $(WAKEFIELD_ROBOT_CFLAGS) \
         $(FONTCONFIG_CFLAGS) \
         $(VULKAN_FLAGS) \
         $(WAYLAND_CFLAGS) \
-        $(CUPS_CFLAGS)
+        $(CUPS_CFLAGS) \
+        $(DBUS_CFLAGS) \
+        $(A11Y_SPEECHD_ANNOUNCING_CFLAGS)
 
     ifeq ($(TOOLCHAIN_TYPE), gcc)
       # Turn off all warnings for the following files since they contain warnings
@@ -488,9 +505,12 @@ ifeq ($(call isTargetOs, windows macosx), false)
         DISABLED_WARNINGS_gcc_awt_InputMethod.c := unused-label, \
         DISABLED_WARNINGS_gcc_CUPSfuncs.c := unused-variable, \
         DISABLED_WARNINGS_gcc_VKRenderQueue.c := unused-variable unused-but-set-variable, \
+        DISABLED_WARNINGS_gcc_screencast_pipewire.c := undef, \
+        DISABLED_WARNINGS_gcc_screencast_portal.c := undef, \
         DISABLED_WARNINGS_clang_awt_InputMethod.c := unused-label, \
         DISABLED_WARNINGS_clang_CUPSfuncs.c := unused-variable, \
         DISABLED_WARNINGS_clang_VKRenderQueue.c := unused-variable unused-but-set-variable, \
+        DISABLED_WARNINGS_clang_screencast_pipewire.c := format-nonliteral, \
         JDK_LIBS := libawt java.base:libjava java.base:libjvm, \
         LIBS := $(WAYLAND_LIBS), \
         LIBS_unix := $(LIBDL) $(LIBM), \
@@ -533,6 +553,7 @@ ifeq ($(call isTargetOs, macosx), true)
   LIBAWT_LWAWT_EXCLUDE_FILES := fontpath.c awt_Font.c X11Color.c
   LIBAWT_LWAWT_EXCLUDES := $(VULKAN_EXCLUDES) \
         $(TOPDIR)/src/$(MODULE)/unix/native/common/awt/medialib \
+        $(TOPDIR)/src/$(MODULE)/unix/native/common/awt/screencast \
         #
 
   LIBAWT_LWAWT_STATIC_EXCLUDE_OBJS := systemScale.o

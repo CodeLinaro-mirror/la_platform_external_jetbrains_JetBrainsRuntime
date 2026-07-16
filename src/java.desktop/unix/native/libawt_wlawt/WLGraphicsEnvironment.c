@@ -33,6 +33,7 @@
 
 #include "JNIUtilities.h"
 #include "WLToolkit.h"
+#include "WLGraphicsEnvironment.h"
 
 typedef struct WLOutput {
     struct WLOutput *  next;
@@ -151,12 +152,21 @@ NotifyOutputConfigured(WLOutput* output)
 {
     JNIEnv *env = getEnv();
     jobject obj = (*env)->CallStaticObjectMethod(env, geClass, getSingleInstanceMID);
-    JNU_CHECK_EXCEPTION(env);
-    CHECK_NULL_THROW_IE(env, obj, "WLGraphicsEnvironment.getSingleInstance() returned null");
+    if (wlListenerCheckException(env)) {
+        return;
+    }
+    if (obj == NULL) {
+        wlListenerThrowInternalError(env, "WLGraphicsEnvironment.getSingleInstance() returned null");
+        return;
+    }
     jstring name = output->name ? JNU_NewStringPlatform(env, output->name) : NULL;
     jstring make = output->make ? JNU_NewStringPlatform(env, output->make) : NULL;
     jstring model = output->model ? JNU_NewStringPlatform(env, output->model) : NULL;
-    JNU_CHECK_EXCEPTION(env);
+
+    if (wlListenerCheckException(env)) {
+        return;
+    }
+
     (*env)->CallVoidMethod(env, obj, notifyOutputConfiguredMID,
                            name,
                            make,
@@ -173,7 +183,9 @@ NotifyOutputConfigured(WLOutput* output)
                            (jint)output->subpixel,
                            (jint)output->transform,
                            (jint)output->scale);
-    JNU_CHECK_EXCEPTION(env);
+    if (wlListenerCheckException(env)) {
+        return;
+    }
 
     output->offset_known = false;
 }
@@ -348,9 +360,15 @@ WLOutputDeregister(struct wl_registry *wl_registry, uint32_t id)
 
     JNIEnv *env = getEnv();
     jobject obj = (*env)->CallStaticObjectMethod(env, geClass, getSingleInstanceMID);
-    CHECK_NULL_THROW_IE(env, obj, "WLGraphicsEnvironment.getSingleInstance() returned null");
+    if (wlListenerCheckException(env)) {
+        return;
+    }
+    if (obj == NULL) {
+        wlListenerThrowInternalError(env, "WLGraphicsEnvironment.getSingleInstance() returned null");
+        return;
+    }
     (*env)->CallVoidMethod(env, obj, notifyOutputDestroyedMID, id);
-    JNU_CHECK_EXCEPTION(env);
+    wlListenerCheckException(env);
 }
 
 uint32_t
@@ -376,4 +394,55 @@ WLOutputByID(uint32_t id)
 
     return NULL;
 }
+
+bool
+wlToDeviceSpaceBounds(int *x, int *y, int *width, int *height)
+{
+    WLOutput *match = NULL;
+
+    for (WLOutput *cur = outputList; cur; cur = cur->next) {
+        if (cur->x == *x && cur->y == *y &&
+            cur->width_logical == *width &&
+            cur->height_logical == *height) {
+            if (match != NULL) {
+                // Multiple outputs match the same logical bounds (e.g. mirrored).
+                // Cannot determine a unique scale; return false.
+#ifdef DEBUG
+                fprintf(stderr, "WLOutputToDeviceSpaceBounds: ambiguous match for (%d,%d,%d,%d)\n",
+                        x, y, width, height);
+#endif
+                return false;
+            }
+            match = cur;
+        }
+    }
+
+    if (match == NULL) {
+        return false;
+    }
+    if (match->scale != 1) {
+        *width = match->width;
+        *height = match->height;
+    }
+    return true;
+}
+
+void
+wlToCompositorSpaceCoords(int *x, int *y,
+                         int boundsX, int boundsY,
+                         int boundsWidth, int boundsHeight)
+{
+    for (WLOutput *cur = outputList; cur; cur = cur->next) {
+        if (cur->x == boundsX && cur->y == boundsY &&
+            cur->width == boundsWidth &&
+            cur->height == boundsHeight) {
+            if (cur->scale != 1) {
+                *x = *x / (int)cur->scale;
+                *y = *y / (int)cur->scale;
+            }
+            return;
+        }
+    }
+}
+
 #endif // #ifndef HEADLESS

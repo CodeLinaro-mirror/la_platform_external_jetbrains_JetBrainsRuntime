@@ -1081,9 +1081,10 @@ jdk_awt_wayland = \
     -java/awt/Mouse \
     -java/awt/MouseAdapter \
     -java/awt/MouseInfo \
+    -java/awt/Multiscreen/LocationRelativeToTest/LocationRelativeToTest.java \
     -java/awt/Multiscreen/MouseEventTest/MouseEventTest.java \
-    -java/awt/Multiscreen/MultiScreenLocationTest/MultiScreenLocationTest.java \
     -java/awt/Multiscreen/MultiScreenCheckScreenIDTest.java \
+    -java/awt/Multiscreen/MultiScreenLocationTest/MultiScreenLocationTest.java \
     -java/awt/Multiscreen/UpdateGCTest/UpdateGCTest.java \
     -java/awt/Paint/bug8024864.java \
     -java/awt/Paint/ButtonRepaint.java \
@@ -1114,7 +1115,6 @@ jdk_awt_wayland = \
     -java/awt/Toolkit/ScreenInsetsTest/ScreenInsetsTest.java \
     -java/awt/Toolkit/ToolkitPropertyTest/ToolkitPropertyTest_Enable.java \
     -java/awt/TrayIcon \
-    -java/awt/wakefield \
     -java/awt/Window \
     -java/awt/xembed
 
@@ -1443,7 +1443,8 @@ jdk_swing_wayland_vulkan = \
 
 jdk_desktop_wayland_vulkan = \
     :jdk_awt_wayland_vulkan \
-    :jdk_swing_wayland_vulkan
+    :jdk_swing_wayland_vulkan \
+    :jdk_awt_vulkan
 
 # Vulkan tests to be executed with -Dsun.java2d.vulkan=True
 jdk_awt_vulkan = \

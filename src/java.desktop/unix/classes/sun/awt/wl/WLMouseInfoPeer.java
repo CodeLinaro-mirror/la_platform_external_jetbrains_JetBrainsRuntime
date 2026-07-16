@@ -26,6 +26,7 @@ package sun.awt.wl;
 
 import sun.awt.SunToolkit;
 
+import java.awt.GraphicsEnvironment;
 import java.awt.Point;
 import java.awt.Window;
 import java.awt.peer.MouseInfoPeer;
@@ -40,23 +41,37 @@ public class WLMouseInfoPeer implements MouseInfoPeer, SunToolkit.RelativePointe
         WLInputState inputState = WLToolkit.getInputState();
         // NB: these are surface-local coordinates
         point.setLocation(inputState.getPointerX(), inputState.getPointerY());
+        // Make the best effort to fulfill the peer's promise that
+        //   "coordinates are calculated in the coordinate system of the screen
+        //    device where the pointer is located."
+        var peerUnderMouse = getPeerUnderMouse();
+        if (peerUnderMouse != null) {
+            point.setLocation(peerUnderMouse.relativePointToAbsolute(point));
+            var device = peerUnderMouse.getGraphicsConfiguration().getDevice();
+            var ge = (WLGraphicsEnvironment) GraphicsEnvironment.getLocalGraphicsEnvironment();
+            return ge.deviceNumberOf(device);
+        }
+
         return 0;
     }
 
     @Override
     public boolean isWindowUnderMouse(Window w) {
+        WLComponentPeer peerUnderMouse = getPeerUnderMouse();
+        return peerUnderMouse != null && peerUnderMouse.getTarget() == w;
+    }
+
+    public WLComponentPeer getPeerUnderMouse() {
         WLInputState inputState = WLToolkit.getInputState();
         WLComponentPeer peerUnderMouse = inputState.peerForPointerEvents();
-        return peerUnderMouse != null
-                && peerUnderMouse.getTarget() == w
-                && inputState.isPointerOverPeer();
+        return peerUnderMouse != null && inputState.isPointerOverPeer() ? peerUnderMouse : null;
     }
 
     private static class HOLDER {
         static WLMouseInfoPeer instance = new WLMouseInfoPeer();
     }
 
-    static WLMouseInfoPeer getInstance() {
+    public static WLMouseInfoPeer getInstance() {
         return HOLDER.instance;
     }
 

@@ -200,7 +200,7 @@ static void gtk3_file_chooser_load()
     fp_gtk_g_slist_length = dl_symbol("g_slist_length");
 }
 
-static gboolean glib_version_2_68 = FALSE;
+gboolean glib_version_2_68 = FALSE;
 
 GtkApi* gtk3_load(JNIEnv *env, const char* lib_name)
 {
@@ -501,8 +501,12 @@ GtkApi* gtk3_load(JNIEnv *env, const char* lib_name)
         if (glib_version_2_68) {
             fp_g_string_replace = dl_symbol("g_string_replace"); //since: 2.68
             fp_g_uuid_string_is_valid = dl_symbol("g_uuid_string_is_valid"); //since: 2.52
+            fp_g_settings_new = dl_symbol("g_settings_new"); // since 2.26
+            fp_g_settings_get_string = dl_symbol("g_settings_get_string"); // since 2.26
         }
         fp_g_string_printf = dl_symbol("g_string_printf");
+        fp_g_variant_print = dl_symbol("g_variant_print");
+        fp_g_strconcat = dl_symbol("g_strconcat");
 
         fp_g_error_free = dl_symbol("g_error_free");
         fp_g_unix_fd_list_get = dl_symbol("g_unix_fd_list_get");
@@ -2380,6 +2384,37 @@ static void gtk3_set_range_value(WidgetType widget_type, jdouble value,
     fp_gtk_adjustment_set_page_size(adj, visible);
 }
 
+static gboolean gtk3_apply_theme_if_needed(void)
+{
+    gboolean shouldApplyTheme = FALSE;
+    GSettings *settings;
+    gchar *color_scheme = NULL;
+
+    if (glib_version_2_68 && fp_g_settings_new && fp_g_settings_get_string) {
+        settings = fp_g_settings_new("org.gnome.desktop.interface");
+        if (settings) {
+            color_scheme = fp_g_settings_get_string(settings, "color-scheme");
+            if (color_scheme) {
+                if (strstr(color_scheme, "dark")) {
+                    shouldApplyTheme = TRUE;
+                }
+                fp_g_free(color_scheme);
+            }
+            fp_g_object_unref(settings);
+        }
+    }
+
+    if (shouldApplyTheme) {
+        GtkSettings *gtk_settings = fp_gtk_settings_get_default();
+        if (gtk_settings) {
+            fp_g_object_set(gtk_settings, "gtk-application-prefer-dark-theme",
+                            TRUE, NULL);
+        }
+    }
+
+    return shouldApplyTheme;
+}
+
 /*************************************************/
 static jobject create_Object(JNIEnv *env, jmethodID *cid,
                              const char* class_name,
@@ -2720,6 +2755,7 @@ static void gtk3_init(GtkApi* gtk)
     gtk->flush_event_loop = &flush_gtk_event_loop;
     gtk->gtk_check_version = fp_gtk_check_version;
     gtk->get_setting = &gtk3_get_setting;
+    gtk->apply_theme_if_needed = &gtk3_apply_theme_if_needed;
 
     gtk->paint_arrow = &gtk3_paint_arrow;
     gtk->paint_box = &gtk3_paint_box;
@@ -2828,6 +2864,8 @@ static void gtk3_init(GtkApi* gtk)
     gtk->g_string_replace = fp_g_string_replace;
     gtk->g_string_printf = fp_g_string_printf;
     gtk->g_uuid_string_is_valid = fp_g_uuid_string_is_valid;
+    gtk->g_variant_print = fp_g_variant_print;
+    gtk->g_strconcat = fp_g_strconcat;
 
     gtk->g_main_context_iteration = fp_g_main_context_iteration;
     gtk->g_main_context_default = fp_g_main_context_default;
