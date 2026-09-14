@@ -1,5 +1,5 @@
 diff --git a/make/autoconf/lib-nvdacontrollerclient.m4 b/make/autoconf/lib-nvdacontrollerclient.m4
-index 544408231857..08bf245596ac 100644
+index 54440823185..08bf245596a 100644
 --- a/make/autoconf/lib-nvdacontrollerclient.m4
 +++ b/make/autoconf/lib-nvdacontrollerclient.m4
 @@ -74,10 +74,6 @@ AC_DEFUN_ONCE([LIB_SETUP_NVDACONTROLLERCLIENT], [
@@ -14,7 +14,7 @@ index 544408231857..08bf245596ac 100644
          # NVDACONTROLLERCLIENT_ARCHDIR is used only here
          NVDACONTROLLERCLIENT_INC_PATH="${with_nvdacontrollerclient}/${NVDACONTROLLERCLIENT_ARCHDIR}"
 diff --git a/make/modules/java.desktop/Copy.gmk b/make/modules/java.desktop/Copy.gmk
-index 0709e9e0ccef..67ed79dccd6e 100644
+index 0709e9e0cce..67ed79dccd6 100644
 --- a/make/modules/java.desktop/Copy.gmk
 +++ b/make/modules/java.desktop/Copy.gmk
 @@ -92,36 +92,3 @@ $(LIB_DST_DIR)/fonts/%: $(FONTFILE_SRC_DIR)/fonts/%
@@ -4946,7 +4946,7 @@ OQz^8>*HzBQwet@Hw=eJj
 
 diff --git a/src/java.desktop/linux/fonts/GoogleSansCode_LICENSE.txt b/src/java.desktop/linux/fonts/GoogleSansCode_LICENSE.txt
 deleted file mode 100644
-index 5d6f71ca43bb..000000000000
+index 5d6f71ca43b..00000000000
 --- a/src/java.desktop/linux/fonts/GoogleSansCode_LICENSE.txt
 +++ /dev/null
 @@ -1,91 +0,0 @@
@@ -6976,7 +6976,7 @@ c(JS(_=%X71Fg?12F2%2PXv>_gqg7(@KlHmnIsgCw
 
 diff --git a/src/java.desktop/macosx/fonts/GoogleSansCode_LICENSE.txt b/src/java.desktop/macosx/fonts/GoogleSansCode_LICENSE.txt
 deleted file mode 100644
-index 5d6f71ca43bb..000000000000
+index 5d6f71ca43b..00000000000
 --- a/src/java.desktop/macosx/fonts/GoogleSansCode_LICENSE.txt
 +++ /dev/null
 @@ -1,91 +0,0 @@
@@ -11962,7 +11962,7 @@ OQz^8>*HzBQwet@Hw=eJj
 
 diff --git a/src/java.desktop/windows/fonts/GoogleSansCode_LICENSE.txt b/src/java.desktop/windows/fonts/GoogleSansCode_LICENSE.txt
 deleted file mode 100644
-index 5d6f71ca43bb..000000000000
+index 5d6f71ca43b..00000000000
 --- a/src/java.desktop/windows/fonts/GoogleSansCode_LICENSE.txt
 +++ /dev/null
 @@ -1,91 +0,0 @@
