@@ -1,5 +1,6 @@
 make/autoconf/lib-nvdacontrollerclient.m4
 make/modules/java.desktop/Copy.gmk
+src/hotspot/cpu/x86/stubGenerator_x86_64.cpp
 src/java.desktop/linux/fonts/GoogleSansCode-Bold.ttf
 src/java.desktop/linux/fonts/GoogleSansCode-BoldItalic.ttf
 src/java.desktop/linux/fonts/GoogleSansCode-ExtraBold.ttf
