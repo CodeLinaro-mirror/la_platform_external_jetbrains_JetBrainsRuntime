@@ -282,14 +282,17 @@ public class WLDataDevice {
 
     // Event handlers, called from native on the EDT
     private void handleDnDEnter(WLDataOffer offer, long serial, long surfacePtr, double x, double y) {
+        WLToolkit.getDragSourceContextPeer().unsetPending();
         WLDropTargetContextPeer.getInstance().handleEnter(offer, serial, surfacePtr, x, y);
     }
 
     private void handleDnDLeave() {
+        WLToolkit.getDragSourceContextPeer().unsetPending();
         WLDropTargetContextPeer.getInstance().handleLeave();
     }
 
     private void handleDnDMotion(long timestamp, double x, double y) {
+        WLToolkit.getDragSourceContextPeer().unsetPending();
         WLDropTargetContextPeer.getInstance().handleMotion(timestamp, x, y);
     }
 
@@ -298,7 +301,9 @@ public class WLDataDevice {
     }
 
     private void handleSelection(WLDataOffer offer /* nullable */, int protocol, int selection) {
-        if (protocol != DATA_TRANSFER_PROTOCOL_DATA_CONTROL) {
+        boolean useDataControl = isProtocolSupported(DATA_TRANSFER_PROTOCOL_DATA_CONTROL);
+        boolean isDataControl = protocol == DATA_TRANSFER_PROTOCOL_DATA_CONTROL;
+        if (useDataControl == isDataControl) {
             if (selection == CLIPBOARD_SELECTION_PRIMARY && primarySelectionClipboard != null) {
                 primarySelectionClipboard.handleClipboardOffer(offer);
                 return;

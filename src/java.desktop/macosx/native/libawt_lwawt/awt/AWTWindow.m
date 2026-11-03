@@ -97,6 +97,7 @@ BOOL isWindowAnimationEnabled() {
 - (void)setIgnoreMove:(BOOL)value;
 - (BOOL)isIgnoreMove;
 - (void)_adjustWindowToScreen;
+- (void)setContentHidden:(BOOL)hidden;
 @end
 
 // Cocoa windowDidBecomeKey/windowDidResignKey notifications
@@ -435,6 +436,14 @@ AWT_NS_WINDOW_IMPLEMENTATION
 }
 
 @end
+
+@implementation NSWindow (Private)
+- (void)setContentHidden:(BOOL)hidden {
+    [self.contentView setHidden:hidden];
+    [self setIgnoresMouseEvents:hidden];
+}
+@end
+
 @implementation AWTWindow_Panel
 AWT_NS_WINDOW_IMPLEMENTATION
 @end
@@ -661,6 +670,7 @@ AWT_ASSERT_APPKIT_THREAD;
 
 // returns id for the topmost window under mouse
 + (NSInteger) getTopmostWindowUnderMouseID {
+    // May be blocking thread (appkit wait on window server)
     return [NSWindow windowNumberAtPoint:[NSEvent mouseLocation] belowWindowWithWindowNumber:kCGNullWindowID];
 }
 
@@ -757,11 +767,9 @@ AWT_ASSERT_APPKIT_THREAD;
 }
 
 + (AWTWindow *) getTopmostWindowUnderMouse {
+    NSInteger topmostWindowUnderMouseID = [AWTWindow getTopmostWindowUnderMouseID];
     NSEnumerator *windowEnumerator = [[NSApp windows] objectEnumerator];
     NSWindow *window;
-
-    NSInteger topmostWindowUnderMouseID = [AWTWindow getTopmostWindowUnderMouseID];
-
     while ((window = [windowEnumerator nextObject]) != nil) {
         if ([window windowNumber] == topmostWindowUnderMouseID) {
             BOOL isAWTWindow = [AWTWindow isAWTWindow: window];
@@ -1793,7 +1801,7 @@ static const CGFloat DefaultHorizontalTitleBarButtonOffset = 20.0;
 
 - (void) setWindowControlsHidden: (BOOL) hidden {
     if (_fullScreenOriginalButtons != nil) {
-        [_fullScreenOriginalButtons.window.contentView setHidden:NO];
+        [_fullScreenOriginalButtons.window setContentHidden:NO];
         _fullScreenButtons.hidden = YES;
     }
 
@@ -1818,15 +1826,16 @@ static const CGFloat DefaultHorizontalTitleBarButtonOffset = 20.0;
 
     for (NSWindow* window in [[NSApplication sharedApplication] windows]) {
           if ([window isKindOfClass:NSClassFromString(@"NSToolbarFullScreenWindow")]) {
-            [window.contentView setHidden:YES];
+            [window setContentHidden:YES];
           }
     }
 
     _fullScreenButtons = [[AWTButtonsView alloc] init];
     [self updateFullScreenButtons];
-    [_fullScreenButtons addTrackingArea:[[NSTrackingArea alloc] initWithRect:[_fullScreenButtons visibleRect]
-                                                      options:(NSTrackingActiveAlways | NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved)
-                                                      owner:_fullScreenButtons userInfo:nil]];
+    // The view is not in a window yet, so its visibleRect is unbounded: use NSTrackingInVisibleRect instead
+    [_fullScreenButtons addTrackingArea:[[[NSTrackingArea alloc] initWithRect:NSZeroRect
+        options:(NSTrackingActiveAlways | NSTrackingMouseEnteredAndExited | NSTrackingInVisibleRect)
+        owner:_fullScreenButtons userInfo:nil] autorelease]];
 
     NSUInteger masks = [self.nsWindow styleMask];
 
@@ -1872,7 +1881,7 @@ static const CGFloat DefaultHorizontalTitleBarButtonOffset = 20.0;
         if (_fullScreenButtons == nil || _fullScreenOriginalButtons == nil) {
             return;
         }
-        [_fullScreenOriginalButtons.window.contentView setHidden:NO];
+        [_fullScreenOriginalButtons.window setContentHidden:NO];
         [self resetWindowFullScreenControls];
     } else {
         if (!self.isCustomTitleBarEnabled || _fullScreenButtons != nil) {

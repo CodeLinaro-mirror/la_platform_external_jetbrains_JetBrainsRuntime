@@ -32,19 +32,13 @@ import java.awt.Image;
 import java.awt.datatransfer.Transferable;
 import java.awt.image.BufferedImage;
 import java.util.LinkedHashSet;
-import java.util.UUID;
 
 public class WLDataSource {
     protected static final PlatformLogger log = PlatformLogger.getLogger("sun.awt.wl.WLDataSource");
 
-    // nativePtr will be reset to 0 after this object receives a "cancelled" event, and is destroyed.
-    // Reading from nativePtr doesn't need to be synchronized for methods that happen before announcing
-    // this object as a selection, or a drag-and-drop source.
     private long nativePtr;
 
     private final Transferable data;
-
-    private final String mimeTypeCookie;
 
     private final boolean anyMimesAnnounced;
 
@@ -59,16 +53,15 @@ public class WLDataSource {
     private static native void setDnDIconImpl(long nativePtr, int scale, int width, int height, int offsetX, int offsetY, int[] pixels);
 
     @Override
-    public synchronized String toString() {
+    public String toString() {
         return "WLDataSource{" +
                 "nativePtr=0x" + Long.toHexString(nativePtr) +
                 ", data=" + data +
-                ", mimeTypeCookie='" + mimeTypeCookie + '\'' +
                 ", anyMimesAnnounced=" + anyMimesAnnounced +
                 '}';
     }
 
-    public synchronized String getID() {
+    public String getID() {
         return "0x" + Long.toHexString(nativePtr);
     }
 
@@ -78,7 +71,6 @@ public class WLDataSource {
         nativePtr = initNative(dataDevice.getNativePtr(), protocol);
         assert nativePtr != 0 : "Failed to initialize the native part of the source"; // should've already thrown in native
         this.data = data;
-        this.mimeTypeCookie = "JAVA_DATATRANSFER_COOKIE_" + UUID.randomUUID();
         boolean anyMimesAnnounced = false;
 
         try {
@@ -100,7 +92,6 @@ public class WLDataSource {
                     }
                 }
 
-                mimes.add(mimeTypeCookie);
                 for (var mime : mimes) {
                     offerMimeImpl(nativePtr, mime);
                 }
@@ -120,24 +111,12 @@ public class WLDataSource {
         return nativePtr;
     }
 
-    public String getMimeTypeCookie() {
-        return mimeTypeCookie;
-    }
-
     public Transferable getData() {
         return data;
     }
 
     public boolean hasSerializableFormats() {
         return anyMimesAnnounced;
-    }
-
-    public boolean isSourceFor(WLDataOffer offer) {
-        if (offer == null) {
-            return false;
-        }
-
-        return offer.getMimes().contains(mimeTypeCookie);
     }
 
     // This method can only be called once before setting this object as a drag-and-drop source
@@ -181,7 +160,9 @@ public class WLDataSource {
         setDnDIconImpl(nativePtr, scale, width, height, offsetX, offsetY, pixels);
     }
 
-    public synchronized void destroy() {
+    // externally synchronized, only call from one thread at a time (e.g. by holding a lock)
+    // destroy all references to this object after this method returns
+    public void destroy() {
         if (log.isLoggable(PlatformLogger.Level.FINE)) {
             log.fine("destroy(), this = " + getID());
         }
@@ -191,7 +172,7 @@ public class WLDataSource {
         }
     }
 
-    // Event handlers, called from native code on the data transferer dispatch thread
+    // Event handlers, called from native code on the data source dispatch thread
 
     protected void handleSend(String mime, int fd) {
         if (log.isLoggable(PlatformLogger.Level.FINE)) {

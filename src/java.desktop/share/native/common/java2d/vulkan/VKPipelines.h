@@ -24,6 +24,7 @@
 #ifndef VKPipelines_h_Included
 #define VKPipelines_h_Included
 
+#include <stddef.h>
 #include <assert.h>
 
 #include "sun_java2d_vulkan_VKPaints_MultiGradient.h"
@@ -56,17 +57,19 @@ typedef enum {
  * Shader variant.
  * It is used to specialize shader behavior, and its meaning varies with each particular shader.
  */
-typedef enum {
+enum {
     SHADER_VARIANT_GRADIENT_CLAMP = 0,
     SHADER_VARIANT_GRADIENT_CYCLE = 1,
     NO_SHADER_VARIANT = 0x7FFFFFFF
-} VKShaderVariant;
+};
+typedef uint32_t VKShaderVariant;
 
-typedef enum {
+enum {
     STENCIL_MODE_NONE = 0, // No stencil attachment.
     STENCIL_MODE_OFF  = 1, // Has stencil attachment, stencil test disabled.
     STENCIL_MODE_ON   = 2  // Has stencil attachment, stencil test enabled.
-} VKStencilMode;
+};
+typedef uint32_t VKStencilMode;
 
 /**
  * All features describing a pipeline.
@@ -124,11 +127,19 @@ typedef struct {
     float p0, p1, p3;
 } VKGradientPaintConstants;
 
+#if defined(_MSC_VER)
+#define ALIGNAS(n) __declspec(align(n))
+#else
+#include <stdalign.h>
+#define ALIGNAS(n) alignas(n)
+#endif
+
+
 
 #define MULTI_MAX_FRACTIONS_VK_LINEAR sun_java2d_vulkan_VKPaints_MultiGradient_MULTI_MAX_FRACTIONS_VK_LINEAR
 
 typedef struct {
-    alignas(16) float p0; float p1, p3;
+    ALIGNAS(16) float p0; float p1, p3;
     float fractions[MULTI_MAX_FRACTIONS_VK_LINEAR];
     uint32_t sRGBPackedColors[MULTI_MAX_FRACTIONS_VK_LINEAR];
     unsigned char padding[sizeof(float)];
@@ -139,7 +150,7 @@ static_assert(sizeof(VKLinearGradientPaintConstants) == sizeof(float) * (4 + 2 *
 #define MULTI_MAX_FRACTIONS_VK_RADIAL sun_java2d_vulkan_VKPaints_MultiGradient_MULTI_MAX_FRACTIONS_VK_RADIAL
 typedef struct
 {
-    alignas(16) float m00; float m01, m02; float precalc_x; // sizeof(vec4)
+    ALIGNAS(16) float m00; float m01, m02; float precalc_x; // sizeof(vec4)
     float m10, m11, m12; float precalc_y; // sizeof(vec4)
     float precalc_z;
     float fractions[MULTI_MAX_FRACTIONS_VK_RADIAL];
@@ -151,7 +162,7 @@ static_assert(sizeof(VKRadialGradientPaintConstants) == sizeof(float) * (10 + 2 
 
 typedef union {
     // The minimum guaranteed size of push constants is 128 bytes.
-    alignas(32) // The maximum alignment for built-in glsl types is 32 bytes (dvec4).
+    ALIGNAS(32) // The maximum alignment for built-in glsl types is 32 bytes (dvec4).
     char data[(128 - sizeof(VKTransform) - sizeof(VKCompositeConstants)) / 32 * 32];
     VKGradientPaintConstants gradientPaint;
     VKLinearGradientPaintConstants linearGradientPaint;
@@ -167,7 +178,7 @@ typedef struct {
 } VKPushConstants;
 typedef char VKPushConstantsCheckSize[sizeof(VKPushConstants) <= 128 ? 1 : -1]; // We should not exceed 128 bytes.
 static const uint32_t PUSH_CONSTANTS_OFFSET = offsetof(VKPushConstants, composite);
-static const uint32_t PUSH_CONSTANTS_SIZE = sizeof(VKPushConstants) - PUSH_CONSTANTS_OFFSET;
+static const uint32_t PUSH_CONSTANTS_SIZE = sizeof(VKPushConstants) - offsetof(VKPushConstants, composite);
 
 typedef struct {
     int x, y;

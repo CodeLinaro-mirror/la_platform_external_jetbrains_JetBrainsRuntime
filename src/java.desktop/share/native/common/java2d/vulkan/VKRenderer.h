@@ -39,7 +39,8 @@ sun_java2d_pipe_BufferedTextPipe_BYTES_PER_GLYPH_POSITION
 #define BYTES_PER_POSITIONED_GLYPH \
 (BYTES_PER_GLYPH_IMAGE + BYTES_PER_GLYPH_POSITION)
 
-#define NO_CLIP ((VkRect2D) {{0, 0}, {0x7FFFFFFFU, 0x7FFFFFFFU}})
+#define J2D_VK_NO_CLIP_RECT_INITIALIZER {{0, 0}, {0x7FFFFFFFU, 0x7FFFFFFFU}}
+#define J2D_VK_NO_CLIP_RECT ((VkRect2D) J2D_VK_NO_CLIP_RECT_INITIALIZER)
 
 struct VKRenderingContext {
     VKSDOps*        surface;
@@ -81,6 +82,8 @@ void VKRenderer_RecordBarriers(VKRenderer* renderer,
                                VkImageMemoryBarrier* imageBarriers, VKBarrierBatch* imageBatch);
 
 void VKRenderer_CreateImageDescriptorSet(VKRenderer* renderer, VkDescriptorPool* descriptorPool, VkDescriptorSet* set);
+
+void VKRenderer_CleanupPresentations(VKRenderer* renderer, VkBool32 wait, VKSwapchain *waitSwapchain);
 
 void VKRenderer_Destroy(VKRenderer* renderer);
 
@@ -138,6 +141,16 @@ void VKRenderer_RenderParallelogram(VkBool32 fill,
                                     jfloat x11, jfloat y11,
                                     jfloat dx21, jfloat dy21,
                                     jfloat dx12, jfloat dy12);
+
+void VKRenderer_DrawLine(jint x1, jint y1, jint x2, jint y2);
+
+void VKRenderer_DrawPoly(jint nPoints, jint isClosed,
+                         jint transX, jint transY,
+                         jint *xPoints, jint *yPoints);
+
+void VKRenderer_DrawPixel(jint x, jint y);
+
+void VKRenderer_DrawScanlines(jint count, jint* scanlines);
 
 void VKRenderer_FillSpans(jint spanCount, jint *spans);
 

@@ -24,23 +24,72 @@
  * questions.
  */
 
+#ifdef _WIN32
+#include <windows.h>
+#include <stdio.h>
+#include <jdk_util.h>
+#else
 #include <dlfcn.h>
+#endif
+
 #include <string.h>
 #include "VKUtil.h"
 #include "VKCapabilityUtil.h"
 #include "VKEnv.h"
 #include "VKDevice.h"
 
+static void* pVulkanLib = NULL;
+
+#ifdef _WIN32
+
+#define VULKAN_1_DLL "vulkan-1.dll"
+
+static PFN_vkGetInstanceProcAddr vulkanLibOpen() {
+    if (pVulkanLib == NULL) {
+        // Try to load the Vulkan library
+        pVulkanLib = JDK_LoadSystemLibrary(VULKAN_1_DLL);
+        if (pVulkanLib == NULL) {
+            J2dRlsTraceLn(J2D_TRACE_ERROR, "Vulkan: Failed to load %s.", VULKAN_1_DLL);
+            return NULL;
+        }
+    }
+
+    // Get the address of the vkGetInstanceProcAddr function
+    PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr =
+            (PFN_vkGetInstanceProcAddr)GetProcAddress(pVulkanLib, "vkGetInstanceProcAddr");
+    if (vkGetInstanceProcAddr == NULL) {
+        // Log an error if the function cannot be retrieved
+        J2dRlsTraceLn(J2D_TRACE_ERROR, "Vulkan: Failed to get proc address of vkGetInstanceProcAddr from %s.", VULKAN_1_DLL);
+
+        // Unload the library and reset the handle
+        FreeLibrary(pVulkanLib);
+        pVulkanLib = NULL;
+        return NULL;
+    }
+
+    return vkGetInstanceProcAddr;
+}
+
+static void vulkanLibClose() {
+   if (pVulkanLib != NULL) {
+       FreeLibrary(pVulkanLib);
+       pVulkanLib = NULL;
+   }
+}
+
+#else
+
+#include "jvm_md.h"
 #define VULKAN_DLL JNI_LIB_NAME("vulkan")
 #define VULKAN_1_DLL VERSIONED_JNI_LIB_NAME("vulkan", "1")
 
-static void* pVulkanLib = NULL;
 static void vulkanLibClose() {
     if (pVulkanLib != NULL) {
         dlclose(pVulkanLib);
         pVulkanLib = NULL;
     }
 }
+
 static PFN_vkGetInstanceProcAddr vulkanLibOpen() {
     if (pVulkanLib == NULL) {
         pVulkanLib = dlopen(VULKAN_DLL, RTLD_NOW);
@@ -62,6 +111,8 @@ static PFN_vkGetInstanceProcAddr vulkanLibOpen() {
     }
     return vkGetInstanceProcAddr;
 }
+
+#endif
 
 void VKDevice_Reset(VKDevice* device);
 
@@ -140,13 +191,13 @@ static VKEnv* VKEnv_Create(PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr, VKPl
     // Query supported layers.
     uint32_t layerCount;
     VK_IF_ERROR(vkEnumerateInstanceLayerProperties(&layerCount, NULL)) return NULL;
-    VkLayerProperties allLayers[layerCount];
+    DECL_ARRAY(VkLayerProperties, allLayers, layerCount);
     VK_IF_ERROR(vkEnumerateInstanceLayerProperties(&layerCount, allLayers)) return NULL;
 
     // Query supported extensions.
     uint32_t extensionCount;
     VK_IF_ERROR(vkEnumerateInstanceExtensionProperties(NULL, &extensionCount, NULL)) return NULL;
-    VkExtensionProperties allExtensions[extensionCount];
+    DECL_ARRAY(VkExtensionProperties, allExtensions, extensionCount);
     VK_IF_ERROR(vkEnumerateInstanceExtensionProperties(NULL, &extensionCount, allExtensions)) return NULL;
 
     // Log layers and extensions.
@@ -170,6 +221,8 @@ static VKEnv* VKEnv_Create(PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr, VKPl
     VKNamedEntry* extensions = NULL;
     DEF_NAMED_ENTRY(extensions, PLATFORM_SURFACE_EXTENSION);
     DEF_NAMED_ENTRY(extensions, VK_KHR_SURFACE_EXTENSION);
+    DEF_NAMED_ENTRY(extensions, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION);
+    DEF_NAMED_ENTRY(extensions, VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION);
 #ifdef DEBUG
     DEF_NAMED_ENTRY(extensions, VK_EXT_DEBUG_UTILS_EXTENSION);
 #endif
@@ -186,7 +239,15 @@ static VKEnv* VKEnv_Create(PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr, VKPl
 
     // Check presentation support.
     VkBool32 presentationSupported = PLATFORM_SURFACE_EXTENSION.found && VK_KHR_SURFACE_EXTENSION.found;
-    if (!presentationSupported) PLATFORM_SURFACE_EXTENSION.found = VK_KHR_SURFACE_EXTENSION.found = NULL;
+    if (!presentationSupported) {
+        PLATFORM_SURFACE_EXTENSION.found = NULL;
+        VK_KHR_SURFACE_EXTENSION.found = NULL;
+        VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION.found = NULL;
+        VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION.found = NULL;
+    }
+
+    bool hasGetSurfaceCaps2 = presentationSupported && VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION.found;
+    bool hasSurfaceMaintenance1 = hasGetSurfaceCaps2 && VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION.found;
 
     // Configure validation
     void *pNext = NULL;
@@ -218,7 +279,8 @@ static VKEnv* VKEnv_Create(PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr, VKPl
     }
     *vk = (VKEnv) {
         .platformData = platformData,
-        .presentationSupported = presentationSupported
+        .presentationSupported = presentationSupported,
+        .surfaceMaintenance1Supported = hasSurfaceMaintenance1,
     };
 
     pchar_array_t enabledLayers = VKNamedEntry_CollectNames(layers);
@@ -239,9 +301,9 @@ static VKEnv* VKEnv_Create(PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr, VKPl
             .pNext = pNext,
             .flags = 0,
             .pApplicationInfo = &applicationInfo,
-            .enabledLayerCount = enabledLayers.size,
+            .enabledLayerCount = (uint32_t)enabledLayers.size,
             .ppEnabledLayerNames = enabledLayers.data,
-            .enabledExtensionCount = enabledExtensions.size,
+            .enabledExtensionCount = (uint32_t)enabledExtensions.size,
             .ppEnabledExtensionNames = enabledExtensions.data
     };
 
@@ -265,15 +327,20 @@ static VKEnv* VKEnv_Create(PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr, VKPl
     }
     if (presentationSupported) {
         SURFACE_INSTANCE_FUNCTION_TABLE(CHECK_PROC_ADDR, missingAPI, vkGetInstanceProcAddr, vk->instance, vk->)
+        if (hasGetSurfaceCaps2) {
+            GET_SURFACE_CAPABILITIES_2_INSTANCE_FUNCTION_TABLE(CHECK_PROC_ADDR, missingAPI, vkGetInstanceProcAddr, vk->instance, vk->)
+        }
         if (missingAPI) {
             J2dRlsTraceLn(J2D_TRACE_ERROR, "Vulkan: Required API is missing:");
             SURFACE_INSTANCE_FUNCTION_TABLE(LOG_MISSING_PFN, vk->)
         }
         if (missingAPI || !vk->platformData->initFunctions(vk, vkGetInstanceProcAddr)) {
             vk->presentationSupported = presentationSupported = VK_FALSE;
+            vk->surfaceMaintenance1Supported = hasGetSurfaceCaps2 = hasSurfaceMaintenance1 = VK_FALSE;
         }
     }
     J2dRlsTraceLn(J2D_TRACE_INFO, "Vulkan: Presentation supported = %s", presentationSupported ? "true" : "false");
+    J2dRlsTraceLn(J2D_TRACE_INFO, "Vulkan: Surface maintenance 1 supported = %s", hasSurfaceMaintenance1 ? "true" : "false");
 
     vk->composites = VKComposites_Create();
 
@@ -306,7 +373,7 @@ void VKDevice_CheckAndAdd(VKEnv* vk, VkPhysicalDevice physicalDevice);
 static VkBool32 VKEnv_FindDevices(VKEnv* vk) {
     uint32_t count;
     VK_IF_ERROR(vk->vkEnumeratePhysicalDevices(vk->instance, &count, NULL)) return JNI_FALSE;
-    VkPhysicalDevice physicalDevices[count];
+    DECL_ARRAY(VkPhysicalDevice, physicalDevices, count);
     VK_IF_ERROR(vk->vkEnumeratePhysicalDevices(vk->instance, &count, physicalDevices)) return JNI_FALSE;
     ARRAY_ENSURE_CAPACITY(vk->devices, count);
     J2dRlsTraceLn(J2D_TRACE_INFO, "Vulkan: Found %d physical devices:", count);
@@ -325,14 +392,14 @@ static jobjectArray createJavaGPUs(JNIEnv *env, VKEnv* vk) {
     if (deviceClass == NULL) return NULL;
     jmethodID deviceConstructor = (*env)->GetMethodID(env, deviceClass, "<init>", "(JLjava/lang/String;II[I)V");
     if (deviceConstructor == NULL) return NULL;
-    jobjectArray deviceArray = (*env)->NewObjectArray(env, vk->devices.size, deviceClass, NULL);
+    jobjectArray deviceArray = (*env)->NewObjectArray(env, (jsize)vk->devices.size, deviceClass, NULL);
     if (deviceArray == NULL) return NULL;
     for (uint32_t i = 0; i < vk->devices.size; i++) {
         jstring name = JNU_NewStringPlatform(env, vk->devices.data[i].name);
         if (name == NULL) return NULL;
-        jintArray supportedFormats = (*env)->NewIntArray(env, vk->devices.data[i].supportedFormats.size);
+        jintArray supportedFormats = (*env)->NewIntArray(env, (jsize)vk->devices.data[i].supportedFormats.size);
         if (supportedFormats == NULL) return NULL;
-        (*env)->SetIntArrayRegion(env, supportedFormats, 0, vk->devices.data[i].supportedFormats.size, vk->devices.data[i].supportedFormats.data);
+        (*env)->SetIntArrayRegion(env, supportedFormats, 0, (jsize)vk->devices.data[i].supportedFormats.size, vk->devices.data[i].supportedFormats.data);
         jobject device = (*env)->NewObject(env, deviceClass, deviceConstructor,
                                            ptr_to_jlong(&vk->devices.data[i]), name, vk->devices.data[i].type,
                                            vk->devices.data[i].caps, supportedFormats);

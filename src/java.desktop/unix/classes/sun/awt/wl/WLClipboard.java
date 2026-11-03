@@ -52,23 +52,23 @@ public final class WLClipboard extends SunClipboard {
     // false otherwise (the regular clipboard).
     private final boolean isPrimary;
 
-    private final Object dataLock = new Object();
-
     // Latest active data offer to us, containing up-to-date clipboard content,
     // as provided by the Wayland compositor.
     // If null, there's no clipboard data available.
-    // Guarded by dataLock.
+    // Guarded by 'this'.
     private WLDataOffer clipboardDataOfferedToUs;
 
     // Clipboard data source we are providing to the Wayland compositor.
     // If null, we are not offering any clipboard data at the moment.
-    // Guarded by dataLock.
+    // Guarded by 'this'.
     private WLDataSource ourDataSource;
 
     // A Transferable that we should provide to the compositor, but can't for now,
     // since we're waiting for a valid serial
+    // Guarded by 'this'.
     private Transferable pendingTransferable;
 
+    // Guarded by 'this'.
     private WLInputSerial lastSuccessfulSerial = WLInputSerial.INVALID;
 
     static {
@@ -145,7 +145,7 @@ public final class WLClipboard extends SunClipboard {
 
         serial = serial.freshOrElse(WLToolkit.getInputState().latestInputSerial());
 
-        synchronized (dataLock) {
+        synchronized (this) {
             serial = serial.newerOrElse(lastSuccessfulSerial, WLToolkit.getInputState().latestInputSerial());
             if (serial.isNewerThan(lastSuccessfulSerial)) {
                 return serial;
@@ -171,16 +171,20 @@ public final class WLClipboard extends SunClipboard {
         WLDataSource newOffer = new WLDataSource(dataDevice, protocol, contents) {
             @Override
             protected void handleCancelled() {
-                synchronized (dataLock) {
+                synchronized (WLClipboard.this) {
                     if (ourDataSource == this) {
                         ourDataSource = null;
+                        // NOTE: cannot do lostOwnershipNow, because we're on the data source dispatch thread, not on EDT
+                        lostOwnershipLater(null);
                     }
-                    destroy();
                 }
+
+                // This object is not reachable anymore, we can safely destroy it.
+                super.handleCancelled();
             }
         };
 
-        synchronized (dataLock) {
+        synchronized (this) {
             pendingTransferable = null;
             if (serial.isValid()) {
                 lastSuccessfulSerial = serial;
@@ -203,7 +207,7 @@ public final class WLClipboard extends SunClipboard {
             }
         }
 
-        synchronized (dataLock) {
+        synchronized (this) {
             if (pendingTransferable == null) {
                 return;
             }
@@ -230,7 +234,7 @@ public final class WLClipboard extends SunClipboard {
             return;
         }
 
-        synchronized (dataLock) {
+        synchronized (this) {
             pendingTransferable = contents;
         }
         trySetPendingWaylandContents();
@@ -245,7 +249,7 @@ public final class WLClipboard extends SunClipboard {
     protected long[] getClipboardFormats() {
         WLDataTransferer wlDataTransferer = (WLDataTransferer) DataTransferer.getInstance();
         List<String> mimes;
-        synchronized (dataLock) {
+        synchronized (this) {
             if (clipboardDataOfferedToUs == null) {
                 return new long[0];
             }
@@ -287,7 +291,7 @@ public final class WLClipboard extends SunClipboard {
         }
 
         try {
-            synchronized (dataLock) {
+            synchronized (this) {
                 offer = clipboardDataOfferedToUs.ref();
             }
 
@@ -345,8 +349,10 @@ public final class WLClipboard extends SunClipboard {
     }
 
     void handleClipboardOffer(WLDataOffer offer /* nullable */) {
-        synchronized (dataLock) {
-            if (ourDataSource == null || !ourDataSource.isSourceFor(offer)) {
+        synchronized (this) {
+            if (ourDataSource == null) {
+                // probably not needed, the data_source.cancelled handler already calls lostOwnershipLater
+                // still, there's no harm in doing this
                 lostOwnershipNow(null);
             }
 

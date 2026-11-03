@@ -122,6 +122,7 @@ static jfieldID yAxis_hasSteps120ValueFID;
 static jfieldID yAxis_vectorValueFID;
 static jfieldID yAxis_steps120ValueFID;
 
+static jmethodID handleWaylandLogMID;
 static jmethodID handleProtocolErrorMID;
 static jmethodID handleExceptionFromEventHandlerMID;
 static jmethodID dispatchKeyboardKeyEventMID;
@@ -132,6 +133,9 @@ static jmethodID dispatchRelativePointerEventMID;
 static jmethodID handleToplevelIconSizeMID;
 
 static jmethodID isNativeInputMethodSupportEnabledMID;
+
+static jclass runnableClass;
+static jmethodID runnableRunMID;
 
 JNIEnv *getEnv() {
     JNIEnv *env;
@@ -234,11 +238,14 @@ static void
 wl_pointer_axis(void *data, struct wl_pointer *wl_pointer, uint32_t time,
                 uint32_t axis, wl_fixed_t value)
 {
-    assert(axis < sizeof(pointer_event.axes)/sizeof(pointer_event.axes[0]));
+    if ( axis >= sizeof(pointer_event.axes)/sizeof(pointer_event.axes[0]) ) {
+        assert(axis < sizeof(pointer_event.axes) / sizeof(pointer_event.axes[0]));
+        return;
+    }
 
     pointer_event.axes[axis].has_vector_value = true;
     pointer_event.time                        = time;
-    pointer_event.axes[axis].vector_value     = value;
+    pointer_event.axes[axis].vector_value    += value;
 }
 
 static void
@@ -253,7 +260,10 @@ static void
 wl_pointer_axis_stop(void *data, struct wl_pointer *wl_pointer,
                      uint32_t time, uint32_t axis)
 {
-    assert(axis < sizeof(pointer_event.axes)/sizeof(pointer_event.axes[0]));
+    if ( axis >= sizeof(pointer_event.axes)/sizeof(pointer_event.axes[0]) ) {
+        assert(axis < sizeof(pointer_event.axes) / sizeof(pointer_event.axes[0]));
+        return;
+    }
 
     pointer_event.axes[axis].has_stop_event = true;
     pointer_event.time                      = time;
@@ -263,7 +273,10 @@ static void
 wl_pointer_axis_discrete(void *data, struct wl_pointer *wl_pointer,
                          uint32_t axis, int32_t discrete)
 {
-    assert(axis < sizeof(pointer_event.axes)/sizeof(pointer_event.axes[0]));
+    if ( axis >= sizeof(pointer_event.axes)/sizeof(pointer_event.axes[0]) ) {
+        assert(axis < sizeof(pointer_event.axes) / sizeof(pointer_event.axes[0]));
+        return;
+    }
 
     // wl_pointer::axis_discrete event is deprecated with wl_pointer version 8 - this event is not sent to clients
     //   supporting version 8 or later.
@@ -280,7 +293,10 @@ static void
 wl_pointer_axis_value120(void *data, struct wl_pointer *wl_pointer,
                          uint32_t axis, int32_t value120)
 {
-    assert(axis < sizeof(pointer_event.axes)/sizeof(pointer_event.axes[0]));
+    if ( axis >= sizeof(pointer_event.axes)/sizeof(pointer_event.axes[0]) ) {
+        assert(axis < sizeof(pointer_event.axes) / sizeof(pointer_event.axes[0]));
+        return;
+    }
 
     pointer_event.axes[axis].has_steps120_value = true;
     pointer_event.axes[axis].steps120_value     = value120;
@@ -334,7 +350,7 @@ wl_pointer_frame(void *data, struct wl_pointer *wl_pointer)
                                                              pointerEventClass,
                                                              pointerEventFactoryMID);
     if (wlListenerCheckException(env)) {
-        return;
+        goto finally;
     }
 
     fillJavaPointerEvent(env, pointerEventRef);
@@ -343,9 +359,10 @@ wl_pointer_frame(void *data, struct wl_pointer *wl_pointer)
                                  dispatchPointerEventMID,
                                  pointerEventRef);
     if (wlListenerCheckException(env)) {
-        return;
+        goto finally;
     }
 
+finally:
     resetPointerEvent(&pointer_event);
 }
 
@@ -800,6 +817,7 @@ initJavaRefs(JNIEnv *env, jclass clazz)
     CHECK_NULL_RETURN(yAxis_vectorValueFID = (*env)->GetFieldID(env, pointerEventClass, "yAxis_vectorValue", "D"), JNI_FALSE);
     CHECK_NULL_RETURN(yAxis_steps120ValueFID = (*env)->GetFieldID(env, pointerEventClass, "yAxis_steps120Value", "I"), JNI_FALSE);
 
+    CHECK_NULL_RETURN(handleWaylandLogMID = (*env)->GetStaticMethodID(env, tkClass, "handleWaylandLog", "(Ljava/lang/String;)V"), JNI_FALSE);
     CHECK_NULL_RETURN(handleProtocolErrorMID = (*env)->GetStaticMethodID(env, tkClass,
                                                                               "handleProtocolError",
                                                                               "(Ljava/lang/String;IJ)V"),
@@ -831,6 +849,13 @@ initJavaRefs(JNIEnv *env, jclass clazz)
                                                                                        "isNativeInputMethodSupportEnabled",
                                                                                        "()Z"),
                       JNI_FALSE);
+
+    CHECK_NULL_RETURN(runnableClass = (*env)->FindClass(env, "java/lang/Runnable"), JNI_FALSE);
+    CHECK_NULL_THROW_OOME_RETURN(env,
+                                 runnableClass = (jclass)(*env)->NewGlobalRef(env, runnableClass),
+                                 "Allocation of a global reference to java.lang.Runnable failed",
+                                 JNI_FALSE);
+    CHECK_NULL_RETURN(runnableRunMID = (*env)->GetMethodID(env, runnableClass, "run", "()V"), JNI_FALSE);
 
     jclass wlgeClass = (*env)->FindClass(env, "sun/awt/wl/WLGraphicsEnvironment");
     CHECK_NULL_RETURN(wlgeClass, JNI_FALSE);
@@ -932,6 +957,28 @@ JNIEXPORT jlong JNICALL
 Java_sun_awt_wl_WLDisplay_connect(JNIEnv *env, jobject obj)
 {
     return ptr_to_jlong(wl_display_connect(NULL));
+}
+
+static void
+libwaylandLoggingCallback(const char *fmt, va_list args)
+{
+    char buf[4096];
+    vsnprintf(buf, sizeof buf, fmt, args);
+    // NOTE: vsnprintf always null-terminates the buffer
+
+    JNIEnv *env = getEnv();
+    jstring message = (*env)->NewStringUTF(env, buf);
+    JNU_CHECK_EXCEPTION(env);
+
+    (*env)->CallStaticVoidMethod(env, tkClass, handleWaylandLogMID, message);
+    (*env)->ExceptionCheck(env);
+    (*env)->DeleteLocalRef(env, message);
+}
+
+JNIEXPORT void JNICALL
+Java_sun_awt_wl_WLToolkit_initLibwaylandLogging(JNIEnv *env, jclass clazz)
+{
+    wl_log_set_handler_client(libwaylandLoggingCallback);
 }
 
 JNIEXPORT void JNICALL
@@ -1099,6 +1146,39 @@ Java_sun_awt_wl_WLToolkit_flushImpl
     (void) wlFlushToServer(env);
 }
 
+static void sync_callback_done(void *data, struct wl_callback *wl_callback, uint32_t callback_data)
+{
+    (void)callback_data;
+    jobject callback = (jobject)data;
+    JNIEnv *env = getEnv();
+    if (env != NULL && callback != NULL) {
+        (*env)->CallVoidMethod(env, callback, runnableRunMID);
+        wlListenerCheckException(env);
+        (*env)->DeleteGlobalRef(env, callback);
+    }
+    wl_callback_destroy(wl_callback);
+}
+
+JNIEXPORT void JNICALL
+Java_sun_awt_wl_WLToolkit_syncCallbackImpl(JNIEnv *env, jclass tk, jobject callbackObj)
+{
+    (void)tk;
+
+    struct wl_callback *wl_callback = wl_display_sync(wl_display);
+    CHECK_NULL_THROW_OOME(env, wl_callback, "wl_display_sync()");
+
+    callbackObj = (*env)->NewGlobalRef(env, callbackObj);
+    if (callbackObj == NULL) {
+        wl_callback_destroy(wl_callback);
+        return;
+    }
+
+    static const struct wl_callback_listener listener = {
+        .done = sync_callback_done,
+    };
+    wl_callback_add_listener(wl_callback, &listener, callbackObj);
+}
+
 JNIEXPORT jint JNICALL
 Java_sun_awt_wl_WLToolkit_readEvents
   (JNIEnv *env, jobject obj)
@@ -1150,6 +1230,25 @@ Java_sun_awt_wl_WLToolkit_readEvents
     } else {
         wl_display_cancel_read(wl_display);
         return sun_awt_wl_WLToolkit_READ_RESULT_FINISHED_NO_EVENTS;
+    }
+}
+
+// Wait for a roundtrip in a separate queue.
+// We can't use the default queue, because we're already holding awtLock at this point.
+// Using a separate queue will only make sure that the *server* has produced events and put them in the respective queues,
+// those events are not yet (and don't need to be) processed by JBR yet.
+JNIEXPORT void JNICALL
+Java_sun_awt_wl_WLToolkit_roundtripForSyncBeforePopupMap
+  (JNIEnv *env, jclass clazz)
+{
+    struct wl_event_queue *queue = wl_display_create_queue(wl_display);
+    if (queue == NULL) {
+        return;
+    }
+    int rc = wl_display_roundtrip_queue(wl_display, queue);
+    wl_event_queue_destroy(queue);
+    if (rc < 0) {
+        wlCheckProtocolError(env);
     }
 }
 

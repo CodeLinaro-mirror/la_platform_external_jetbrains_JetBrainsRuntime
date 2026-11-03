@@ -29,6 +29,7 @@ package sun.awt.wl;
 import jdk.internal.misc.InnocuousThread;
 import sun.awt.AWTAccessor;
 import sun.awt.AWTAutoShutdown;
+import sun.awt.AWTUtilities;
 import sun.awt.AppContext;
 import sun.awt.LightweightFrame;
 import sun.awt.PeerEvent;
@@ -47,7 +48,6 @@ import sun.lwawt.PlatformWindow;
 import sun.lwawt.ToolkitAPI;
 import sun.util.logging.PlatformLogger;
 
-import javax.swing.SwingUtilities;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.dnd.DragGestureEvent;
@@ -159,6 +159,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable, ToolkitAPI {
     // TODO: this is currently unused
     private static final java.util.List<Integer> preferredIconSizes = new ArrayList<>();
 
+    private static native void initLibwaylandLogging();
     private static native void initIDs(long displayPtr);
 
     static {
@@ -166,9 +167,10 @@ public class WLToolkit extends UNIXToolkit implements Runnable, ToolkitAPI {
         ENABLE_NATIVE_IM_SUPPORT = obtainWhetherToEnableNativeIMSupport();
 
         if (!GraphicsEnvironment.isHeadless()) {
+            initLibwaylandLogging();
             keyboard = new WLKeyboard();
             long display = WLDisplay.getInstance().getDisplayPtr();
-            VKEnv.init(display);
+            VKEnv.init(() -> VKEnv.initPlatformWayland(display));
             initIDs(display);
         }
         String desktop = System.getenv("XDG_CURRENT_DESKTOP");
@@ -184,6 +186,11 @@ public class WLToolkit extends UNIXToolkit implements Runnable, ToolkitAPI {
         });
 
         if (!GraphicsEnvironment.isHeadless()) {
+            quirkSyncBeforePopupMap = computeQuirkSyncBeforePopupMap();
+            if (quirkSyncBeforePopupMap && log.isLoggable(PlatformLogger.Level.INFO)) {
+                log.info("Vulkan: quirkSyncBeforePopupMap enabled as a workaround for https://bugs.launchpad.net/ubuntu/+source/mutter/+bug/2129173");
+            }
+
             toolkitThread = InnocuousThread.newThread("AWT-Wayland", this);
             toolkitThread.setDaemon(true);
             toolkitThread.start();
@@ -214,6 +221,11 @@ public class WLToolkit extends UNIXToolkit implements Runnable, ToolkitAPI {
         Thread shutdownThread = InnocuousThread.newSystemThread("WLToolkit-Shutdown-Thread", r);
         shutdownThread.setDaemon(true);
         Runtime.getRuntime().addShutdownHook(shutdownThread);
+    }
+
+    // called from native
+    private static void handleWaylandLog(String message) {
+        log.warning("libwayland-client: " + message.strip());
     }
 
     // called from native
@@ -276,6 +288,9 @@ public class WLToolkit extends UNIXToolkit implements Runnable, ToolkitAPI {
         return peer;
     }
 
+    public static WLDragSourceContextPeer getDragSourceContextPeer() {
+        return dragSourceContextPeer;
+    }
 
     // This method is directly used by native code at the class loading stage, be careful with changing it in any way.
     public static boolean isNativeInputMethodSupportEnabled() {
@@ -393,10 +408,32 @@ public class WLToolkit extends UNIXToolkit implements Runnable, ToolkitAPI {
         final WLInputState oldInputState = inputState;
         final WLInputState newInputState = oldInputState.updatedFromPointerEvent(e);
         setInputState(newInputState);
+
+        if (e.hasLeaveEvent() && !e.hasEnterEvent() && newInputState.pendingCrossingModifiers() != 0) {
+            // Reset temporary pending crossing state once the compositor fully processes the leave event
+            // If by that time we get an enter event, assume a crossing, and restore modifiers from pendingCrossingModifiers
+            // (this happens in WLInputState.updatedFromPointerEvent)
+            // Otherwise, reset pendingCrossingModifiers
+            syncCallbackOnEDT(() -> {
+                setInputState(inputState.resetPendingCrossingState());
+            });
+        }
+
         if (e.hasLeaveEvent() || e.hasEnterEvent()) {
             // We've lost the control over the cursor, assume no knowledge about it
             getCursorManager().reset();
         }
+
+        if (e.hasButtonEvent()) {
+            boolean oldPressed = oldInputState.hasPointerButtonPressed();
+            boolean newPressed = newInputState.hasPointerButtonPressed();
+            if (!oldPressed || !newPressed) {
+                // last mouse button is released or first mouse button is pressed,
+                // let's reset drag state if it's still unconfirmed
+                dragSourceContextPeer.cancelDragIfPending();
+            }
+        }
+
         final WLComponentPeer peer = newInputState.peerForPointerEvents();
         if (peer == null) {
             // We don't know whom to notify of the event; may happen when
@@ -1158,6 +1195,11 @@ public class WLToolkit extends UNIXToolkit implements Runnable, ToolkitAPI {
     private native void dispatchEventsOnEDT();
     private native void flushImpl();
     private native void dispatchNonDefaultQueuesImpl();
+    private static native void syncCallbackImpl(Runnable callback);
+
+    public static void syncCallbackOnEDT(Runnable callback) {
+        syncCallbackImpl(callback);
+    }
 
     public static void targetDisposedPeer(Object target, Object peer) {
         SunToolkit.targetDisposedPeer(target, peer);
@@ -1219,6 +1261,40 @@ public class WLToolkit extends UNIXToolkit implements Runnable, ToolkitAPI {
         preferredIconSizes.add(size);
     }
 
+    // A workaround for https://bugs.launchpad.net/ubuntu/+source/mutter/+bug/2129173
+    private boolean quirkSyncBeforePopupMap = false;
+
+    private boolean computeQuirkSyncBeforePopupMap() {
+        // Never enable when not using Vulkan with presentation
+        if (!VKEnv.isPresentationEnabled()) {
+            return false;
+        }
+
+        // First, check the property override
+        final String syncBeforePopupMapPropertyName = "sun.java2d.vulkan.quirk.syncBeforePopupMap";
+        Boolean overrideValue = VKEnv.resolveTrueFalseAutoProperty(syncBeforePopupMapPropertyName, System.getProperty(syncBeforePopupMapPropertyName, "auto"));
+        if (overrideValue != null) {
+            return overrideValue;
+        }
+
+        // Match GNOME 46 and unknown GNOME versions to be safe.
+        if (!"gnome".equals(getDesktop())) {
+            return false;
+        }
+        Integer majorVersion = getGnomeShellMajorVersion();
+        return majorVersion == null || majorVersion == 46;
+    }
+
+    public void syncBeforePopupMapIfEnabled() {
+        if (!quirkSyncBeforePopupMap) {
+            return;
+        }
+
+        sync();
+        roundtripForSyncBeforePopupMap();
+    }
+
+    private native static void roundtripForSyncBeforePopupMap();
 
     public static WLToolkit getWLToolkit() {
         return (WLToolkit)Toolkit.getDefaultToolkit();
@@ -1241,14 +1317,7 @@ public class WLToolkit extends UNIXToolkit implements Runnable, ToolkitAPI {
 
     @Override
     public void flushOnscreenGraphics(Component context) {
-        if (context == null) {
-            return;
-        }
-        Window window = context instanceof Window w ? w : SwingUtilities.getWindowAncestor(context);
-        if (window == null) {
-            return;
-        }
-        AWTAccessor.getWindowAccessor().updateWindow(window);
+        AWTUtilities.updateWindowThisOrAncestor(context);
     }
 
     @Override
